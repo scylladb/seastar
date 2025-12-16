@@ -2270,6 +2270,358 @@ SEASTAR_THREAD_TEST_CASE(test_ready_future_across_shards) {
     }).get();
 }
 
+struct canary_stats {
+    int copies = 0;
+    int moves = 0;
+    int copy_assignments = 0;
+    int move_assignments = 0;
+    // calls to operator()()
+    int lvalue_calls = 0;
+    // calls to operator()() &&
+    int rvalue_calls = 0;
+};
+
+struct canary {
+    enum class state {
+        alive = 100,
+        moved_from = 101,
+        destroyed = 102
+    };
+
+    std::shared_ptr<canary_stats> _stats;
+    state _state = state::alive;
+
+    explicit canary(std::shared_ptr<canary_stats> stats) : _stats(std::move(stats)) {
+        seastar_logger.trace("canary: {} constructor", fmt::ptr(this));
+    }
+
+    canary(const canary& other) : _stats(other._stats), _state(state::alive) {
+        ++_stats->copies;
+        seastar_logger.trace("canary: {} copy constructor (total copies: {})", fmt::ptr(this), _stats->copies);
+    }
+
+    canary(canary&& other) noexcept : _stats(other._stats), _state(state::alive) {
+        ++_stats->moves;
+        other._state = state::moved_from;
+        seastar_logger.trace("canary: {} move constructor (total moves: {})", fmt::ptr(this), _stats->moves);
+    }
+
+    canary& operator=(const canary& other) {
+        if (this != &other) {
+            _stats = other._stats;
+            _state = state::alive;
+            ++_stats->copy_assignments;
+        }
+        seastar_logger.trace("canary: {} copy assignment operator (total copy assignments: {})", fmt::ptr(this), _stats->copy_assignments);
+        return *this;
+    }
+
+    canary& operator=(canary&& other) noexcept {
+        if (this != &other) {
+            _stats = std::move(other._stats);
+            _state = state::alive;
+            ++_stats->move_assignments;
+            other._state = state::moved_from;
+        }
+        seastar_logger.trace("canary: {} move assignment operator (total move assignments: {})", fmt::ptr(this), _stats->move_assignments);
+        return *this;
+    }
+
+    ~canary() {
+        _state = state::destroyed;
+        seastar_logger.trace("canary: {} destructor", fmt::ptr(this));
+    }
+
+    void assert_valid() const {
+        BOOST_REQUIRE_MESSAGE(_state == state::alive, "canary not alive: " << static_cast<int>(_state));
+    }
+
+    bool is_moved_from() const {
+        return _state == state::moved_from;
+    }
+
+    const canary_stats& stats() const { return *_stats; }
+};
+
+struct nocopy {
+    nocopy() = default;
+    nocopy(const nocopy&) = delete;
+    nocopy(nocopy&&) = default;
+};
+
+// return if_erased if TYPE_ERASE_MORE is defined, else if_not_erased
+// useful to tests where the internal behavior differs based on type erasure
+constexpr auto if_erased(auto if_erased, auto if_not_erased) {
+#ifdef SEASTAR_TYPE_ERASE_MORE
+    return if_erased;
+#else
+    return if_not_erased;
+#endif
+}
+
+// returns 1 if SEASTAR_DEBUG or 0 otherwise
+// useful since in DEBUG mode we take different code paths
+// and so we may need to adjust expected values
+constexpr int is_debug() {
+#ifdef SEASTAR_DEBUG
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+template<bool EnableCopy, bool ThenByValue, class Ret>
+struct canary_callable_base {
+    canary c;
+
+    explicit canary_callable_base(std::shared_ptr<canary_stats> stats) : c{stats} {}
+
+    canary_callable_base(const canary_callable_base&) requires EnableCopy = default;
+    canary_callable_base& operator=(const canary_callable_base&) requires EnableCopy = default;
+    canary_callable_base(const canary_callable_base&) requires (!EnableCopy) = delete;
+    canary_callable_base& operator=(const canary_callable_base&) requires (!EnableCopy) = delete;
+    canary_callable_base(canary_callable_base&&) = default;
+    canary_callable_base& operator=(canary_callable_base&&) = default;
+
+    auto make() {
+        if constexpr (std::is_same_v<Ret, future<>>) {
+            return make_ready_future();
+        }
+    }
+
+    Ret operator()() & {
+        c.assert_valid();
+        c._stats->lvalue_calls++;
+        return make();
+    }
+
+    Ret operator()() && {
+        c.assert_valid();
+        c._stats->rvalue_calls++;
+        return make();
+    }
+
+    // below are called for then_wrapped
+    Ret operator()(future<> f) & requires ThenByValue {
+        BOOST_CHECK(!f.failed());
+        c.assert_valid();
+        c._stats->lvalue_calls++;
+        return make();
+    }
+
+    Ret operator()(future<> f) && requires ThenByValue {
+        BOOST_CHECK(!f.failed());
+        c.assert_valid();
+        c._stats->rvalue_calls++;
+        return make();
+    }
+
+    Ret operator()(future<>&& f) & requires (!ThenByValue) {
+        BOOST_CHECK(!f.failed());
+        c.assert_valid();
+        c._stats->lvalue_calls++;
+        return make();
+    }
+
+    Ret operator()(future<>&& f) && requires (!ThenByValue) {
+        BOOST_CHECK(!f.failed());
+        c.assert_valid();
+        c._stats->rvalue_calls++;
+        return make();
+    }
+
+};
+
+
+template <class Traits>
+void test_lifetimes_and_movement() {
+    // test that calling the future "entry points", such as then(), finally(), etc
+    // do the expected number of copies and moves, and that the expected operator()
+    // overload is called (lvalue vs rvalue-qualified), and that objects are not used
+    // after destruction and so on.
+
+    using canary_callable = canary_callable_base<true, Traits::then_by_value, typename Traits::return_type>;
+    using canary_callable_move_only = canary_callable_base<false, Traits::then_by_value, typename Traits::return_type>;
+
+    auto extra_moves = Traits::extra_moves;
+
+    auto apply = [] (future<>&& f, auto&& func) {
+        return Traits::apply_continuation(std::move(f), std::forward<decltype(func)>(func));
+    };
+
+    auto apply_unready = [&] (auto&& func) {
+        return apply(yield(), std::forward<decltype(func)>(func)).get();
+    };
+
+    auto apply_ready = [&] (auto&& func) {
+        return apply(make_ready_future(), std::forward<decltype(func)>(func)).get();
+    };
+
+    // Test 1: Passing move-only rvalue lambda to then()
+    BOOST_TEST_CHECKPOINT("Test 1: Passing move-only rvalue lambda to then()");
+    {
+        auto stats = std::make_shared<canary_stats>();
+        apply_unready(canary_callable_move_only{stats});
+        // Rvalue lambda gets moved into then() implementation
+        BOOST_CHECK_EQUAL(stats->copies, 0);
+        BOOST_CHECK_EQUAL(stats->moves, if_erased(4, 1) + extra_moves);
+        BOOST_CHECK_EQUAL(stats->copy_assignments, 0);
+        BOOST_CHECK_EQUAL(stats->move_assignments, 0);
+
+        BOOST_CHECK_EQUAL(stats->lvalue_calls, 0);
+        BOOST_CHECK_EQUAL(stats->rvalue_calls, 1);
+    }
+
+    // Test 2: Passing lvalue lambda to then()
+    BOOST_TEST_CHECKPOINT("Test 2: Passing lvalue lambda to then()");
+    {
+        auto stats = std::make_shared<canary_stats>();
+        canary_callable callable{stats};
+        apply_unready(callable);
+        // Lvalue lambda gets copied once, then moved through then() chain
+        BOOST_CHECK_EQUAL(stats->copies, 1);
+        BOOST_CHECK_EQUAL(stats->moves, if_erased(4, 1) + extra_moves);
+        BOOST_CHECK_EQUAL(stats->copy_assignments, 0);
+        BOOST_CHECK_EQUAL(stats->move_assignments, 0);
+
+        BOOST_CHECK_EQUAL(stats->lvalue_calls, 0);
+        BOOST_CHECK_EQUAL(stats->rvalue_calls, 1);
+
+        BOOST_CHECK(!callable.c.is_moved_from());
+    }
+
+    // Test 3: Passing std::move(lvalue lambda) to then()
+    BOOST_TEST_CHECKPOINT("Test 3: Passing std::move(lvalue lambda) to then()");
+    {
+        auto stats = std::make_shared<canary_stats>();
+        canary_callable_move_only callable{stats};
+        apply_unready(std::move(callable));
+        // std::move(lvalue lambda) behaves like rvalue lambda - only moves
+        BOOST_CHECK_EQUAL(stats->copies, 0);
+        BOOST_CHECK_EQUAL(stats->moves, if_erased(4, 1) + extra_moves);
+        BOOST_CHECK_EQUAL(stats->copy_assignments, 0);
+        BOOST_CHECK_EQUAL(stats->move_assignments, 0);
+
+        BOOST_CHECK_EQUAL(stats->lvalue_calls, 0);
+        BOOST_CHECK_EQUAL(stats->rvalue_calls, 1);
+
+        BOOST_CHECK(callable.c.is_moved_from());
+    }
+
+    // for ready futures at the start of the chain, SEASTAR_DEBUG
+    // incurs an extra move since we disable the "sync exec" path
+    // for ready futures in debug
+
+    // Test 4: ready future with rvalue lambda
+    BOOST_TEST_CHECKPOINT("Test 4: ready future with rvalue lambda");
+    {
+        auto stats = std::make_shared<canary_stats>();
+        apply_ready(canary_callable_move_only{stats});
+        // Ready future: lambda moved fewer times since future is already ready
+        BOOST_CHECK_EQUAL(stats->copies, 0);
+        BOOST_CHECK_EQUAL(stats->moves, if_erased(3, 0) + is_debug() + extra_moves);
+        BOOST_CHECK_EQUAL(stats->copy_assignments, 0);
+        BOOST_CHECK_EQUAL(stats->move_assignments, 0);
+
+        BOOST_CHECK_EQUAL(stats->lvalue_calls, 0);
+        BOOST_CHECK_EQUAL(stats->rvalue_calls, 1);
+    }
+
+    // Test 5: ready future with lvalue lambda
+    BOOST_TEST_CHECKPOINT("Test 5: ready future with lvalue lambda");
+    {
+        auto stats = std::make_shared<canary_stats>();
+        canary_callable callable{stats};
+        apply_ready(callable);
+        // Ready future: lvalue lambda copied once, then moved fewer times
+        BOOST_CHECK_EQUAL(stats->copies, 1);
+        BOOST_CHECK_EQUAL(stats->moves, if_erased(3, 0) + is_debug() + extra_moves);
+        BOOST_CHECK_EQUAL(stats->copy_assignments, 0);
+        BOOST_CHECK_EQUAL(stats->move_assignments, 0);
+
+        BOOST_CHECK_EQUAL(stats->lvalue_calls, 0);
+        BOOST_CHECK_EQUAL(stats->rvalue_calls, 1);
+
+        BOOST_CHECK(!callable.c.is_moved_from());
+    }
+
+    // Test 6: tests that a local lvalue passed into then()-alike
+    // has its lifetime extended until after the continuation runs.
+    // See https://github.com/scylladb/seastar/issues/3157
+    BOOST_TEST_CHECKPOINT("Test 6: local lvalue lifetime extension");
+    {
+        auto stats = std::make_shared<canary_stats>();
+        auto local_lvalue = [=]() {
+            canary_callable local{stats};
+            // local is destroyed after the return, but the continuation
+            // runs after that, so it must be copied/moved to avoid UB
+            return apply(yield(), local);
+        };
+
+        local_lvalue().get();
+    }
+}
+
+struct base_traits {
+    static constexpr bool then_by_value = true;
+    static constexpr int extra_moves = 0;
+    using return_type = future<>;
+};
+
+struct then_traits : base_traits {
+    static auto apply_continuation(future<>&& f, auto&& cont) {
+        return f.then(std::forward<decltype(cont)>(cont));
+    }
+};
+
+SEASTAR_THREAD_TEST_CASE(test_lifetimes_and_copies_then) {
+    test_lifetimes_and_movement<then_traits>();
+}
+
+struct then_wrapped_traits : base_traits {
+    static auto apply_continuation(future<>&& f, auto&& cont) {
+        return f.then_wrapped(std::forward<decltype(cont)>(cont));
+    }
+};
+
+SEASTAR_THREAD_TEST_CASE(test_lifetimes_and_copies_then_wrapped) {
+    test_lifetimes_and_movement<then_wrapped_traits>();
+}
+
+struct then_wrapped_ref_traits : then_wrapped_traits {
+    static constexpr bool then_by_value = false;
+};
+
+SEASTAR_THREAD_TEST_CASE(test_lifetimes_and_copies_then_wrapped_ref) {
+    // when then_wrapped is called with func taking `future&&` a different
+    // code path is used so we test this separately
+    test_lifetimes_and_movement<then_wrapped_ref_traits>();
+}
+
+struct finally_traits : base_traits {
+    static constexpr int extra_moves = 1; // finally does an extra move into the finally_body
+    static auto apply_continuation(future<>&& f, auto&& cont) {
+        return f.finally(std::forward<decltype(cont)>(cont));
+    }
+};
+
+SEASTAR_THREAD_TEST_CASE(test_lifetimes_and_copies_finally) {
+    test_lifetimes_and_movement<finally_traits>();
+}
+
+struct finally_void_traits : finally_traits {
+    using return_type = void;
+    static auto apply_continuation(future<>&& f, auto&& cont) {
+        return f.finally(std::forward<decltype(cont)>(cont));
+    }
+};
+
+SEASTAR_THREAD_TEST_CASE(test_lifetimes_and_copies_finally_void) {
+    // when finally does not return a future, a different code path
+    // is taken, so test it
+    test_lifetimes_and_movement<finally_void_traits>();
+}
+
 SEASTAR_THREAD_TEST_CASE(test_foreign_promise_set_value) {
     if (smp::count == 1) {
         seastar_logger.info("test_foreign_promise_set_value requires at least 2 shards");

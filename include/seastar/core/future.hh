@@ -358,6 +358,25 @@ static constexpr bool is_tuple_effectively_trivially_move_constructible_and_dest
 
 }
 
+// Helper to convert lvalue reference functions to rvalue.
+// This is used early in then()-alike entry points to convert lvalue references into
+// rvalues (which are used to recursively call back into the same entry point) to
+// avoid having to handle both lvalues and rvalues downstream: we convert them all
+// to rvalues. This helper handles both references to callable objects such as lambdas,
+// copying them, and references to functions, decaying them to function pointers.
+template <typename Func>
+static constexpr auto func_to_rvalue(Func&& func) {
+    static_assert(std::is_lvalue_reference_v<Func>, "call with lvalue reference");
+    if constexpr (std::is_function_v<std::remove_reference_t<Func>>) {
+        // return decayed function pointer
+        return +func;
+    } else {
+        // return a copy (used as an rvalue by the called)
+        return std::forward<Func>(func);
+    }
+}
+
+
 //
 // A future/promise pair maintain one logical value (a future_state).
 // There are up to three places that can store it, but only one is
@@ -1141,6 +1160,15 @@ struct result_of_apply<Func, std::tuple<T...>> : std::invoke_result<Func, T...> 
 template <typename Func, typename... T>
 using result_of_apply_t = typename result_of_apply<Func, T...>::type;
 
+// To simply implementation, at various top-level (user-callable) entry-points
+// like then(), finally(), handle_exception(), etc, we convert lvalue callables
+// into rvalues, using a recursive call back to that entry point, so that all
+// the downstream implementation functions can deal with rvalues only. Inside
+// those functions we then assert on this trait to ensure we do only have rvalues
+// since we can't match rvalue references directly (because that syntax was
+// co-opted for universal references).
+template <typename Func>
+constexpr bool expect_only_rvalue_refs = !std::is_lvalue_reference_v<Func>;
 }
 
 template <typename Promise, typename T>
@@ -1226,6 +1254,7 @@ private:
     }
     template <typename Pr, typename Func, typename Wrapper>
     void schedule(Pr&& pr, Func&& func, Wrapper&& wrapper) noexcept {
+        static_assert(internal::expect_only_rvalue_refs<Func>);
         // If this new throws a std::bad_alloc there is nothing that
         // can be done about it. The corresponding future is not ready
         // and we cannot break the chain. Since this function is
@@ -1341,6 +1370,11 @@ public:
     /// If the future failed, the function is not called, and the exception
     /// is propagated into the return value of then().
     ///
+    /// The passed function is moved (if an rvalue) or copied (if an lvalue) into
+    /// the continuation, so their lifetime is automatically extended until the
+    /// continuation runs (but not further - if the function itself may suspend
+    /// you will need to ensure its lifetime is sufficiently long).
+    ///
     /// \param func - function to be called when the future becomes available,
     ///               unless it has failed.
     /// \return a \c future representing the return value of \c func, applied
@@ -1353,7 +1387,7 @@ public:
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
-        return then(std::ref(func));
+        return then(func_to_rvalue(func));
       } else {
 #ifndef SEASTAR_TYPE_ERASE_MORE
         return then_impl(std::move(func));
@@ -1394,10 +1428,8 @@ public:
     requires ::seastar::CanApplyTuple<Func, T>
     Result
     then_unpack(Func&& func) noexcept {
-      // Avoid having to special-case lvalue-references downstream by converting
-      // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
-        return then_unpack(std::ref(func));
+        return then_unpack(func_to_rvalue(func));
       } else {
         return then([func = std::forward<Func>(func)] (T&& tuple) mutable {
             // sizeof...(tuple) is required to be 1
@@ -1432,6 +1464,7 @@ private:
     template <typename Func, typename Result = futurize_t<internal::future_result_t<Func, T>>>
     Result
     then_impl(Func&& func) noexcept {
+        static_assert(internal::expect_only_rvalue_refs<Func>);
 #ifndef SEASTAR_DEBUG
         using futurator = futurize<internal::future_result_t<Func, T>>;
         if (failed()) {
@@ -1465,7 +1498,7 @@ public:
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
-        return then_wrapped(std::ref(func));
+        return then_wrapped(func_to_rvalue(func));
       } else {
         return then_wrapped_maybe_erase<false, FuncResult>(std::forward<Func>(func));
       }
@@ -1477,7 +1510,7 @@ public:
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
-        return std::move(*this).then_wrapped(std::ref(func));
+        return std::move(*this).then_wrapped(func_to_rvalue(func));
       } else {
         return then_wrapped_maybe_erase<true, FuncResult>(std::forward<Func>(func));
       }
@@ -1488,6 +1521,7 @@ private:
     template <bool AsSelf, typename FuncResult, typename Func>
     futurize_t<FuncResult>
     then_wrapped_maybe_erase(Func&& func) noexcept {
+        static_assert(internal::expect_only_rvalue_refs<Func>);
 #ifndef SEASTAR_TYPE_ERASE_MORE
         return then_wrapped_common<AsSelf, FuncResult>(std::forward<Func>(func));
 #else
@@ -1586,13 +1620,15 @@ public:
      * If both of them are exceptional - the seastar::nested_exception exception
      * with the callback exception on top and the original future exception
      * nested will be propagated.
+     *
+     * See then() for lifetime and call semantics.
      */
     template <std::invocable Func>
     future<T> finally(Func&& func) noexcept {
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
-        return finally(std::ref(func));
+        return finally(func_to_rvalue(func));
       } else {
         return then_wrapped(finally_body<Func, is_future<std::invoke_result_t<Func>>::value>(std::forward<Func>(func)));
       }
@@ -1607,7 +1643,9 @@ public:
         Func _func;
 
         finally_body(Func&& func) noexcept : _func(std::forward<Func>(func))
-        { }
+        {
+            static_assert(internal::expect_only_rvalue_refs<Func>);
+        }
 
         future<T> operator()(future<T>&& result) && noexcept {
             return futurize_invoke(std::move(_func)).then_wrapped([result = std::move(result)](auto&& f_res) mutable {
@@ -1683,7 +1721,7 @@ public:
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
-        return handle_exception(std::ref(func));
+        return handle_exception(func_to_rvalue(func));
       } else {
         return then_wrapped([func = std::forward<Func>(func)]
                              (auto&& fut) mutable -> future<T> {
@@ -1711,7 +1749,7 @@ public:
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
-        return handle_exception_type(std::ref(func));
+        return handle_exception_type(func_to_rvalue(func));
       } else {
         using trait = function_traits<Func>;
         static_assert(trait::arity == 1, "func can take only one parameter");
