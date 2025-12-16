@@ -3771,7 +3771,7 @@ file_desc readable_eventfd::try_create_eventfd(size_t initial) {
 }
 
 future<size_t> readable_eventfd::wait() {
-    return engine().readable(*_fd._s).then([this] {
+    return _fd.readable().then([this] {
         uint64_t count;
         int r = ::read(_fd.get_fd(), &count, sizeof(count));
         SEASTAR_ASSERT(r == sizeof(count));
