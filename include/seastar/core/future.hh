@@ -1497,7 +1497,7 @@ private:
         {
             memory::scoped_critical_alloc_section _;
             ncf = noncopyable_function<WrapFuncResult(future &&)>([func = std::forward<Func>(func)](future&& f) mutable {
-                return futurator::invoke(func, std::move(f));
+                return futurator::invoke(std::move(func), std::move(f));
             });
         }
         return then_wrapped_common<AsSelf, WrapFuncResult>(std::move(ncf));
@@ -1513,7 +1513,7 @@ private:
         using pr_type = decltype(fut.get_promise());
         schedule(fut.get_promise(), std::move(func), [](pr_type&& pr, Func&& func, future_state&& state) {
             futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
-                return func(future(std::move(state)));
+                return std::move(func)(future(std::move(state)));
             });
         });
         return fut;
@@ -1609,8 +1609,8 @@ public:
         finally_body(Func&& func) noexcept : _func(std::forward<Func>(func))
         { }
 
-        future<T> operator()(future<T>&& result) noexcept {
-            return futurize_invoke(_func).then_wrapped([result = std::move(result)](auto&& f_res) mutable {
+        future<T> operator()(future<T>&& result) && noexcept {
+            return futurize_invoke(std::move(_func)).then_wrapped([result = std::move(result)](auto&& f_res) mutable {
                 if (!f_res.failed()) {
                     return std::move(result);
                 } else {
@@ -1627,9 +1627,9 @@ public:
         finally_body(Func&& func) noexcept : _func(std::forward<Func>(func))
         { }
 
-        future<T> operator()(future<T>&& result) noexcept {
+        future<T> operator()(future<T>&& result) && noexcept {
             try {
-                _func();
+                std::move(_func)();
                 return std::move(result);
             } catch (...) {
                 return result.rethrow_with_nested();
