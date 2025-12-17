@@ -1278,10 +1278,9 @@ private:
             return opts;
         }
 
-        connection(ipv4_addr src, uint16_t request_id, input_stream<char>&& in, size_t out_size,
+        connection(ipv4_addr src, input_stream<char>&& in, size_t out_size,
                 sharded_cache& c, sharded<system_stats>& system_stats)
             : _src(src)
-            , _request_id(request_id)
             , _in(std::move(in))
             , _out(output_stream<char>(data_sink(std::make_unique<sink>(*this)), out_size, make_opts()))
             , _proto(c, system_stats)
@@ -1311,36 +1310,47 @@ public:
         _max_datagram_size = max_datagram_size;
     }
 
+private:
+    input_stream<char> as_input_stream(std::span<temporary_buffer<char>> bufs) {
+        if (bufs.size() == 1) {
+            return util::as_input_stream(std::move(bufs[0]));
+        }
+
+        std::vector<temporary_buffer<char>> stable_bufs;
+        stable_bufs.reserve(bufs.size());
+        std::ranges::move(bufs, std::back_inserter(stable_bufs));
+        return util::as_input_stream(std::move(stable_bufs));
+    }
+
+public:
     void start() {
         _chan = make_bound_datagram_channel({_port});
         // Run in the background.
         _task = keep_doing([this] {
             return _chan.receive().then([this](datagram dgram) {
-                packet& p = dgram.get_data();
-                if (p.len() < sizeof(header)) {
-                    // dropping invalid packet
-                    return make_ready_future<>();
-                }
+                input_stream<char> in = as_input_stream(dgram.get_buffers());
+                auto conn = make_lw_shared<connection>(dgram.get_src(), std::move(in),
+                      _max_datagram_size - sizeof(header), _cache, _system_stats);
+                return conn->_in.read_exactly(sizeof(header)).then([this, conn] (auto h) mutable {
+                    if (h.size() < sizeof(header)) {
+                        // dropping invalid packet
+                        return make_ready_future<>();
+                    }
+                    header hdr = ntoh(*reinterpret_cast<const header*>(h.get()));
+                    conn->_request_id = hdr._request_id;
 
-                header hdr = ntoh(*p.get_header<header>());
-                p.trim_front(sizeof(hdr));
+                    if (hdr._n != 1 || hdr._sequence_number != 0) {
+                        return conn->_out.write("CLIENT_ERROR only single-datagram requests supported\r\n").then([this, conn] {
+                            return conn->_out.flush().then([this, conn] {
+                                return conn->respond(_chan).then([conn] {});
+                            });
+                        });
+                    }
 
-                auto request_id = hdr._request_id;
-                auto in = util::as_input_stream(p.release());
-                auto conn = make_lw_shared<connection>(dgram.get_src(), request_id, std::move(in),
-                    _max_datagram_size - sizeof(header), _cache, _system_stats);
-
-                if (hdr._n != 1 || hdr._sequence_number != 0) {
-                    return conn->_out.write("CLIENT_ERROR only single-datagram requests supported\r\n").then([this, conn] {
+                    return conn->_proto.handle(conn->_in, conn->_out).then([this, conn]() mutable {
                         return conn->_out.flush().then([this, conn] {
                             return conn->respond(_chan).then([conn] {});
                         });
-                    });
-                }
-
-                return conn->_proto.handle(conn->_in, conn->_out).then([this, conn]() mutable {
-                    return conn->_out.flush().then([this, conn] {
-                        return conn->respond(_chan).then([conn] {});
                     });
                 });
             });

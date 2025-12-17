@@ -1147,9 +1147,9 @@ class posix_datagram : public datagram_impl {
 private:
     socket_address _src;
     socket_address _dst;
-    packet _p;
+    temporary_buffer<char> _buf;
 public:
-    posix_datagram(const socket_address& src, const socket_address& dst, packet p) : _src(src), _dst(dst), _p(std::move(p)) {}
+    posix_datagram(const socket_address& src, const socket_address& dst, temporary_buffer<char> b) : _src(src), _dst(dst), _buf(std::move(b)) {}
     virtual socket_address get_src() override { return _src; }
     virtual socket_address get_dst() override { return _dst; }
     virtual uint16_t get_dst_port() override {
@@ -1158,7 +1158,7 @@ public:
         }
         return _dst.port();
     }
-    virtual packet& get_data() override { return _p; }
+    virtual std::span<temporary_buffer<char>> get_buffers() override { return std::span(&_buf, 1); }
 };
 
 future<datagram>
@@ -1178,7 +1178,7 @@ posix_datagram_channel::receive() {
         auto sg_id = internal::scheduling_group_index(current_scheduling_group());
         bytes_received[sg_id] += size;
         return make_ready_future<datagram>(datagram(std::make_unique<posix_datagram>(
-            _recv._src_addr, dst ? *dst : _address, packet(fragment{_recv._buffer, size}, make_deleter([buf = _recv._buffer] { delete[] buf; })))));
+            _recv._src_addr, dst ? *dst : _address, temporary_buffer<char>(_recv._buffer, size, make_deleter([buf = _recv._buffer] { delete[] buf; })))));
     }).handle_exception([p = _recv._buffer](auto ep) {
         delete[] p;
         return make_exception_future<datagram>(std::move(ep));
