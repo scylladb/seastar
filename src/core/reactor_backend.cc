@@ -1296,6 +1296,30 @@ detect_io_uring() {
 }
 
 static
+bool
+detect_asymmetric_io_uring() {
+    if (!kernel_uname().whitelisted({"5.17"}) && have_md_devices()) {
+        // Older kernels fall back to workqueues for RAID devices
+        return false;
+    }
+    if (!kernel_uname().whitelisted({"5.12"}) && mlock_limit() < (8 << 20)) {
+        // Older kernels lock about 32k/vcpu for the ring itself. Require 8MB of
+        // locked memory to be safe (8MB is what newer kernels and newer systemd provide)
+        return false;
+    }
+    auto base_ring_opt = uring::try_create_base_asymmetric_uring(sched_getcpu(), false);
+    if (!base_ring_opt) {
+        return false;
+    }
+    auto attached_ring_opt = uring::try_create_attached_asymmetric_uring(base_ring_opt.value().ring_fd, false);
+    if (attached_ring_opt) {
+        ::io_uring_queue_exit(&attached_ring_opt.value());
+    }
+    ::io_uring_queue_exit(&base_ring_opt.value());
+    return bool(attached_ring_opt);
+}
+
+static
 void
 prepare_sqe(io_uring_sqe* sqe, const internal::io_request& req, io_completion* completion) {
     using o = internal::io_request::operation;
@@ -2437,6 +2461,8 @@ std::vector<reactor_backend_selector> reactor_backend_selector::available() {
 #ifdef SEASTAR_HAVE_URING
     if (detect_io_uring()) {
         ret.push_back(reactor_backend_selector("io_uring"));
+    }
+    if (detect_asymmetric_io_uring()) {
         ret.push_back(reactor_backend_selector("asymmetric_io_uring"));
     }
 #endif
