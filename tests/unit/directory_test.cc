@@ -91,7 +91,7 @@ future<> lister_generator_test(file f) {
     auto lister = f.experimental_list_directory();
 
     while (auto de = co_await lister()) {
-        auto& entry = de->get();
+        auto& entry = *de;
         auto sd = co_await file_stat(entry.name, follow_symlink::no);
         if (entry.type) {
             SEASTAR_ASSERT(entry.type == sd.type);

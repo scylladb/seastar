@@ -35,6 +35,8 @@
 #include <utility>
 #include <memory>
 
+#include <seastar/core/bitops.hh>
+
 /// \file
 
 namespace seastar {
@@ -369,6 +371,14 @@ circular_buffer_fixed_capacity<T, Capacity>::clear() {
         obj.~T();
     }
     _begin = _end = 0;
+}
+
+// Return a circular_buffer power-of-2 capacity
+// For fitting an array of T entries in Capacity bytes.
+template <typename T, size_t Capacity>
+requires (sizeof(T) <= Capacity)
+constexpr inline size_t calc_circular_buffer_capacity() {
+    return 1 << (log2ceil(Capacity) - log2ceil(sizeof(T)));
 }
 
 }
