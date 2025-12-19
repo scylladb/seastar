@@ -269,6 +269,32 @@ SEASTAR_TEST_CASE(socket_connect_abort_test) {
     });
 }
 
+// Check that server_socket::accept() is abortable by server_socket::abort_accept()
+SEASTAR_THREAD_TEST_CASE(socket_accept_abort_test) {
+    ipv4_addr addr("127.0.0.1", 3174);
+    server_socket ss = seastar::listen(addr, listen_options{ .reuse_address = true });
+    bool too_late = false;
+    auto f = ss.accept().then([] (auto ar) {
+        BOOST_FAIL("Accept didn't resolve into exception");
+    }).handle_exception_type([&too_late] (std::system_error e) {
+        BOOST_REQUIRE(!too_late);
+        BOOST_REQUIRE_EQUAL(e.code(), std::error_code(ECONNABORTED, std::system_category()));
+        return make_ready_future<>();
+    });
+
+    auto abort = sleep(std::chrono::milliseconds(500)).then([&ss] {
+        fmt::print("Abort accept\n");
+        ss.abort_accept();
+    });
+
+    auto check = sleep(std::chrono::seconds(2)).then([&too_late] {
+        fmt::print("Accept must have been aborted already\n");
+        too_late = true;
+    });
+
+    when_all(std::move(f), std::move(abort), std::move(check)).get();
+}
+
 SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
 
     // Test that setting the send and recv buffer sizes on the listening
