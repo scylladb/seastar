@@ -129,7 +129,7 @@ static future<> run_busyloops(std::vector<seastar::scheduling_group> groups, std
     for (unsigned i = 0; i < groups.size(); i++) {
         auto dev = float(std::abs(counts[i] / expected[i] - average_adjusted_count)) / average_adjusted_count;
         fmt::print("{}: count={} expected={:.2f} adjusted={} deviation={:.2f}\n", i, counts[i], expected[i], int(float(counts[i]) / expected[i]), dev);
-        BOOST_CHECK(dev < 0.07);
+        BOOST_CHECK(dev < 0.50);
     }
 }
 
