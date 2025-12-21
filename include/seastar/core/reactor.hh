@@ -736,9 +736,6 @@ private:
     friend seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::internal::log_buf::inserter_iterator it, const task_queue& tq);
     friend void internal::set_current_task(task* t);
     friend scheduling_supergroup internal::scheduling_supergroup_for(scheduling_group sg) noexcept;
-
-    future<struct statfs> fstatfs(int fd) noexcept;
-    friend future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int flags, struct stat st) noexcept;
 public:
     future<> readable(pollable_fd_state& fd);
     future<> writeable(pollable_fd_state& fd);

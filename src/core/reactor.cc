@@ -1788,7 +1788,7 @@ future<file>
 reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_options options) noexcept {
     auto open_flags = static_cast<int>(flags);
     sstring name(nameref);
-    syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
+    syscall_result_extra<std::pair<struct stat, const internal::fs_info*>> sr = co_await _thread_pool->submit<syscall_result_extra<std::pair<struct stat, const internal::fs_info*>>>(
             internal::thread_pool_submit_reason::file_operation, [this, name, &open_flags, &options, strict_o_direct = _cfg.strict_o_direct, bypass_fsync = _cfg.bypass_fsync] () mutable {
         // We want O_DIRECT, except in three cases:
         //   - tmpfs (which doesn't support it, but works fine anyway)
@@ -1810,16 +1810,17 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
             open_flags &= ~O_DSYNC;
         }
         struct stat st;
+        const internal::fs_info* fsi = nullptr;
         auto mode = static_cast<mode_t>(options.create_permissions);
         int fd = ::open(name.c_str(), open_flags, mode);
         if (fd == -1) {
-            return wrap_syscall(fd, st);
+            return wrap_syscall(fd, std::make_pair(st, fsi));
         }
         auto close_fd = defer([fd] () noexcept { ::close(fd); });
         int o_direct_flag = _cfg.kernel_page_cache ? 0 : O_DIRECT;
         int r = ::fcntl(fd, F_SETFL, open_flags | o_direct_flag);
         if (r == -1  && strict_o_direct) {
-            auto maybe_ret = wrap_syscall(r, st);  // capture errno (should be EINVAL)
+            auto maybe_ret = wrap_syscall(r, std::make_pair(st, fsi));  // capture errno (should be EINVAL)
             if (!is_tmpfs(fd)) {
                 return maybe_ret;
             }
@@ -1846,13 +1847,17 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
         }
         r = ::fstat(fd, &st);
         if (r == -1) {
-            return wrap_syscall(r, st);
+            return wrap_syscall(r, std::make_pair(st, fsi));
+        }
+        fsi = internal::get_fs_info(st.st_dev, fd);
+        if (fsi == nullptr) {
+            return wrap_syscall(-1, std::make_pair(st, fsi));
         }
         close_fd.cancel();
-        return wrap_syscall(fd, st);
+        return wrap_syscall(fd, std::make_pair(st, fsi));
     });
     sr.throw_fs_exception_if_error("open failed", name);
-    shared_ptr<file_impl> impl = co_await make_file_impl(sr.result, options, open_flags, sr.extra);
+    shared_ptr<file_impl> impl = internal::make_file_impl(sr.result, options, open_flags, sr.extra.first, *sr.extra.second);
     co_return file(std::move(impl));
 }
 
@@ -2269,19 +2274,6 @@ reactor::file_system_at(std::string_view pathname_view) noexcept {
     co_return ret;
 }
 
-future<struct statfs>
-reactor::fstatfs(int fd) noexcept {
-    syscall_result_extra<struct statfs> sr = co_await _thread_pool->submit<syscall_result_extra<struct statfs>>(
-            internal::thread_pool_submit_reason::file_operation, [fd] {
-        struct statfs st;
-        auto ret = ::fstatfs(fd, &st);
-        return wrap_syscall(ret, st);
-    });
-    sr.throw_if_error();
-    struct statfs st = sr.extra;
-    co_return st;
-}
-
 future<std::filesystem::space_info>
 reactor::file_system_space(std::string_view pathname) noexcept {
     auto sr = co_await _thread_pool->submit<syscall_result_extra<std::filesystem::space_info>>(
@@ -2312,21 +2304,28 @@ future<file>
 reactor::open_directory(std::string_view name_view) noexcept {
     auto name = sstring(name_view);
     auto oflags = O_DIRECTORY | O_CLOEXEC | O_RDONLY;
-    syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
+    syscall_result_extra<std::pair<struct stat, const internal::fs_info*>> sr = co_await _thread_pool->submit<syscall_result_extra<std::pair<struct stat, const internal::fs_info*>>>(
             internal::thread_pool_submit_reason::file_operation, [&] {
         struct stat st;
+        const internal::fs_info* fsi = nullptr;
         int fd = ::open(name.c_str(), oflags);
         if (fd != -1) {
             int r = ::fstat(fd, &st);
             if (r == -1) {
                 ::close(fd);
                 fd = r;
+            } else {
+                fsi = internal::get_fs_info(st.st_dev, fd);
+                if (fsi == nullptr) {
+                    ::close(fd);
+                    fd = -1;
+                }
             }
         }
-        return wrap_syscall(fd, st);
+        return wrap_syscall(fd, std::make_pair(std::move(st), fsi));
     });
     sr.throw_fs_exception_if_error("open failed", name);
-    shared_ptr<file_impl> file_impl = co_await make_file_impl(sr.result, file_open_options(), oflags, sr.extra);
+    shared_ptr<file_impl> file_impl = internal::make_file_impl(sr.result, file_open_options(), oflags, sr.extra.first, *sr.extra.second);
     co_return file(std::move(file_impl));
 }
 
