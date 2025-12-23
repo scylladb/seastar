@@ -31,6 +31,7 @@
 #include <boost/container/small_vector.hpp>
 #include <sys/uio.h>
 #include <seastar/util/assert.hh>
+#include <seastar/util/integrated-length.hh>
 
 #include <seastar/core/file.hh>
 #include <seastar/core/io_queue.hh>
@@ -136,8 +137,8 @@ class io_queue::priority_class_data {
             bytes += len;
         }
     } _rwstat[2] = {}, _splits = {};
-    uint32_t _nr_queued;
-    uint32_t _nr_executing;
+    util::integrated_length<unsigned short, lowres_clock> _nr_queued;
+    util::integrated_length<unsigned short, lowres_clock> _nr_executing;
     std::chrono::duration<double> _queue_time;
     std::chrono::duration<double> _total_queue_time;
     std::chrono::duration<double> _total_execution_time;
@@ -238,6 +239,14 @@ public:
 
     void on_split(io_direction_and_length dnl) noexcept {
         _splits.add(dnl.length());
+    }
+
+    void on_before_dispatch() noexcept {
+        _nr_queued.checkpoint();
+    }
+
+    void on_after_dispatch() noexcept {
+        _nr_executing.checkpoint();
     }
 
     fair_queue::class_id fq_class() const noexcept { return _pc.id(); }
@@ -781,12 +790,15 @@ std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::priority_c
             // In other words: the new counter tells you how busy a class is, and the
             // old counter tells you how busy the system is.
 
-            sm::make_queue_length("queue_length", _nr_queued, sm::description("Number of requests in the queue")),
-            sm::make_queue_length("disk_queue_length", _nr_executing, sm::description("Number of requests in the disk")),
+            sm::make_queue_length("queue_length", [this] { return _nr_queued.value(); }, sm::description("Number of requests in the queue")),
+            sm::make_queue_length("disk_queue_length", [this] { return _nr_executing.value(); }, sm::description("Number of requests in the disk")),
             sm::make_gauge("delay", [this] {
                 return _queue_time.count();
             }, sm::description("random delay time in the queue")),
-            sm::make_gauge("shares", _shares, sm::description("current amount of shares"))
+            sm::make_gauge("shares", _shares, sm::description("current amount of shares")),
+
+            sm::make_counter("integrated_queue_length", [this] { return _nr_queued.integral(); }, sm::description("Integrated queue length")),
+            sm::make_counter("integrated_disk_queue_length", [this] { return _nr_executing.integral(); }, sm::description("Integrated disk queue length")),
     });
 }
 
@@ -1040,6 +1052,12 @@ future<size_t> io_queue::submit_io_write(size_t len, internal::io_request req, i
 // This is far from ideal, but it's something.
 
 void io_queue::poll_io_queue() {
+    for (auto& pc : _priority_classes) {
+        if (pc) {
+            pc->on_before_dispatch();
+        }
+    }
+
     for (auto&& st : _streams) {
         st.out.maybe_replenish_capacity(st.replenish);
         auto available = st.reap_pending_capacity();
@@ -1071,6 +1089,12 @@ void io_queue::poll_io_queue() {
         // unpleasant (it can bloat the bucket beyond its size limit, and its hard to write a correct
         // countermeasure for that), so we just discard the tokens. There's no harm in it, IO cancellation
         // can't have resource-saving guarantees anyway.
+    }
+
+    for (auto& pc : _priority_classes) {
+        if (pc) {
+            pc->on_after_dispatch();
+        }
     }
 }
 
