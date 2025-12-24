@@ -21,6 +21,7 @@
 
 #include <fmt/core.h>
 #include <fmt/ranges.h>
+#include <fmt/chrono.h>
 #include <vector>
 #include <chrono>
 
@@ -32,6 +33,7 @@
 #include <seastar/core/when_all.hh>
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/sleep.hh>
 #include <seastar/util/later.hh>
 
 using namespace seastar;
@@ -94,22 +96,15 @@ SEASTAR_TEST_CASE(test_basic_ops) {
 static future<> run_busyloops(std::vector<seastar::scheduling_group> groups, std::vector<float> expected) {
     std::vector<uint64_t> counts;
     std::vector<future<>> f;
-    auto run_and_count = [&groups] (uint64_t& c) -> future<> {
-        unsigned total_run_ms = 100 * groups.size();
-        auto now = std::chrono::steady_clock::now();
-        auto start_count = now + std::chrono::milliseconds(20);
-        auto stop_count = now + std::chrono::milliseconds(total_run_ms - 20);
-        auto stop = now + std::chrono::milliseconds(total_run_ms);
+    bool keep_going = true;
+
+    auto run_and_count = [&keep_going] (uint64_t& c) -> future<> {
         do {
             auto stop = std::chrono::steady_clock::now() + std::chrono::microseconds(10);
             while (std::chrono::steady_clock::now() < stop) ;
-
-            auto now = std::chrono::steady_clock::now();
-            if (now >= start_count && now < stop_count) {
-                c++;
-            }
+            c++;
             co_await yield();
-        } while (std::chrono::steady_clock::now() < stop);
+        } while (keep_going);
     };
     counts.reserve(groups.size());
     f.reserve(groups.size());
@@ -117,7 +112,21 @@ static future<> run_busyloops(std::vector<seastar::scheduling_group> groups, std
         counts.push_back(0);
         f.push_back(with_scheduling_group(g, [&c = counts.back(), &run_and_count] { return run_and_count(c); }));
     }
-    co_await when_all(f.begin(), f.end());
+
+    auto warmup = std::chrono::milliseconds(20);
+    fmt::print("Warmup for {}\n", warmup);
+    co_await seastar::sleep(warmup);
+    for (auto& c : counts) {
+        c = 0;
+    }
+
+    auto sample_period = std::chrono::milliseconds(100);
+    auto stop_at = std::chrono::steady_clock::now() + std::chrono::minutes(2);
+    bool ok = true;
+
+  do {
+    fmt::print("Do counting for {}\n", sample_period);
+    co_await seastar::sleep(sample_period);
 
     uint64_t average_adjusted_count = 0;
     for (unsigned i = 0; i < groups.size(); i++) {
@@ -125,12 +134,19 @@ static future<> run_busyloops(std::vector<seastar::scheduling_group> groups, std
     }
     average_adjusted_count /= groups.size();
 
+    ok = true;
     fmt::print("--------8<--------\n");
     for (unsigned i = 0; i < groups.size(); i++) {
         auto dev = float(std::abs(counts[i] / expected[i] - average_adjusted_count)) / average_adjusted_count;
         fmt::print("{}: count={} expected={:.2f} adjusted={} deviation={:.2f}\n", i, counts[i], expected[i], int(float(counts[i]) / expected[i]), dev);
-        BOOST_CHECK(dev < 0.07);
+        ok &= (dev < 0.07);
     }
+    sample_period = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::duration_cast<std::chrono::duration<double>>(sample_period) * 1.618);
+  } while (!ok && (std::chrono::steady_clock::now() <= stop_at));
+
+    keep_going = false;
+    co_await when_all(f.begin(), f.end());
+    BOOST_REQUIRE(ok);
 }
 
 static future<> do_test_fairness(layout& l) {
