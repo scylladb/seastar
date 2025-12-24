@@ -115,6 +115,9 @@ aio_storage_context::iocb_pool::iocb_pool() {
     for (unsigned i = 0; i != max_aio; ++i) {
         _free_iocbs.push(&_all_iocbs[i]);
     }
+#ifdef SEASTAR_IOCB_POOL_DEBUG
+    _iocb_allocated.reset();
+#endif
 }
 
 aio_storage_context::aio_storage_context(reactor& r)
@@ -130,10 +133,43 @@ aio_storage_context::~aio_storage_context() {
     internal::io_destroy(_io_context);
 }
 
+void aio_storage_context::reap_pending_retries() {
+    // Drain pending retries and complete them with -ECANCELED.
+    for (auto iocb : _pending_aio_retry) {
+        _iocb_pool.put_one(iocb);
+        auto desc = get_user_data<kernel_completion>(*iocb);
+        desc->complete_with(-ECANCELED);
+    }
+    _pending_aio_retry.clear();
+
+    // _aio_retries is empty in the normal call path: this function only runs
+    // after the retry loop's future has resolved, and that loop's predicate
+    // only returns true when both vectors are empty. The drain below is
+    // defensive — if a future change to schedule_retry() leaves entries
+    // here, we still avoid leaking iocbs.
+    for (auto iocb : _aio_retries) {
+        _iocb_pool.put_one(iocb);
+        auto desc = get_user_data<kernel_completion>(*iocb);
+        desc->complete_with(-ECANCELED);
+    }
+    _aio_retries.clear();
+}
+
 future<> aio_storage_context::stop() noexcept {
+    // Set _stopping first so any reap_completions() and schedule_retry()
+    // calls that race with the drain below see the right state.
+    _stopping = true;
+
+    // Drain items in io_sink (operations without allocated iocbs yet).
+    _r._io_sink.drain([] (const internal::io_request& req, io_completion* desc) -> bool {
+        desc->complete_with(-ECANCELED);
+        return true;
+    });
+
     return std::exchange(_pending_aio_retry_fut, make_ready_future<>()).finally([this] {
         return do_until([this] { return !_iocb_pool.outstanding(); }, [this] {
-            reap_completions(false);
+            reap_completions();
+            reap_pending_retries();
             return make_ready_future<>();
         });
     });
@@ -144,12 +180,29 @@ internal::linux_abi::iocb&
 aio_storage_context::iocb_pool::get_one() {
     auto io = _free_iocbs.top();
     _free_iocbs.pop();
+#ifdef SEASTAR_IOCB_POOL_DEBUG
+    auto index = io - _all_iocbs.data();
+    SEASTAR_ASSERT(index < max_aio);
+    SEASTAR_ASSERT(!_iocb_allocated[index] && "Double allocation of iocb");
+    _iocb_allocated[index] = true;
+#endif
     return *io;
 }
 
 inline
 void
 aio_storage_context::iocb_pool::put_one(internal::linux_abi::iocb* io) {
+#ifdef SEASTAR_IOCB_POOL_DEBUG
+    auto index = io - _all_iocbs.data();
+    SEASTAR_ASSERT(index < max_aio && "iocb pointer out of range");
+    if (!_iocb_allocated[index]) {
+        seastar_logger.error("Double-free detected: iocb at index {} (ptr={}) is being returned but was not allocated",
+                           index, fmt::ptr(io));
+        std::abort();
+    }
+    _iocb_allocated[index] = false;
+    SEASTAR_ASSERT(_free_iocbs.size() < max_aio && "Double-free: iocb pool already full");
+#endif
     _free_iocbs.push(io);
 }
 
@@ -243,7 +296,7 @@ aio_storage_context::submit_work() {
         did_work = true;
     }
 
-    if (need_to_retry() && !retry_in_progress()) {
+    if (need_to_retry()) {
         schedule_retry();
     }
 
@@ -251,6 +304,15 @@ aio_storage_context::submit_work() {
 }
 
 void aio_storage_context::schedule_retry() {
+    // Don't start a new retry loop if either:
+    //   (a) one is already in flight  (!_pending_aio_retry_fut.available()),
+    //   (b) we're shutting down       (_stopping) — stop() will drain the
+    //       queues itself; starting a second loop here would race with
+    //       stop()'s drain on the same iocb pool (the original double-free).
+    if (!_pending_aio_retry_fut.available() || _stopping) {
+        return;
+    }
+
     // loop until both _pending_aio_retry and _aio_retries are empty.
     // While retrying _aio_retries, new retries may be queued onto _pending_aio_retry.
     _pending_aio_retry_fut = do_until([this] {
@@ -296,6 +358,11 @@ void aio_storage_context::schedule_retry() {
 
 bool aio_storage_context::reap_completions(bool allow_retry)
 {
+    // During shutdown, complete EAGAIN iocbs immediately instead of
+    // queuing them for retry — schedule_retry() is gated on _stopping.
+    if (_stopping) {
+        allow_retry = false;
+    }
     struct timespec timeout = {0, 0};
     auto n = io_getevents(_io_context, 1, max_aio, _ev_buffer, &timeout, _r._cfg.force_io_getevents_syscall);
     if (n == -1 && errno == EINTR) {
