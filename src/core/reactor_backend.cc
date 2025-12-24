@@ -115,6 +115,9 @@ aio_storage_context::iocb_pool::iocb_pool() {
     for (unsigned i = 0; i != max_aio; ++i) {
         _free_iocbs.push(&_all_iocbs[i]);
     }
+#ifdef SEASTAR_IOCB_POOL_DEBUG
+    _iocb_allocated.reset();
+#endif
 }
 
 aio_storage_context::aio_storage_context(reactor& r)
@@ -131,7 +134,17 @@ aio_storage_context::~aio_storage_context() {
 }
 
 future<> aio_storage_context::stop() noexcept {
+    // Prevent new retries from starting during shutdown
+    _stopping = true;
+
+    // Drain io_sink and complete all pending IOs with error
+    _r._io_sink.drain([] (const internal::io_request& req, io_completion* desc) -> bool {
+        desc->complete_with(-ECANCELED);
+        return true;
+    });
+
     return std::exchange(_pending_aio_retry_fut, make_ready_future<>()).finally([this] {
+        // Wait for all in-flight AIOs to complete and return to pool
         return do_until([this] { return !_iocb_pool.outstanding(); }, [this] {
             reap_completions(false);
             return make_ready_future<>();
@@ -144,12 +157,36 @@ internal::linux_abi::iocb&
 aio_storage_context::iocb_pool::get_one() {
     auto io = _free_iocbs.top();
     _free_iocbs.pop();
+#ifdef SEASTAR_IOCB_POOL_DEBUG
+    auto index = io - _all_iocbs.data();
+    SEASTAR_ASSERT(index < max_aio);
+    SEASTAR_ASSERT(!_iocb_allocated[index] && "Double allocation of iocb");
+    _iocb_allocated[index] = true;
+#endif
     return *io;
 }
 
 inline
 void
 aio_storage_context::iocb_pool::put_one(internal::linux_abi::iocb* io) {
+#ifdef SEASTAR_IOCB_POOL_DEBUG
+    auto index = io - _all_iocbs.data();
+    SEASTAR_ASSERT(index < max_aio && "iocb pointer out of range");
+    if (!_iocb_allocated[index]) {
+        seastar_logger.error("Double-free detected: iocb at index {} (ptr={}) is being returned but was not allocated",
+                           index, fmt::ptr(io));
+        std::abort();
+    }
+    _iocb_allocated[index] = false;
+#endif
+    // Overflow check for diagnostic purposes. The underlying static_vector will
+    // throw bad_alloc anyway, but this provides a clearer error message with context.
+    if (_free_iocbs.size() >= max_aio) [[unlikely]] {
+        seastar_logger.error("iocb free list overflow: size={}, max_aio={}, attempting to push {}. "
+                           "This indicates a double-free bug where the same iocb is being returned multiple times.",
+                            _free_iocbs.size(), max_aio, fmt::ptr(io));
+        std::abort();
+    }
     _free_iocbs.push(io);
 }
 
@@ -199,6 +236,23 @@ aio_storage_context::handle_aio_error(linux_abi::iocb* iocb, int ec) {
 
 bool
 aio_storage_context::submit_work() {
+    if (_stopping) [[unlikely]] {
+        // During shutdown, complete all pending IOs with error
+        // 1. Handle items in io_sink (not yet allocated iocbs)
+        _r._io_sink.drain([] (const internal::io_request& req, io_completion* desc) -> bool {
+            desc->complete_with(-ECANCELED);
+            return true;
+        });
+        // 2. Handle items in _pending_aio_retry (already allocated iocbs)
+        for (auto* iocb : _pending_aio_retry) {
+            _iocb_pool.put_one(iocb);
+            auto desc = get_user_data<kernel_completion>(*iocb);
+            desc->complete_with(-ECANCELED);
+        }
+        _pending_aio_retry.clear();
+        return false;
+    }
+
     bool did_work = false;
 
     _submission_queue.clear();

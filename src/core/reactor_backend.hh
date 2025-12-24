@@ -32,12 +32,17 @@
 #ifndef SEASTAR_MODULE
 #include <fmt/ostream.h>
 #include <sys/time.h>
+#include <bitset>
 #include <thread>
 #include <stack>
 #include <boost/any.hpp>
 #include <boost/program_options.hpp>
 #include <boost/container/static_vector.hpp>
 
+#endif
+
+#ifdef SEASTAR_DEBUG
+#define SEASTAR_IOCB_POOL_DEBUG
 #endif
 
 namespace seastar {
@@ -64,6 +69,11 @@ class aio_storage_context {
     class iocb_pool {
         alignas(cache_line_size) std::array<internal::linux_abi::iocb, max_aio> _all_iocbs;
         std::stack<internal::linux_abi::iocb*, boost::container::static_vector<internal::linux_abi::iocb*, max_aio>> _free_iocbs;
+#ifdef SEASTAR_IOCB_POOL_DEBUG
+        // Track which iocbs are currently allocated (not in free list)
+        // This helps detect double-free bugs
+        std::bitset<max_aio> _iocb_allocated;
+#endif
     public:
         iocb_pool();
         internal::linux_abi::iocb& get_one();
@@ -82,6 +92,7 @@ class aio_storage_context {
     pending_aio_retry_t _aio_retries;       // Currently retried iocbs
     future<> _pending_aio_retry_fut = make_ready_future<>();
     internal::linux_abi::io_event _ev_buffer[max_aio];
+    bool _stopping = false;
 
     bool need_to_retry() const noexcept {
         return !_pending_aio_retry.empty() || !_aio_retries.empty();
