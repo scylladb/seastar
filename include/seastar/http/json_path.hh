@@ -22,6 +22,7 @@
 #pragma once
 
 #include <vector>
+#include <memory>
 
 #include <seastar/http/common.hh>
 #include <seastar/core/sstring.hh>
@@ -31,6 +32,9 @@
 namespace seastar {
 
 namespace httpd {
+
+class parameter_metadata_registry;
+class parameter_metadata;
 
 /**
  * A json_operation contain a method and a nickname.
@@ -122,6 +126,8 @@ struct path_description {
             const std::initializer_list<path_part>& path_parameters,
             const std::vector<sstring>& mandatory_params);
 
+    ~path_description();
+
     /**
      * Add a parameter to the path definition
      * for example, if the url should match /file/{path}
@@ -174,6 +180,22 @@ struct path_description {
     mutable routes::rule_cookie _cookie;
 
     std::vector<sstring> mandatory_queryparams;
+    mutable std::unique_ptr<parameter_metadata_registry> _param_metadata;
+
+    /**
+     * Add parameter metadata for type-safe validation
+     * @param metadata parameter metadata to add
+     * @return a pointer to the current path description
+     */
+    path_description* with_param_metadata(parameter_metadata metadata) const;
+
+    /**
+     * Get the parameter metadata registry for this path
+     * @return pointer to the metadata registry or nullptr if none exists
+     */
+    const parameter_metadata_registry* param_metadata() const {
+        return _param_metadata.get();
+    }
 
     void set(routes& _routes, handler_base* handler) const;
 

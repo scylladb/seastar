@@ -44,6 +44,13 @@
 
 namespace seastar {
 
+namespace httpd {
+    class parameter_metadata_registry;
+
+    template<typename T>
+    struct parameter_converter;
+}
+
 namespace http {
 
 namespace experimental { class connection; }
@@ -414,9 +421,46 @@ public:
 
     sstring request_line() const;
     future<> write_request_headers(output_stream<char>& out) const;
+
+    // Type-safe parameter access methods
+
+    /// Set the parameter metadata registry for this request
+    /// Called by the routing layer to enable validation
+    void set_parameter_metadata(const httpd::parameter_metadata_registry* registry) {
+        _param_metadata_registry = registry;
+    }
+
+    /// Get a typed parameter value with a default
+    /// Performs type conversion and validation based on metadata
+    /// @param key Parameter name
+    /// @param default_value Value to return if parameter doesn't exist
+    /// @return The converted and validated parameter value
+    template<typename T>
+    T get(std::string_view key, const T& default_value) const;
+
+    /// Get a required typed parameter value
+    /// Performs type conversion and validation based on metadata
+    /// Throws missing_param_exception if parameter doesn't exist
+    /// Throws type_conversion_exception if conversion fails
+    /// Throws constraint_violation_exception if validation fails
+    /// @param key Parameter name
+    /// @return The converted and validated parameter value
+    template<typename T>
+    T get(std::string_view key) const;
+
+    /// Create a typed parameter accessor struct
+    /// Used with generated parameter structs from OpenAPI
+    /// @return A parameter accessor struct for this request
+    template<typename ParamStruct>
+    ParamStruct typed_params() const {
+        return ParamStruct(*this);
+    }
+
 private:
     void add_query_param(std::string_view param);
     friend class experimental::connection;
+
+    const httpd::parameter_metadata_registry* _param_metadata_registry = nullptr;
 };
 
 namespace internal {

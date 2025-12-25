@@ -204,6 +204,166 @@ class Parameter:
         return self.definition.get('enum')
 
 
+# ========== Type-safe parameter support ==========
+
+def openapi_type_to_cpp(openapi_type):
+    """Map OpenAPI/Swagger types to C++ types"""
+    type_map = {
+        'string': 'sstring',
+        'integer': 'int32_t',
+        'int': 'int32_t',
+        'long': 'int64_t',
+        'float': 'float',
+        'double': 'double',
+        'boolean': 'bool',
+        'bool': 'bool'
+    }
+    return type_map.get(openapi_type, 'sstring')
+
+
+def openapi_type_to_parameter_type(openapi_type):
+    """Map OpenAPI/Swagger types to parameter_type enum"""
+    type_map = {
+        'string': 'STRING',
+        'integer': 'INT32',
+        'int': 'INT32',
+        'long': 'INT64',
+        'float': 'FLOAT',
+        'double': 'DOUBLE',
+        'boolean': 'BOOLEAN',
+        'bool': 'BOOLEAN'
+    }
+    return type_map.get(openapi_type, 'STRING')
+
+
+def generate_parameter_metadata(param_def, nickname):
+    """Generate parameter_metadata registration code for a parameter"""
+    param = Parameter(param_def)
+    param_type = param_def.get('type', 'string')
+    param_location = param_def.get('paramType', param_def.get('in', 'query'))
+
+    # Map location
+    location_map = {'query': 'QUERY', 'path': 'PATH'}
+    cpp_location = location_map.get(param_location, 'QUERY')
+
+    # Build metadata construction
+    cpp_type_enum = openapi_type_to_parameter_type(param_type)
+    required = 'true' if param.is_required else 'false'
+
+    code = f'parameter_metadata("{param.name}", parameter_type::{cpp_type_enum}, parameter_location::{cpp_location}, {required})'
+
+    # Add constraints
+    constraints = []
+
+    # Range constraints (minimum/maximum)
+    if 'minimum' in param_def or 'maximum' in param_def:
+        min_val = param_def.get('minimum', 'std::nullopt')
+        max_val = param_def.get('maximum', 'std::nullopt')
+        if min_val != 'std::nullopt' or max_val != 'std::nullopt':
+            constraints.append(f'.with_range({min_val}, {max_val})')
+
+    # Length constraints (minLength/maxLength)
+    if 'minLength' in param_def or 'maxLength' in param_def:
+        min_len = param_def.get('minLength', 'std::nullopt')
+        max_len = param_def.get('maxLength', 'std::nullopt')
+        if min_len != 'std::nullopt' or max_len != 'std::nullopt':
+            constraints.append(f'.with_length({min_len}, {max_len})')
+
+    # Enum constraint
+    if param.enum is not None:
+        enum_values = ', '.join(f'"{val}"' for val in param.enum)
+        constraints.append(f'.with_enum({{{enum_values}}})')
+
+    # Default value
+    if 'defaultValue' in param_def:
+        default_val = param_def['defaultValue']
+        if isinstance(default_val, str):
+            default_val = f'"{default_val}"'
+        constraints.append(f'.with_default({default_val})')
+
+    return code + ''.join(constraints)
+
+
+def generate_typed_parameter_struct(oper, nickname):
+    """Generate typed parameter accessor struct for an operation"""
+    params = oper.get('parameters', [])
+    if not params:
+        return ""
+
+    # Filter to only query and path parameters
+    accessible_params = [p for p in params
+                        if p.get('paramType', p.get('in')) in ['query', 'path']]
+
+    if not accessible_params:
+        return ""
+
+    struct_code = f"""
+namespace ns_{nickname} {{
+    /// Type-safe parameter accessor for {nickname}
+    struct parameters {{
+        const http::request& _req;
+
+        explicit parameters(const http::request& req) : _req(req) {{}}
+"""
+
+    for param_def in accessible_params:
+        param = Parameter(param_def)
+        cpp_type = openapi_type_to_cpp(param_def.get('type', 'string'))
+        param_name = param.name
+
+        # Generate accessor method
+        if param.is_required:
+            # Required parameter - returns value directly
+            struct_code += f"""
+        /// Get {param_name} parameter (required)
+        {cpp_type} {param_name}() const {{
+            return _req.get<{cpp_type}>("{param_name}");
+        }}
+"""
+        else:
+            # Optional parameter - returns std::optional
+            struct_code += f"""
+        /// Get {param_name} parameter (optional)
+        std::optional<{cpp_type}> {param_name}() const {{
+            if (_req.has_query_param("{param_name}") || _req.param.exists("{param_name}")) {{
+                return _req.get<{cpp_type}>("{param_name}");
+            }}
+            return std::nullopt;
+        }}
+"""
+
+    struct_code += """    };
+}
+"""
+    return struct_code
+
+
+def add_parameter_metadata_to_path(ccfile, oper, nickname):
+    """Generate and add parameter metadata registration to path_description"""
+    params = oper.get('parameters', [])
+    if not params:
+        return
+
+    # Generate an initialization function that will be called to register metadata
+    fprintln(ccfile, f"\n// Parameter metadata initialization for {nickname}")
+    fprintln(ccfile, f"namespace {{")
+    fprintln(ccfile, f"struct {nickname}_metadata_init {{")
+    fprintln(ccfile, f"    {nickname}_metadata_init() {{")
+
+    for param_def in params:
+        param = Parameter(param_def)
+        # Only add metadata for query and path parameters
+        param_location = param_def.get('paramType', param_def.get('in', 'query'))
+        if param_location in ['query', 'path']:
+            metadata_code = generate_parameter_metadata(param_def, nickname)
+            fprintln(ccfile, f"        {nickname}.with_param_metadata({metadata_code});")
+
+    fprintln(ccfile, f"    }}")
+    fprintln(ccfile, f"}};")
+    fprintln(ccfile, f"static {nickname}_metadata_init {nickname}_metadata_init_instance;")
+    fprintln(ccfile, f"}}")
+
+
 def add_path(f, path, details):
     if "summary" in details:
         print_comment(f, details["summary"])
@@ -361,6 +521,15 @@ $enum_wrapper
             funcs += parse_func
     fprint(ccfile, '\n,'.join(f'"{param.name}"' for param in required_query_params))
     fprintln(ccfile, '});')
+
+    # Generate parameter metadata registration
+    add_parameter_metadata_to_path(ccfile, oper, nickname)
+
+    # Generate typed parameter accessor struct
+    typed_struct = generate_typed_parameter_struct(oper, nickname)
+    if typed_struct:
+        fprintln(hfile, typed_struct)
+
     fprintln(hfile, enum_definitions)
     open_namespace(ccfile, f'ns_{nickname}')
     fprintln(ccfile, funcs)
@@ -544,9 +713,11 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
     print_h_file_headers(hfile, api_name)
     add_include(hfile, ['<seastar/core/sstring.hh>',
                         '<seastar/json/json_elements.hh>',
-                        '<seastar/http/json_path.hh>'])
+                        '<seastar/http/json_path.hh>',
+                        '<seastar/http/parameter_metadata.hh>',
+                        '<seastar/http/typed_parameters.hh>'])
 
-    add_include(hfile, ['<iostream>', '<ranges>'])
+    add_include(hfile, ['<iostream>', '<ranges>', '<optional>'])
     open_namespace(hfile, "seastar")
     open_namespace(hfile, "httpd")
     open_namespace(hfile, api_name)
