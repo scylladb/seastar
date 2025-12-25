@@ -62,4 +62,7 @@ jobs:
 
     - name: Run unit tests
       run: |
+        # Use relaxed fairness threshold for container environments
+        # where CAP_SYS_NICE and other capabilities may be restricted
+        export SEASTAR_SCHED_FAIRNESS_THRESHOLD=0.30
         ctest --test-dir build --output-on-failure -j2

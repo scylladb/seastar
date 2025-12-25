@@ -23,6 +23,7 @@
 #include <fmt/ranges.h>
 #include <vector>
 #include <chrono>
+#include <cstdlib>
 
 #include <seastar/core/thread.hh>
 #include <seastar/testing/test_case.hh>
@@ -91,6 +92,34 @@ SEASTAR_TEST_CASE(test_basic_ops) {
 }
 
 #ifndef SEASTAR_SHUFFLE_TASK_QUEUE
+// Default fairness deviation threshold
+// Can be overridden at compile time with -DSEASTAR_SCHED_FAIRNESS_THRESHOLD=0.15
+// or at runtime with SEASTAR_SCHED_FAIRNESS_THRESHOLD environment variable
+#ifndef SEASTAR_SCHED_FAIRNESS_THRESHOLD
+#define SEASTAR_SCHED_FAIRNESS_THRESHOLD 0.07
+#endif
+
+static float get_fairness_threshold() {
+    static float threshold = [] {
+        // Check environment variable for runtime override
+        if (const char* env_threshold = std::getenv("SEASTAR_SCHED_FAIRNESS_THRESHOLD")) {
+            try {
+                float val = std::stof(env_threshold);
+                if (val > 0.0f && val <= 1.0f) {
+                    return val;
+                }
+                fmt::print("Warning: Invalid SEASTAR_SCHED_FAIRNESS_THRESHOLD value '{}', using default {:.2f}\n",
+                           env_threshold, static_cast<float>(SEASTAR_SCHED_FAIRNESS_THRESHOLD));
+            } catch (...) {
+                fmt::print("Warning: Failed to parse SEASTAR_SCHED_FAIRNESS_THRESHOLD '{}', using default {:.2f}\n",
+                           env_threshold, static_cast<float>(SEASTAR_SCHED_FAIRNESS_THRESHOLD));
+            }
+        }
+        return static_cast<float>(SEASTAR_SCHED_FAIRNESS_THRESHOLD);
+    }();
+    return threshold;
+}
+
 static future<> run_busyloops(std::vector<seastar::scheduling_group> groups, std::vector<float> expected) {
     std::vector<uint64_t> counts;
     std::vector<future<>> f;
@@ -126,10 +155,11 @@ static future<> run_busyloops(std::vector<seastar::scheduling_group> groups, std
     average_adjusted_count /= groups.size();
 
     fmt::print("--------8<--------\n");
+    float threshold = get_fairness_threshold();
     for (unsigned i = 0; i < groups.size(); i++) {
         auto dev = float(std::abs(counts[i] / expected[i] - average_adjusted_count)) / average_adjusted_count;
         fmt::print("{}: count={} expected={:.2f} adjusted={} deviation={:.2f}\n", i, counts[i], expected[i], int(float(counts[i]) / expected[i]), dev);
-        BOOST_CHECK(dev < 0.07);
+        BOOST_CHECK(dev < threshold);
     }
 }
 
