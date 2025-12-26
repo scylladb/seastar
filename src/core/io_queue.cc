@@ -618,6 +618,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     })
     , _stall_threshold_min(std::max(get_config().stall_threshold, 1ms))
     , _stall_threshold(_stall_threshold_min)
+    , _physical_block_size(get_config().physical_block_size)
 {
     auto& cfg = get_config();
     if (cfg.duplex) {

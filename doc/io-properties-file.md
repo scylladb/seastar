@@ -24,6 +24,10 @@ Additionally the following optional properties can be added:
 
 * `read_saturation_length`: read buffer length to saturate the device throughput
 * `write_saturation_length`: write buffer length to saturate the device throughput
+* `physical_block_size`: override for the physical block size of the device (in bytes).
+  This is used as the write alignment to avoid hardware-level read-modify-write operations.
+  Some devices mis-report their physical block size, so this override can be used to
+  specify the correct value
 
 Those quantities can be specified in raw form, or followed with a
 suffix (k, M, G, or T).
