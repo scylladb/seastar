@@ -42,6 +42,7 @@ struct disk_params {
     uint64_t write_req_rate = std::numeric_limits<uint64_t>::max();
     uint64_t read_saturation_length = std::numeric_limits<uint64_t>::max();
     uint64_t write_saturation_length = std::numeric_limits<uint64_t>::max();
+    std::optional<uint32_t> physical_block_size; // Override for disks that lie about their physical block size
     bool duplex = false;
     float rate_factor = 1.0;
 };
