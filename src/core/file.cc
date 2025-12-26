@@ -1079,16 +1079,14 @@ static internal::alignments xfs_alignments(int fd, const dioattr& da, unsigned b
 static
 internal::alignments
 blkdev_alignments(int fd, dev_t device_id) {
-    internal::alignments align;
-    size_t logical_block_size;
-    size_t physical_block_size;
-
     // Query logical block size (smallest addressable unit)
+    size_t logical_block_size;
     if (auto ret = ::ioctl(fd, BLKBSZGET, &logical_block_size); ret == -1) {
         throw std::system_error(errno, std::system_category(), "ioctl(BLKBSZGET) failed");
     }
 
     // Query physical block size (smallest atomic write unit)
+    size_t physical_block_size;
     if (auto ret = ::ioctl(fd, BLKPBSZGET, &physical_block_size); ret == -1) {
         throw std::system_error(errno, std::system_category(), "ioctl(BLKPBSZGET) failed");
     }
@@ -1102,25 +1100,20 @@ blkdev_alignments(int fd, dev_t device_id) {
 
     // Query DIO memory alignment using statx (kernel 6.1+)
     // This gives us the actual DMA buffer alignment requirement (typically 4 bytes for NVMe)
-    if (auto mem_align = query_statx_mem_align(fd)) {
-        align.memory = *mem_align;
-    } else {
-        // Fallback to physical_block_size if statx unavailable or unsupported
-        align.memory = physical_block_size;
-    }
+    auto mem_align = query_statx_mem_align(fd);
 
-    // For reads: use logical_block_size (no performance penalty for reading 512-byte blocks from 4K sector disks)
-    align.disk_read = logical_block_size;
     // For writes: use physical_block_size to avoid hardware-level read-modify-write
     // - physical_block_size: smallest unit a physical storage device can write atomically (e.g., 4096 bytes for Advanced Format disks)
     // - logical_block_size: smallest unit the storage device can address (typically 512 bytes)
     //
     // The Linux kernel only enforces logical_block_size alignment for O_DIRECT (see block/fops.c:blkdev_dio_invalid).
     // Using physical_block_size avoids RMW at the hardware level.
-    align.disk_write = physical_block_size;
-    align.disk_overwrite = physical_block_size;
-
-    return align;
+    return {
+        .memory = static_cast<unsigned>(mem_align.value_or(physical_block_size)),
+        .disk_read = static_cast<unsigned>(logical_block_size),  // For reads: use logical_block_size (no performance penalty for reading 512-byte blocks from 4K sector disks)
+        .disk_write = static_cast<unsigned>(physical_block_size),
+        .disk_overwrite = static_cast<unsigned>(physical_block_size),
+    };
 }
 
 future<shared_ptr<file_impl>>
