@@ -1065,21 +1065,26 @@ query_statx_mem_align(int fd) {
 
 static internal::alignments xfs_alignments(int fd, const dioattr& da, unsigned block_size) {
     static bool xfs_with_relaxed_overwrite_alignment = internal::kernel_uname().whitelisted({"5.12"});
-    internal::alignments ret;
+
+    unsigned memory = da.d_mem;
 
     // Try to get better memory alignment from statx first
     if (auto mem_align = query_statx_mem_align(fd)) {
-        ret.memory = std::max(*mem_align, static_cast<size_t>(internal::min_memory_alignment));
+        memory = std::max(*mem_align, static_cast<size_t>(internal::min_memory_alignment));
     } else {
-        ret.memory = std::max(da.d_mem, internal::min_memory_alignment);
+        memory = std::max(da.d_mem, internal::min_memory_alignment);
     }
 
-    ret.disk_read = da.d_miniosz;
     // xfs wants at least the block size for writes
     // FIXME: really read the block size
-    ret.disk_write = std::max<unsigned>(da.d_miniosz, block_size);
-    ret.disk_overwrite = xfs_with_relaxed_overwrite_alignment ? da.d_miniosz : ret.disk_write;
-    return ret;
+    auto disk_write = std::max<unsigned>(da.d_miniosz, block_size);
+
+    return {
+        .memory = memory,
+        .disk_read = da.d_miniosz,
+        .disk_write = disk_write,
+        .disk_overwrite = xfs_with_relaxed_overwrite_alignment ? da.d_miniosz : disk_write,
+    };
 }
 
 // Query block device alignment properties using ioctl and statx
