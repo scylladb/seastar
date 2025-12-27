@@ -65,6 +65,9 @@ struct convert<seastar::internal::disk_params> {
         if (node["write_saturation_length"]) {
             mp.write_saturation_length = parse_memory_size(node["write_saturation_length"].as<std::string>());
         }
+        if (node["physical_block_size"]) {
+            mp.physical_block_size = parse_memory_size(node["physical_block_size"].as<std::string>());
+        }
         if (node["duplex"]) {
             mp.duplex = node["duplex"].as<bool>();
         }
@@ -201,6 +204,7 @@ struct io_queue::config disk_config_params::generate_config(const disk_params& p
     // be better to sacrifice some IO latency, but allow for larger concurrency
     cfg.block_count_limit_min = (64 << 10) >> io_queue::block_size_shift;
     cfg.stall_threshold = stall_threshold();
+    cfg.physical_block_size = p.physical_block_size;
 
     return cfg;
 }
