@@ -32,6 +32,10 @@
 using namespace seastar;
 using namespace json;
 
+static_assert(internal::is_string_like<std::string_view>);
+static_assert(internal::is_string_like<std::string>);
+static_assert(internal::is_string_like<sstring>);
+
 SEASTAR_TEST_CASE(test_simple_values) {
     BOOST_CHECK_EQUAL("3", formatter::to_json(3));
     BOOST_CHECK_EQUAL("3", formatter::to_json(3.0));
@@ -67,6 +71,17 @@ SEASTAR_TEST_CASE(test_ranges) {
 #ifdef __cpp_lib_ranges_enumerate
     BOOST_CHECK_EQUAL("[{0:5},{1:6},{2:7},{3:8}]", formatter::to_json(std::views::iota(5, 9) | std::views::enumerate));
 #endif
+    return make_ready_future();
+}
+
+SEASTAR_TEST_CASE(test_strings) {
+    sstring s = "hello, world";
+    const char* expected = "\"hello, world\"";
+    BOOST_CHECK_EQUAL(expected, formatter::to_json(s));
+    BOOST_CHECK_EQUAL(expected, formatter::to_json(std::string(s)));
+    BOOST_CHECK_EQUAL(expected, formatter::to_json(std::string_view(s)));
+    BOOST_CHECK_EQUAL(expected, formatter::to_json(s.c_str()));
+
     return make_ready_future();
 }
 
@@ -112,6 +127,16 @@ void formatter_check_expected(sstring expected, F f, bool close = true) {
     BOOST_CHECK_EQUAL(expected, ss.str());
 }
 
+SEASTAR_THREAD_TEST_CASE(test_stream_range_as_array_simple) {
+    sstring expected = R"(["1", "2", "3"])";
+    formatter_check_expected(expected, [] (auto& out) {
+        auto mapper = stream_range_as_array(std::vector<int>{1,2,3}, [] (auto i) {
+            return std::to_string(i);
+        });
+
+        mapper(std::move(out)).get();
+    }, false);
+}
 
 SEASTAR_THREAD_TEST_CASE(test_stream_range_as_array) {
     sstring expected = R"([{"subject":"1","values":[1]}, {"subject":"2","values":[2]}, {"subject":"3","values":[3]}])";

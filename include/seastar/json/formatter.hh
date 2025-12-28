@@ -53,7 +53,7 @@ template<typename T>
 concept is_string_like =
     std::convertible_to<const T&, std::string_view> &&
     requires (T s) {
-        { s.data() } -> std::same_as<char*>;
+        { s.data() } -> std::convertible_to<const char*>;
         // sstring::length() and sstring::find() return size_t instead of
         // size_type (i.e., uint32_t), so we cannot check their return type
         // with T::size_type
@@ -177,10 +177,10 @@ public:
 
     /**
      * return a json formatted string
-     * @param str the string to format
+     * @param str the string_view to format
      * @return the given string in a json format
      */
-    static sstring to_json(const sstring& str);
+    static sstring to_json(std::string_view str);
 
     /**
      * return a json formatted int
@@ -276,14 +276,12 @@ public:
      */
     static sstring to_json(unsigned long l);
 
-
-
     /**
      * return a json formatted string
-     * @param str the string to format
+     * @param str the string_view to format
      * @return the given string in a json format
      */
-    static future<> write(output_stream<char>& s, const sstring& str) {
+    static future<> write(output_stream<char>& s, std::string_view str) {
         return s.write(to_json(str));
     }
 

@@ -113,7 +113,7 @@ static sstring string_view_to_json(const string_view& str) {
     return oss.str();
 }
 
-sstring formatter::to_json(const sstring& str) {
+sstring formatter::to_json(std::string_view str) {
     return string_view_to_json(str);
 }
 
