@@ -53,7 +53,7 @@ template<typename T>
 concept is_string_like =
     std::convertible_to<const T&, std::string_view> &&
     requires (T s) {
-        { s.data() } -> std::same_as<char*>;
+        { s.data() } -> std::convertible_to<const char*>;
         // sstring::length() and sstring::find() return size_t instead of
         // size_type (i.e., uint32_t), so we cannot check their return type
         // with T::size_type

@@ -32,6 +32,10 @@
 using namespace seastar;
 using namespace json;
 
+static_assert(internal::is_string_like<std::string_view>);
+static_assert(internal::is_string_like<std::string>);
+static_assert(internal::is_string_like<sstring>);
+
 SEASTAR_TEST_CASE(test_simple_values) {
     BOOST_CHECK_EQUAL("3", formatter::to_json(3));
     BOOST_CHECK_EQUAL("3", formatter::to_json(3.0));
