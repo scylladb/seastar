@@ -74,6 +74,17 @@ SEASTAR_TEST_CASE(test_ranges) {
     return make_ready_future();
 }
 
+SEASTAR_TEST_CASE(test_strings) {
+    sstring s = "hello, world";
+    const char* expected = "\"hello, world\"";
+    BOOST_CHECK_EQUAL(expected, formatter::to_json(s));
+    BOOST_CHECK_EQUAL(expected, formatter::to_json(std::string(s)));
+    BOOST_CHECK_EQUAL(expected, formatter::to_json(std::string_view(s)));
+    BOOST_CHECK_EQUAL(expected, formatter::to_json(s.c_str()));
+
+    return make_ready_future();
+}
+
 struct object_json : public json_base {
     json_element<sstring> subject;
     json_list<long> values;
@@ -116,6 +127,16 @@ void formatter_check_expected(sstring expected, F f, bool close = true) {
     BOOST_CHECK_EQUAL(expected, ss.str());
 }
 
+SEASTAR_THREAD_TEST_CASE(test_stream_range_as_array_simple) {
+    sstring expected = R"(["1", "2", "3"])";
+    formatter_check_expected(expected, [] (auto& out) {
+        auto mapper = stream_range_as_array(std::vector<int>{1,2,3}, [] (auto i) {
+            return std::to_string(i);
+        });
+
+        mapper(std::move(out)).get();
+    }, false);
+}
 
 SEASTAR_THREAD_TEST_CASE(test_stream_range_as_array) {
     sstring expected = R"([{"subject":"1","values":[1]}, {"subject":"2","values":[2]}, {"subject":"3","values":[3]}])";
