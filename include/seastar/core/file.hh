@@ -149,7 +149,7 @@ public:
 
     virtual future<> flush() = 0;
     virtual future<struct stat> stat() = 0;
-    virtual future<struct stat> statat(std::string_view name, int flags = 0) = 0;
+    virtual future<struct stat> statat(std::string_view name, int flags = 0);
     virtual future<> truncate(uint64_t length) = 0;
     virtual future<> discard(uint64_t offset, uint64_t length) = 0;
     virtual future<int> ioctl(uint64_t cmd, void* argp) noexcept;

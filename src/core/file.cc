@@ -1509,6 +1509,10 @@ future<int> file_impl::fcntl_short(int op, uintptr_t arg) noexcept {
     return make_exception_future<int>(std::runtime_error("this file type does not support fcntl_short"));
 }
 
+future<struct stat> file_impl::statat(std::string_view name, int flags) {
+    return make_exception_future<struct stat>(std::runtime_error("this file type does not support statat"));
+}
+
 future<file> open_file_dma(std::string_view name, open_flags flags) noexcept {
     return engine().open_file_dma(name, flags, file_open_options());
 }
