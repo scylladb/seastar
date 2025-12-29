@@ -356,8 +356,6 @@ public:
 
 }
 
-#if FMT_VERSION >= 90000
 
 template <> struct fmt::formatter<seastar::reactor_backend_selector> : fmt::ostream_formatter {};
 
-#endif

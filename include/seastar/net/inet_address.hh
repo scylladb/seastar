@@ -132,7 +132,5 @@ struct hash<seastar::net::inet_address> {
 };
 }
 
-#if FMT_VERSION >= 90000
 template <> struct fmt::formatter<seastar::net::inet_address> : fmt::ostream_formatter {};
 template <> struct fmt::formatter<seastar::net::inet_address::family> : fmt::ostream_formatter {};
-#endif

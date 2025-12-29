@@ -21,9 +21,7 @@
 
 #pragma once
 
-#if FMT_VERSION >= 90000
 #include <fmt/ostream.h>
-#endif
 
 #include <array>
 #include <algorithm>
@@ -99,6 +97,4 @@ ethernet_address parse_ethernet_address(std::string addr);
 
 }
 
-#if FMT_VERSION >= 90000
 template <> struct fmt::formatter<seastar::net::ethernet_address> : fmt::ostream_formatter {};
-#endif

@@ -21,9 +21,7 @@
 
 #pragma once
 
-#if FMT_VERSION >= 90000
 #include <fmt/ostream.h>
-#endif
 #if FMT_VERSION >= 100000
 #include <fmt/std.h>
 #endif
@@ -439,9 +437,7 @@ struct tuple_element<I, seastar::rpc::tuple<T...>> : tuple_element<I, tuple<T...
 
 }
 
-#if FMT_VERSION >= 90000
 template <> struct fmt::formatter<seastar::rpc::connection_id> : fmt::ostream_formatter {};
-#endif
 
 #if FMT_VERSION < 100000
 // fmt v10 introduced formatter for std::exception

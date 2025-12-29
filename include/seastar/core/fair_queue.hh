@@ -308,6 +308,4 @@ public:
 
 }
 
-#if FMT_VERSION >= 90000
 template <> struct fmt::formatter<seastar::fair_queue_ticket> : fmt::ostream_formatter {};
-#endif

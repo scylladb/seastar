@@ -15,9 +15,7 @@
 #include <boost/range/numeric.hpp>
 #include <fmt/ostream.h>
 
-#if FMT_VERSION >= 90000
 template <> struct fmt::formatter<seastar::rpc::streaming_domain_type> : fmt::ostream_formatter {};
-#endif
 
 namespace seastar {
 
