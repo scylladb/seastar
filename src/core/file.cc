@@ -1051,10 +1051,11 @@ xfs_concurrency_from_kernel_version() {
     return 0;
 }
 
+namespace {
+
 // Query DIO memory alignment using statx (kernel 6.1+)
 // Returns the optimal memory buffer alignment for this file descriptor,
 // or std::nullopt if statx doesn't support STATX_DIOALIGN
-static
 std::optional<size_t>
 query_statx_mem_align(int fd) {
 #ifndef SEASTAR_STATX_NEEDS_DIO_FIELDS
@@ -1080,7 +1081,7 @@ struct device_alignment_info {
     std::optional<unsigned> physical_block_size;   // from io_queue override
 };
 
-static device_alignment_info query_device_alignment_info(int fd, dev_t device_id) {
+device_alignment_info query_device_alignment_info(int fd, dev_t device_id) {
     device_alignment_info info;
 
     // Query statx for DIO memory alignment (kernel 6.1+)
@@ -1096,7 +1097,7 @@ static device_alignment_info query_device_alignment_info(int fd, dev_t device_id
 }
 
 // Unified function for all filesystem alignment calculations
-static internal::alignments filesystem_alignments(
+internal::alignments filesystem_alignments(
     int fd,
     dev_t device_id,
     unsigned block_size,
@@ -1137,7 +1138,6 @@ static internal::alignments filesystem_alignments(
 }
 
 // Query block device alignment properties using ioctl and statx
-static
 internal::alignments
 blkdev_alignments(int fd, dev_t device_id) {
     // Query logical block size (smallest addressable unit from hardware)
@@ -1177,6 +1177,8 @@ blkdev_alignments(int fd, dev_t device_id) {
         .disk_overwrite = static_cast<unsigned>(physical_block_size),
     };
 }
+
+} // anonymous namespace
 
 future<shared_ptr<file_impl>>
 make_file_impl(int fd, file_open_options options, int flags, struct stat st) noexcept {
