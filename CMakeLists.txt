@@ -387,7 +387,7 @@ find_package (Valgrind REQUIRED)
 
 cmake_dependent_option (Seastar_LOGGER_COMPILE_TIME_FMT
   "Enable the compile-time {fmt} check when formatting logging messages" ON
-  "fmt_VERSION VERSION_GREATER_EQUAL 8.0.0" OFF)
+  "fmt_VERSION VERSION_GREATER_EQUAL 9.0.0" OFF)
 
 #
 # Code generation helpers.

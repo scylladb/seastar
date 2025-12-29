@@ -192,12 +192,10 @@ merge(numa_layout one, numa_layout two) {
 
 #ifndef SEASTAR_DEFAULT_ALLOCATOR
 
-#if FMT_VERSION >= 90000
 namespace seastar::memory {
 struct human_readable_value;
 }
 template <> struct fmt::formatter<struct seastar::memory::human_readable_value> : fmt::ostream_formatter {};
-#endif
 
 namespace seastar {
 

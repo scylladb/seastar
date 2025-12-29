@@ -874,7 +874,6 @@ struct fmt::range_format_kind<seastar::basic_sstring<char_type, Size, max_size, 
 
 #endif
 
-#if FMT_VERSION >= 90000
 
 // Due to https://github.com/llvm/llvm-project/issues/68849, we inherit
 // from formatter<string_view> publicly rather than privately
@@ -890,4 +889,3 @@ struct fmt::formatter<seastar::basic_sstring<char_type, Size, max_size, NulTermi
     }
 };
 
-#endif

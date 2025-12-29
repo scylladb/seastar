@@ -85,9 +85,7 @@ std::ostream& operator<<(std::ostream& os, const opt_family& f) {
 typedef struct ares_channeldata ares_channel_t;
 #endif
 
-#if FMT_VERSION >= 90000
 template <> struct fmt::formatter<seastar::net::opt_family> : fmt::ostream_formatter {};
-#endif
 
 #include <seastar/util/log.hh>
 
