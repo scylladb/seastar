@@ -1155,16 +1155,14 @@ blkdev_alignments(int fd, dev_t device_id) {
         throw std::system_error(errno, std::system_category(), "ioctl(BLKPBSZGET) failed");
     }
 
-    // Check for physical_block_size override from io_properties.yaml
-    // This is needed because some devices lie about their physical block size
-    auto& io_queue = engine().get_io_queue(device_id);
-    if (auto override_pbs = io_queue.physical_block_size()) {
-        physical_block_size = *override_pbs;
-    }
+    // Query device alignment info (statx memory alignment and physical_block_size override)
+    auto device_info = query_device_alignment_info(fd, device_id);
 
-    // Query DIO memory alignment using statx (kernel 6.1+)
-    // This gives us the actual DMA buffer alignment requirement (typically 4 bytes for NVMe)
-    auto mem_align = query_statx_mem_align(fd);
+    // Apply physical_block_size override from io_properties.yaml if present
+    // This is needed because some devices lie about their physical block size
+    if (device_info.physical_block_size) {
+        physical_block_size = *device_info.physical_block_size;
+    }
 
     // For writes: use physical_block_size to avoid hardware-level read-modify-write
     // - physical_block_size: smallest unit a physical storage device can write atomically (e.g., 4096 bytes for Advanced Format disks)
@@ -1173,7 +1171,7 @@ blkdev_alignments(int fd, dev_t device_id) {
     // The Linux kernel only enforces logical_block_size alignment for O_DIRECT (see block/fops.c:blkdev_dio_invalid).
     // Using physical_block_size avoids RMW at the hardware level.
     return {
-        .memory = std::max(static_cast<unsigned>(mem_align.value_or(physical_block_size)), internal::min_memory_alignment),
+        .memory = std::max(static_cast<unsigned>(device_info.memory_alignment.value_or(physical_block_size)), internal::min_memory_alignment),
         .disk_read = static_cast<unsigned>(logical_block_size),  // For reads: use logical_block_size (no performance penalty for reading 512-byte blocks from 4K sector disks)
         .disk_write = static_cast<unsigned>(physical_block_size),
         .disk_overwrite = static_cast<unsigned>(physical_block_size),
