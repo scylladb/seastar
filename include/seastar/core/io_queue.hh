@@ -155,6 +155,7 @@ private:
 
     const std::chrono::milliseconds _stall_threshold_min;
     std::chrono::milliseconds _stall_threshold;
+    std::optional<uint32_t> _physical_block_size;
 
     void update_flow_ratio() noexcept;
     void lower_stall_threshold() noexcept;
@@ -190,6 +191,7 @@ public:
         double flow_ratio_backpressure_threshold = 1.1;
         std::chrono::milliseconds stall_threshold = std::chrono::milliseconds(100);
         std::chrono::microseconds tau = std::chrono::milliseconds(5);
+        std::optional<uint32_t> physical_block_size; // Override for disks that lie about their physical block size
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);
@@ -229,6 +231,7 @@ public:
 
     request_limits get_request_limits() const noexcept;
     const config& get_config() const noexcept;
+    std::optional<uint32_t> physical_block_size() const noexcept { return _physical_block_size; }
 
 private:
     static fair_queue::config make_fair_queue_config(const config& cfg, sstring label);

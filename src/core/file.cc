@@ -32,6 +32,14 @@
 
 #define __user /* empty */  // for xfs includes, below
 
+// Define STATX_DIOALIGN and related fields if not available from system headers (Linux < 6.1)
+#ifndef STATX_DIOALIGN
+#define STATX_DIOALIGN 0x00002000U
+// Check if struct statx has the stx_dio_mem_align field (added in Linux 6.1)
+// We need to extend the structure for older kernels/headers
+#define SEASTAR_STATX_NEEDS_DIO_FIELDS 1
+#endif
+
 #include <sys/syscall.h>
 #include <dirent.h>
 #include <linux/types.h> // for xfs, below
@@ -79,6 +87,13 @@ struct alignments {
     unsigned disk_write;
     unsigned disk_overwrite;
 };
+
+// Minimum memory alignment required by posix_memalign
+// Must be power of 2 and multiple of sizeof(void*) (8 bytes on 64-bit, 4 on 32-bit)
+// Since Linux 6.1, O_DIRECT buffer addresses can use DMA alignment (as low as 4 bytes for NVMe)
+// instead of logical block size (typically 512 bytes), but we must satisfy posix_memalign's
+// requirement which is stricter on 64-bit systems (sizeof(void*) = 8 > 4)
+static constexpr unsigned min_memory_alignment = sizeof(void*);
 
 struct fs_info {
     uint32_t block_size;
@@ -1036,32 +1051,148 @@ xfs_concurrency_from_kernel_version() {
     return 0;
 }
 
-static internal::alignments xfs_alignments(const dioattr& da, unsigned block_size) {
-    static bool xfs_with_relaxed_overwrite_alignment = internal::kernel_uname().whitelisted({"5.12"});
-    internal::alignments ret;
-    ret.memory = da.d_mem;
-    ret.disk_read = da.d_miniosz;
-    // xfs wants at least the block size for writes
-    // FIXME: really read the block size
-    ret.disk_write = std::max<unsigned>(da.d_miniosz, block_size);
-    ret.disk_overwrite = xfs_with_relaxed_overwrite_alignment ? da.d_miniosz : ret.disk_write;
-    return ret;
+// Query DIO memory alignment using statx (kernel 6.1+)
+// Returns the optimal memory buffer alignment for this file descriptor,
+// or std::nullopt if statx doesn't support STATX_DIOALIGN
+static
+std::optional<size_t>
+query_statx_mem_align(int fd) {
+#ifndef SEASTAR_STATX_NEEDS_DIO_FIELDS
+    // Only call statx if we have the required struct fields
+    struct statx stx;
+    if (syscall(__NR_statx, fd, "", AT_EMPTY_PATH, STATX_DIOALIGN, &stx) == 0) {
+        if (stx.stx_mask & STATX_DIOALIGN) {
+            // Use kernel-reported memory alignment (stx_dio_mem_align)
+            // Field is available in Linux 6.1+ headers
+            return stx.stx_dio_mem_align;
+        }
+    }
+#else
+    // Headers don't have the stx_dio_mem_align field, so we can't use it
+    // even if the kernel supports it. We'll rely on other fallbacks.
+#endif
+    return std::nullopt;
+}
+
+// Query device-level alignment properties (common to all filesystems)
+struct device_alignment_info {
+    std::optional<unsigned> memory_alignment;      // from statx
+    std::optional<unsigned> physical_block_size;   // from io_queue override
+};
+
+static device_alignment_info query_device_alignment_info(int fd, dev_t device_id) {
+    device_alignment_info info;
+
+    // Query statx for DIO memory alignment (kernel 6.1+)
+    info.memory_alignment = query_statx_mem_align(fd);
+
+    // Check for physical_block_size override from io_properties.yaml
+    // Note: I/O queues may not be registered for all devices (e.g., tmpfs, test environments)
+    if (auto* io_queue = engine().try_get_io_queue(device_id)) {
+        info.physical_block_size = io_queue->physical_block_size();
+    }
+
+    return info;
+}
+
+// Unified function for all filesystem alignment calculations
+static internal::alignments filesystem_alignments(
+    int fd,
+    dev_t device_id,
+    unsigned block_size,
+    unsigned long fs_type  // from statfs.f_type
+) {
+    auto device_info = query_device_alignment_info(fd, device_id);
+
+    // Initialize with generic defaults for all filesystems
+    internal::alignments align = {
+        .memory = std::max(device_info.memory_alignment.value_or(4096), internal::min_memory_alignment),
+        .disk_read = 512,  // Linux O_DIRECT minimum
+        .disk_write = block_size,
+        .disk_overwrite = block_size,
+    };
+
+    // Override with filesystem-specific alignments if available
+    if (fs_type == internal::fs_magic::xfs) {
+        dioattr da;
+        if (::ioctl(fd, XFS_IOC_DIOINFO, &da) == 0) {
+            static bool xfs_with_relaxed_overwrite_alignment = internal::kernel_uname().whitelisted({"5.12"});
+
+            // Override with XFS-specific values
+            align.memory = std::max(device_info.memory_alignment.value_or(da.d_mem), internal::min_memory_alignment);
+            align.disk_read = da.d_miniosz;
+            align.disk_write = std::max<unsigned>(da.d_miniosz, block_size);
+            align.disk_overwrite = xfs_with_relaxed_overwrite_alignment ? da.d_miniosz : align.disk_write;
+        }
+    }
+
+    // Common: apply physical_block_size override for all filesystems
+    // This ensures we avoid hardware read-modify-write regardless of filesystem
+    if (device_info.physical_block_size) {
+        align.disk_write = std::max<unsigned>(align.disk_write, *device_info.physical_block_size);
+        align.disk_overwrite = std::max<unsigned>(align.disk_overwrite, *device_info.physical_block_size);
+    }
+
+    return align;
+}
+
+// Query block device alignment properties using ioctl and statx
+static
+internal::alignments
+blkdev_alignments(int fd, dev_t device_id) {
+    // Query logical block size (smallest addressable unit from hardware)
+    // Use BLKSSZGET (not BLKBSZGET) - BLKBSZGET returns the filesystem's
+    // buffered I/O block size, while BLKSSZGET returns the actual hardware
+    // sector size that the kernel enforces for O_DIRECT alignment
+    size_t logical_block_size;
+    if (auto ret = ::ioctl(fd, BLKSSZGET, &logical_block_size); ret == -1) {
+        throw std::system_error(errno, std::system_category(), "ioctl(BLKSSZGET) failed");
+    }
+
+    // Query physical block size (smallest atomic write unit)
+    size_t physical_block_size;
+    if (auto ret = ::ioctl(fd, BLKPBSZGET, &physical_block_size); ret == -1) {
+        throw std::system_error(errno, std::system_category(), "ioctl(BLKPBSZGET) failed");
+    }
+
+    // Check for physical_block_size override from io_properties.yaml
+    // This is needed because some devices lie about their physical block size
+    auto& io_queue = engine().get_io_queue(device_id);
+    if (auto override_pbs = io_queue.physical_block_size()) {
+        physical_block_size = *override_pbs;
+    }
+
+    // Query DIO memory alignment using statx (kernel 6.1+)
+    // This gives us the actual DMA buffer alignment requirement (typically 4 bytes for NVMe)
+    auto mem_align = query_statx_mem_align(fd);
+
+    // For writes: use physical_block_size to avoid hardware-level read-modify-write
+    // - physical_block_size: smallest unit a physical storage device can write atomically (e.g., 4096 bytes for Advanced Format disks)
+    // - logical_block_size: smallest unit the storage device can address (typically 512 bytes)
+    //
+    // The Linux kernel only enforces logical_block_size alignment for O_DIRECT (see block/fops.c:blkdev_dio_invalid).
+    // Using physical_block_size avoids RMW at the hardware level.
+    return {
+        .memory = std::max(static_cast<unsigned>(mem_align.value_or(physical_block_size)), internal::min_memory_alignment),
+        .disk_read = static_cast<unsigned>(logical_block_size),  // For reads: use logical_block_size (no performance penalty for reading 512-byte blocks from 4K sector disks)
+        .disk_write = static_cast<unsigned>(physical_block_size),
+        .disk_overwrite = static_cast<unsigned>(physical_block_size),
+    };
 }
 
 future<shared_ptr<file_impl>>
 make_file_impl(int fd, file_open_options options, int flags, struct stat st) noexcept {
     if (S_ISBLK(st.st_mode)) {
-        size_t block_size;
-        auto ret = ::ioctl(fd, BLKBSZGET, &block_size);
-        if (ret == -1) {
-            return make_exception_future<shared_ptr<file_impl>>(
-                    std::system_error(errno, std::system_category(), "ioctl(BLKBSZGET) failed"));
+        try {
+            auto align = blkdev_alignments(fd, st.st_rdev);
+            internal::fs_info fsi;
+            fsi.block_size = align.disk_read; // use logical_block_size for block_size
+            fsi.nowait_works = blockdev_nowait_works(st.st_rdev);
+            fsi.align = align;
+            return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, fsi, st.st_rdev));
+        } catch (...) {
+            return make_exception_future<shared_ptr<file_impl>>(std::current_exception());
         }
-        internal::fs_info fsi;
-        fsi.block_size = block_size;
-        fsi.nowait_works = blockdev_nowait_works(st.st_dev);
-        fsi.align = internal::alignments { fsi.block_size, fsi.block_size, fsi.block_size, fsi.block_size };
-        return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, fsi, st.st_rdev));
     }
 
     if (S_ISDIR(st.st_mode)) {
@@ -1083,11 +1214,6 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st) noe
             fsi.block_size = sfs.f_bsize;
             switch (sfs.f_type) {
             case internal::fs_magic::xfs:
-                dioattr da;
-                if (::ioctl(fd, XFS_IOC_DIOINFO, &da) == 0) {
-                    fsi.align = xfs_alignments(da, fsi.block_size);
-                }
-
                 fsi.append_challenged = true;
                 static auto xc = xfs_concurrency_from_kernel_version();
                 fsi.append_concurrency = xc;
@@ -1126,6 +1252,7 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st) noe
                 fsi.nowait_works = false;
             }
             fsi.nowait_works &= engine()._cfg.aio_nowait_works;
+            fsi.align = filesystem_alignments(fd, st.st_dev, fsi.block_size, sfs.f_type);
             s_fstype.insert(std::make_pair(st.st_dev, std::move(fsi)));
             return make_file_impl(fd, std::move(options), flags, std::move(st));
         });

@@ -26,6 +26,7 @@
 #include <optional>
 #include <random>
 #include <memory>
+#include <map>
 #include <ranges>
 #include <vector>
 #include <cmath>
@@ -106,6 +107,7 @@ struct evaluation_directory {
     uint64_t _available_space;
     uint64_t _min_data_transfer_size = 512;
     unsigned _disks_per_array = 0;
+    std::optional<uint64_t> _reported_physical_block_size;
 
     void scan_device(unsigned dev_maj, unsigned dev_min) {
         scan_device(fmt::format("{}:{}", dev_maj, dev_min));
@@ -140,6 +142,15 @@ struct evaluation_directory {
 
                 _min_data_transfer_size = std::max(_min_data_transfer_size, disk_min_io_size);
                 _max_iodepth += read_first_line_as<uint64_t>(queue_dir / "nr_requests");
+
+                // Read physical_block_size from sysfs for comparison with detected value
+                if (!_reported_physical_block_size) {
+                    auto pbs_file = queue_dir / "physical_block_size";
+                    if (fs::exists(pbs_file)) {
+                        _reported_physical_block_size = read_first_line_as<uint64_t>(pbs_file);
+                    }
+                }
+
                 _disks_per_array++;
             }
         } catch (std::system_error& se) {
@@ -176,6 +187,10 @@ public:
 
     uint64_t minimum_io_size() const {
         return _min_data_transfer_size;
+    }
+
+    std::optional<uint64_t> reported_physical_block_size() const {
+        return _reported_physical_block_size;
     }
 
     future<> discover_directory() {
@@ -674,6 +689,88 @@ public:
         return saturate(rate_threshold, buffer_size, duration, &test_file::read_workload);
     }
 
+    // Detect physical block size by testing write performance at different alignments.
+    // Returns the smallest alignment where write performance is good (no RMW penalty).
+    // Tests alignments from 512 bytes up to 8192 bytes.
+    //
+    // The detection works by measuring write IOPS at each alignment. If writes smaller
+    // than the physical block size are issued, the disk must perform read-modify-write
+    // (RMW) operations, which reduces IOPS. Once we reach the physical block size,
+    // IOPS should plateau as larger alignments don't provide additional benefit.
+    future<uint64_t> detect_physical_block_size(std::chrono::duration<double> duration, std::optional<uint64_t> reported_pbs = std::nullopt) {
+        // Test alignments: 512, 1024, 2048, 4096, 8192
+        // This covers most common physical block sizes
+        std::vector<uint64_t> test_alignments = {512, 1024, 2048, 4096, 8192};
+        std::map<uint64_t, float> alignment_to_iops;
+
+        iotune_logger.info("Detecting physical block size by testing write performance at different alignments");
+
+        for (auto alignment : test_alignments) {
+            // Perform a short write test at this alignment (5% of total test duration)
+            auto rates = co_await write_random_data(alignment, duration * 0.05);
+            alignment_to_iops[alignment] = rates.iops;
+
+            iotune_logger.info("Alignment {} bytes: {} IOPS", alignment, uint64_t(rates.iops));
+
+            // Clear rates after each test
+            co_await sharded_rates.invoke_on_all([] (std::vector<unsigned>& rates) {
+                rates.clear();
+                return make_ready_future<>();
+            });
+        }
+
+        // Find the smallest alignment where performance plateaus.
+        // We look for the point where increasing alignment doesn't significantly improve IOPS.
+        // This indicates we've reached or exceeded the physical block size.
+        //
+        // Algorithm: Find the first alignment where the next larger alignment doesn't
+        // improve IOPS by more than 5%. This is the physical block size.
+        uint64_t detected_size = test_alignments.back(); // Default to largest if no plateau found
+        float max_iops = 0;
+
+        for (size_t i = 0; i < test_alignments.size() - 1; ++i) {
+            auto current_alignment = test_alignments[i];
+            auto next_alignment = test_alignments[i + 1];
+            auto current_iops = alignment_to_iops[current_alignment];
+            auto next_iops = alignment_to_iops[next_alignment];
+
+            max_iops = std::max(max_iops, current_iops);
+
+            // If the next larger alignment doesn't improve IOPS by more than 5%,
+            // we've found the physical block size
+            if (next_iops <= current_iops * 1.05) {
+                detected_size = current_alignment;
+                iotune_logger.info("Performance plateau detected at {} bytes", detected_size);
+                break;
+            }
+        }
+
+        // If we didn't find a plateau, use the alignment with the best IOPS
+        if (detected_size == test_alignments.back()) {
+            for (const auto& [alignment, iops] : alignment_to_iops) {
+                if (iops >= max_iops * 0.95) {  // Within 5% of max
+                    detected_size = std::min(detected_size, alignment);
+                }
+            }
+            iotune_logger.info("No clear plateau, using alignment with best performance: {} bytes", detected_size);
+        }
+
+        iotune_logger.info("Detected physical block size: {} bytes", detected_size);
+
+        // Compare with driver-reported value if available
+        if (reported_pbs) {
+            if (detected_size == *reported_pbs) {
+                iotune_logger.info("Detected value matches driver-reported value ({} bytes)", *reported_pbs);
+            } else {
+                iotune_logger.warn("Detected value differs from driver-reported value ({} bytes)", *reported_pbs);
+                iotune_logger.warn("The disk may be lying about its physical block size");
+                iotune_logger.warn("Using empirically detected value {} bytes to avoid write amplification", detected_size);
+            }
+        }
+
+        co_return detected_size;
+    }
+
     iotune_multi_shard_context(::evaluation_directory dir, uint64_t random_write_io_buffer_size, uint64_t random_read_io_buffer_size)
         : _test_directory(dir)
         , _random_write_io_buffer_size(random_write_io_buffer_size)
@@ -689,6 +786,7 @@ struct disk_descriptor {
     uint64_t write_bw;
     std::optional<uint64_t> read_sat_len;
     std::optional<uint64_t> write_sat_len;
+    std::optional<uint64_t> physical_block_size;
 };
 
 void string_to_file(sstring conf_file, sstring buf) {
@@ -726,6 +824,9 @@ void write_property_file(sstring conf_file, std::vector<disk_descriptor> disk_de
         }
         if (desc.write_sat_len) {
             out << YAML::Key << "write_saturation_length" << YAML::Value << *desc.write_sat_len;
+        }
+        if (desc.physical_block_size) {
+            out << YAML::Key << "physical_block_size" << YAML::Value << *desc.physical_block_size;
         }
         out << YAML::EndMap;
     }
@@ -772,6 +873,7 @@ int main(int ac, char** av) {
         ("duration", bpo::value<unsigned>()->default_value(120), "time, in seconds, for which to run the test")
         ("format", bpo::value<sstring>()->default_value("seastar"), "Configuration file format (seastar | envfile)")
         ("fs-check", bpo::bool_switch(&fs_check), "perform FS check only")
+        ("detect-physical-block-size", bpo::bool_switch(), "detect physical block size (off by default; can be slow)")
         ("accuracy", bpo::value<unsigned>()->default_value(3), "acceptable deviation of measurements (percents)")
         ("saturation", bpo::value<sstring>()->default_value(""), "measure saturation lengths (read | write | both) (this is very slow!)")
         ("random-write-io-buffer-size", bpo::value<unsigned>()->default_value(0), "force buffer size for random write")
@@ -794,6 +896,7 @@ int main(int ac, char** av) {
             auto random_read_io_buffer_size = configuration["random-read-io-buffer-size"].as<unsigned>();
             auto force_io_depth = configuration["force-io-depth"].as<unsigned>();
             auto buffer_sizes_for_best_iops = configuration["get-best-iops-with-buffer-sizes"].as<std::vector<uint64_t>>();
+            auto detect_pbs = configuration["detect-physical-block-size"].as<bool>();
             if (!buffer_sizes_for_best_iops.empty() && (random_read_io_buffer_size || random_write_io_buffer_size)) {
                 iotune_logger.error("--get-best-iops-with-buffer-sizes is set, but random-read-io-buffer-size or random-write-io-buffer-size are also set. "
                                     "The options are mutually exclusive, please unset one of them.");
@@ -971,6 +1074,20 @@ int main(int ac, char** av) {
 
                 desc.read_iops = best_read_iops.iops;
                 desc.write_iops = best_write_iops.iops;
+
+                // Optionally detect physical block size (can be slow, so off by default)
+                // Only write physical_block_size if empirically detected, not kernel-reported value.
+                // Kernel-reported value (sysfs) is the same as ioctl(BLKPBSZGET), so writing it
+                // to io_properties.yaml would just create a circular override with no benefit.
+                // The override is only useful when the disk lies and we detect the real value.
+                if (detect_pbs) {
+                    fmt::print("Detecting physical block size: ");
+                    std::cout.flush();
+                    auto detected_pbs = iotune_tests.detect_physical_block_size(duration, test_directory.reported_physical_block_size()).get();
+                    fmt::print("{} bytes\n", detected_pbs);
+                    desc.physical_block_size = detected_pbs;
+                }
+
                 disk_descriptors.push_back(std::move(desc));
             }
 
