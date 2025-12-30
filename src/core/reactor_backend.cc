@@ -22,8 +22,11 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <memory>
+#include <optional>
 #include <thread>
 #include <utility>
+#include <vector>
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/epoll.h>
@@ -49,8 +52,10 @@
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/reactor_config.hh>
 #include <seastar/core/smp.hh>
+#include <seastar/core/shard_id.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/read_first_line.hh>
+#include <seastar/core/resource.hh>
 
 namespace seastar {
 
@@ -2145,6 +2150,127 @@ try_create_asymmetric_uring(const std::variant<std::monostate, int, ::io_uring>&
     }
 }
 
+unsigned
+select_worker_cpu(seastar::shard_id shard_id, const resource::cpuset& worker_cpus) {
+    SEASTAR_ASSERT(!worker_cpus.empty());
+    const size_t selected_cpu_rank = get_uring_group_id(shard_id, worker_cpus);
+    return *std::next(worker_cpus.cbegin(), selected_cpu_rank);
+}
+
+bool is_master_shard(seastar::shard_id shard_id, const resource::cpuset& worker_cpus) noexcept {
+    return shard_id < worker_cpus.size();
+}
+
+unsigned get_uring_group_id(seastar::shard_id shard_id, const resource::cpuset& worker_cpus) noexcept {
+    return shard_id % worker_cpus.size();
+}
+
+class asymmetric_uring_reactor_backend_configurator : public reactor_backend_configurator {
+    resource::cpuset _cpu_set, _async_workers_cpuset;
+    std::vector<int> _master_uring_fds;
+
+    struct uring_groups_init_result {
+        std::optional<::io_uring> ring;
+        unsigned group_id;
+    };
+    std::vector<uring_groups_init_result> _init_data;
+
+    /// @brief If async worker CPUs are allocated and neither --smp nor --cpuset is specified, remove async worker CPUs from the main cpuset to avoid overcommitment by default.
+    /// @param reactor_opts The reactor options, used to check if overprovisioned mode is enabled.
+    /// @param smp_opts The SMP options, used to check if --smp or --cpuset is specified.
+    /// @throws std::invalid_argument if running in overprovisioned mode with async workers allocated and neither --smp nor --cpuset is specified, since this combination might be unintentional.
+    void maybe_remove_overlapping_cpus(const reactor_options& reactor_opts, const smp_options& smp_opts) {
+        if (_async_workers_cpuset.size() == 0) {
+            return;
+        }
+
+        if (smp_opts.smp || smp_opts.cpuset) {
+            // User did it explicitly, we won't mess with their choices.
+            return;
+        }
+
+        if (reactor_opts.overprovisioned) {
+            // If running in overprovisioned mode, we shouldn't remove async worker CPUs from the main cpuset, since overprovisioned mode is meant to allow running with more threads than CPUs.
+            // However, this might unintentionally lead to having async workers and multiple shards running on the same CPU. We decide not to allow this.
+            // If user would like to run in overprovisioned mode with async workers, they should explicitly specify the cpuset or smp count.
+            throw std::invalid_argument("Cannot run in overprovisioned mode when async workers are allocated and neither --smp nor --cpuset is specified");
+        }
+
+        seastar_logger.info("Removing async worker CPUs from main cpuset by default (neither --smp nor --cpuset specified)");
+        for (auto cpu_id : _async_workers_cpuset) {
+            _cpu_set.erase(cpu_id);
+        }
+    }
+
+    /// Assigns set of cpus for backends that need dedicated async workers.
+    /// Throws if async_workers_cpu_set is empty
+    void allocate_async_workers(const reactor_options& reactor_opts, const smp_options& smp_opts) {
+        if (_async_workers_cpuset.empty()) {
+            throw std::runtime_error("No CPUs specified for asymmetric_io_uring workers. Please see --async-workers-cpuset option.");
+        }
+
+        maybe_remove_overlapping_cpus(reactor_opts, smp_opts);
+    }
+
+public:
+    asymmetric_uring_reactor_backend_configurator(resource::cpuset cpu_set, const reactor_options& reactor_opts, const smp_options& smp_opts)
+        : _cpu_set(std::move(cpu_set))
+        , _async_workers_cpuset(reactor_opts.async_workers_cpuset.get_value())
+        , _master_uring_fds(_async_workers_cpuset.size(), -1)
+        , _init_data(smp_opts.smp ? smp_opts.smp.get_value() : _cpu_set.size(), uring_groups_init_result{})
+    {
+        allocate_async_workers(reactor_opts, smp_opts);
+
+        seastar_logger.debug("Backend async workers allocated: {} potential app cores [{}], {} worker cores [{}]",
+                _cpu_set.size(), fmt::join(_cpu_set, ","),
+                _async_workers_cpuset.size(), fmt::join(_async_workers_cpuset, ","));
+    }
+
+    virtual const resource::cpuset& configured_cpuset() const override {
+        return _cpu_set;
+    }
+
+    virtual void verify_allocations(const std::vector<resource::cpu>& allocations) const override {
+        std::set<unsigned> overlapping_cpus;
+        for (auto cpu : allocations) {
+            if (_async_workers_cpuset.contains(cpu.cpu_id)) {
+                overlapping_cpus.insert(cpu.cpu_id);
+            }
+        }
+
+        if (!overlapping_cpus.empty()) {
+            seastar_logger.warn("The following CPUs assigned to shards overlap with the async workers cpuset: {}."
+                                " This may lead to performance degradation. It is recommended to keep the main"
+                                " cpuset and async workers cpuset disjoint.", fmt::join(overlapping_cpus, ","));
+        }
+    }
+
+    virtual void initialize_shard_configuration(shard_id shard) override {
+        const bool is_master = is_master_shard(shard, _async_workers_cpuset);
+        const unsigned uring_group_id = get_uring_group_id(shard, _async_workers_cpuset);
+
+        if (is_master) {
+            auto created_uring = try_create_base_asymmetric_uring(select_worker_cpu(shard, _async_workers_cpuset), true).value();
+            _master_uring_fds.at(uring_group_id) = created_uring.ring_fd;
+            _init_data[shard] = {created_uring, uring_group_id};
+        } else {
+            _init_data[shard] = {std::nullopt, uring_group_id};
+        }
+    }
+
+    virtual reactor_config finalize_apply_shard_configuration(shard_id shard, reactor_config cfg) override {
+        auto& init_result = _init_data[shard];
+
+        if (init_result.ring.has_value()) { // The shard is a master.
+            cfg.asymmetric_uring = init_result.ring.value();
+        } else {
+            cfg.asymmetric_uring = _master_uring_fds.at(init_result.group_id);
+        }
+
+        return cfg;
+    }
+};
+
 } // namespace uring
 
 class reactor_backend_asymmetric_uring final : public reactor_backend_uring_base {
@@ -2254,6 +2380,30 @@ static bool detect_aio_poll() {
     return r == 1;
 }
 
+class noop_reactor_backend_configurator : public reactor_backend_configurator {
+    resource::cpuset _cpu_set;
+public:
+    noop_reactor_backend_configurator(resource::cpuset cpu_set)
+        : _cpu_set(cpu_set) {}
+
+    virtual const resource::cpuset& configured_cpuset() const override {
+        return _cpu_set;
+    }
+
+    virtual void verify_allocations(const std::vector<resource::cpu>&) const override {
+
+    }
+
+
+    virtual void initialize_shard_configuration(shard_id id) override {
+
+    }
+
+    virtual reactor_config finalize_apply_shard_configuration(shard_id id, reactor_config cfg) override {
+        return cfg;
+    }
+};
+
 bool reactor_backend_selector::has_enough_aio_nr() {
     auto aio_max_nr = read_first_line_as<unsigned>("/proc/sys/fs/aio-max-nr");
     auto aio_nr = read_first_line_as<unsigned>("/proc/sys/fs/aio-nr");
@@ -2315,4 +2465,12 @@ std::vector<reactor_backend_selector> reactor_backend_selector::available() {
     return ret;
 }
 
+std::shared_ptr<reactor_backend_configurator> reactor_backend_selector::configurator(resource::cpuset cpu_set, const reactor_options& reactor_opts, const smp_options& smp_opts) const {
+#ifdef SEASTAR_HAVE_URING
+    if (name() == "asymmetric_io_uring") {
+        return std::make_shared<uring::asymmetric_uring_reactor_backend_configurator>(cpu_set, reactor_opts, smp_opts);
+    }
+#endif
+    return std::make_shared<noop_reactor_backend_configurator>(cpu_set);
+}
 }
