@@ -28,13 +28,20 @@
 #include <seastar/core/internal/poll.hh>
 #include <seastar/core/internal/linux-aio.hh>
 #include <seastar/core/cacheline.hh>
+#include <seastar/core/reactor_config.hh>
+#include <seastar/core/smp_options.hh>
 #include <seastar/util/bool_class.hh>
+#include <seastar/core/shard_id.hh>
+#include <seastar/core/resource.hh>
 
 #include <fmt/ostream.h>
 #include <sys/time.h>
 #include <bitset>
 #include <thread>
 #include <stack>
+#include <memory>
+#include <vector>
+#include <optional>
 #include <boost/any.hpp>
 #include <boost/program_options.hpp>
 #include <boost/container/static_vector.hpp>
@@ -51,7 +58,6 @@
 namespace seastar {
 
 class reactor;
-
 // FIXME: merge it with storage context below. At this point the
 // main thing to do is unify the iocb list
 struct aio_general_context {
@@ -375,6 +381,7 @@ public:
 
 class reactor_backend_uring;
 class reactor_backend_asymmetric_uring;
+class reactor_backend_configurator;
 
 class reactor_backend_selector {
     std::string _name;
@@ -389,6 +396,16 @@ public:
     friend std::ostream& operator<<(std::ostream& os, const reactor_backend_selector& rbs) {
         return os << rbs._name;
     }
+    std::shared_ptr<reactor_backend_configurator> configurator(resource::cpuset cpu_set, const reactor_options& reactor_opts, const smp_options& smp_opts) const;
+};
+
+class reactor_backend_configurator {
+public:
+    virtual const resource::cpuset& configured_cpuset() const = 0;
+    virtual void verify_allocations(const std::vector<resource::cpu>& allocations) const = 0;
+    virtual void initialize_shard_configuration(shard_id id) = 0;
+    virtual reactor_config finalize_apply_shard_configuration(shard_id id, reactor_config cfg) = 0;
+    virtual ~reactor_backend_configurator() = default;
 };
 
 #ifdef SEASTAR_HAVE_URING
@@ -402,6 +419,12 @@ try_create_attached_asymmetric_uring(int uring_fd, bool throw_on_error);
 
 std::optional<::io_uring>
 try_create_base_asymmetric_uring(unsigned worker_cpu, bool throw_on_error);
+
+unsigned select_worker_cpu(seastar::shard_id shard_id, const resource::cpuset& worker_cpus);
+
+bool is_master_shard(seastar::shard_id shard_id, const resource::cpuset& worker_cpus) noexcept;
+
+unsigned get_uring_group_id(seastar::shard_id shard_id, const resource::cpuset& worker_cpus) noexcept;
 
 // QUEUE_LEN is more or less arbitrary. Too low and we'll be
 // issuing too small batches, too high and we require too much locked

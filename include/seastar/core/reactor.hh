@@ -109,6 +109,11 @@ class smp;
 
 class reactor_backend_selector;
 
+struct async_worker_allocation {
+    resource::cpuset async_workers_cpuset;
+    resource::cpuset reactor_cpuset;
+};
+
 class reactor_backend;
 struct pollfn;
 
