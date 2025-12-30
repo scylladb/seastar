@@ -541,6 +541,11 @@ SEASTAR_TEST_CASE(test_dir_statat_method) {
         auto st = dir.statat(linkname).get();
         BOOST_REQUIRE_EQUAL(st.st_ino, file_st.st_ino);
 
+        // Test non-existing file resolving into exception
+        BOOST_REQUIRE_EXCEPTION(dir.statat("no-such-file").get(), std::system_error, [] (auto& ex) {
+            return ex.code() == std::error_code(ENOENT, std::system_category());
+        });
+
         umask(orig_umask);
     });
 }
