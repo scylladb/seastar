@@ -653,7 +653,16 @@ class NetPerfTuner(PerfTunerBase):
                 perftune_print("Setting a physical interface {}...".format(nic))
                 self.__setup_one_hw_iface(nic)
             else:
-                perftune_print(f"Setting a {nic} {'bond' if self.nic_is_bond_iface(nic) else 'VLAN'} interface...")
+                if self.nic_is_bond_iface(nic):
+                    type_str = 'bond'
+                elif self.nic_is_vlan_iface(nic):
+                    type_str = 'VLAN'
+                elif self.nic_has_slaves(nic):
+                    type_str = 'has_slaves'
+                else:
+                    raise Exception(f"Unknown interface type: {nic}")
+
+                perftune_print(f"Setting a {nic} {type_str} interface...")
                 self.__setup_composite_iface(nic)
 
         # Increase the socket listen() backlog
@@ -680,14 +689,17 @@ class NetPerfTuner(PerfTunerBase):
     def nic_is_vlan_iface(self, nic):
         return self.__nic_is_vlan_iface.get(nic, False)
 
+    def nic_has_slaves(self, nic):
+        return bool(glob.glob(f"/sys/class/net/{nic}/lower_*"))
+
     def nic_is_composite_iface(self, nic):
-        return self.nic_is_bond_iface(nic) or self.nic_is_vlan_iface(nic)
+        return self.nic_is_bond_iface(nic) or self.nic_is_vlan_iface(nic) or self.nic_has_slaves(nic)
 
     def nic_exists(self, nic):
         return self.__iface_exists(nic)
 
     def nic_is_hw_iface(self, nic):
-        return self.__dev_is_hw_iface(nic)
+        return self.__dev_is_hw_iface(nic) and not self.nic_has_slaves(nic)
 
     def slaves(self, nic):
         """
@@ -837,7 +849,7 @@ class NetPerfTuner(PerfTunerBase):
         if self.nic_is_bond_iface(nic):
             top_slaves_list = set(itertools.chain.from_iterable(
                 [line.split() for line in open("/sys/class/net/{}/bonding/slaves".format(nic), 'r').readlines()]))
-        elif self.nic_is_vlan_iface(nic):
+        elif self.nic_is_vlan_iface(nic) or self.nic_has_slaves(nic):
             # VLAN interfaces have a symbolic link 'lower_<parent_interface_name>' under
             # /sys/class/net/<VLAN interface name>.
             #
