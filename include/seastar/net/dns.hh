@@ -55,6 +55,7 @@ struct hostent {
     std::vector<sstring> names;
     // Primary address is also always first.
     std::vector<inet_address> addr_list;
+    std::vector<unsigned int> addr_ttls;
 };
 
 typedef std::optional<inet_address::family> opt_family;

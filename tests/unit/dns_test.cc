@@ -41,6 +41,10 @@ static future<> test_resolve(dns_resolver::options opts) {
 
     for (auto hostname : {"seastar.io", "scylladb.com", "kernel.org", "www.google.com"}) {
         hostent e = co_await d.get_host_by_name(hostname, inet_address::family::INET);
+        for (auto ttl: e.addr_ttls) {
+            BOOST_REQUIRE(ttl > 0);
+        }
+
         hostent a;
         try {
             a = co_await d.get_host_by_addr(e.addr_list.front());
