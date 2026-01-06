@@ -25,6 +25,7 @@ module;
 module seastar;
 #else
 #include <seastar/http/json_path.hh>
+#include <seastar/http/parameter_metadata.hh>
 #endif
 
 namespace seastar {
@@ -33,9 +34,22 @@ namespace httpd {
 
 using namespace std;
 
+path_description* path_description::with_param_metadata(parameter_metadata metadata) const {
+    if (!_param_metadata) {
+        _param_metadata = std::make_unique<parameter_metadata_registry>();
+    }
+    _param_metadata->register_parameter(std::move(metadata));
+    return const_cast<path_description*>(this);
+}
+
 void path_description::set(routes& _routes, handler_base* handler) const {
     for (auto& i : mandatory_queryparams) {
         handler->mandatory(i);
+    }
+
+    // Set parameter metadata if available
+    if (_param_metadata) {
+        handler->set_parameter_metadata(_param_metadata.get());
     }
 
     if (params.size() == 0)
@@ -100,6 +114,8 @@ path_description::path_description(const sstring& path, operation_type method,
     }
 }
 
-}
+path_description::~path_description() = default;
 
-}
+} // namespace httpd
+
+} // namespace seastar
