@@ -11,6 +11,14 @@ jobs:
     payload: # number of bytes in the payload for write verb, accepts kB suffix
     sleep_time: # optional inactivity pause between sending messages
     timeout: # optional rpc send timeout duration
+  - name: # any parseable string
+    type: rpc_streaming
+    verb: # string: bidirectional
+           # - bidirectional: client sends payload_t, server responds asynchronously with received data
+    parallelism: # number of streaming workers to run simultaneously
+    shares: # sched group shares (100 by default)
+    payload: # number of bytes in the payload sent from client to server, accepts kB suffix
+    sleep_time: # optional inactivity pause between sending messages
   - name:
     type: cpu
     execution_time: # time in [0-9]+[mun]?s format

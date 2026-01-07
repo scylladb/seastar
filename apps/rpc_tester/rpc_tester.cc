@@ -42,6 +42,7 @@
 #include <seastar/core/sharded.hh>
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/sleep.hh>
+#include <seastar/coroutine/as_future.hh>
 #include <seastar/rpc/rpc.hh>
 #include <seastar/util/assert.hh>
 
@@ -237,14 +238,15 @@ struct convert<job_config> {
         cfg.name = node["name"].as<std::string>();
         cfg.type = node["type"].as<std::string>();
         cfg.parallelism = node["parallelism"].as<unsigned>();
-        if (cfg.type == "rpc") {
+        if (cfg.type == "rpc" || cfg.type == "rpc_streaming") {
             cfg.verb = node["verb"].as<std::string>();
             cfg.payload = node["payload"].as<byte_size>().size;
             cfg.client = true;
             if (node["sleep_time"]) {
                 cfg.sleep_time = node["sleep_time"].as<duration_time>().time;
             }
-            if (node["timeout"]) {
+
+            if (cfg.type == "rpc" && node["timeout"]) {
                 cfg.timeout = node["timeout"].as<duration_time>().time;
             }
         } else if (cfg.type == "cpu") {
@@ -352,6 +354,7 @@ enum class rpc_verb : int32_t {
     BYE = 1,
     ECHO = 2,
     WRITE = 3,
+    STREAM_BIDIRECTIONAL = 4,
 };
 
 using rpc_protocol = rpc::protocol<serializer, rpc_verb>;
@@ -474,6 +477,167 @@ public:
     }
 };
 
+class job_rpc_streaming : public job {
+    job_config _cfg;
+    socket_address _caddr;
+    client_config _ccfg;
+    rpc_protocol& _rpc;
+    std::unique_ptr<rpc_protocol::client> _client;
+    std::function<future<>(unsigned, const payload_t&)> _call;
+    std::chrono::steady_clock::time_point _stop;
+    uint64_t _total_messages = 0;
+    uint64_t _payload_size_bytes = 0;
+    std::chrono::steady_clock::time_point _start_time{};
+    std::chrono::duration<double> _total_duration{0.0};
+    payload_t _payload;
+
+public:
+    job_rpc_streaming(job_config cfg, rpc_protocol& rpc, client_config ccfg, socket_address caddr)
+            : _cfg(cfg)
+            , _caddr(std::move(caddr))
+            , _ccfg(ccfg)
+            , _rpc(rpc)
+            , _stop(std::chrono::steady_clock::now() + _cfg.duration)
+            , _payload_size_bytes(_cfg.payload)
+            , _payload(_cfg.payload / sizeof(payload_t::value_type), 0) {
+        if (_cfg.verb == "bidirectional") {
+            _call = [this] (unsigned worker_id, const payload_t& payload) {
+                return run_streaming_worker(worker_id, payload, rpc_verb::STREAM_BIDIRECTIONAL);
+            };
+        } else {
+            throw std::runtime_error("unknown verb, should be 'bidirectional' or 'unidirectional'");
+        }
+    }
+
+    virtual std::string name() const override { return _cfg.name; }
+
+private:
+    future<> stream_data(rpc::sink<payload_t> sink, const payload_t& payload) {
+        std::exception_ptr error;
+        try {
+            // Send data through the sink until stop time
+            while (std::chrono::steady_clock::now() <= _stop) {
+                ++_total_messages;
+                co_await sink(payload);
+                if (_cfg.sleep_time) {
+                    co_await seastar::sleep(std::chrono::duration_cast<std::chrono::nanoseconds>(*_cfg.sleep_time));
+                }
+            }
+        } catch (...) {
+            error = std::current_exception();
+        }
+
+        auto flush_future = co_await coroutine::as_future(sink.flush());
+        if (flush_future.failed() && !error) [[unlikely]] {
+            error = flush_future.get_exception();
+        }
+        co_await sink.close();
+
+        if (error) {
+            std::rethrow_exception(error);
+        }
+    }
+
+    // Streaming worker: 
+    // - client sends payload_t
+    // - in bidirectional case: server echoes back payload_t
+    future<> run_streaming_worker(unsigned worker_id, const payload_t& payload, enum rpc_verb verb) {
+        auto sink = co_await _client->make_stream_sink<serializer, payload_t>();
+
+        auto rpc_call = _rpc.make_client<rpc::source<payload_t>(rpc::sink<payload_t>)>(verb);
+        auto source = co_await rpc_call(*_client, sink);
+
+        auto sender = stream_data(std::move(sink), payload);
+
+        auto receiver = repeat([src = std::move(source)] () mutable {
+            return src().then([] (std::optional<std::tuple<payload_t>> data) {
+                if (!data) {
+                    // EOS from server
+                    return stop_iteration::yes;
+                }
+                return stop_iteration::no;
+            });
+        });
+
+        co_await when_all(std::move(sender), std::move(receiver));
+    }
+
+    future<> run_worker_with_delay(unsigned worker_id, const payload_t& payload) {
+        if (_cfg.sleep_time) {
+            auto delay = std::chrono::duration_cast<std::chrono::nanoseconds>(*_cfg.sleep_time / _cfg.parallelism * worker_id);
+            co_await seastar::sleep(delay);
+        }
+        co_await _call(worker_id, payload);
+    }
+
+public:
+    virtual future<> run() override {
+        return with_scheduling_group(_cfg.sg, [this] {
+            rpc::client_options co;
+            co.tcp_nodelay = _ccfg.nodelay;
+            co.isolation_cookie = _cfg.sg_name;
+            _client = std::make_unique<rpc_protocol::client>(_rpc, co, _caddr);
+            _start_time = std::chrono::steady_clock::now();
+
+            return parallel_for_each(std::views::iota(0u, _cfg.parallelism), [this] (unsigned worker_id) {
+                return run_worker_with_delay(worker_id, _payload);
+            }).finally([this] {
+                _total_duration = std::chrono::steady_clock::now() - _start_time;
+                return _client->stop();
+            });
+        });
+    }
+
+    virtual void emit_result(YAML::Emitter& out) const override {
+        out << YAML::Key << "messages" << YAML::Value << _total_messages;
+
+        auto total_bytes = _total_messages * _payload_size_bytes;
+        if (_total_duration.count() > 0) {
+            double throughput = total_bytes / _total_duration.count();
+            out << YAML::Key << "throughput" << YAML::Value << throughput << YAML::Comment("B/s");
+            
+            double messages_per_sec = _total_messages / _total_duration.count();
+            out << YAML::Key << "messages per second" << YAML::Value << messages_per_sec;
+        } else {
+            out << YAML::Key << "throughput" << YAML::Value << "inf" << YAML::Comment("kB/s");
+            out << YAML::Key << "messages per second" << YAML::Value << "inf";
+        }
+    }
+
+    static future<> process_bi_source(rpc::source<payload_t> source, rpc::sink<payload_t> sink) {
+        uint64_t total_messages = 0, total_payload = 0;
+        std::exception_ptr error;
+
+        try {
+            while (true) {
+                auto data = co_await source();
+                if (!data) {
+                    break;
+                }
+                ++total_messages;
+                auto received_data = std::move(std::get<0>(*data));
+                total_payload += received_data.size() * sizeof(payload_t::value_type);
+                // Send data back to client
+                co_await sink(received_data);
+            }
+        } catch (...) {
+            error = std::current_exception();
+        }
+
+        auto flush_future = co_await coroutine::as_future(sink.flush());
+        if (flush_future.failed() && !error) [[unlikely]] {
+            error = flush_future.get_exception();
+        }
+        co_await sink.close();
+
+        if (error) {
+            std::rethrow_exception(error);
+        }
+
+        fmt::print("Server received total {} messages on bidirectional stream, total payload: {} bytes\n", total_messages, total_payload);
+    }
+};
+
 class job_cpu : public job {
     job_config _cfg;
     std::chrono::steady_clock::time_point _stop;
@@ -549,6 +713,9 @@ class context {
         if (cfg.type == "rpc") {
             return std::make_unique<job_rpc>(cfg, *_rpc, _cfg.client, *caddr);
         }
+        if (cfg.type == "rpc_streaming") {
+            return std::make_unique<job_rpc_streaming>(cfg, *_rpc, _cfg.client, *caddr);
+        }
         if (cfg.type == "cpu") {
             return std::make_unique<job_cpu>(cfg);
         }
@@ -590,10 +757,20 @@ public:
         _rpc->register_handler(rpc_verb::WRITE, [] (payload_t val) {
             return make_ready_future<uint64_t>(val.size());
         });
+        _rpc->register_handler(rpc_verb::STREAM_BIDIRECTIONAL, [] (rpc::source<payload_t> source) {
+            // Create sink for server->client direction
+            auto sink = source.make_sink<serializer, payload_t>();
+
+            (void)job_rpc_streaming::process_bi_source(std::move(source), sink);
+
+            return sink;
+        });
+
 
         if (laddr) {
             rpc::server_options so;
             so.tcp_nodelay = _cfg.server.nodelay;
+            so.streaming_domain = rpc::streaming_domain_type(1);
             rpc::resource_limits limits;
             limits.isolate_connection = [this] (sstring cookie) { return isolate_connection(cookie); };
             _server = std::make_unique<rpc_protocol::server>(*_rpc, so, *laddr, limits);
