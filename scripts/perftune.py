@@ -632,9 +632,9 @@ class NetPerfTuner(PerfTunerBase):
 
         self.nics=args.nics
 
-        self.__nic_is_bond_iface = NetPerfTuner.__get_bond_ifaces()
-        self.__nic_is_vlan_iface = NetPerfTuner.__get_vlan_ifaces()
-        self.__slaves = self.__learn_slaves()
+        self.__nic_is_bond_iface_dict = NetPerfTuner.__get_bond_ifaces()
+        self.__nic_is_vlan_iface_dict = NetPerfTuner.__get_vlan_ifaces()
+        self.__slaves_dict = self.__learn_slaves()
 
         # check that self.nics contain a HW device or a supported composite interface
         self.__check_nics()
@@ -649,11 +649,11 @@ class NetPerfTuner(PerfTunerBase):
         Tune the networking server configuration.
         """
         for nic in self.nics:
-            if self.nic_is_hw_iface(nic):
+            if self.__nic_is_hw_iface(nic):
                 perftune_print("Setting a physical interface {}...".format(nic))
                 self.__setup_one_hw_iface(nic)
             else:
-                perftune_print(f"Setting a {nic} {'bond' if self.nic_is_bond_iface(nic) else 'VLAN'} interface...")
+                perftune_print(f"Setting a {nic} {'bond' if self.__nic_is_bond_iface(nic) else 'VLAN'} interface...")
                 self.__setup_composite_iface(nic)
 
         # Increase the socket listen() backlog
@@ -663,39 +663,7 @@ class NetPerfTuner(PerfTunerBase):
         # did not receive an acknowledgment from connecting client.
         fwriteln_and_log('/proc/sys/net/ipv4/tcp_max_syn_backlog', '4096')
 
-        self.tune_tcp_mem()
-
-    def tune_tcp_mem(self):
-        page_size = mmap.PAGESIZE
-        total_mem = psutil.virtual_memory().total
-        # We only tune for physical memory since tcp_mem is virtualized
-        def to_pages(bytes):
-            return math.ceil(bytes / page_size)
-        max = total_mem * self.args.tcp_mem_fraction
-        fwriteln_and_log('/proc/sys/net/ipv4/tcp_mem', f"{to_pages(max / 2)} {to_pages(max * 2/3)} {to_pages(max)}")
-
-    def nic_is_bond_iface(self, nic):
-        return self.__nic_is_bond_iface.get(nic, False)
-
-    def nic_is_vlan_iface(self, nic):
-        return self.__nic_is_vlan_iface.get(nic, False)
-
-    def nic_is_composite_iface(self, nic):
-        return self.nic_is_bond_iface(nic) or self.nic_is_vlan_iface(nic)
-
-    def nic_exists(self, nic):
-        return self.__iface_exists(nic)
-
-    def nic_is_hw_iface(self, nic):
-        return self.__dev_is_hw_iface(nic)
-
-    def slaves(self, nic):
-        """
-        Returns an iterator for all slaves of the nic.
-        If agrs.nic is not a composite interface an attempt to use the returned iterator
-        will immediately raise a StopIteration exception - use nic_is_composite_iface() check to avoid this.
-        """
-        return iter(self.__slaves[nic])
+        self.__tune_tcp_mem()
 
 #### Protected methods ##########################
     def _get_irqs(self):
@@ -706,6 +674,38 @@ class NetPerfTuner(PerfTunerBase):
         return itertools.chain.from_iterable(self.__nic2irqs.values())
 
 #### Private methods ############################
+    def __tune_tcp_mem(self):
+        page_size = mmap.PAGESIZE
+        total_mem = psutil.virtual_memory().total
+        # We only tune for physical memory since tcp_mem is virtualized
+        def to_pages(bytes):
+            return math.ceil(bytes / page_size)
+        max = total_mem * self.args.tcp_mem_fraction
+        fwriteln_and_log('/proc/sys/net/ipv4/tcp_mem', f"{to_pages(max / 2)} {to_pages(max * 2/3)} {to_pages(max)}")
+
+    def __nic_is_bond_iface(self, nic):
+        return self.__nic_is_bond_iface_dict.get(nic, False)
+
+    def __nic_is_vlan_iface(self, nic):
+        return self.__nic_is_vlan_iface_dict.get(nic, False)
+
+    def __nic_is_composite_iface(self, nic):
+        return self.__nic_is_bond_iface(nic) or self.__nic_is_vlan_iface(nic)
+
+    def __nic_exists(self, nic):
+        return self.__iface_exists(nic)
+
+    def __nic_is_hw_iface(self, nic):
+        return self.__dev_is_hw_iface(nic)
+
+    def __slaves(self, nic):
+        """
+        Returns an iterator for all slaves of the nic.
+        If agrs.nic is not a composite interface an attempt to use the returned iterator
+        will immediately raise a StopIteration exception - use nic_is_composite_iface() check to avoid this.
+        """
+        return iter(self.__slaves_dict[nic])
+
     def __get_irqs_info(self):
         self.__irqs2procline = get_irqs2procline_map()
         self.__nic2irqs = self.__learn_irqs()
@@ -719,9 +719,9 @@ class NetPerfTuner(PerfTunerBase):
         Checks that self.nics are supported interfaces
         """
         for nic in self.nics:
-            if not self.nic_exists(nic):
+            if not self.__nic_exists(nic):
                 raise Exception("Device {} does not exist".format(nic))
-            if not self.nic_is_hw_iface(nic) and not self.nic_is_composite_iface(nic):
+            if not self.__nic_is_hw_iface(nic) and not self.__nic_is_composite_iface(nic):
                 raise Exception("Not supported virtual device {}".format(nic))
 
     def __get_irqs_one(self, iface):
@@ -834,10 +834,10 @@ class NetPerfTuner(PerfTunerBase):
         slaves_list = set()
         top_slaves_list = set()
 
-        if self.nic_is_bond_iface(nic):
+        if self.__nic_is_bond_iface(nic):
             top_slaves_list = set(itertools.chain.from_iterable(
                 [line.split() for line in open("/sys/class/net/{}/bonding/slaves".format(nic), 'r').readlines()]))
-        elif self.nic_is_vlan_iface(nic):
+        elif self.__nic_is_vlan_iface(nic):
             # VLAN interfaces have a symbolic link 'lower_<parent_interface_name>' under
             # /sys/class/net/<VLAN interface name>.
             #
@@ -853,7 +853,7 @@ class NetPerfTuner(PerfTunerBase):
         # Bond slaves can also be bonds.
         # For simplicity let's not discriminate.
         for s in top_slaves_list:
-            if self.nic_is_composite_iface(s):
+            if self.__nic_is_composite_iface(s):
                 slaves_list |= self.__learn_slaves_one(s)
             else:
                 slaves_list.add(s)
@@ -1067,8 +1067,8 @@ class NetPerfTuner(PerfTunerBase):
         """
         nic_irq_dict={}
         for nic in self.nics:
-            if self.nic_is_composite_iface(nic):
-                for slave in filter(self.__dev_is_hw_iface, self.slaves(nic)):
+            if self.__nic_is_composite_iface(nic):
+                for slave in filter(self.__dev_is_hw_iface, self.__slaves(nic)):
                     nic_irq_dict[slave] = self.__learn_irqs_one(slave)
             else:
                 nic_irq_dict[nic] = self.__learn_irqs_one(nic)
@@ -1168,7 +1168,7 @@ class NetPerfTuner(PerfTunerBase):
         Set up the interface which is a bond or a VLAN interface
         :param nic: name of a composite interface to set up
         """
-        for slave in self.slaves(nic):
+        for slave in self.__slaves(nic):
             if self.__dev_is_hw_iface(slave):
                 perftune_print("Setting up {}...".format(slave))
                 self.__setup_one_hw_iface(slave)
