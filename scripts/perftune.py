@@ -652,9 +652,15 @@ class NetPerfTuner(PerfTunerBase):
             if self.__nic_is_hw_iface(nic):
                 perftune_print("Setting a physical interface {}...".format(nic))
                 self.__setup_one_hw_iface(nic)
-            else:
-                perftune_print(f"Setting a {nic} {'bond' if self.__nic_is_bond_iface(nic) else 'VLAN'} interface...")
-                self.__setup_composite_iface(nic)
+
+            if self.__nic_has_slaves(nic):
+                nic_type = "virtual"
+                if self.__nic_is_bond_iface(nic):
+                    nic_type = "bond"
+                elif self.__nic_is_vlan_iface(nic):
+                    nic_type = "VLAN"
+                perftune_print(f"Setting a {nic} {nic_type} interface...")
+                self.__setup_virtual_iface(nic)
 
         # Increase the socket listen() backlog
         fwriteln_and_log('/proc/sys/net/core/somaxconn', '4096')
@@ -689,8 +695,8 @@ class NetPerfTuner(PerfTunerBase):
     def __nic_is_vlan_iface(self, nic):
         return self.__nic_is_vlan_iface_dict.get(nic, False)
 
-    def __nic_is_composite_iface(self, nic):
-        return self.__nic_is_bond_iface(nic) or self.__nic_is_vlan_iface(nic)
+    def __nic_has_slaves(self, nic):
+        return nic in self.__slaves_dict and len(self.__slaves_dict[nic]) > 0
 
     def __nic_exists(self, nic):
         return self.__iface_exists(nic)
@@ -702,7 +708,7 @@ class NetPerfTuner(PerfTunerBase):
         """
         Returns an iterator for all slaves of the nic.
         If agrs.nic is not a composite interface an attempt to use the returned iterator
-        will immediately raise a StopIteration exception - use nic_is_composite_iface() check to avoid this.
+        will immediately raise a StopIteration exception - use __nic_has_slaves(nic) check to avoid this.
         """
         return iter(self.__slaves_dict[nic])
 
@@ -721,14 +727,14 @@ class NetPerfTuner(PerfTunerBase):
         for nic in self.nics:
             if not self.__nic_exists(nic):
                 raise Exception("Device {} does not exist".format(nic))
-            if not self.__nic_is_hw_iface(nic) and not self.__nic_is_composite_iface(nic):
+            if not self.__nic_is_hw_iface(nic) and not self.__nic_has_slaves(nic):
                 raise Exception("Not supported virtual device {}".format(nic))
 
     def __get_irqs_one(self, iface):
         """
         Returns the list of IRQ numbers for the given interface.
         """
-        return self.__nic2irqs[iface]
+        return self.__nic2irqs.get(iface, [])
 
     def __setup_rfs(self, iface):
         rps_limits = glob.glob("/sys/class/net/{}/queues/*/rps_flow_cnt".format(iface))
@@ -832,14 +838,13 @@ class NetPerfTuner(PerfTunerBase):
         :param nic: An interface to search slaves for
         """
         slaves_list = set()
-        top_slaves_list = set()
 
         if self.__nic_is_bond_iface(nic):
             top_slaves_list = set(itertools.chain.from_iterable(
                 [line.split() for line in open("/sys/class/net/{}/bonding/slaves".format(nic), 'r').readlines()]))
-        elif self.__nic_is_vlan_iface(nic):
-            # VLAN interfaces have a symbolic link 'lower_<parent_interface_name>' under
-            # /sys/class/net/<VLAN interface name>.
+        else:
+            # Some virtual interfaces (e.g. VLANs) have a symbolic link 'lower_<parent_interface_name>' under
+            # /sys/class/net/<interface name> representing a lower level dependent interface.
             #
             # For example:
             #
@@ -848,15 +853,18 @@ class NetPerfTuner(PerfTunerBase):
             top_slaves_list = set([pathlib.PurePath(pathlib.Path(f).resolve()).name
                                    for f in glob.glob(f"/sys/class/net/{nic}/lower_*")])
 
-        # Slaves can be themselves bond or VLAN devices: let's descend (DFS) all the way down to get physical devices.
-        # Bond slaves can't be VLAN interfaces but VLAN interface parent device can be a bond interface.
-        # Bond slaves can also be bonds.
-        # For simplicity let's not discriminate.
+        # Slaves can themselves have slaves of their own: let's descend (DFS) all the way down to get physical devices.
+        # We don't want to include not-tunable interfaces in the resulting slaves list.
+        # We do want to check if any (tunable or not) slave has slaves of their own that might be tunable.
         for s in top_slaves_list:
-            if self.__nic_is_composite_iface(s):
-                slaves_list |= self.__learn_slaves_one(s)
-            else:
+            # Avoid cycles - should not happen but just in case
+            if s in slaves_list:
+                continue
+
+            if self.__nic_is_hw_iface(s):
                 slaves_list.add(s)
+
+            slaves_list |= self.__learn_slaves_one(s)
 
         return slaves_list
 
@@ -1067,7 +1075,8 @@ class NetPerfTuner(PerfTunerBase):
         """
         nic_irq_dict={}
         for nic in self.nics:
-            if self.__nic_is_composite_iface(nic):
+            if self.__nic_has_slaves(nic):
+                # Slaves should not include not-tunable interfaces but just in case let's filter them out for safety
                 for slave in filter(self.__dev_is_hw_iface, self.__slaves(nic)):
                     nic_irq_dict[slave] = self.__learn_irqs_one(slave)
             else:
@@ -1163,7 +1172,7 @@ class NetPerfTuner(PerfTunerBase):
         self.__setup_rps(iface, self.cpu_mask)
         self.__setup_xps(iface)
 
-    def __setup_composite_iface(self, nic):
+    def __setup_virtual_iface(self, nic):
         """
         Set up the interface which is a bond or a VLAN interface
         :param nic: name of a composite interface to set up
