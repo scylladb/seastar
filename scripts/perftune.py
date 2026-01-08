@@ -649,9 +649,9 @@ class NetPerfTuner(PerfTunerBase):
         Tune the networking server configuration.
         """
         for nic in self.nics:
-            if self.__nic_is_hw_iface(nic):
-                perftune_print("Setting a physical interface {}...".format(nic))
-                self.__setup_one_hw_iface(nic)
+            if self.__nic_is_tunable(nic):
+                perftune_print("Setting a tunable interface {}...".format(nic))
+                self.__setup_one_tunable_iface(nic)
 
             if self.__nic_has_slaves(nic):
                 nic_type = "virtual"
@@ -701,8 +701,8 @@ class NetPerfTuner(PerfTunerBase):
     def __nic_exists(self, nic):
         return self.__iface_exists(nic)
 
-    def __nic_is_hw_iface(self, nic):
-        return self.__dev_is_hw_iface(nic)
+    def __nic_is_tunable(self, nic):
+        return self.__dev_is_tunalbe_iface(nic)
 
     def __slaves(self, nic):
         """
@@ -727,7 +727,7 @@ class NetPerfTuner(PerfTunerBase):
         for nic in self.nics:
             if not self.__nic_exists(nic):
                 raise Exception("Device {} does not exist".format(nic))
-            if not self.__nic_is_hw_iface(nic) and not self.__nic_has_slaves(nic):
+            if not self.__nic_is_tunable(nic) and not self.__nic_has_slaves(nic):
                 raise Exception("Not supported virtual device {}".format(nic))
 
     def __get_irqs_one(self, iface):
@@ -810,7 +810,7 @@ class NetPerfTuner(PerfTunerBase):
             return False
         return os.path.exists("/sys/class/net/{}".format(iface))
 
-    def __dev_is_hw_iface(self, iface):
+    def __dev_is_tunalbe_iface(self, iface):
         return os.path.exists("/sys/class/net/{}/device".format(iface))
 
     @staticmethod
@@ -861,7 +861,7 @@ class NetPerfTuner(PerfTunerBase):
             if s in slaves_list:
                 continue
 
-            if self.__nic_is_hw_iface(s):
+            if self.__nic_is_tunable(s):
                 slaves_list.add(s)
 
             slaves_list |= self.__learn_slaves_one(s)
@@ -1077,7 +1077,7 @@ class NetPerfTuner(PerfTunerBase):
         for nic in self.nics:
             if self.__nic_has_slaves(nic):
                 # Slaves should not include not-tunable interfaces but just in case let's filter them out for safety
-                for slave in filter(self.__dev_is_hw_iface, self.__slaves(nic)):
+                for slave in filter(self.__dev_is_tunalbe_iface, self.__slaves(nic)):
                     nic_irq_dict[slave] = self.__learn_irqs_one(slave)
             else:
                 nic_irq_dict[nic] = self.__learn_irqs_one(nic)
@@ -1126,7 +1126,7 @@ class NetPerfTuner(PerfTunerBase):
 
         return False
 
-    def __setup_one_hw_iface(self, iface):
+    def __setup_one_tunable_iface(self, iface):
         # Set Rx channels count to a number of IRQ CPUs unless an explicit count is given
         if self.args.num_rx_queues is not None:
             num_rx_channels = self.args.num_rx_queues
@@ -1178,9 +1178,9 @@ class NetPerfTuner(PerfTunerBase):
         :param nic: name of a composite interface to set up
         """
         for slave in self.__slaves(nic):
-            if self.__dev_is_hw_iface(slave):
+            if self.__dev_is_tunalbe_iface(slave):
                 perftune_print("Setting up {}...".format(slave))
-                self.__setup_one_hw_iface(slave)
+                self.__setup_one_tunable_iface(slave)
             else:
                 perftune_print("Skipping {} (not a physical slave device?)".format(slave))
 
