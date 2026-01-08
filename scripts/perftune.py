@@ -909,21 +909,22 @@ class NetPerfTuner(PerfTunerBase):
         or this:
         mlx4-6
              mlx4-<index>
-
+        or this:
+        mana_q0@pci:7870:00:00.0
+             mana_q<index>
         :param irq: IRQ number
         :return: HW queue index for Mellanox NICs and sys.maxsize for all other NICs
         """
         mlx5_fp_irq_re = re.compile(r"mlx5_comp(\d+)")
         mlx4_fp_irq_re = re.compile(r"mlx4-(\d+)")
+        mana_fp_irq_re = re.compile(r"mana_q(\d+)")
 
-        m5 = mlx5_fp_irq_re.search(self.__irqs2procline[irq])
-        if m5:
+        if m5 := mlx5_fp_irq_re.search(self.__irqs2procline[irq]):
             return int(m5.group(1))
-        else:
-            m4 = mlx4_fp_irq_re.search(self.__irqs2procline[irq])
-            if m4:
-                return int(m4.group(1))
-
+        elif m4 := mlx4_fp_irq_re.search(self.__irqs2procline[irq]):
+            return int(m4.group(1))
+        elif mana := mana_fp_irq_re.search(self.__irqs2procline[irq]):
+            return int(mana.group(1))
         return sys.maxsize
 
     def __virtio_irq_to_queue_idx(self, irq):
@@ -999,7 +1000,7 @@ class NetPerfTuner(PerfTunerBase):
         """
         # filter 'all_irqs' to only reference valid keys from 'irqs2procline' and avoid an IndexError on the 'irqs' search below
         all_irqs = set(learn_all_irqs_one("/sys/class/net/{}/device".format(iface), self.__irqs2procline, iface)).intersection(self.__irqs2procline.keys())
-        fp_irqs_re = re.compile(r"-TxRx-|-fp-|-Tx-Rx-|mlx4-\d+@|mlx5_comp\d+@|virtio\d+-(input|output)")
+        fp_irqs_re = re.compile(r"-TxRx-|-fp-|-Tx-Rx-|mlx4-\d+@|mlx5_comp\d+@|mana_q\d+@|virtio\d+-(input|output)")
         irqs = sorted(list(filter(lambda irq : fp_irqs_re.search(self.__irqs2procline[irq]), all_irqs)))
         if irqs:
             irqs.sort(key=self.__get_irq_to_queue_idx_functor(iface))
@@ -1029,7 +1030,7 @@ class NetPerfTuner(PerfTunerBase):
         # Every functor returns a sys.maxsize for an unknown driver IRQs.
         # So, choosing Intel's as a default is as good as any other.
         irq_to_idx_func = self.__intel_irq_to_queue_idx
-        if driver_name.startswith("mlx"):
+        if driver_name.startswith("mlx") or driver_name.startswith("mana"):
             irq_to_idx_func = self.__mlx_irq_to_queue_idx
         elif driver_name.startswith("virtio"):
             irq_to_idx_func = self.__virtio_irq_to_queue_idx
