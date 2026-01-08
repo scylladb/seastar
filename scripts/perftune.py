@@ -697,6 +697,8 @@ class NetPerfTuner(PerfTunerBase):
         """
         return iter(self.__slaves[nic])
 
+        AzurePerfTuner(self.nics).tune()
+
 #### Protected methods ##########################
     def _get_irqs(self):
         """
@@ -1205,6 +1207,139 @@ class NetPerfTuner(PerfTunerBase):
             rx_queues_count = num_irqs
 
         return min(self.__max_rx_queue_count(iface), rx_queues_count)
+
+class AzurePerfTuner(object):
+    def __init__(self, nics):
+        self.nics = nics
+        # Known drivers for Azure Accelerated Networking VFs
+        self.vf_drivers = {'mlx4_core', 'mlx4_en', 'mlx5_core', 'mana'}
+
+    def __get_driver_name(self, nic):
+        """
+        Returns the driver name for a given interface using ethtool.
+        """
+        try:
+            # run_ethtool returns a list of strings. We join them to search.
+            # Output format is usually: "driver: mlx5_core\nversion: ..."
+            output = run_ethtool(['-i', nic])
+            for line in output:
+                if line.startswith('driver:'):
+                    return line.split(':')[1].strip()
+        except Exception:
+            pass
+        return None
+
+    def __is_azure_vm(self):
+        """
+        Detects if the script is running on an Azure VM.
+        """
+        try:
+            with open('/sys/class/dmi/id/sys_vendor', 'r') as f:
+                vendor = f.read().strip()
+                return "Microsoft Corporation" in vendor or "Microsoft" in vendor
+        except OSError:
+            return False
+
+    def __is_accelerated_nic(self, nic):
+        """
+        Checks if a specific network interface has Azure Accelerated Networking enabled.
+        """
+        driver = self.__get_driver_name(nic)
+
+        # Check 1: Is the NIC itself a VF? (e.g. running on bare metal or direct assignment)
+        if driver in self.vf_drivers:
+            return True
+
+        # Check 2: Is this the synthetic NIC (hv_netvsc) bonding a VF? (Standard Azure AN)
+        if driver == 'hv_netvsc':
+            try:
+                # Look for slave/lower interfaces (e.g., /sys/class/net/eth0/lower_*)
+                # We need to find if any 'lower' interface uses a VF driver.
+                lower_devs = glob.glob(f"/sys/class/net/{nic}/lower_*")
+                
+                for path in lower_devs:
+                    # Extract interface name: /sys/class/net/eth0/lower_eth1 -> eth1
+                    slave_iface = os.path.basename(path).replace("lower_", "")
+                    
+                    slave_driver = self.__get_driver_name(slave_iface)
+                    if slave_driver in self.vf_drivers:
+                        return True
+            except Exception:
+                pass
+
+        return False
+
+    def tune(self):
+        """
+        Applies Azure-specific network optimizations if running on an Azure VM.
+        """
+        if not self.__is_azure_vm():
+            return
+
+        perftune_print("Azure VM detected. Checking for Accelerated Networking...")
+        
+        an_enabled_any = False
+        
+        # 1. Interface-specific Tuning
+        for nic in self.nics:
+            if not self.__is_accelerated_nic(nic):
+                perftune_print(f"Interface {nic}: No Accelerated Networking detected. Skipping Azure tuning.")
+                continue
+
+            an_enabled_any = True
+            perftune_print(f"Interface {nic}: Accelerated Networking detected. Tuning...")
+
+            # Optimization: Increase Ring Buffers to 1024
+            # We use check=False because some drivers/versions are noisy even on success
+            run_one_command(['ethtool', '-G', nic, 'rx', '1024', 'tx', '1024'], check=False)
+
+            # Optimization: Increase TX Queue Length to 10000
+            run_one_command(['ip', 'link', 'set', nic, 'txqueuelen', '10000'], check=False)
+
+        # 2. Global Sysctl Tuning (Only if AN is present)
+        if an_enabled_any:
+            perftune_print("Applying global kernel optimizations for Azure High Throughput...")
+
+            sysctl_params = {
+                # Memory Buffers
+                'net.ipv4.tcp_rmem': '4096 87380 67108864',
+                'net.ipv4.tcp_wmem': '4096 65536 67108864',
+                'net.core.rmem_default': '33554432',
+                'net.core.wmem_default': '33554432',
+                'net.core.rmem_max': '134217728',
+                'net.core.wmem_max': '134217728',
+                'net.ipv4.udp_wmem_min': '16384',
+                'net.ipv4.udp_rmem_min': '16384',
+                
+                # Latency & Throughput Extras
+                'net.core.busy_poll': '50',
+                'net.core.busy_read': '50',
+                'net.ipv4.tcp_timestamps': '1',
+                'net.ipv4.tcp_tw_reuse': '1',
+                'net.core.netdev_budget': '1000',
+                'net.core.optmem_max': '65535',
+                
+                # Connection Backlogs
+                'net.core.somaxconn': '32768',
+                'net.core.netdev_max_backlog': '32768',
+                
+                # Queue Discipline
+                'net.core.default_qdisc': 'fq'
+            }
+
+            # Enable BBR if kernel version >= 4.19
+            try:
+                kernel_ver = platform.release().split('-')[0]
+                major, minor = map(int, kernel_ver.split('.')[:2])
+                if major > 4 or (major == 4 and minor >= 19):
+                    sysctl_params['net.ipv4.tcp_congestion_control'] = 'bbr'
+            except Exception:
+                pass
+
+            # Apply sysctls
+            for param, value in sysctl_params.items():
+                path = f"/proc/sys/{param.replace('.', '/')}"
+                fwriteln_and_log(path, value, log_errors=False)
 
 
 
