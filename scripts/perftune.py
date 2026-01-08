@@ -926,6 +926,30 @@ class NetPerfTuner(PerfTunerBase):
 
         return sys.maxsize
 
+    def __mana_irq_to_queue_idx(self, irq):
+        """
+        Return the HW queue index for a given IRQ for Microsoft Azure Network Adapter (MANA) NICs in order to sort the
+        IRQs' list by this index.
+
+        MANA NICs have the IRQ which name looks like this:
+             mana_hwc@...
+             mana_q<index>@...
+
+        We don't care much about 'mana_hwc' IRQs since they are a slow path event IRQs.
+        mana_q<index> IRQs are the fast path queues IRQs.
+        Therefore, we will order HWC IRQs to always be the last in the sorted IRQs' list.
+
+        :param irq: IRQ number
+        :return: HW queue index for MANA NICs and sys.maxsize for all other NICs
+        """
+        mana_fp_irq_re = re.compile(r"\s+mana_q(\d+)")
+
+        m = mana_fp_irq_re.search(self.__irqs2procline[irq])
+        if m:
+            return int(m.group(1))
+
+        return sys.maxsize
+
     def __virtio_irq_to_queue_idx(self, irq):
         """
         Return the HW queue index for a given IRQ for VIRTIO in order to sort the IRQs' list by this index.
@@ -985,6 +1009,7 @@ class NetPerfTuner(PerfTunerBase):
                       or for mlx5
                       mlx5_comp<queue idx>@<bla-bla>
           - VIRTIO: virtioN-[input|output].D
+          - MANA: mana_q<queue idx>@<bla-bla>
 
         So, we will try to filter the etries in /proc/interrupts for IRQs we've got from get_all_irqs_one()
         according to the patterns above.
@@ -999,7 +1024,7 @@ class NetPerfTuner(PerfTunerBase):
         """
         # filter 'all_irqs' to only reference valid keys from 'irqs2procline' and avoid an IndexError on the 'irqs' search below
         all_irqs = set(learn_all_irqs_one("/sys/class/net/{}/device".format(iface), self.__irqs2procline, iface)).intersection(self.__irqs2procline.keys())
-        fp_irqs_re = re.compile(r"-TxRx-|-fp-|-Tx-Rx-|mlx4-\d+@|mlx5_comp\d+@|virtio\d+-(input|output)")
+        fp_irqs_re = re.compile(r"-TxRx-|-fp-|-Tx-Rx-|mlx4-\d+@|mlx5_comp\d+@|virtio\d+-(input|output)|mana_q\d+@")
         irqs = sorted(list(filter(lambda irq : fp_irqs_re.search(self.__irqs2procline[irq]), all_irqs)))
         if irqs:
             irqs.sort(key=self.__get_irq_to_queue_idx_functor(iface))
@@ -1033,6 +1058,8 @@ class NetPerfTuner(PerfTunerBase):
             irq_to_idx_func = self.__mlx_irq_to_queue_idx
         elif driver_name.startswith("virtio"):
             irq_to_idx_func = self.__virtio_irq_to_queue_idx
+        elif driver_name.startswith("mana"):
+            irq_to_idx_func = self.__mana_irq_to_queue_idx
 
         return irq_to_idx_func
 
