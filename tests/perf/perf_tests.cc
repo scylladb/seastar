@@ -136,6 +136,12 @@ perf_stats perf_stats::snapshot(linux_perf_event* instructions_retired_counter, 
 }
 
 time_measurement measure_time;
+std::map<std::string, std::string> parameters;
+
+std::string get_parameter(std::string name) {
+    auto it = parameters.find(name);
+    return it == parameters.end() ? "" : it->second;
+}
 
 struct config;
 struct result;
@@ -734,10 +740,14 @@ void run_all(const std::vector<std::string>& test_patterns, config& conf) {
             max_name_column_length = std::max(max_name_column_length, t->name().size());
         }
     }
+    for (auto p : parameters) {
+        fmt::print("parameter {}: {}\n", p.first, p.second);
+    }
     for (auto& rp : conf.printers) {
         rp->update_name_column_length(max_name_column_length);
         rp->print_configuration(conf);
     }
+
     for (auto& t : all_tests()) {
         if (match(t.get())) { t->run(conf); }
     }
@@ -769,6 +779,7 @@ int main(int ac, char** av)
         ("columns", bpo::value<std::string>()->default_value("all"),
             "comma separated list of column (by name) to include in text/md output, or 'all'")
         ("list", "list available tests")
+        ("parameter", bpo::value<std::vector<std::string>>(), "specify test-specific parameters")
         ;
 
     return app.run(ac, av, [&] {
@@ -785,6 +796,18 @@ int main(int ac, char** av)
             std::vector<std::string> tests_to_run;
             if (app.configuration().count("test")) {
                 tests_to_run = app.configuration()["test"].as<std::vector<std::string>>();
+            }
+
+            if (app.configuration().count("parameter")) {
+                auto param = app.configuration()["parameter"].as<std::vector<std::string>>();
+                for (auto& p : param) {
+                    size_t split = p.find('=');
+                    if (split == std::string::npos) {
+                        parameters.emplace(std::make_pair(p, ""));
+                    } else {
+                        parameters.emplace(std::make_pair(p.substr(0, split), p.substr(split+1, p.size())));
+                    }
+                }
             }
 
             if (app.configuration().count("list")) {
