@@ -457,7 +457,7 @@ future<> client::do_make_request(connection& con, const request& req, reply_hand
 
 future<> client::close() {
     if (_pool.empty()) {
-        return make_ready_future<>();
+        return _new_connections->close();
     }
 
     connection_ptr con = _pool.front().shared_from_this();

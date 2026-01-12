@@ -40,6 +40,15 @@ public:
      * be used by \ref client as transport for its http connections
      */
     virtual future<connected_socket> make(abort_source*) = 0;
+    /**
+    * \brief Shutdown the factory
+    *
+    * The implementations of this method should perform needed cleanup of the factory that will
+    * be called by \ref client when it is being closed.
+    */
+    virtual future<> close() {
+        return make_ready_future<>();
+    };
     virtual ~connection_factory() {}
 };
 
