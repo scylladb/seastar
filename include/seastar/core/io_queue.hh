@@ -231,6 +231,7 @@ public:
 
     request_limits get_request_limits() const noexcept;
     const config& get_config() const noexcept;
+    std::chrono::duration<double> get_io_latency_goal() const noexcept;
     std::optional<uint32_t> physical_block_size() const noexcept { return _physical_block_size; }
 
 private:
