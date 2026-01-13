@@ -513,7 +513,7 @@ void dns_resolver::impl::handle_socket_state_change(ares_socket_t fd, int readab
 future<inet_address>
 dns_resolver::impl::resolve_name(sstring name, opt_family family) {
     return get_host_by_name(std::move(name), family).then([](hostent h) {
-        return make_ready_future<inet_address>(h.addr_list.front());
+        return make_ready_future<inet_address>(h.addr_entries.front().addr);
     });
 }
 
@@ -532,7 +532,7 @@ dns_resolver::impl::get_host_by_name(sstring name, opt_family family)  {
     if (!family) {
         auto res = inet_address::parse_numerical(name);
         if (res) {
-            return make_ready_future<hostent>(hostent{ {name}, {*res}, {{*res}}});
+            return make_ready_future<hostent>(hostent({std::move(name)}, {{*res}}, {{*res}}));
         }
     }
 
@@ -1005,6 +1005,8 @@ dns_resolver::impl::make_hostent(const ares_addrinfo* ai) {
         // The TTL can be zero (dont cache) or greater up to 2^31 - 1 (in seconds)
         // https://datatracker.ietf.org/doc/html/rfc2181#section-8
         // https://datatracker.ietf.org/doc/html/rfc1035#section-3.2.1
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
         switch (node->ai_family) {
             case AF_INET:
                 e.addr_list.emplace_back(reinterpret_cast<const sockaddr_in*>(node->ai_addr)->sin_addr);
@@ -1021,6 +1023,7 @@ dns_resolver::impl::make_hostent(const ares_addrinfo* ai) {
                 });
                 break;
         }
+#pragma GCC diagnostic pop
     }
 
     dns_log.debug("Query success: {}/{}, TTL: {}s", e.names.front(), e.addr_entries.front().addr, e.addr_entries.front().ttl.count());
@@ -1038,6 +1041,8 @@ dns_resolver::impl::make_hostent(const ::hostent& host) {
     }
     auto p = host.h_addr_list;
     while (*p != nullptr) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
         switch (host.h_addrtype) {
         case AF_INET:
             SEASTAR_ASSERT(size_t(host.h_length) >= sizeof(in_addr));
@@ -1056,6 +1061,7 @@ dns_resolver::impl::make_hostent(const ::hostent& host) {
         default:
             break;
         }
+#pragma GCC diagnostic pop
         ++p;
     }
 
@@ -1615,14 +1621,16 @@ future<inet_address> inet_address::find(
 future<std::vector<inet_address>> inet_address::find_all(
                 const sstring& name) {
     return dns::get_host_by_name(name).then([](hostent e) {
-        return make_ready_future<std::vector<inet_address>>(std::move(e.addr_list));
+        auto rng = e.addr_entries | std::views::transform([](auto& entry) { return entry.addr; });
+        return make_ready_future<std::vector<inet_address>>(rng.begin(), rng.end());
     });
 }
 
 future<std::vector<inet_address>> inet_address::find_all(
                 const sstring& name, family f) {
     return dns::get_host_by_name(name, f).then([](hostent e) {
-        return make_ready_future<std::vector<inet_address>>(std::move(e.addr_list));
+        auto rng = e.addr_entries | std::views::transform([](auto& entry) { return entry.addr; });
+        return make_ready_future<std::vector<inet_address>>(rng.begin(), rng.end());
     });
 }
 

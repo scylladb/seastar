@@ -54,7 +54,7 @@ struct hostent {
     // Primary name is always first
     std::vector<sstring> names;
     // Primary address is also always first.
-    std::vector<inet_address> addr_list;
+    [[deprecated("Use `addr_entries` instead")]] std::vector<inet_address> addr_list;
     struct address_entry {
         inet_address addr;
         // https://datatracker.ietf.org/doc/html/rfc1035#section-2.3.4
@@ -63,6 +63,23 @@ struct hostent {
         std::chrono::seconds ttl{std::numeric_limits<signed int>::max()};
     };
     std::vector<address_entry> addr_entries;
+
+    // Remove the whole section below once we drop `addr_list`
+    // from the struct.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    hostent() = default;
+    hostent(std::vector<sstring>&& _names, std::vector<inet_address>&& _addr_list, std::vector<address_entry>&& _addr_entries)
+        : names(std::move(_names))
+        , addr_list(std::move(_addr_list))
+        , addr_entries(std::move(_addr_entries)) {
+    }
+    ~hostent() = default;
+    hostent(const hostent&) = default;
+    hostent& operator=(const hostent&) = default;
+    hostent(hostent&&) noexcept = default;
+    hostent& operator=(hostent&&) noexcept = default;
+#pragma GCC diagnostic pop
 };
 
 typedef std::optional<inet_address::family> opt_family;
