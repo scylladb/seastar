@@ -41,6 +41,12 @@ static future<> test_resolve(dns_resolver::options opts) {
 
     for (auto hostname : {"seastar.io", "scylladb.com", "kernel.org", "www.google.com"}) {
         hostent e = co_await d.get_host_by_name(hostname, inet_address::family::INET);
+        BOOST_REQUIRE_EQUAL(e.addr_list.size(), e.addr_entries.size());
+        for (auto i = 0ul; i < e.addr_entries.size(); ++i) {
+            BOOST_REQUIRE_EQUAL(e.addr_entries[i].addr, e.addr_list[i]);
+            BOOST_REQUIRE(e.addr_entries[i].ttl.count() != 0);
+        }
+
         hostent a;
         try {
             a = co_await d.get_host_by_addr(e.addr_list.front());
@@ -73,6 +79,19 @@ static future<> test_bad_name(dns_resolver::options opts) {
 }
 
 using enable_if_with_networking = boost::unit_test::enable_if<SEASTAR_TESTING_WITH_NETWORKING>;
+
+SEASTAR_TEST_CASE(test_resolve_numeric,
+                  *enable_if_with_networking()) {
+    auto d = ::make_lw_shared<dns_resolver>(engine().net(), dns_resolver::options());
+    return d->get_host_by_name("127.0.0.1").then_wrapped([d](future<hostent> f) {
+        auto ent = f.get();
+        BOOST_REQUIRE_EQUAL(ent.addr_entries.size(), ent.addr_list.size());
+        BOOST_REQUIRE_EQUAL(ent.addr_entries.size(), 1);
+        BOOST_REQUIRE_EQUAL(ent.addr_entries[0].ttl.count(), std::numeric_limits<signed int>::max());
+    }).finally([d]{
+        return d->close();
+    });
+}
 
 SEASTAR_TEST_CASE(test_resolve_udp,
                   *enable_if_with_networking()) {

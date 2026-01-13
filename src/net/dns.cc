@@ -532,7 +532,7 @@ dns_resolver::impl::get_host_by_name(sstring name, opt_family family)  {
     if (!family) {
         auto res = inet_address::parse_numerical(name);
         if (res) {
-            return make_ready_future<hostent>(hostent{ {name}, {*res}});
+            return make_ready_future<hostent>(hostent{ {name}, {*res}, {{*res}}});
         }
     }
 
@@ -1002,17 +1002,28 @@ dns_resolver::impl::make_hostent(const ares_addrinfo* ai) {
         e.names.emplace_back(cname->alias);
     }
     for (auto node = ai->nodes; node != nullptr; node = node->ai_next) {
+        // The TTL can be zero (dont cache) or greater up to 2^31 - 1 (in seconds)
+        // https://datatracker.ietf.org/doc/html/rfc2181#section-8
+        // https://datatracker.ietf.org/doc/html/rfc1035#section-3.2.1
         switch (node->ai_family) {
             case AF_INET:
                 e.addr_list.emplace_back(reinterpret_cast<const sockaddr_in*>(node->ai_addr)->sin_addr);
+                e.addr_entries.emplace_back(hostent::address_entry{
+                    reinterpret_cast<const sockaddr_in*>(node->ai_addr)->sin_addr,
+                    std::chrono::seconds(std::max<unsigned int>(0, node->ai_ttl))
+                });
                 break;
             case AF_INET6:
                 e.addr_list.emplace_back(reinterpret_cast<const sockaddr_in6*>(node->ai_addr)->sin6_addr);
+                e.addr_entries.emplace_back(hostent::address_entry{
+                    reinterpret_cast<const sockaddr_in6*>(node->ai_addr)->sin6_addr,
+                    std::chrono::seconds(std::max<unsigned int>(0, node->ai_ttl))
+                });
                 break;
         }
     }
 
-    dns_log.debug("Query success: {}/{}", e.names.front(), e.addr_list.front());
+    dns_log.debug("Query success: {}/{}, TTL: {}s", e.names.front(), e.addr_entries.front().addr, e.addr_entries.front().ttl.count());
 
     return e;
 }
@@ -1031,10 +1042,16 @@ dns_resolver::impl::make_hostent(const ::hostent& host) {
         case AF_INET:
             SEASTAR_ASSERT(size_t(host.h_length) >= sizeof(in_addr));
             e.addr_list.emplace_back(*reinterpret_cast<const in_addr*>(*p));
+            e.addr_entries.emplace_back(hostent::address_entry{
+                *reinterpret_cast<const in_addr*>(*p), std::chrono::seconds(std::numeric_limits<signed int>::max())
+            });
             break;
         case AF_INET6:
             SEASTAR_ASSERT(size_t(host.h_length) >= sizeof(in6_addr));
             e.addr_list.emplace_back(*reinterpret_cast<const in6_addr*>(*p));
+            e.addr_entries.emplace_back(hostent::address_entry{
+                *reinterpret_cast<const in6_addr*>(*p), std::chrono::seconds(std::numeric_limits<signed int>::max())
+            });
             break;
         default:
             break;
@@ -1042,7 +1059,7 @@ dns_resolver::impl::make_hostent(const ::hostent& host) {
         ++p;
     }
 
-    dns_log.debug("Query success: {}/{}", e.names.front(), e.addr_list.front());
+    dns_log.debug("Query success: {}/{}, TTL: {}s", e.names.front(), e.addr_entries.front().addr, e.addr_entries.front().ttl.count());
 
     return e;
 }

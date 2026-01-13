@@ -55,6 +55,14 @@ struct hostent {
     std::vector<sstring> names;
     // Primary address is also always first.
     std::vector<inet_address> addr_list;
+    struct address_entry {
+        inet_address addr;
+        // https://datatracker.ietf.org/doc/html/rfc1035#section-2.3.4
+        // https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.3
+        // https://datatracker.ietf.org/doc/html/rfc2181#section-8
+        std::chrono::seconds ttl{std::numeric_limits<signed int>::max()};
+    };
+    std::vector<address_entry> addr_entries;
 };
 
 typedef std::optional<inet_address::family> opt_family;
