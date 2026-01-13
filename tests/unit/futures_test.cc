@@ -2642,6 +2642,29 @@ SEASTAR_THREAD_TEST_CASE(test_foreign_promise_set_value) {
     BOOST_REQUIRE_EQUAL(getter.get(), other_shard);
 }
 
+#if __cpp_lib_three_way_comparison
+SEASTAR_TEST_CASE(test_bool_class_spaceship_operator) {
+    using test_bool_class = bool_class<struct test_bool_class_tag>;
+    auto a = test_bool_class::yes;
+    auto b = test_bool_class::no;
+
+    BOOST_REQUIRE_EQUAL(a, a);
+    BOOST_REQUIRE(a <=> a == 0);
+    BOOST_REQUIRE_EQUAL(a, test_bool_class(true));
+    BOOST_REQUIRE(a <=> test_bool_class(true) == 0);
+    BOOST_REQUIRE_EQUAL(b, b);
+    BOOST_REQUIRE(b <=> b == 0);
+    BOOST_REQUIRE_EQUAL(b, test_bool_class(false));
+    BOOST_REQUIRE(b <=> test_bool_class(false) == 0);
+    BOOST_REQUIRE_GT(a, b);
+    BOOST_REQUIRE(a <=> b > 0);
+    BOOST_REQUIRE_LT(b, a);
+    BOOST_REQUIRE(b <=> a < 0);
+
+    return make_ready_future();
+}
+#endif
+
 void compile_tests() {
     // never executed, only to check that certain constructs compile
 
