@@ -1618,20 +1618,22 @@ future<inet_address> inet_address::find(
     return dns::resolve_name(name, f);
 }
 
-future<std::vector<inet_address>> inet_address::find_all(
-                const sstring& name) {
-    return dns::get_host_by_name(name).then([](hostent e) {
+future<std::vector<inet_address>> inet_address::find_all_impl(
+                const sstring& name, opt_family f) {
+    return dns::get_host_by_name(name, f).then([](hostent e) {
         auto rng = e.addr_entries | std::views::transform([](auto& entry) { return entry.addr; });
         return make_ready_future<std::vector<inet_address>>(rng.begin(), rng.end());
     });
 }
 
 future<std::vector<inet_address>> inet_address::find_all(
+                const sstring& name) {
+    return inet_address::find_all_impl(name, std::nullopt);
+}
+
+future<std::vector<inet_address>> inet_address::find_all(
                 const sstring& name, family f) {
-    return dns::get_host_by_name(name, f).then([](hostent e) {
-        auto rng = e.addr_entries | std::views::transform([](auto& entry) { return entry.addr; });
-        return make_ready_future<std::vector<inet_address>>(rng.begin(), rng.end());
-    });
+    return inet_address::find_all_impl(name, std::make_optional(f));
 }
 
 const std::error_category& dns::error_category() {

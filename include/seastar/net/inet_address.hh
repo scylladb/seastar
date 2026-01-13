@@ -57,6 +57,8 @@ private:
     };
 
     uint32_t _scope = invalid_scope;
+
+    static future<std::vector<inet_address>> find_all_impl(const sstring& name, std::optional<family> family);
 public:
     static constexpr uint32_t invalid_scope = std::numeric_limits<uint32_t>::max();
 
