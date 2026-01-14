@@ -39,11 +39,19 @@ static const sstring seastar_name = "seastar.io";
 static future<> test_resolve(dns_resolver::options opts) {
     auto d = dns_resolver(std::move(opts));
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     for (auto hostname : {"seastar.io", "scylladb.com", "kernel.org", "www.google.com"}) {
         hostent e = co_await d.get_host_by_name(hostname, inet_address::family::INET);
+        BOOST_REQUIRE_EQUAL(e.addr_list.size(), e.addr_entries.size());
+        for (auto i = 0ul; i < e.addr_entries.size(); ++i) {
+            BOOST_REQUIRE_EQUAL(e.addr_entries[i].addr, e.addr_list[i]);
+            BOOST_REQUIRE(e.addr_entries[i].ttl.count() != 0);
+        }
+
         hostent a;
         try {
-            a = co_await d.get_host_by_addr(e.addr_list.front());
+            a = co_await d.get_host_by_addr(e.addr_entries.front().addr);
         } catch (const std::system_error& e) {
             if (e.code().category() != dns::error_category()) {
                 throw;
@@ -52,9 +60,13 @@ static future<> test_resolve(dns_resolver::options opts) {
         }
         hostent e2 = co_await d.get_host_by_name(a.names.front(), inet_address::family::INET);
         BOOST_REQUIRE(std::count(e2.addr_list.begin(), e2.addr_list.end(), e.addr_list.front()));
+        BOOST_REQUIRE(std::count_if(e2.addr_entries.begin(), e2.addr_entries.end(), [&e](const auto& item){return e.addr_entries.front().addr == item.addr;}));
+        BOOST_REQUIRE(!e2.addr_entries.empty());
+        BOOST_REQUIRE(e2.addr_entries[0].ttl.count() != 0);
         co_await d.close();
         co_return;
     }
+#pragma GCC diagnostic pop
     BOOST_FAIL("No more hosts to try");
 }
 
@@ -73,6 +85,18 @@ static future<> test_bad_name(dns_resolver::options opts) {
 }
 
 using enable_if_with_networking = boost::unit_test::enable_if<SEASTAR_TESTING_WITH_NETWORKING>;
+
+SEASTAR_TEST_CASE(test_resolve_numeric,
+                  *enable_if_with_networking()) {
+    auto d = ::make_lw_shared<dns_resolver>(engine().net(), dns_resolver::options());
+    return d->get_host_by_name("127.0.0.1").then_wrapped([d](future<hostent> f) {
+        auto ent = f.get();
+        BOOST_REQUIRE_EQUAL(ent.addr_entries.size(), 1);
+        BOOST_REQUIRE_EQUAL(ent.addr_entries[0].ttl.count(), std::numeric_limits<signed int>::max());
+    }).finally([d]{
+        return d->close();
+    });
+}
 
 SEASTAR_TEST_CASE(test_resolve_udp,
                   *enable_if_with_networking()) {
