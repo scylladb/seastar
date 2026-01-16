@@ -927,6 +927,10 @@ io_queue::request_limits io_queue::get_request_limits() const noexcept {
     return l;
 }
 
+std::chrono::duration<double> io_queue::get_io_latency_goal() const noexcept {
+    return _group->io_latency_goal();
+}
+
 future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
     return futurize_invoke([pc = std::move(pc), dnl = std::move(dnl), req = std::move(req), this, intent, iovs = std::move(iovs)] () mutable {
         // First time will hit here, and then we create the class. It is important

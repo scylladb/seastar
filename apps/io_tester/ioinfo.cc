@@ -60,7 +60,7 @@ int main(int ac, char** av) {
 
                             out << YAML::Key << "device" << YAML::Value << st.st_dev;
                             out << YAML::Key << "io_latency_goal_ms" << YAML::Value <<
-                                    std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(cfg.rate_limit_duration).count();
+                                    std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(ioq.get_io_latency_goal()).count();
                             out << YAML::Key << "io_queue" << YAML::BeginMap;
                             out << YAML::Key << "id" << YAML::Value << ioq.id();
                             out << YAML::Key << "req_count_rate" << YAML::Value << cfg.req_count_rate;
