@@ -446,6 +446,10 @@ seastar_add_test (socket
   # https://github.com/scylladb/seastar/issues/2302
   RUN_ARGS --reactor-backend linux-aio)
 
+seastar_add_test (epoll
+  SOURCES epoll_test.cc
+  RUN_ARGS --reactor-backend epoll)
+
 seastar_add_test (sstring
   KIND BOOST
   SOURCES sstring_test.cc)

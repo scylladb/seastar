@@ -873,7 +873,7 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
             evt.events = pfd->events_requested;
         }
         auto events = evt.events & (EPOLLIN | EPOLLOUT | EPOLLRDHUP);
-        auto events_to_remove = has_error ? pfd->events_requested : events & ~pfd->events_requested;
+        auto events_to_remove = events & ~pfd->events_requested;
         complete_epoll_event(*pfd, events, EPOLLRDHUP);
         if (pfd->events_rw) {
             // accept() signals normal completions via EPOLLIN, but errors (due to shutdown())
@@ -891,6 +891,13 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
             evt.events = pfd->events_epoll;
             auto op = evt.events ? EPOLL_CTL_MOD : EPOLL_CTL_DEL;
             ::epoll_ctl(_epollfd.get(), op, pfd->fd.get(), &evt);
+        } else if (has_error) {
+            // In the error case, all requested events are cleared (as we handle
+            // all requested events on error), so unconditionally delete the fd
+            // from epoll, which avoids edge conditions where we otherwise might
+            // get stuck spinning.
+            pfd->events_epoll = 0;
+            ::epoll_ctl(_epollfd.get(), EPOLL_CTL_DEL, pfd->fd.get(), nullptr);
         }
     }
     return nr;
