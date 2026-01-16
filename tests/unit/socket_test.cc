@@ -274,12 +274,14 @@ SEASTAR_THREAD_TEST_CASE(socket_accept_abort_test) {
     ipv4_addr addr("127.0.0.1", 3174);
     server_socket ss = seastar::listen(addr, listen_options{ .reuse_address = true });
     bool too_late = false;
-    auto f = ss.accept().then([] (auto ar) {
-        BOOST_FAIL("Accept didn't resolve into exception");
-    }).handle_exception_type([&too_late] (std::system_error e) {
-        BOOST_REQUIRE(!too_late);
-        BOOST_REQUIRE_EQUAL(e.code(), std::error_code(ECONNABORTED, std::system_category()));
-        return make_ready_future<>();
+    auto f = async([&] {
+        try {
+            ss.accept().get();
+            BOOST_FAIL("Accept didn't resolve into exception");
+        } catch (const std::system_error& e) {
+            BOOST_REQUIRE(!too_late);
+            BOOST_REQUIRE_EQUAL(e.code(), std::error_code(ECONNABORTED, std::system_category()));
+        }
     });
 
     auto abort = sleep(std::chrono::milliseconds(500)).then([&ss] {
