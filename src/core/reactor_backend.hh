@@ -231,7 +231,11 @@ public:
 // Linux. Can wait on multiple file descriptors, and converts other events
 // (such as timers, signals, inter-thread notifications) into file descriptors
 // using mechanisms like timerfd, signalfd and eventfd respectively.
-class reactor_backend_epoll : public reactor_backend {
+//
+// This base class takes care of everything except disk files. Disk file
+// support is left to a derived class to allow different implementations,
+// with and without linux-aio.
+class reactor_backend_epoll_base : public reactor_backend {
     reactor& _r;
     std::atomic<bool> _highres_timer_pending = {};
     std::thread _task_quota_timer_thread;
@@ -249,15 +253,14 @@ private:
     void task_quota_timer_thread_fn();
     future<> get_epoll_future(pollable_fd_state& fd, int event);
     void complete_epoll_event(pollable_fd_state& fd, int events, int event);
-    aio_storage_context _storage_context;
     void switch_steady_clock_timers(file_desc& from, file_desc& to);
     void maybe_switch_steady_clock_timers(int timeout, file_desc& from, file_desc& to);
     bool wait_and_process(int timeout, const sigset_t* active_sigmask);
     bool complete_hrtimer();
     bool _need_epoll_events = false;
 public:
-    reactor_backend_epoll(reactor& r, reactor_backend_config cfg);
-    virtual ~reactor_backend_epoll() override;
+    reactor_backend_epoll_base(reactor& r, reactor_backend_config cfg);
+    virtual ~reactor_backend_epoll_base() override;
 
     virtual bool reap_kernel_completions() override;
     virtual bool kernel_submit_work() override;
@@ -291,6 +294,17 @@ public:
 
     virtual pollable_fd_state_ptr
     make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
+};
+
+// reactor backend using epoll for non-disk file descriptors and linux-aio for disk files.
+class reactor_backend_epoll : public reactor_backend_epoll_base {
+    aio_storage_context _storage_context;
+public:
+    explicit reactor_backend_epoll(reactor& r, reactor_backend_config cfg);
+    virtual ~reactor_backend_epoll() override;
+    virtual bool reap_kernel_completions() override;
+    virtual bool kernel_submit_work() override;
+    virtual bool kernel_events_can_sleep() const override;
 };
 
 class reactor_backend_aio : public reactor_backend {
