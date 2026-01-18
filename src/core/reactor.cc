@@ -1372,7 +1372,7 @@ cpu_stall_detector_linux_perf_event::cpu_stall_detector_linux_perf_event(file_de
         : cpu_stall_detector(cfg), _fd(std::move(fd)) {
     void* ret = ::mmap(nullptr, 2*getpagesize(), PROT_READ|PROT_WRITE, MAP_SHARED, _fd.get(), 0);
     if (ret == MAP_FAILED) {
-        abort();
+        throw std::system_error(errno, std::system_category(), "mmap() failed for perf_event_open");
     }
     _mmap = static_cast<struct ::perf_event_mmap_page*>(ret);
     _data_area = reinterpret_cast<char*>(_mmap) + getpagesize();
