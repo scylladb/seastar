@@ -349,6 +349,18 @@ public:
     virtual bool kernel_events_can_sleep() const override;
 };
 
+// reactor backend using epoll for everything, including disk files.
+// "using epoll" here means waiting on thread pool completion notification
+// via epoll, not issuing io via epoll. The idea is to avoid linux-aio
+// for environments where it is not available.
+class reactor_backend_epoll_pure : public reactor_backend_epoll_base {
+public:
+    explicit reactor_backend_epoll_pure(reactor& r)
+            : reactor_backend_epoll_base(r, supports_aio_fdatasync::no) {}
+    virtual std::string_view get_backend_name() const override;
+    virtual bool kernel_submit_work() override;
+};
+
 class reactor_backend_aio : public reactor_backend {
     reactor& _r;
     file_desc _hrtimer_timerfd;
