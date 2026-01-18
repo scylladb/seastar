@@ -260,11 +260,9 @@ option (Seastar_HWLOC
   "Enable hwloc support."
   ON)
 
-if (DEFINED Seastar_IO_URING)
-  option (Seastar_IO_URING
-    "Enable io_uring support."
-    ON)
-endif ()
+option (Seastar_IO_URING
+  "Enable io_uring support."
+  ON)
 
 set (Seastar_JENKINS
   ""
