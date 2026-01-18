@@ -337,6 +337,51 @@ reactor::do_sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) {
     });
 }
 
+future<size_t>
+reactor::do_write(pollable_fd_state& fd, const void* buffer, size_t len) {
+    return writeable(fd).then([this, &fd, buffer, len] () mutable {
+        auto r = fd.fd.write(buffer, len);
+        if (!r) {
+            return do_write(fd, buffer, len);
+        }
+        if (size_t(*r) == len) {
+            fd.speculate_epoll(EPOLLOUT);
+        }
+        return make_ready_future<size_t>(*r);
+    });
+}
+
+future<size_t>
+reactor::do_writev(pollable_fd_state& fd, std::span<iovec> iov) {
+    return writeable(fd).then([this, &fd, iov] () mutable {
+        auto r = fd.fd.writev(iov.data(), std::min<size_t>(iov.size(), IOV_MAX));
+        if (!r) {
+            return do_writev(fd, iov);
+        }
+        if (size_t(*r) == internal::iovec_len(iov)) {
+            fd.speculate_epoll(EPOLLOUT);
+        }
+        return make_ready_future<size_t>(*r);
+    });
+}
+
+future<>
+reactor::write_all_part(pollable_fd_state& fd, const void* buffer, size_t len, size_t completed) {
+    if (completed == len) {
+        return make_ready_future<>();
+    } else {
+        return do_write(fd, static_cast<const char*>(buffer) + completed, len - completed).then(
+                [&fd, buffer, len, completed, this] (size_t part) mutable {
+            return write_all_part(fd, buffer, len, completed + part);
+        });
+    }
+}
+
+future<>
+reactor::write_all(pollable_fd_state& fd, const void* buffer, size_t len) {
+    return write_all_part(fd, buffer, len, 0);
+}
+
 #if SEASTAR_API_LEVEL < 9
 future<>
 reactor::send_all_part(pollable_fd_state& fd, const void* buffer, size_t len, size_t completed) {
@@ -389,6 +434,28 @@ future<size_t> pollable_fd_state::read_some(const std::vector<iovec>& iov) {
 
 future<temporary_buffer<char>> pollable_fd_state::read_some(internal::buffer_allocator* ba) {
     return engine()._backend->read_some(*this, ba);
+}
+
+future<size_t> pollable_fd_state::write_some(const void* buffer, size_t size) {
+    return engine().do_write(*this, buffer, size);
+}
+
+future<size_t> pollable_fd_state::write_some(std::span<iovec> iov) {
+    return engine().do_writev(*this, iov);
+}
+
+future<> pollable_fd_state::write_all(const void* buffer, size_t size) {
+    if (size == 0) {
+        return make_ready_future<>();
+    }
+    return engine().write_all(*this, buffer, size);
+}
+
+future<> pollable_fd_state::write_all(std::span<iovec> iov) {
+    return write_some(iov).then([this, iov] (size_t size) {
+        auto niovs = internal::iovec_trim_front(iov, size);
+        return niovs.empty() ? make_ready_future<>() : write_all(niovs);
+    });
 }
 
 #if SEASTAR_API_LEVEL >= 9

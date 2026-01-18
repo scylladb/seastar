@@ -459,6 +459,11 @@ private:
     future<temporary_buffer<char>>
     do_read_some(pollable_fd_state& fd, internal::buffer_allocator* ba);
 
+    future<size_t> do_write(pollable_fd_state& fd, const void* buffer, size_t size);
+    future<size_t> do_writev(pollable_fd_state& fd, std::span<iovec> iov);
+    future<> write_all_part(pollable_fd_state& fd, const void* buffer, size_t len, size_t completed);
+    future<> write_all(pollable_fd_state& fd, const void* buffer, size_t len);
+
 #if SEASTAR_API_LEVEL < 9
     future<size_t>
     do_send(pollable_fd_state& fd, const void* buffer, size_t size);

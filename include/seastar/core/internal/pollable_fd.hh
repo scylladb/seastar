@@ -98,6 +98,10 @@ public:
     future<size_t> read_some(uint8_t* buffer, size_t size);
     future<size_t> read_some(const std::vector<iovec>& iov);
     future<temporary_buffer<char>> read_some(internal::buffer_allocator* ba);
+    future<size_t> write_some(const void* buffer, size_t size);
+    future<size_t> write_some(std::span<iovec> iov);
+    future<> write_all(const void* buffer, size_t size);
+    future<> write_all(std::span<iovec> iov);
 #if SEASTAR_API_LEVEL >= 9
     future<size_t> send_some(std::span<iovec> iovs);
     future<> send_all(std::span<iovec> iovs);
@@ -151,6 +155,18 @@ public:
     }
     future<temporary_buffer<char>> read_some(internal::buffer_allocator* ba) {
         return _s->read_some(ba);
+    }
+    future<size_t> write_some(const void* buffer, size_t size) {
+        return _s->write_some(buffer, size);
+    }
+    future<size_t> write_some(std::span<iovec> iov) {
+        return _s->write_some(iov);
+    }
+    future<> write_all(const void* buffer, size_t size) {
+        return _s->write_all(buffer, size);
+    }
+    future<> write_all(std::span<iovec> iov) {
+        return _s->write_all(iov);
     }
 #if SEASTAR_API_LEVEL >= 9
     future<size_t> send_some(std::span<iovec> iov) {
