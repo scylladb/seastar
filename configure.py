@@ -19,6 +19,7 @@
 import argparse
 import os
 import seastar_cmake
+from shutil import which
 import subprocess
 import tempfile
 
@@ -63,6 +64,42 @@ def standard_supported(standard, compiler='g++'):
     return try_compile(compiler=compiler, source='', flags=['-std=' + standard])
 
 
+def find_compiler_cache(preference):
+    """
+    Find a compiler cache based on the preference.
+
+    Args:
+        preference: One of 'auto', 'sccache', 'ccache', 'none', or a path to a binary.
+
+    Returns:
+        Path to the compiler cache binary, or empty string if not found/disabled.
+    """
+    if preference == 'none':
+        return ''
+
+    if preference == 'auto':
+        # Prefer sccache over ccache
+        for cache in ['sccache', 'ccache']:
+            path = which(cache)
+            if path:
+                return path
+        return ''
+
+    if preference in ('sccache', 'ccache'):
+        path = which(preference)
+        if path:
+            return path
+        print(f"Warning: {preference} not found on PATH, disabling compiler cache")
+        return ''
+
+    # Assume it's a path to a binary
+    if os.path.isfile(preference) and os.access(preference, os.X_OK):
+        return preference
+
+    print(f"Warning: compiler cache '{preference}' not found or not executable, disabling compiler cache")
+    return ''
+
+
 arg_parser = argparse.ArgumentParser('Configure seastar')
 arg_parser.add_argument('--mode', action='store', choices=seastar_cmake.SUPPORTED_MODES + ['all'], default='all')
 arg_parser.add_argument('--build-root', action='store', default=seastar_cmake.DEFAULT_BUILD_ROOT, type=str,
@@ -80,8 +117,8 @@ arg_parser.add_argument('--compiler', action='store', dest='cxx', default='g++',
                         help='C++ compiler path')
 arg_parser.add_argument('--c-compiler', action='store', dest='cc', default='gcc',
                         help='C compiler path (for bundled libraries such as dpdk)')
-arg_parser.add_argument('--ccache', nargs='?', const='ccache', default='', metavar='CCACHE_BINARY_PATH',
-                        help='Use ccache to cache compilation (and optionally provide a path to ccache binary)')
+arg_parser.add_argument('--compiler-cache', dest='compiler_cache', default='auto',
+                        help="Use a compiler cache: 'auto' (prefer sccache over ccache), 'sccache', 'ccache', 'none' to disable, or a path to a compiler cache binary")
 arg_parser.add_argument('--c++-standard', action='store', dest='cpp_standard', default='',
                         help='C++ standard to build with')
 arg_parser.add_argument('--cook', action='append', dest='cook', default=[],
@@ -163,6 +200,9 @@ if not args.cpp_standard:
     cpp_standards = ['23', '20']
     args.cpp_standard = identify_best_standard(cpp_standards, compiler=args.cxx)
 
+# Resolve compiler cache
+compiler_cache = find_compiler_cache(args.compiler_cache)
+
 
 MODES = seastar_cmake.SUPPORTED_MODES if args.mode == 'all' else [args.mode]
 
@@ -185,7 +225,7 @@ def configure_mode(mode):
         '-DCMAKE_BUILD_TYPE={}'.format(MODE_TO_CMAKE_BUILD_TYPE[mode]),
         '-DCMAKE_CXX_COMPILER={}'.format(args.cxx),
         '-DCMAKE_CXX_STANDARD={}'.format(args.cpp_standard),
-        '-DCMAKE_CXX_COMPILER_LAUNCHER={}'.format(args.ccache),
+        '-DCMAKE_CXX_COMPILER_LAUNCHER={}'.format(compiler_cache),
         '-DCMAKE_INSTALL_PREFIX={}'.format(args.install_prefix),
         '-DCMAKE_EXPORT_COMPILE_COMMANDS={}'.format('yes' if args.cc_json else 'no'),
         '-DBUILD_SHARED_LIBS={}'.format('yes' if mode in ('debug', 'dev') else 'no'),
