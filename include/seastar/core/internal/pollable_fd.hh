@@ -106,10 +106,10 @@ public:
     future<> send_all(std::span<iovec> iovs);
     future<> write_all(std::span<iovec> iovs);
 #else
-    future<size_t> write_some(net::packet& p);
-    future<> write_all(net::packet& p);
-    future<> write_all(const char* buffer, size_t size);
-    future<> write_all(const uint8_t* buffer, size_t size);
+    future<size_t> send_some(net::packet& p);
+    future<> send_all(net::packet& p);
+    future<> send_all(const char* buffer, size_t size);
+    future<> send_all(const uint8_t* buffer, size_t size);
 #endif
     future<> readable();
     future<> writeable();
@@ -117,8 +117,8 @@ public:
     future<std::tuple<pollable_fd, socket_address>> accept();
     future<> connect(socket_address& sa);
     future<temporary_buffer<char>> recv_some(internal::buffer_allocator* ba);
-    future<size_t> sendmsg(struct msghdr *msg);
-    future<size_t> recvmsg(struct msghdr *msg);
+    future<size_t> send(struct msghdr *msg);
+    future<size_t> recv(struct msghdr *msg);
     future<size_t> sendto(socket_address addr, const void* buf, size_t len);
     future<> poll_rdhup();
     void shutdown(int how);
@@ -174,17 +174,17 @@ public:
         return _s->write_all(iov);
     }
 #else
-    future<size_t> write_some(net::packet& p) {
-        return _s->write_some(p);
+    future<size_t> send_some(net::packet& p) {
+        return _s->send_some(p);
     }
-    future<> write_all(net::packet& p) {
-        return _s->write_all(p);
+    future<> send_all(net::packet& p) {
+        return _s->send_all(p);
     }
-    future<> write_all(const char* buffer, size_t size) {
-        return _s->write_all(buffer, size);
+    future<> send_all(const char* buffer, size_t size) {
+        return _s->send_all(buffer, size);
     }
-    future<> write_all(const uint8_t* buffer, size_t size) {
-        return _s->write_all(buffer, size);
+    future<> send_all(const uint8_t* buffer, size_t size) {
+        return _s->send_all(buffer, size);
     }
 #endif
     future<> readable() {
@@ -205,11 +205,11 @@ public:
     future<temporary_buffer<char>> recv_some(internal::buffer_allocator* ba) {
         return _s->recv_some(ba);
     }
-    future<size_t> sendmsg(struct msghdr *msg) {
-        return _s->sendmsg(msg);
+    future<size_t> send(struct msghdr *msg) {
+        return _s->send(msg);
     }
-    future<size_t> recvmsg(struct msghdr *msg) {
-        return _s->recvmsg(msg);
+    future<size_t> recv(struct msghdr *msg) {
+        return _s->recv(msg);
     }
     future<size_t> sendto(socket_address addr, const void* buf, size_t len) {
         return _s->sendto(addr, buf, len);
