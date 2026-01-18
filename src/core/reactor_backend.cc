@@ -982,6 +982,47 @@ bool reactor_backend_epoll::kernel_submit_work() {
     return reactor_backend_epoll_base::kernel_submit_work();
 }
 
+bool reactor_backend_epoll_pure::kernel_submit_work() {
+    auto r = _r._io_sink.drain([this] (const internal::io_request& req, io_completion* completion) {
+        memory::scoped_critical_alloc_section _;
+        using o = internal::io_request::operation;
+        // The returned future will be used to satisfy the promise in io_completion,
+        // (via complete_with) so we can ignore the future here.
+        (void)_r._thread_pool->submit<ssize_t>(internal::thread_pool_submit_reason::file_operation, [req]() mutable {
+            switch (req.opcode()) {
+            case o::read: {
+                auto& req_read = req.as<o::read>();
+                return ::pread(req_read.fd, req_read.addr, req_read.size, req_read.pos);
+            }
+            case o::readv: {
+                auto& req_readv = req.as<o::readv>();
+                return ::preadv(req_readv.fd, req_readv.iovec, req_readv.iov_len, req_readv.pos);
+            }
+            case o::write: {
+                auto& req_write = req.as<o::write>();
+                return ::pwrite(req_write.fd, req_write.addr, req_write.size, req_write.pos);
+            }
+            case o::writev: {
+                auto& req_writev = req.as<o::writev>();
+                return ::pwritev(req_writev.fd, req_writev.iovec, req_writev.iov_len, req_writev.pos);
+            }
+            case o::fdatasync: {
+                auto& req_fdatasync = req.as<o::fdatasync>();
+                return ssize_t(::fdatasync(req_fdatasync.fd));
+            }
+            default:
+                ::abort();
+            }
+        }).then([completion] (ssize_t res) {
+            completion->complete_with(res);
+        });
+        return true;
+    });
+
+    r |= reactor_backend_epoll_base::kernel_submit_work();
+    return r;
+}
+
 bool reactor_backend_epoll_base::complete_hrtimer() {
     // This can be set from either the task quota timer thread, or
     // wait_and_process(), above.
@@ -1964,6 +2005,8 @@ std::unique_ptr<reactor_backend> reactor_backend_selector::create(reactor& r, re
         return std::make_unique<reactor_backend_aio>(r, cfg);
     } else if (_name == "epoll") {
         return std::make_unique<reactor_backend_epoll>(r, cfg);
+    } else if (_name == "pure-epoll") {
+        return std::make_unique<reactor_backend_epoll_pure>(r, cfg);
     }
     throw std::logic_error("bad reactor backend");
 }
@@ -1983,6 +2026,7 @@ std::vector<reactor_backend_selector> reactor_backend_selector::available() {
         ret.push_back(reactor_backend_selector("linux-aio"));
     }
     ret.push_back(reactor_backend_selector("epoll"));
+    ret.push_back(reactor_backend_selector("pure-epoll"));
     return ret;
 }
 

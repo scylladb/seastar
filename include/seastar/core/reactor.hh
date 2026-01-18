@@ -174,6 +174,7 @@ private:
     friend struct hrtimer_aio_completion;
     friend class reactor_backend_epoll_base;
     friend class reactor_backend_epoll;
+    friend class reactor_backend_epoll_pure;
     friend class reactor_backend_aio;
     friend class reactor_backend_uring;
     friend class reactor_backend_selector;

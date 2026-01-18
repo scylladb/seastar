@@ -236,7 +236,9 @@ public:
 // support is left to a derived class to allow different implementations,
 // with and without linux-aio.
 class reactor_backend_epoll_base : public reactor_backend {
+protected:
     reactor& _r;
+private:
     std::atomic<bool> _highres_timer_pending = {};
     std::thread _task_quota_timer_thread;
     ::itimerspec _steady_clock_timer_deadline = {};
@@ -305,6 +307,16 @@ public:
     virtual bool reap_kernel_completions() override;
     virtual bool kernel_submit_work() override;
     virtual bool kernel_events_can_sleep() const override;
+};
+
+// reactor backend using epoll for everything, including disk files.
+// "using epoll" here means waiting on thread pool completion notification
+// via epoll, not issuing io via epoll. The idea is to avoid linux-aio
+// for environments where it is not available.
+class reactor_backend_epoll_pure : public reactor_backend_epoll_base {
+public:
+    using reactor_backend_epoll_base::reactor_backend_epoll_base;
+    virtual bool kernel_submit_work() override;
 };
 
 class reactor_backend_aio : public reactor_backend {
