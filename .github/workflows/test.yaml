@@ -86,7 +86,7 @@ jobs:
             CPP=g++-14
           fi
           if ${{ inputs.enable-ccache }}; then
-            MAYBE_CCACHE_OPT="--ccache"
+            MAYBE_CCACHE_OPT="--compiler-cache=ccache"
           fi
           ./configure.py                          \
             --c++-standard ${{ inputs.standard }} \
