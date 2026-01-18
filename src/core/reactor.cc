@@ -392,11 +392,11 @@ future<temporary_buffer<char>> pollable_fd_state::read_some(internal::buffer_all
 }
 
 #if SEASTAR_API_LEVEL >= 9
-future<size_t> pollable_fd_state::write_some(std::span<iovec> iovs) {
+future<size_t> pollable_fd_state::send_some(std::span<iovec> iovs) {
     return engine()._backend->sendmsg(*this, iovs, internal::iovec_len(iovs));
 }
 #else
-future<size_t> pollable_fd_state::write_some(net::packet& p) {
+future<size_t> pollable_fd_state::send_some(net::packet& p) {
     static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
         sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
         offsetof(iovec, iov_len) == offsetof(net::fragment, size) &&
@@ -412,28 +412,28 @@ future<size_t> pollable_fd_state::write_some(net::packet& p) {
 #endif
 
 #if SEASTAR_API_LEVEL >= 9
-future<> pollable_fd_state::write_all(std::span<iovec> iovs) {
-    return write_some(iovs).then([this, iovs] (size_t size) {
+future<> pollable_fd_state::send_all(std::span<iovec> iovs) {
+    return send_some(iovs).then([this, iovs] (size_t size) {
         auto niovs = internal::iovec_trim_front(iovs, size);
-        return niovs.empty() ? make_ready_future<>() : write_all(niovs);
+        return niovs.empty() ? make_ready_future<>() : send_all(niovs);
     });
 }
 #else
-future<> pollable_fd_state::write_all(net::packet& p) {
-    return write_some(p).then([this, &p] (size_t size) {
+future<> pollable_fd_state::send_all(net::packet& p) {
+    return send_some(p).then([this, &p] (size_t size) {
         if (p.len() == size) {
             return make_ready_future<>();
         }
         p.trim_front(size);
-        return write_all(p);
+        return send_all(p);
     });
 }
 
-future<> pollable_fd_state::write_all(const char* buffer, size_t size) {
+future<> pollable_fd_state::send_all(const char* buffer, size_t size) {
     return engine().send_all(*this, buffer, size);
 }
 
-future<> pollable_fd_state::write_all(const uint8_t* buffer, size_t size) {
+future<> pollable_fd_state::send_all(const uint8_t* buffer, size_t size) {
     return engine().send_all(*this, buffer, size);
 }
 #endif
@@ -467,12 +467,12 @@ future<temporary_buffer<char>> pollable_fd_state::recv_some(internal::buffer_all
     return engine()._backend->recv_some(*this, ba);
 }
 
-future<size_t> pollable_fd_state::recvmsg(struct msghdr *msg) {
+future<size_t> pollable_fd_state::recv(struct msghdr *msg) {
     maybe_no_more_recv();
     return engine().readable(*this).then([this, msg] {
         auto r = fd.recvmsg(msg, 0);
         if (!r) {
-            return recvmsg(msg);
+            return recv(msg);
         }
         // We always speculate here to optimize for throughput in a workload
         // with multiple outstanding requests. This way the caller can consume
@@ -486,12 +486,12 @@ future<size_t> pollable_fd_state::recvmsg(struct msghdr *msg) {
     });
 }
 
-future<size_t> pollable_fd_state::sendmsg(struct msghdr* msg) {
+future<size_t> pollable_fd_state::send(struct msghdr* msg) {
     maybe_no_more_send();
     return engine().writeable(*this).then([this, msg] () mutable {
         auto r = fd.sendmsg(msg, 0);
         if (!r) {
-            return sendmsg(msg);
+            return send(msg);
         }
         // For UDP this will always speculate. We can't know if there's room
         // or not, but most of the time there should be so the cost of mis-

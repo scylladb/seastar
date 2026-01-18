@@ -879,14 +879,14 @@ future<> posix_data_sink_impl::put(std::span<temporary_buffer<char>> bufs) {
     auto [ total, del ] = _vecs.populate(bufs);
     auto sg_id = internal::scheduling_group_index(current_scheduling_group());
     bytes_sent[sg_id] += total;
-    return _fd.write_all(_vecs.v).finally([del = std::move(del)] {} );
+    return _fd.send_all(_vecs.v).finally([del = std::move(del)] {} );
 }
 #else
 future<>
 posix_data_sink_impl::put(temporary_buffer<char> buf) {
     auto sg_id = internal::scheduling_group_index(current_scheduling_group());
     bytes_sent[sg_id] += buf.size();
-    return _fd.write_all(buf.get(), buf.size()).then([d = buf.release()] {});
+    return _fd.send_all(buf.get(), buf.size()).then([d = buf.release()] {});
 }
 
 future<>
@@ -895,7 +895,7 @@ posix_data_sink_impl::put(packet p) {
     _p = std::move(p);
     auto sg_id = internal::scheduling_group_index(current_scheduling_group());
     bytes_sent[sg_id] += _p.len();
-    return _fd.write_all(_p).finally([this] { _p.reset(); });
+    return _fd.send_all(_p).finally([this] { _p.reset(); });
 }
 #endif
 
@@ -1104,7 +1104,7 @@ future<> posix_datagram_channel::send(const socket_address& dst, std::span<tempo
     auto sg_id = internal::scheduling_group_index(current_scheduling_group());
     auto [ len, del ] = _send.prepare(dst, bufs);
     bytes_sent[sg_id] += len;
-    return _fd.sendmsg(&_send._hdr)
+    return _fd.send(&_send._hdr)
             .then([len, del = std::move(del) ] (size_t size) { SEASTAR_ASSERT(size == len); });
 }
 
@@ -1164,7 +1164,7 @@ public:
 future<datagram>
 posix_datagram_channel::receive() {
     _recv.prepare();
-    return _fd.recvmsg(&_recv._hdr).then([this] (size_t size) {
+    return _fd.recv(&_recv._hdr).then([this] (size_t size) {
         std::optional<socket_address> dst;
         for (auto* cmsg = CMSG_FIRSTHDR(&_recv._hdr); cmsg != nullptr; cmsg = CMSG_NXTHDR(&_recv._hdr, cmsg)) {
             if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO) {
