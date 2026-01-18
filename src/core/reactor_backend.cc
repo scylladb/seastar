@@ -1956,6 +1956,7 @@ public:
 #endif
 
 static bool detect_aio_poll() {
+  try {
     auto fd = file_desc::eventfd(0, 0);
     aio_context_t ioc{};
     setup_aio_context(1, &ioc);
@@ -1977,6 +1978,10 @@ static bool detect_aio_poll() {
     // https://github.com/moby/moby/issues/38894.
     r = io_pgetevents(ioc, 1, 1, ev, nullptr, nullptr, true);
     return r == 1;
+  } catch (...) {
+    // ENOSYS
+    return false;
+  }
 }
 
 bool reactor_backend_selector::has_enough_aio_nr() {
