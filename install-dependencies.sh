@@ -269,3 +269,5 @@ case "$ID" in
         exit 1
     ;;
 esac
+
+git submodule update --init --recursive -- external/ngtcp2

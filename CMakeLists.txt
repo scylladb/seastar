@@ -379,6 +379,65 @@ set (Seastar_GEN_BINARY_DIR ${Seastar_BINARY_DIR}/gen)
 include (SeastarDependencies)
 seastar_find_dependencies ()
 
+# Build options for ngtcp2 library (Force static lib, disable shared, use GnuTLS, disable OpenSSL and disable tests).
+set (ENABLE_LIB_ONLY    
+  ON  
+  CACHE 
+  BOOL 
+  "Build libngtcp2 only" 
+  FORCE)
+
+set (ENABLE_STATIC_LIB  
+  ON  
+  CACHE 
+  BOOL 
+  "Build static lib"     
+  FORCE)
+
+set (ENABLE_SHARED_LIB  
+  OFF 
+  CACHE 
+  BOOL 
+  "Disable shared lib"   
+  FORCE)
+
+set (ENABLE_GNUTLS      
+  ON  
+  CACHE 
+  BOOL 
+  "Enable GnuTLS"        
+  FORCE)
+
+set (ENABLE_OPENSSL     
+  OFF 
+  CACHE 
+  BOOL 
+  "Disable OpenSSL"      
+  FORCE)
+
+set (BUILD_TESTING      
+  OFF 
+  CACHE 
+  BOOL 
+  "Disable tests"        
+  FORCE)
+
+add_subdirectory (external/ngtcp2)
+
+# Aliasing and adding ngtcp2 libraries.
+if (TARGET ngtcp2_static)
+  add_library (ngtcp2::ngtcp2 ALIAS ngtcp2_static)
+else()
+  message (FATAL_ERROR "[ngtcp2] CRITICAL: target ngtcp2_static haven't been found!")
+endif()
+
+if (TARGET ngtcp2_crypto_gnutls_static)
+  add_library (ngtcp2::ngtcp2_crypto ALIAS ngtcp2_crypto_gnutls_static)
+else()
+  message (FATAL_ERROR "[ngtcp2] CRITICAL: target ngtcp2_crypto_gnutls_static haven't been found!")
+endif()
+
+
 # Private build dependencies not visible to consumers
 find_package (ragel 6.10 REQUIRED)
 find_package (Threads REQUIRED)
@@ -789,7 +848,11 @@ target_include_directories (seastar
     $<BUILD_INTERFACE:${Seastar_GEN_BINARY_DIR}/include>
     $<BUILD_INTERFACE:${Seastar_GEN_BINARY_DIR}/src>
   PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/ngtcp2/lib/includes
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/ngtcp2/crypto/includes
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/ngtcp2/lib)
+    
 
 set (Seastar_PRIVATE_CXX_FLAGS
   -fno-semantic-interposition
@@ -847,6 +910,8 @@ target_link_libraries (seastar
     lz4::lz4
   PRIVATE
     ${CMAKE_DL_LIBS}
+    $<TARGET_FILE:ngtcp2::ngtcp2>
+    $<TARGET_FILE:ngtcp2::ngtcp2_crypto>
     GnuTLS::gnutls
     StdAtomic::atomic
     lksctp-tools::lksctp-tools
