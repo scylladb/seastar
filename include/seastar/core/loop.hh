@@ -78,6 +78,11 @@ public:
                     internal::set_callback(std::move(f), this);
                     return;
                 }
+                if (f.failed()) {
+                    _promise.set_exception(f.get_exception());
+                    delete this;
+                    return;
+                }
                 if (f.get() == stop_iteration::yes) {
                     _promise.set_value();
                     delete this;
@@ -193,6 +198,11 @@ public:
                 auto f = futurize_invoke(_action);
                 if (!f.available()) {
                     internal::set_callback(std::move(f), this);
+                    return;
+                }
+                if (f.failed()) {
+                    _promise.set_exception(f.get_exception());
+                    delete this;
                     return;
                 }
                 auto ret = f.get();
