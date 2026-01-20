@@ -124,11 +124,12 @@ class performance_test {
     uint64_t _single_run_iterations = 0;
     std::atomic<uint64_t> _max_single_run_iterations;
 private:
-    void do_run(const config&);
+    bool do_run(const config&);  // returns true if overhead exceeded threshold
 public:
     struct run_result {
         clock_type::duration duration;
         perf_stats stats;
+        uint64_t start_stop_count = 0;
     };
 protected:
     [[gnu::always_inline]] [[gnu::hot]]
@@ -163,7 +164,7 @@ public:
     const std::string& test_group() const { return _test_group; }
     std::string name() const { return fmt::format("{}.{}", test_group(), test_case()); }
 
-    void run(const config&);
+    bool run(const config&);  // returns true if overhead exceeded threshold
 public:
     static void register_test(std::unique_ptr<performance_test>);
 };

@@ -146,6 +146,12 @@ class time_measurement {
     linux_perf_event _instructions_retired_counter = linux_perf_event::user_instructions_retired();
     linux_perf_event _cpu_cycles_retired_counter = linux_perf_event::user_cpu_cycles_retired();
 
+    uint64_t _start_stop_count = 0;
+
+    // Calibrated cost of a single start_measuring_time()/stop_measuring_time() pair in nanoseconds
+    double _start_stop_overhead_ns = 0.0;         // internal timing (used for overhead calculations)
+    double _start_stop_overhead_external_ns = 0.0; // external clock measurement (for comparison)
+
 public:
     void enable_counters() {
         _instructions_retired_counter.enable();
@@ -160,6 +166,7 @@ public:
     void start_run() {
         _total_time = { };
         _total_stats = {};
+        _start_stop_count = 1;  // Start at 1 because we start timing here
         auto t = clock_type::now();
         _run_start_time = t;
         _start_time = t;
@@ -177,10 +184,12 @@ public:
             ret.duration = _total_time;
             ret.stats = _total_stats;
         }
+        ret.start_stop_count = _start_stop_count;
         return ret;
     }
 
     void start_iteration() {
+        ++_start_stop_count;
         _start_time = clock_type::now();
         _start_stats = perf_stats::snapshot(&_instructions_retired_counter, &_cpu_cycles_retired_counter);
     }
@@ -191,6 +200,43 @@ public:
         perf_stats stats;
         stats = perf_stats::snapshot(&_instructions_retired_counter, &_cpu_cycles_retired_counter);
         _total_stats += stats - _start_stats;
+    }
+
+    double start_stop_overhead_ns() const { return _start_stop_overhead_ns; }
+    double start_stop_overhead_external_ns() const { return _start_stop_overhead_external_ns; }
+
+    void calibrate_overhead() {
+        constexpr int CALIBRATION_LOOPS = 1000;
+
+        // Warm up
+        for (int i = 0; i < 100; i++) {
+            start_iteration();
+            stop_iteration();
+        }
+
+        // Use internal timing via start_run/stop_run (same as real tests)
+        enable_counters();
+        start_run();
+        for (int i = 0; i < CALIBRATION_LOOPS; i++) {
+            start_iteration();
+            stop_iteration();
+        }
+        auto result = stop_run();
+        disable_counters();
+
+        auto internal_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(result.duration).count();
+        _start_stop_overhead_ns = static_cast<double>(internal_ns) / CALIBRATION_LOOPS;
+
+        // Also measure with external clock for comparison
+        auto start = clock_type::now();
+        for (int i = 0; i < CALIBRATION_LOOPS; i++) {
+            start_iteration();
+            stop_iteration();
+        }
+        auto end = clock_type::now();
+
+        auto external_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+        _start_stop_overhead_external_ns = static_cast<double>(external_ns) / CALIBRATION_LOOPS;
     }
 };
 
@@ -242,6 +288,8 @@ struct config {
     unsigned number_of_runs;
     std::vector<std::unique_ptr<result_printer>> printers;
     unsigned random_seed = 0;
+    double overhead_threshold = 10.0;  // warn if overhead exceeds this percentage
+    bool fail_on_high_overhead = false;  // fail the test run if overhead exceeds threshold
 };
 
 // absorbs a single metric across all runs and calculates summary statistics
@@ -292,7 +340,8 @@ struct result {
         allocs{run_count},
         tasks{run_count},
         inst{run_count},
-        cycles{run_count}
+        cycles{run_count},
+        overhead{run_count}
         {}
 
     sstring test_name = "";
@@ -306,6 +355,7 @@ struct result {
     float_stats<> tasks;
     float_stats<> inst;
     float_stats<> cycles;
+    float_stats<> overhead;  // overhead percentage from start/stop timing calls
 };
 
 struct duration {
@@ -555,10 +605,11 @@ struct column {
 using columns = std::vector<column>;
 
 static const std::vector<column> common_columns{
-    {"allocs", 3, [](const result& r) { return r.allocs;              }},
-    {"tasks" , 3, [](const result& r) { return r.tasks;               }},
-    {"inst"  , 2, [](const result& r) { return r.inst;                }},
-    {"cycles", 1, [](const result& r) { return r.cycles;              }},
+    {"allocs"  , 3, [](const result& r) { return r.allocs;              }},
+    {"tasks"   , 3, [](const result& r) { return r.tasks;               }},
+    {"inst"    , 2, [](const result& r) { return r.inst;                }},
+    {"cycles"  , 1, [](const result& r) { return r.cycles;              }},
+    {"overhead", 1, [](const result& r) { return r.overhead;            }},
 };
 // json columns
 static const std::vector<column> json_columns = [] {
@@ -633,12 +684,14 @@ struct stdout_printer : text_printer {
         : text_printer(columns, options) {}
 
     virtual void print_configuration(const config& c) override {
-        fmt::print("{:<25} {}\n{:<25} {}\n{:<25} {}\n{:<25} {}\n{:<25} {}\n\n",
+        fmt::print("{:<25} {}\n{:<25} {}\n{:<25} {}\n{:<25} {}\n{:<25} {}\n{:<25} {} ({})\n\n",
                 "single run iterations:", c.single_run_iterations,
                 "single run duration:", duration { double(c.single_run_duration.count()) },
                 "number of runs:", c.number_of_runs,
                 "number of cores:", smp::count,
-                "random seed:", c.random_seed);
+                "random seed:", c.random_seed,
+                "start/stop overhead:", duration { measure_time.start_stop_overhead_ns() },
+                duration { measure_time.start_stop_overhead_external_ns() });
 
         print_header_row();
     }
@@ -711,7 +764,7 @@ static std::FILE* maybe_open(const sstring& filename) {
     return ret;
 }
 
-void performance_test::do_run(const config& conf)
+bool performance_test::do_run(const config& conf)
 {
     _max_single_run_iterations = conf.single_run_iterations;
     if (!_max_single_run_iterations) {
@@ -757,6 +810,11 @@ void performance_test::do_run(const config& conf)
                 add(r.tasks, rr.stats.tasks_executed);
                 add(r.inst, rr.stats.instructions_retired);
                 add(r.cycles, rr.stats.cpu_cycles_retired);
+
+                // Calculate overhead percentage from start/stop timing calls
+                double overhead_ns = rr.start_stop_count * measure_time.start_stop_overhead_ns();
+                double overhead_pct = ns > 0 ? (overhead_ns / ns) * 100.0 : 0.0;
+                r.overhead.add(overhead_pct, 1.0);  // already per-run, not per-iteration
             });
         }).get();
     }
@@ -768,18 +826,29 @@ void performance_test::do_run(const config& conf)
     for (auto& rp : conf.printers) {
         rp->print_result(r);
     }
+
+    // Check if overhead exceeds threshold and warn
+    double median_overhead = r.overhead.stats().med;
+    if (median_overhead > conf.overhead_threshold) {
+        fmt::print("WARNING: test '{}' has high measurement overhead: {:.1f}% (threshold: {:.1f}%)\n",
+                   name(), median_overhead, conf.overhead_threshold);
+        return true;  // overhead was too high
+    }
+    return false;
 }
 
-void performance_test::run(const config& conf)
+bool performance_test::run(const config& conf)
 {
     set_up();
+    bool high_overhead = false;
     try {
-        do_run(conf);
+        high_overhead = do_run(conf);
     } catch (...) {
         tear_down();
         throw;
     }
     tear_down();
+    return high_overhead;
 }
 
 std::vector<std::unique_ptr<performance_test>>& all_tests()
@@ -793,7 +862,7 @@ void performance_test::register_test(std::unique_ptr<performance_test> test)
     all_tests().emplace_back(std::move(test));
 }
 
-void run_all(const std::vector<std::string>& test_patterns, config& conf) {
+bool run_all(const std::vector<std::string>& test_patterns, config& conf) {
     std::vector<std::regex> regexes;
     regexes.reserve(test_patterns.size());
     for (auto& pat : test_patterns) {
@@ -816,9 +885,15 @@ void run_all(const std::vector<std::string>& test_patterns, config& conf) {
         rp->update_name_column_length(max_name_column_length);
         rp->print_configuration(conf);
     }
+    bool any_high_overhead = false;
     for (auto& t : all_tests()) {
-        if (match(t.get())) { t->run(conf); }
+        if (match(t.get())) {
+            if (t->run(conf)) {
+                any_high_overhead = true;
+            }
+        }
     }
+    return any_high_overhead;
 }
 
 }
@@ -847,11 +922,15 @@ int main(int ac, char** av)
         ("columns", bpo::value<std::string>()->default_value("all"),
             "comma separated list of column (by name) to include in text/md output, or 'all'")
         ("list", "list available tests")
+        ("overhead-threshold", bpo::value<double>()->default_value(10.0),
+            "warn if overhead exceeds this percentage (default: 10)")
+        ("fail-on-high-overhead", "fail the test run if any test exceeds the overhead threshold")
         ;
 
     return app.run(ac, av, [&] {
         return async([&] {
             signal_timer::init();
+            measure_time.calibrate_overhead();
 
             config conf;
             conf.single_run_iterations = app.configuration()["iterations"].as<size_t>();
@@ -859,6 +938,8 @@ int main(int ac, char** av)
             conf.single_run_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(dur);
             conf.number_of_runs = app.configuration()["runs"].as<size_t>();
             conf.random_seed = app.configuration()["random-seed"].as<unsigned>();
+            conf.overhead_threshold = app.configuration()["overhead-threshold"].as<double>();
+            conf.fail_on_high_overhead = app.configuration().count("fail-on-high-overhead") > 0;
 
             std::vector<std::string> tests_to_run;
             if (app.configuration().count("test")) {
@@ -935,7 +1016,10 @@ int main(int ac, char** av)
                 testing::local_random_engine.seed(local_seed);
             }).get();
 
-            run_all(tests_to_run, conf);
+            bool any_high_overhead = run_all(tests_to_run, conf);
+            if (any_high_overhead && conf.fail_on_high_overhead) {
+                throw std::runtime_error("Test(s) failed due to high measurement overhead");
+            }
         });
     });
 }
