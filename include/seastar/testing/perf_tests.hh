@@ -129,6 +129,7 @@ public:
     struct run_result {
         clock_type::duration duration;
         perf_stats stats;
+        uint64_t start_stop_count = 0;
     };
 protected:
     [[gnu::always_inline]] [[gnu::hot]]
