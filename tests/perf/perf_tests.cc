@@ -135,16 +135,88 @@ perf_stats perf_stats::snapshot(linux_perf_event* instructions_retired_counter, 
     );
 }
 
-time_measurement measure_time;
+class time_measurement {
+    clock_type::time_point _run_start_time;
+    clock_type::time_point _start_time;
+    clock_type::duration _total_time;
 
-void time_measurement::enable_counters() {
-    _instructions_retired_counter.enable();
-    _cpu_cycles_retired_counter.enable();
+    perf_stats _start_stats;
+    perf_stats _total_stats;
+
+    linux_perf_event _instructions_retired_counter = linux_perf_event::user_instructions_retired();
+    linux_perf_event _cpu_cycles_retired_counter = linux_perf_event::user_cpu_cycles_retired();
+
+public:
+    void enable_counters() {
+        _instructions_retired_counter.enable();
+        _cpu_cycles_retired_counter.enable();
+    }
+
+    void disable_counters() {
+        _instructions_retired_counter.disable();
+        _cpu_cycles_retired_counter.disable();
+    }
+
+    [[gnu::always_inline]] [[gnu::hot]]
+    void start_run() {
+        _total_time = { };
+        _total_stats = {};
+        auto t = clock_type::now();
+        _run_start_time = t;
+        _start_time = t;
+        _start_stats = perf_stats::snapshot(&_instructions_retired_counter, &_cpu_cycles_retired_counter);
+    }
+
+    [[gnu::always_inline]] [[gnu::hot]]
+    performance_test::run_result stop_run() {
+        auto t = clock_type::now();
+        performance_test::run_result ret;
+        if (_start_time == _run_start_time) {
+            ret.duration = t - _start_time;
+            auto stats = perf_stats::snapshot(&_instructions_retired_counter, &_cpu_cycles_retired_counter);
+            ret.stats = stats - _start_stats;
+        } else {
+            ret.duration = _total_time;
+            ret.stats = _total_stats;
+        }
+        return ret;
+    }
+
+    [[gnu::always_inline]] [[gnu::hot]]
+    void start_iteration() {
+        _start_time = clock_type::now();
+        _start_stats = perf_stats::snapshot(&_instructions_retired_counter, &_cpu_cycles_retired_counter);
+    }
+
+    [[gnu::always_inline]] [[gnu::hot]]
+    void stop_iteration() {
+        auto t = clock_type::now();
+        _total_time += t - _start_time;
+        perf_stats stats;
+        stats = perf_stats::snapshot(&_instructions_retired_counter, &_cpu_cycles_retired_counter);
+        _total_stats += stats - _start_stats;
+    }
+};
+
+static time_measurement measure_time;
+
+void performance_test::start_run() {
+    measure_time.enable_counters();
+    measure_time.start_run();
 }
 
-void time_measurement::disable_counters() {
-    _instructions_retired_counter.disable();
-    _cpu_cycles_retired_counter.disable();
+performance_test::run_result performance_test::stop_run() {
+    auto ret = measure_time.stop_run();
+    measure_time.disable_counters();
+    return ret;
+}
+
+void time_measurement_start_iteration() {
+    measure_time.start_iteration();
+}
+
+void time_measurement_stop_iteration() {
+    measure_time.stop_iteration();
 }
 
 struct config;
