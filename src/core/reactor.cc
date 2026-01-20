@@ -1123,12 +1123,15 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
     , _cpu_stall_detector(internal::make_cpu_stall_detector())
     , _cpu_sched(nullptr, 0)
     , _thread_pool(std::make_unique<thread_pool>(seastar::format("syscall-{}", id), _notify_eventfd)) {
+    auto backend_config = reactor_backend_config{
+        .use_aio_fdatasync = cfg.have_aio_fsync,
+    };
     /*
      * The _backend assignment is here, not on the initialization list as
      * the chosen backend constructor may want to handle signals and thus
      * needs the _signals._signal_handlers map to be initialized.
      */
-    _backend = rbs.create(*this);
+    _backend = rbs.create(*this, backend_config);
     *internal::get_scheduling_group_specific_thread_local_data_ptr() = &_scheduling_group_specific_data;
     _task_queues[0] = std::make_unique<task_queue>(&_cpu_sched, 0, "main", "main", 1000);
     _task_queues[1] = std::make_unique<task_queue>(&_cpu_sched, 1, "atexit", "exit", 1000);
@@ -2434,10 +2437,7 @@ reactor::touch_directory(std::string_view name_view, file_permissions permission
 future<>
 reactor::fdatasync(int fd) noexcept {
     ++_fsyncs;
-    if (_cfg.bypass_fsync) {
-        co_return;
-    }
-    if (_cfg.have_aio_fsync) {
+    if (!_cfg.bypass_fsync) {
         // Does not go through the I/O queue, but has to be deleted
         struct fsync_io_desc final : public io_completion {
             promise<> _pr;
@@ -2462,13 +2462,7 @@ reactor::fdatasync(int fd) noexcept {
         auto req = internal::io_request::make_fdatasync(fd);
         _io_sink.submit(desc, std::move(req));
         co_await std::move(fut);
-        co_return;
     }
-    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
-            internal::thread_pool_submit_reason::file_operation, [fd] {
-        return wrap_syscall<int>(::fdatasync(fd));
-    });
-    sr.throw_if_error();
 }
 
 // Note: terminate if arm_highres_timer throws
@@ -3880,10 +3874,6 @@ bool operator==(const ::sockaddr_in a, const ::sockaddr_in b) {
 
 namespace seastar {
 
-static bool kernel_supports_aio_fsync() {
-    return internal::kernel_uname().whitelisted({"4.18"});
-}
-
 static std::tuple<std::filesystem::path, uint64_t> wakeup_granularity() {
     auto try_read = [] (auto path) -> uint64_t {
         try {
@@ -3978,8 +3968,8 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
                  " Note that if the seastar_memory logger is set to debug or trace level, the diagnostics will be logged irrespective of this setting.")
     , reactor_backend(*this, "reactor-backend", backend_selector_candidates(), reactor_backend_selector::default_backend().name(),
                 fmt::format("Internal reactor implementation ({})", reactor_backend_selector::available()))
-    , aio_fsync(*this, "aio-fsync", kernel_supports_aio_fsync(),
-                "Use Linux aio for fsync() calls. This reduces latency; requires Linux 4.18 or later.")
+    , aio_fsync(*this, "aio-fsync", true,
+                "Use Linux aio for fsync() calls, if available, for backends that use linux-aio. This reduces latency; requires Linux 4.18 or later.")
     , max_networking_io_control_blocks(*this, "max-networking-io-control-blocks", 10000,
                 "Maximum number of I/O control blocks (IOCBs) to allocate per shard. This translates to the number of sockets supported per shard."
                 " Requires tuning /proc/sys/fs/aio-max-nr. Only valid for the linux-aio reactor backend (see --reactor-backend).")

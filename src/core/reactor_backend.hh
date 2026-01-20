@@ -73,6 +73,7 @@ class aio_storage_context {
     };
 
     reactor& _r;
+    bool _use_aio_fdatasync;
     internal::linux_abi::aio_context_t _io_context;
     boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _submission_queue;
     iocb_pool _iocb_pool;
@@ -91,8 +92,9 @@ class aio_storage_context {
         return !_pending_aio_retry_fut.available();
     }
 
+    void fdatasync_via_syscall_thread(int fd, kernel_completion* desc);
 public:
-    explicit aio_storage_context(reactor& r);
+    aio_storage_context(reactor& r, bool use_aio_fdatasync);
     ~aio_storage_context();
 
     bool reap_completions(bool allow_retry = true);
@@ -164,6 +166,10 @@ public:
     void request_preemption();
     void start_tick();
     void stop_tick();
+};
+
+struct reactor_backend_config {
+    bool use_aio_fdatasync = true; // io_submit() with IOCB_CMD_FDSYNC for backends that use aio
 };
 
 // The "reactor_backend" interface provides a method of waiting for various
@@ -250,7 +256,7 @@ private:
     bool complete_hrtimer();
     bool _need_epoll_events = false;
 public:
-    explicit reactor_backend_epoll(reactor& r);
+    reactor_backend_epoll(reactor& r, reactor_backend_config cfg);
     virtual ~reactor_backend_epoll() override;
 
     virtual bool reap_kernel_completions() override;
@@ -301,7 +307,7 @@ class reactor_backend_aio : public reactor_backend {
     bool await_events(int timeout, const sigset_t* active_sigmask);
     future<> poll(pollable_fd_state& fd, int events);
 public:
-    explicit reactor_backend_aio(reactor& r);
+    reactor_backend_aio(reactor& r, reactor_backend_config cfg);
 
     virtual bool reap_kernel_completions() override;
     virtual bool kernel_submit_work() override;
@@ -346,7 +352,7 @@ private:
     explicit reactor_backend_selector(std::string name) : _name(std::move(name)) {}
 public:
     const std::string& name() const { return _name; }
-    std::unique_ptr<reactor_backend> create(reactor& r);
+    std::unique_ptr<reactor_backend> create(reactor& r, reactor_backend_config cfg) const;
     static reactor_backend_selector default_backend();
     static std::vector<reactor_backend_selector> available();
     friend std::ostream& operator<<(std::ostream& os, const reactor_backend_selector& rbs) {

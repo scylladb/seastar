@@ -117,8 +117,13 @@ aio_storage_context::iocb_pool::iocb_pool() {
     }
 }
 
-aio_storage_context::aio_storage_context(reactor& r)
+static bool kernel_supports_aio_fsync() {
+    return internal::kernel_uname().whitelisted({"4.18"});
+}
+
+aio_storage_context::aio_storage_context(reactor& r, bool use_aio_fdatasync)
     : _r(r)
+    , _use_aio_fdatasync(use_aio_fdatasync && kernel_supports_aio_fsync())
     , _io_context(0) {
     static_assert(max_aio >= reactor::max_queues * reactor::max_queues,
                   "Mismatch between maximum allowed io and what the IO queues can produce");
@@ -197,12 +202,30 @@ aio_storage_context::handle_aio_error(linux_abi::iocb* iocb, int ec) {
     }
 }
 
+void
+aio_storage_context::fdatasync_via_syscall_thread(int fd, kernel_completion* desc) {
+    // complete_with below satisfies the original promise, so it is safe to
+    // ignore the returned future.
+    (void)std::invoke([] (reactor& r, int fd, kernel_completion* desc) -> future<> {
+        auto result = co_await r._thread_pool->submit<syscall_result<int>>(
+                internal::thread_pool_submit_reason::file_operation, [fd] () {
+            return wrap_syscall<int>(::fdatasync(fd));
+        });
+        desc->complete_with(result.result == -1 ? -result.error : result.result);
+    }, _r, fd, desc);
+}
+
 bool
 aio_storage_context::submit_work() {
     bool did_work = false;
 
     _submission_queue.clear();
     size_t to_submit = _r._io_sink.drain([this] (const internal::io_request& req, io_completion* desc) -> bool {
+        if (req.opcode() == io_request::operation::fdatasync && !_use_aio_fdatasync) {
+            fdatasync_via_syscall_thread(req.as<io_request::operation::fdatasync>().fd, desc);
+            return true;
+        }
+
         if (!_iocb_pool.has_capacity()) {
             return false;
         }
@@ -518,10 +541,10 @@ void reactor_backend_aio::signal_received(int signo, siginfo_t* siginfo, void* i
     _r._signals.action(signo, siginfo, ignore);
 }
 
-reactor_backend_aio::reactor_backend_aio(reactor& r)
+reactor_backend_aio::reactor_backend_aio(reactor& r, reactor_backend_config cfg)
     : _r(r)
     , _hrtimer_timerfd(make_timerfd())
-    , _storage_context(_r)
+    , _storage_context(_r, cfg.use_aio_fdatasync)
     , _preempting_io(_r, _r._task_quota_timer, _hrtimer_timerfd)
     , _polling_io(_r._cfg.max_networking_aio_io_control_blocks)
     , _hrtimer_poll_completion(_r, _hrtimer_timerfd)
@@ -719,12 +742,12 @@ reactor_backend_aio::make_pollable_fd_state(file_desc fd, pollable_fd::speculati
     return pollable_fd_state_ptr(new aio_pollable_fd_state(std::move(fd), std::move(speculate)));
 }
 
-reactor_backend_epoll::reactor_backend_epoll(reactor& r)
+reactor_backend_epoll::reactor_backend_epoll(reactor& r, reactor_backend_config cfg)
         : _r(r)
         , _steady_clock_timer_reactor_thread(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK|TFD_CLOEXEC))
         , _steady_clock_timer_timer_thread(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK|TFD_CLOEXEC))
         , _epollfd(file_desc::epoll_create(EPOLL_CLOEXEC))
-        , _storage_context(_r) {
+        , _storage_context(_r, cfg.use_aio_fdatasync) {
     ::epoll_event event;
     event.events = EPOLLIN;
     event.data.ptr = nullptr;
@@ -1430,7 +1453,7 @@ private:
         return fut;
     }
 public:
-    explicit reactor_backend_uring(reactor& r)
+    reactor_backend_uring(reactor& r, reactor_backend_config cfg)
             : _r(r)
             , _uring(try_create_uring(s_queue_len, true).value())
             , _hrtimer_timerfd(make_timerfd())
@@ -1910,18 +1933,18 @@ bool reactor_backend_selector::has_enough_aio_nr() {
     return true;
 }
 
-std::unique_ptr<reactor_backend> reactor_backend_selector::create(reactor& r) {
+std::unique_ptr<reactor_backend> reactor_backend_selector::create(reactor& r, reactor_backend_config cfg) const {
     if (_name == "io_uring") {
 #ifdef SEASTAR_HAVE_URING
-        return std::make_unique<reactor_backend_uring>(r);
+        return std::make_unique<reactor_backend_uring>(r, cfg);
 #else
         throw std::runtime_error("io_uring backend not compiled in");
 #endif
     }
     if (_name == "linux-aio") {
-        return std::make_unique<reactor_backend_aio>(r);
+        return std::make_unique<reactor_backend_aio>(r, cfg);
     } else if (_name == "epoll") {
-        return std::make_unique<reactor_backend_epoll>(r);
+        return std::make_unique<reactor_backend_epoll>(r, cfg);
     }
     throw std::logic_error("bad reactor backend");
 }
