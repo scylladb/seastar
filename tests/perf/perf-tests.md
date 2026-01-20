@@ -25,6 +25,8 @@ combined.single_active                7871    85.271us    76.185ns    85.145us  
 * `-r <n>` or `--runs <n>` – the number of runs of each test to execute
 * `-t <regexs>` or `--tests <regexs>` – executes only tests which names match any regular expression in a comma-separated list `regexs`
 * `--list` – lists all available tests
+* `--overhead-threshold <percent>` – warn if measurement overhead exceeds this percentage (default: 10)
+* `--fail-on-high-overhead` – fail the test run if any test exceeds the overhead threshold
 
 ## Example usage
 
@@ -107,6 +109,32 @@ PERF_TEST(example, custom_time_measurement2)
 
 #### Measurement overhead
 
-The cost of starting and stopping the timers is substantial, about 0.5μs for a start/stop pair, due to the overhead of reading the performance counters in the kernel. In the case you use manual time measurement with start/stop_measuring_time you should ensure that the timed region is substantially longer than time in order to reduce the error imposed by this overhead: for example by using a loop inside the timed region and returning the number of iterations from the test method.
+The cost of starting and stopping the timers is substantial, about 1μs for a start/stop pair, due to the overhead of reading the performance counters in the kernel. When using manual time measurement with `start_measuring_time()`/`stop_measuring_time()`, you should ensure that the timed region is substantially longer than this overhead to reduce measurement error. A common approach is to use a loop inside the timed region and return the number of iterations from the test method.
 
 If you do _not_ use these manual methods, the overhead is very low (a few instructions) as the test method is already called in such a loop by the framework, with the time manipulation methods outside that.
+
+##### Overhead column
+
+The framework tracks and reports the estimated measurement overhead as a percentage in the `overhead` column. This is calculated by:
+
+1. Calibrating the cost of a single `start_measuring_time()`/`stop_measuring_time()` pair at startup
+2. Counting how many times these functions are called during each test run
+3. Computing `overhead% = (call_count × cost_per_call) / measured_runtime × 100`
+
+A high overhead percentage (e.g., >10%) indicates that the timing instrumentation is consuming a significant portion of the measured time, which reduces the accuracy of the results. This typically happens when:
+- The timed region is very short (comparable to the ~1μs overhead)
+- `start_measuring_time()`/`stop_measuring_time()` are called many times with little work between them
+
+To reduce overhead, either:
+- Increase the amount of work in each timed region
+- Use an inner loop and return the iteration count, rather than calling start/stop for each iteration
+
+##### Overhead warnings
+
+By default, a warning is printed if any test has median overhead exceeding 10%:
+
+```
+WARNING: test 'example.my_test' has high measurement overhead: 15.2% (threshold: 10.0%)
+```
+
+You can adjust the threshold with `--overhead-threshold <percent>`, or fail the test run entirely when overhead is too high with `--fail-on-high-overhead`.
