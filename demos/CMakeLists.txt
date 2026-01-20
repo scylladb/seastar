@@ -123,6 +123,12 @@ seastar_add_demo (tutorial_examples
 seastar_add_demo (http_client
   SOURCES http_client_demo.cc)
 
+seastar_add_demo (ngtcp2_server
+  SOURCES ngtcp2_server_demo.cc)
+
+seastar_add_demo (ngtcp2_client
+  SOURCES ngtcp2_client_demo.cc)
+
 if (Seastar_MODULE)
   add_executable (hello_cxx_module)
   target_sources (hello_cxx_module
@@ -136,3 +142,25 @@ if (Seastar_MODULE)
       CXX_STANDARD ${CMAKE_CXX_STANDARD}
       CXX_EXTENSIONS ON)
 endif ()
+
+target_link_libraries (demo_ngtcp2_server
+  PRIVATE 
+    ngtcp2::ngtcp2
+    ngtcp2::ngtcp2_crypto
+    gnutls)
+
+target_link_libraries (demo_ngtcp2_client
+  PRIVATE 
+    ngtcp2::ngtcp2
+    ngtcp2::ngtcp2_crypto
+    gnutls)
+
+target_include_directories(demo_ngtcp2_server
+  PRIVATE
+    ${CMAKE_SOURCE_DIR}/external/ngtcp2/lib/includes
+)
+
+target_include_directories(demo_ngtcp2_client
+  PRIVATE
+    ${CMAKE_SOURCE_DIR}/external/ngtcp2/lib/includes
+)
