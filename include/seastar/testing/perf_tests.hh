@@ -123,9 +123,6 @@ class performance_test {
 
     uint64_t _single_run_iterations = 0;
     std::atomic<uint64_t> _max_single_run_iterations;
-protected:
-    linux_perf_event _instructions_retired_counter = linux_perf_event::user_instructions_retired();
-    linux_perf_event _cpu_cycles_retired_counter = linux_perf_event::user_cpu_cycles_retired();
 private:
     void do_run(const config&);
 public:
@@ -180,20 +177,26 @@ class time_measurement {
     perf_stats _start_stats;
     perf_stats _total_stats;
 
-    linux_perf_event* _instructions_retired_counter = nullptr;
-    linux_perf_event* _cpu_cycles_retired_counter = nullptr;
+    linux_perf_event _instructions_retired_counter = linux_perf_event::user_instructions_retired();
+    linux_perf_event _cpu_cycles_retired_counter = linux_perf_event::user_cpu_cycles_retired();
 
 public:
+    /// Enable the hardware performance counters (instructions retired, CPU cycles).
+    /// Must be called before start_run() to collect hardware counter statistics.
+    void enable_counters();
+
+    /// Disable the hardware performance counters.
+    /// Should be called after stop_run() to stop collecting hardware counter statistics.
+    void disable_counters();
+
     [[gnu::always_inline]] [[gnu::hot]]
-    void start_run(linux_perf_event* instructions_retired_counter = nullptr, linux_perf_event* cpu_cycles_retired_counter = nullptr) {
-        _instructions_retired_counter = instructions_retired_counter;
-        _cpu_cycles_retired_counter = cpu_cycles_retired_counter;
+    void start_run() {
         _total_time = { };
         _total_stats = {};
         auto t = clock_type::now();
         _run_start_time = t;
         _start_time = t;
-        _start_stats = perf_stats::snapshot(_instructions_retired_counter, _cpu_cycles_retired_counter);
+        _start_stats = perf_stats::snapshot(&_instructions_retired_counter, &_cpu_cycles_retired_counter);
     }
 
     [[gnu::always_inline]] [[gnu::hot]]
@@ -202,21 +205,19 @@ public:
         performance_test::run_result ret;
         if (_start_time == _run_start_time) {
             ret.duration = t - _start_time;
-            auto stats = perf_stats::snapshot(_instructions_retired_counter, _cpu_cycles_retired_counter);
+            auto stats = perf_stats::snapshot(&_instructions_retired_counter, &_cpu_cycles_retired_counter);
             ret.stats = stats - _start_stats;
         } else {
             ret.duration = _total_time;
             ret.stats = _total_stats;
         }
-        _instructions_retired_counter = nullptr;
-        _cpu_cycles_retired_counter = nullptr;
         return ret;
     }
 
     [[gnu::always_inline]] [[gnu::hot]]
     void start_iteration() {
         _start_time = clock_type::now();
-        _start_stats = perf_stats::snapshot(_instructions_retired_counter, _cpu_cycles_retired_counter);
+        _start_stats = perf_stats::snapshot(&_instructions_retired_counter, &_cpu_cycles_retired_counter);
     }
 
     [[gnu::always_inline]] [[gnu::hot]]
@@ -224,7 +225,7 @@ public:
         auto t = clock_type::now();
         _total_time += t - _start_time;
         perf_stats stats;
-        stats = perf_stats::snapshot(_instructions_retired_counter, _cpu_cycles_retired_counter);
+        stats = perf_stats::snapshot(&_instructions_retired_counter, &_cpu_cycles_retired_counter);
         _total_stats += stats - _start_stats;
     }
 };
@@ -255,9 +256,8 @@ protected:
     [[gnu::hot]]
     virtual future<run_result> do_single_run() override {
         run_hooks();
-        _instructions_retired_counter.enable();
-        _cpu_cycles_retired_counter.enable();
-        measure_time.start_run(&_instructions_retired_counter, &_cpu_cycles_retired_counter);
+        measure_time.enable_counters();
+        measure_time.start_run();
         while (!stop_iteration()) {
             if constexpr (is_async_test) {
                 if constexpr (is_iteration_returning) {
@@ -282,8 +282,7 @@ protected:
             }
         }
         auto ret = measure_time.stop_run();
-        _instructions_retired_counter.disable();
-        _cpu_cycles_retired_counter.disable();
+        measure_time.disable_counters();
         co_return ret;
     }
 public:

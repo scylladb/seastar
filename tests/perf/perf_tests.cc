@@ -137,6 +137,16 @@ perf_stats perf_stats::snapshot(linux_perf_event* instructions_retired_counter, 
 
 time_measurement measure_time;
 
+void time_measurement::enable_counters() {
+    _instructions_retired_counter.enable();
+    _cpu_cycles_retired_counter.enable();
+}
+
+void time_measurement::disable_counters() {
+    _instructions_retired_counter.disable();
+    _cpu_cycles_retired_counter.disable();
+}
+
 struct config;
 struct result;
 
