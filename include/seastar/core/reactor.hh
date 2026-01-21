@@ -313,6 +313,7 @@ private:
         int64_t _last_vruntime = 0;
         scheduler_list _active;
         scheduler_list _activating;;
+        unsigned _max_children = max_scheduling_groups();
         unsigned _nr_children = 0;
 
         virtual bool run_tasks() override;
@@ -320,6 +321,8 @@ private:
 
         bool active() const noexcept;
         void activate(sched_entity*);
+        void set_maximum_children(unsigned count) noexcept;
+
     private:
         void insert_active_entity(sched_entity*);
         sched_entity* pop_active_entity(sched_clock::time_point now);
@@ -737,6 +740,7 @@ private:
     friend future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept;
     friend future<> destroy_scheduling_supergroup(scheduling_supergroup sg) noexcept;
     friend future<> seastar::destroy_scheduling_group(scheduling_group) noexcept;
+    friend future<> seastar::set_maximum_subgroups(scheduling_supergroup, unsigned) noexcept;
     friend future<> seastar::rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
     friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg) noexcept;
     friend seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::internal::log_buf::inserter_iterator it, const task_queue& tq);

@@ -354,6 +354,14 @@ public:
     float get_shares() const noexcept;
 };
 
+/// Configures the maximum number of child groups this supergroup can have
+///
+/// Changes the limit on all shards
+/// Resolves into exceptional future if the number is too large
+/// Only affects future groups creation, the new count will be applied even
+/// if the current number of subgroups is above it
+future<> set_maximum_subgroups(scheduling_supergroup sg, unsigned count) noexcept;
+
 /// \brief Identifies function calls that are accounted as a group
 ///
 /// A `scheduling_group` is a tag that can be used to mark a function call.

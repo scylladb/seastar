@@ -301,3 +301,29 @@ SEASTAR_TEST_CASE(test_wakeups) {
 
     co_await l.destroy();
 }
+
+SEASTAR_TEST_CASE(test_maximum_subgroups) {
+    auto sg = co_await seastar::create_scheduling_supergroup(100);
+
+    BOOST_REQUIRE_THROW(co_await seastar::set_maximum_subgroups(sg, max_scheduling_groups() + 1), std::runtime_error);
+
+    co_await seastar::set_maximum_subgroups(sg, 2);
+    auto g1 = co_await seastar::create_scheduling_group("g1", "", 100, sg);
+    auto g2 = co_await seastar::create_scheduling_group("g2", "", 100, sg);
+    BOOST_REQUIRE_THROW(co_await seastar::create_scheduling_group("g3", "", 100, sg), std::runtime_error);
+
+    co_await seastar::set_maximum_subgroups(sg, 3);
+    auto g3 = co_await seastar::create_scheduling_group("g3", "", 100, sg);
+
+    co_await seastar::set_maximum_subgroups(sg, 1);
+    BOOST_REQUIRE_THROW(co_await seastar::create_scheduling_group("g4", "", 100, sg), std::runtime_error);
+
+    co_await seastar::destroy_scheduling_group(g1);
+    co_await seastar::destroy_scheduling_group(g2);
+    co_await seastar::destroy_scheduling_group(g3);
+
+    auto g4 = co_await seastar::create_scheduling_group("g4", "", 100, sg);
+    co_await seastar::destroy_scheduling_group(g4);
+
+    co_await seastar::destroy_scheduling_supergroup(sg);
+}
