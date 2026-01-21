@@ -22,11 +22,16 @@
 
 #include <boost/container/deque.hpp>
 #include <boost/container/options.hpp>
+#include <boost/intrusive/slist.hpp>
 #include <seastar/testing/perf_tests.hh>
 #include <seastar/core/chunked_fifo.hh>
 #include <seastar/core/circular_buffer.hh>
+#include <seastar/util/split-list.hh>
+#include <seastar/core/chunked_fifo.hh>
+#include <seastar/testing/random.hh>
 
 using trivial_elem = int;
+namespace bi = boost::intrusive;
 
 static constexpr size_t big_size = 10000;
 static constexpr size_t small_size = 3;
@@ -233,3 +238,136 @@ PERF_TEST_F(container_perf, iter_small_boost_deque) {
     return iteration_bench<boost_deque_traits>(small_size);
 }
 
+class sum_perf {
+    struct element {
+        bi::slist_member_hook<> l_next;
+        element* sl_next;
+        unsigned value;
+        char pad[64 - sizeof(value) - sizeof(l_next) - sizeof(sl_next)];
+        element(unsigned v) noexcept : value(v) {}
+    };
+
+    static_assert(sizeof(element) == 64);
+    static_assert(sizeof(element::l_next) == sizeof(void*));
+    std::vector<element> _elements;
+
+    std::vector<element*> _array_of_pointers;
+
+    using slist = bi::slist<element,
+        bi::constant_time_size<false>,
+        bi::cache_last<true>,
+        bi::member_hook<element, bi::slist_member_hook<>, &element::l_next>>;
+    static_assert(sizeof(slist) <= 2 * sizeof(void*));
+    slist _singly_linked_list;
+
+    using split_list = seastar::internal::intrusive_split_list<element, 16, &element::sl_next>;
+    split_list _split_list_16;
+
+    seastar::chunked_fifo<element*, 128> _chunked_fifo;
+
+public:
+    unsigned nr_elements = 1000;
+
+    sum_perf() {
+        if (auto p = perf_tests::get_parameter("elements"); p != "") {
+            nr_elements = std::atoi(p.c_str());
+        }
+
+        auto dist = std::uniform_int_distribution<unsigned>(0, std::numeric_limits<char>::max());
+
+        // First -- allocate elements themselves
+        _elements.reserve(nr_elements);
+        for (unsigned i = 0; i < nr_elements; i++) {
+            _elements.emplace_back(dist(seastar::testing::local_random_engine));
+        }
+
+        // Next -- randomize the orider for other collections
+        std::vector<unsigned> idx;
+        idx.reserve(nr_elements);
+        for (unsigned i = 0; i < nr_elements; i++) {
+            idx.push_back(i);
+        }
+        std::shuffle(idx.begin(), idx.end(), seastar::testing::local_random_engine);
+
+        // Finally -- populate collections
+        _array_of_pointers.reserve(nr_elements);
+        _chunked_fifo.reserve(nr_elements);
+        for (unsigned i = 0; i < nr_elements; i++) {
+            element* e = &_elements[idx[i]];
+            _array_of_pointers.push_back(e);
+            _singly_linked_list.push_back(*e);
+            _split_list_16.push_back(e);
+            _chunked_fifo.push_back(e);
+        }
+    }
+
+    uint64_t sum_plain() const noexcept {
+        uint64_t ret = 0;
+        for (unsigned i = 0; i < _elements.size(); i++) {
+            ret += _elements[i].value;
+        }
+        return ret;
+    }
+
+    uint64_t sum_array() const noexcept {
+        uint64_t ret = 0;
+        for (unsigned i = 0; i < _elements.size(); i++) {
+            ret += _array_of_pointers[i]->value;
+        }
+        return ret;
+    }
+
+    uint64_t sum_list() const noexcept {
+        uint64_t ret = 0;
+        for (auto i = _singly_linked_list.begin(); i != _singly_linked_list.end(); i++) {
+            ret += i->value;
+        }
+        return ret;
+    }
+
+    uint64_t sum_sl16() const noexcept {
+        uint64_t ret = 0;
+        for (auto i = _split_list_16.begin(); i != _split_list_16.end(); ++i) {
+            ret += i->value;
+        }
+        return ret;
+    }
+
+    uint64_t sum_fifo() const noexcept {
+        uint64_t ret = 0;
+        for (auto i = _chunked_fifo.begin(); i != _chunked_fifo.end(); i++) {
+            ret += (*i)->value;
+        }
+        return ret;
+    }
+};
+
+PERF_TEST_F(sum_perf, sum_plain) {
+    auto value = sum_plain();
+    perf_tests::do_not_optimize(value);
+    return nr_elements;
+}
+
+PERF_TEST_F(sum_perf, sum_array) {
+    auto value = sum_array();
+    perf_tests::do_not_optimize(value);
+    return nr_elements;
+}
+
+PERF_TEST_F(sum_perf, sum_list) {
+    auto value = sum_list();
+    perf_tests::do_not_optimize(value);
+    return nr_elements;
+}
+
+PERF_TEST_F(sum_perf, sum_sl16) {
+    auto value = sum_sl16();
+    perf_tests::do_not_optimize(value);
+    return nr_elements;
+}
+
+PERF_TEST_F(sum_perf, sum_fifo) {
+    auto value = sum_fifo();
+    perf_tests::do_not_optimize(value);
+    return nr_elements;
+}

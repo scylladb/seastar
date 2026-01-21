@@ -491,6 +491,10 @@ seastar_add_test (prometheus_http
   SOURCES
     prometheus_http_test.cc)
 
+seastar_add_test(split_list
+  KIND BOOST
+  SOURCES split_list_test.cc)
+
 function(seastar_add_certgen name)
   cmake_parse_arguments(CERT
     ""
