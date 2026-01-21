@@ -438,6 +438,7 @@ private:
     bool have_more_tasks() const;
     bool posix_reuseport_detect();
     future<> rename_scheduling_group_specific_data(scheduling_group sg);
+    future<seastar::scheduling_group> init_scheduling_group(sstring name, sstring shortname, float shares, scheduling_supergroup p);
     future<> init_scheduling_group(scheduling_group sg, sstring name, sstring shortname, float shares, scheduling_supergroup p);
     future<> init_scheduling_group_specific_data(scheduling_group sg);
     future<> init_new_scheduling_group_key(scheduling_group_key key, scheduling_group_key_config cfg);
@@ -729,6 +730,7 @@ private:
     friend class internal::poller;
     friend class scheduling_group;
     friend class scheduling_supergroup;
+    friend size_t internal::scheduling_group_count();
     friend void internal::add_to_flush_poller(output_stream<char>& os) noexcept;
     friend void seastar::internal::increase_thrown_exceptions_counter() noexcept;
     friend void seastar::internal::increase_internal_errors_counter() noexcept;
