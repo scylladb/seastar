@@ -4899,34 +4899,12 @@ std::chrono::nanoseconds reactor::total_steal_time() const {
     return mono_steal;
 }
 
-static std::atomic<unsigned long> s_used_scheduling_group_ids_bitmap{3}; // 0=main, 1=atexit
 static std::atomic<unsigned long> s_next_scheduling_group_specific_key{0};
-
-int
-allocate_scheduling_group_id() noexcept {
-    static_assert(max_scheduling_groups() <= std::numeric_limits<unsigned long>::digits, "more scheduling groups than available bits");
-    auto b = s_used_scheduling_group_ids_bitmap.load(std::memory_order_relaxed);
-    auto nb = b;
-    unsigned i = 0;
-    do {
-        if (__builtin_popcountl(b) == max_scheduling_groups()) {
-            return -1;
-        }
-        i = count_trailing_zeros(~b);
-        nb = b | (1ul << i);
-    } while (!s_used_scheduling_group_ids_bitmap.compare_exchange_weak(b, nb, std::memory_order_relaxed));
-    return i;
-}
 
 static
 unsigned long
 allocate_scheduling_group_specific_key() noexcept {
     return  s_next_scheduling_group_specific_key.fetch_add(1, std::memory_order_relaxed);
-}
-
-void
-deallocate_scheduling_group_id(unsigned id) noexcept {
-    s_used_scheduling_group_ids_bitmap.fetch_and(~(1ul << id), std::memory_order_relaxed);
 }
 
 static
