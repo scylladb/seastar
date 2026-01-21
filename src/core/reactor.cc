@@ -5176,16 +5176,15 @@ future<scheduling_group>
 create_scheduling_group(sstring name, sstring shortname, float shares, scheduling_supergroup parent) noexcept {
     auto aid = allocate_scheduling_group_id();
     if (aid < 0) {
-        return make_exception_future<scheduling_group>(std::runtime_error(fmt::format("Scheduling group limit exceeded while creating {}", name)));
+        throw std::runtime_error(fmt::format("Scheduling group limit exceeded while creating {}", name));
     }
     auto id = static_cast<unsigned>(aid);
     SEASTAR_ASSERT(id < max_scheduling_groups());
     auto sg = scheduling_group(id);
-    return smp::invoke_on_all([sg, name, shortname, shares, parent] {
+    co_await smp::invoke_on_all([sg, name, shortname, shares, parent] {
         return engine().init_scheduling_group(sg, name, shortname, shares, parent);
-    }).then([sg] {
-        return make_ready_future<scheduling_group>(sg);
     });
+    co_return sg;
 }
 
 future<scheduling_group>
