@@ -4954,6 +4954,18 @@ reactor::rename_scheduling_group_specific_data(scheduling_group sg) {
 }
 
 future<>
+reactor::init_scheduling_group_specific_data(scheduling_group sg) {
+    return with_scheduling_group(sg, [this, sg] () {
+        auto& sg_data = _scheduling_group_specific_data;
+        auto& this_sg = get_sg_data(sg);
+        for (const auto& [key_id, cfg] : sg_data.scheduling_group_key_configs) {
+            this_sg.specific_vals.resize(std::max<size_t>(this_sg.specific_vals.size(), key_id+1));
+            this_sg.specific_vals[key_id] = allocate_scheduling_group_specific_data(sg, key_id, cfg);
+        }
+    });
+}
+
+future<>
 reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, sstring shortname, float shares, scheduling_supergroup parent) {
     return with_shared(_scheduling_group_keys_mutex, [this, sg, name = std::move(name), shortname = std::move(shortname), shares, parent] {
         get_sg_data(sg).queue_is_initialized = true;
@@ -4968,15 +4980,7 @@ reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, sstri
             return make_exception_future<>(std::runtime_error(fmt::format("Supergroup children limit exceeded while creating {}", name)));
         }
         _task_queues[sg._id] = std::make_unique<task_queue>(group, sg._id, name, shortname, shares);
-
-        return with_scheduling_group(sg, [this, sg] () {
-            auto& sg_data = _scheduling_group_specific_data;
-            auto& this_sg = get_sg_data(sg);
-            for (const auto& [key_id, cfg] : sg_data.scheduling_group_key_configs) {
-                this_sg.specific_vals.resize(std::max<size_t>(this_sg.specific_vals.size(), key_id+1));
-                this_sg.specific_vals[key_id] = allocate_scheduling_group_specific_data(sg, key_id, cfg);
-            }
-        });
+        return init_scheduling_group_specific_data(sg);
     });
 }
 
