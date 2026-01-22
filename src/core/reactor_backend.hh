@@ -44,6 +44,10 @@
 #define SEASTAR_IOCB_POOL_DEBUG
 #endif
 
+#ifdef SEASTAR_HAVE_URING
+#include <liburing.h>
+#endif
+
 namespace seastar {
 
 class reactor;
@@ -389,12 +393,21 @@ public:
 
 #ifdef SEASTAR_HAVE_URING
 
+/// Helper functions that manage the lifecycle and configuration of asymmetric io_uring backend
+/// Handles CPU allocation, worker thread management, and backend creation
 namespace uring {
+
+std::optional<::io_uring>
+try_create_attached_asymmetric_uring(int uring_fd, bool throw_on_error);
+
+std::optional<::io_uring>
+try_create_base_asymmetric_uring(unsigned worker_cpu, bool throw_on_error);
 
 // QUEUE_LEN is more or less arbitrary. Too low and we'll be
 // issuing too small batches, too high and we require too much locked
 // memory, but otherwise it doesn't matter.
 inline constexpr unsigned QUEUE_LEN = 200;
+inline constexpr std::chrono::milliseconds POLLER_SLEEP_TIMEOUT(5);
 
 } // namespace uring
 
