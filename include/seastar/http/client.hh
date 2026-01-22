@@ -38,24 +38,22 @@ namespace tls { class certificate_credentials; }
 
 namespace http {
 
-namespace experimental { class client; }
+class client;
 struct request;
 struct reply;
 
 namespace internal {
 
 class client_ref {
-    http::experimental::client* _c;
+    http::client* _c;
 public:
-    client_ref(http::experimental::client* c) noexcept;
+    client_ref(http::client* c) noexcept;
     ~client_ref();
     client_ref(client_ref&& o) noexcept : _c(std::exchange(o._c, nullptr)) {}
     client_ref(const client_ref&) = delete;
 };
 
 }
-
-namespace experimental {
 
 /**
  * \brief Class connection represents an HTTP connection over a given transport
@@ -362,8 +360,6 @@ public:
         return _total_new_connections;
     }
 };
-
-} // experimental namespace
 
 } // http namespace
 

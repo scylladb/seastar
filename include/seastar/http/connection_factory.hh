@@ -22,7 +22,7 @@
 #include <seastar/net/api.hh>
 #include <seastar/net/tls.hh>
 
-namespace seastar::http::experimental {
+namespace seastar::http {
 
 /**
  * \brief Factory that provides transport for \ref client
