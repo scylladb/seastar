@@ -724,12 +724,12 @@ using seastar::http::request;
 
 }
 
-export namespace seastar::http::experimental {
+export namespace seastar::http {
 
-using seastar::http::experimental::client;
-using seastar::http::experimental::connection_factory;
-using seastar::http::experimental::retry_strategy;
-using seastar::http::experimental::no_retry_strategy;
+using seastar::http::client;
+using seastar::http::connection_factory;
+using seastar::http::retry_strategy;
+using seastar::http::no_retry_strategy;
 
 }
 
