@@ -18,8 +18,10 @@
 #
 import argparse
 import os
+import re
 import seastar_cmake
 import subprocess
+import sys
 import tempfile
 
 tempfile.tempdir = "./build/tmp"
@@ -172,6 +174,16 @@ tr = seastar_cmake.translate_arg
 MODE_TO_CMAKE_BUILD_TYPE = {'release': 'RelWithDebInfo', 'debug': 'Debug', 'dev': 'Dev', 'sanitize': 'Sanitize' }
 
 
+def get_valid_ingredients():
+    """Extract valid ingredient names from cooking_recipe.cmake."""
+    recipe_path = os.path.join(seastar_cmake.ROOT_PATH, 'cooking_recipe.cmake')
+    with open(recipe_path, 'r') as f:
+        content = f.read()
+    # Match cooking_ingredient(name or cooking_ingredient (name
+    matches = re.findall(r'cooking_ingredient\s*\(\s*([\w-]+)', content)
+    return set(matches)
+
+
 def configure_mode(mode):
     BUILD_PATH = seastar_cmake.build_path(mode, build_root=args.build_root)
 
@@ -212,6 +224,14 @@ def configure_mode(mode):
     ]
 
     ingredients_to_cook = set(args.cook)
+
+    if ingredients_to_cook:
+        valid_ingredients = get_valid_ingredients()
+        invalid = ingredients_to_cook - valid_ingredients
+        if invalid:
+            print(f"error: unknown ingredient(s): {', '.join(sorted(invalid))}")
+            print(f"valid ingredients: {', '.join(sorted(valid_ingredients))}")
+            sys.exit(1)
 
     if args.dpdk:
         ingredients_to_cook.add('dpdk')
