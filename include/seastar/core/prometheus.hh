@@ -78,7 +78,9 @@ struct name_filter {
 // Creates a family filter from multiple name filters.
 // Returns true if the family name matches any of the filters.
 // If filters is empty, returns a filter that matches all families.
-family_filter_t make_family_filter(std::vector<name_filter> filters);
+// If prefix is provided, filter names starting with "{prefix}_" will have the prefix stripped,
+// allowing users to query with either "foo" or "seastar_foo" when prefix is "seastar".
+family_filter_t make_family_filter(std::vector<name_filter> filters, std::string_view prefix = "");
 
 struct write_body_args {
     filter_t filter;

@@ -889,9 +889,18 @@ void write_value_as_string(buf_t& s, const mi::metric_value& value) noexcept {
     }
 }
 
-details::family_filter_t details::make_family_filter(std::vector<details::name_filter> filters) {
+details::family_filter_t details::make_family_filter(std::vector<details::name_filter> filters, std::string_view prefix) {
     if (filters.empty()) {
         return [](std::string_view) { return true; };
+    }
+    // Strip prefix from filter names if present
+    if (!prefix.empty()) {
+        auto prefix_with_underscore = sstring(prefix) + "_";
+        for (auto& f : filters) {
+            if (f.name.starts_with(prefix_with_underscore)) {
+                f.name = f.name.substr(prefix_with_underscore.size());
+            }
+        }
     }
     return [filters = std::move(filters)](std::string_view family_name) {
         for (const auto& f : filters) {
@@ -1087,7 +1096,7 @@ public:
         }
         write_body_args args{
             .filter = make_filter(*req),
-            .family_filter = details::make_family_filter(std::move(name_filters)),
+            .family_filter = details::make_family_filter(std::move(name_filters), _ctx.prefix),
             .use_protobuf_format = _ctx.allow_protobuf && is_accept_protobuf(req->get_header("Accept")),
             .show_help = req->get_query_param("__help__") != "false",
             .enable_aggregation = req->get_query_param("__aggregate__") != "false"

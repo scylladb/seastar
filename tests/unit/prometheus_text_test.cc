@@ -794,3 +794,55 @@ SEASTAR_TEST_CASE(test_family_filter_with_label_filter) {
     );
 }
 
+SEASTAR_TEST_CASE(test_family_filter_exact_match_with_prefix) {
+    // Filter using the full prefixed name "seastar_group_1_metric_0"
+    // with prefix "seastar" should strip to "group_1_metric_0" and match
+    test_config cfg{data_type::COUNTER, 3};
+    cfg.family_filter = sp::details::make_family_filter({
+        name_filter{"seastar_group_1_metric_0", false}
+    }, "seastar");
+    return prometheus_test_fixture::run_metrics_test(cfg, {},
+        R"(# HELP seastar_group_1_metric_0 metric description)" "\n"
+        R"(# TYPE seastar_group_1_metric_0 counter)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",shard="0"} 123)" "\n"
+    );
+}
+
+SEASTAR_TEST_CASE(test_family_filter_prefix_match_with_prefix) {
+    // Filter using "seastar_group_1_metric_" as prefix filter
+    // with prefix "seastar" should strip to "group_1_metric_" and match all group_1_metric_* metrics
+    test_config cfg{data_type::COUNTER, 3};
+    cfg.family_filter = sp::details::make_family_filter({
+        name_filter{"seastar_group_1_metric_", true}
+    }, "seastar");
+    return prometheus_test_fixture::run_metrics_test(cfg, {},
+        R"(# HELP seastar_group_1_metric_0 metric description)" "\n"
+        R"(# TYPE seastar_group_1_metric_0 counter)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",shard="0"} 123)" "\n"
+        R"(# HELP seastar_group_1_metric_1 metric description)" "\n"
+        R"(# TYPE seastar_group_1_metric_1 counter)" "\n"
+        R"(seastar_group_1_metric_1{label-0="label-0-1",shard="0"} 123)" "\n"
+        R"(# HELP seastar_group_1_metric_2 metric description)" "\n"
+        R"(# TYPE seastar_group_1_metric_2 counter)" "\n"
+        R"(seastar_group_1_metric_2{label-0="label-0-2",shard="0"} 123)" "\n"
+    );
+}
+
+SEASTAR_TEST_CASE(test_family_filter_mixed_prefixed_and_unprefixed) {
+    // Filter with both prefixed ("seastar_group_1_metric_0") and unprefixed ("group_1_metric_2") names
+    // Both should match their respective metrics
+    test_config cfg{data_type::COUNTER, 3};
+    cfg.family_filter = sp::details::make_family_filter({
+        name_filter{"seastar_group_1_metric_0", false},
+        name_filter{"group_1_metric_2", false}
+    }, "seastar");
+    return prometheus_test_fixture::run_metrics_test(cfg, {},
+        R"(# HELP seastar_group_1_metric_0 metric description)" "\n"
+        R"(# TYPE seastar_group_1_metric_0 counter)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",shard="0"} 123)" "\n"
+        R"(# HELP seastar_group_1_metric_2 metric description)" "\n"
+        R"(# TYPE seastar_group_1_metric_2 counter)" "\n"
+        R"(seastar_group_1_metric_2{label-0="label-0-2",shard="0"} 123)" "\n"
+    );
+}
+
