@@ -124,12 +124,20 @@ sstring reply::response_line() const {
 
 void reply::write_body(const sstring& content_type, body_writer_type&& body_writer) {
     set_content_type(content_type);
+    write_body(std::move(body_writer));
+}
+
+void reply::write_body(body_writer_type&& body_writer) {
     _body_writer  = std::move(body_writer);
 }
 
 void reply::write_body(const sstring& content_type, sstring content) {
-    _content = std::move(content);
+    write_body(std::move(content));
     done(content_type);
+}
+
+void reply::write_body(sstring content) {
+    _content = std::move(content);
 }
 
 future<> reply::write_reply(output_stream<char>& out) {
