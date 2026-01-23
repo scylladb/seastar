@@ -108,7 +108,9 @@ struct metrics_perf_fixture {
 
     template <typename COUNTER_TYPE = double>
     seastar::future<size_t> run_metrics_bench(
-        size_t group_count, size_t families_per_group, size_t series_per_family, data_type type, bool enable_aggregation = false, bool use_protobuf = false) {
+        size_t group_count, size_t families_per_group, size_t series_per_family, data_type type,
+        bool enable_aggregation = false, bool use_protobuf = false,
+        family_filter_t family_filter = [](std::string_view) { return true; }) {
         using namespace seastar;
         using namespace seastar::metrics;
 
@@ -186,7 +188,7 @@ struct metrics_perf_fixture {
             co_await access{}.write_body(config,
                 write_body_args{
                     .filter = always_true,
-                    .family_filter = [](std::string_view) { return true; },
+                    .family_filter = family_filter,
                     .use_protobuf_format = use_protobuf,
                     .show_help = true,
                     .enable_aggregation = enable_aggregation
@@ -263,6 +265,24 @@ PERF_TEST_CN(metrics_perf_fixture, test_histogram_protobuf) {
 
 PERF_TEST_CN(metrics_perf_fixture, test_histogram_aggr) {
     co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM, true);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_name_filter_exact_match) {
+    // Many families but filter to only one using exact name match.
+    // Tests overhead of iterating families when most are filtered out.
+    auto filter = make_family_filter({name_filter{"group-0_gauge______________________________________________0", false}});
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER, false, false, filter);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_name_filter_many_no_match) {
+    // 100 exact name filters, none of which match any metrics.
+    // Tests overhead of checking many filters when none match.
+    std::vector<name_filter> filters;
+    for (int i = 0; i < 100; ++i) {
+        filters.emplace_back(fmt::format("group-{}_nomatch", i), false);
+    }
+    auto filter = make_family_filter(std::move(filters));
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER, false, false, filter);
 }
 
 }
