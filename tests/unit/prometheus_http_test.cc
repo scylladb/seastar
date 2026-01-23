@@ -119,3 +119,54 @@ SEASTAR_TEST_CASE(test_prometheus_metrics) {
 SEASTAR_TEST_CASE(test_prometheus_metrics_global_label) {
     return test_prometheus_metrics_body({.use_global_label = true});
 }
+
+// Test that multiple __name__ query parameters filter to only matching metrics
+SEASTAR_TEST_CASE(test_prometheus_multiple_name_filters) {
+    // Create metrics with distinct names
+    metrics::metric_groups test_metrics;
+    test_metrics.add_group("test", {
+        metrics::make_gauge("metric_alpha", [] { return 1; }, metrics::description{"alpha metric"}),
+        metrics::make_gauge("metric_beta", [] { return 2; }, metrics::description{"beta metric"}),
+        metrics::make_gauge("metric_gamma", [] { return 3; }, metrics::description{"gamma metric"}),
+    });
+
+    co_await seastar::async([] {
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        loopback_socket_impl lsi(lcf);
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+
+        prometheus::config ctx;
+        add_prometheus_routes(server, ctx).get();
+
+        future<> client = seastar::async([&lsi] {
+            connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get();
+            input_stream<char> input(c_socket.input());
+            auto close_input = deferred_close(input);
+            output_stream<char> output(c_socket.output());
+            auto close_output = deferred_close(output);
+
+            // Request only metric_alpha and metric_gamma using multiple __name__ parameters
+            output.write(sstring("GET /metrics?__name__=test_metric_alpha&__name__=test_metric_gamma HTTP/1.1\r\nHost: test\r\n\r\n")).get();
+            output.flush().get();
+            auto resp = input.read().get();
+            auto resp_str = std::string(resp.get(), resp.size());
+            BOOST_REQUIRE(std::ranges::search(resp_str, "200 OK"sv));
+
+            // Should contain alpha and gamma
+            BOOST_REQUIRE_MESSAGE(std::ranges::search(resp_str, "seastar_test_metric_alpha"sv),
+                fmt::format("should contain metric_alpha\nResponse: {}\n", resp_str));
+            BOOST_REQUIRE_MESSAGE(std::ranges::search(resp_str, "seastar_test_metric_gamma"sv),
+                fmt::format("should contain metric_gamma\nResponse: {}\n", resp_str));
+
+            // Should NOT contain beta
+            BOOST_REQUIRE_MESSAGE(!std::ranges::search(resp_str, "seastar_test_metric_beta"sv),
+                fmt::format("should NOT contain metric_beta\nResponse: {}\n", resp_str));
+        });
+
+        server.do_accepts(0).get();
+
+        client.get();
+        server.stop().get();
+    });
+}

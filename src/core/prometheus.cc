@@ -889,6 +889,21 @@ void write_value_as_string(buf_t& s, const mi::metric_value& value) noexcept {
     }
 }
 
+details::family_filter_t details::make_family_filter(std::vector<details::name_filter> filters) {
+    if (filters.empty()) {
+        return [](std::string_view) { return true; };
+    }
+    return [filters = std::move(filters)](std::string_view family_name) {
+        for (const auto& f : filters) {
+            bool match = f.is_prefix ? family_name.starts_with(f.name) : family_name == f.name;
+            if (match) {
+                return true;
+            }
+        }
+        return false;
+    };
+}
+
 struct write_context {
     output_stream<char>& out;
     const config& ctx;
@@ -903,6 +918,9 @@ future<> write_context::write_text_representation() {
     return seastar::async([this] {
         buf_t s;
         for (metric_family& metric_family : m) {
+            if (!args.family_filter(metric_family.name())) {
+                continue;
+            }
             auto name = ctx.prefix + "_" + metric_family.name();
             bool found = false;
             metric_aggregate_by_labels aggregated_values(metric_family.metadata().aggregate_labels);
@@ -954,6 +972,9 @@ future<> write_context::write_text_representation() {
 
 future<> write_context::write_protobuf_representation() {
     return do_for_each(m, [this](metric_family& metric_family) mutable {
+        if (!args.family_filter(metric_family.name())) {
+            return make_ready_future<>();
+        }
         std::string s;
         google::protobuf::io::StringOutputStream os(&s);
         metric_aggregate_by_labels aggregated_values(metric_family.metadata().aggregate_labels);
@@ -1056,11 +1077,18 @@ public:
 
     future<std::unique_ptr<http::reply>> handle(const sstring& path,
         std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
+        // Build name filters from all __name__ query parameters
+        std::vector<details::name_filter> name_filters;
+        for (auto name : req->get_query_param_array("__name__")) {
+            if (!name.empty()) {
+                bool is_prefix = trim_asterisk(name);
+                name_filters.push_back({std::move(name), is_prefix});
+            }
+        }
         write_body_args args{
             .filter = make_filter(*req),
-            .metric_family_name = req->get_query_param("__name__"),
+            .family_filter = details::make_family_filter(std::move(name_filters)),
             .use_protobuf_format = _ctx.allow_protobuf && is_accept_protobuf(req->get_header("Accept")),
-            .use_prefix = trim_asterisk(args.metric_family_name),
             .show_help = req->get_query_param("__help__") != "false",
             .enable_aggregation = req->get_query_param("__aggregate__") != "false"
         };
@@ -1075,15 +1103,16 @@ private:
     future<> write_body(write_body_args args, output_stream<char>&& out_stream) {
         auto s = std::move(out_stream);
         auto families = co_await get_map_value();
+        bool use_protobuf = args.use_protobuf_format;
 
         write_context context{
             .out = s,
             .ctx = _ctx,
-            .m = get_range(families, args.metric_family_name, args.use_prefix),
+            .m = metric_family_range(families),
             .args = std::move(args)
         };
 
-        co_return co_await (args.use_protobuf_format ? context.write_protobuf_representation() : context.write_text_representation())
+        co_return co_await (use_protobuf ? context.write_protobuf_representation() : context.write_text_representation())
                 .finally([&s] { return s.close(); });
     }
 

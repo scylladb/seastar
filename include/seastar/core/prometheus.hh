@@ -68,12 +68,22 @@ future<> add_prometheus_routes(httpd::http_server& server, config ctx);
 
 namespace details {
 using filter_t = std::function<bool(const metrics::impl::labels_type&)>;
+using family_filter_t = std::function<bool(std::string_view)>;
+
+struct name_filter {
+    sstring name;
+    bool is_prefix;
+};
+
+// Creates a family filter from multiple name filters.
+// Returns true if the family name matches any of the filters.
+// If filters is empty, returns a filter that matches all families.
+family_filter_t make_family_filter(std::vector<name_filter> filters);
 
 struct write_body_args {
     filter_t filter;
-    sstring metric_family_name;
+    family_filter_t family_filter;
     bool use_protobuf_format;
-    bool use_prefix;
     bool show_help;
     bool enable_aggregation;
 };

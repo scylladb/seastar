@@ -183,8 +183,15 @@ struct metrics_perf_fixture {
         perf_tests::start_measuring_time();
         for ([[maybe_unused]] auto _: irange(iterations)) {
             output_stream<char> out{counting_data_sink{}};
-            co_await access{}.write_body(config, use_protobuf, "", false, true,
-                 enable_aggregation, always_true, std::move(out));
+            co_await access{}.write_body(config,
+                write_body_args{
+                    .filter = always_true,
+                    .family_filter = [](std::string_view) { return true; },
+                    .use_protobuf_format = use_protobuf,
+                    .show_help = true,
+                    .enable_aggregation = enable_aggregation
+                },
+                std::move(out));
         }
         perf_tests::stop_measuring_time();
 
