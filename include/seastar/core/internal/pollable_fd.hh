@@ -132,13 +132,17 @@ private:
         ++fd->_refs;
     }
     friend void intrusive_ptr_release(pollable_fd_state* fd);
+    static pollable_fd_state_ptr make(file_desc, speculation);
 };
 
 class pollable_fd {
 public:
     using speculation = pollable_fd_state::speculation;
     pollable_fd() = default;
-    pollable_fd(file_desc fd, speculation speculate = speculation());
+    pollable_fd(file_desc fd, speculation speculate = speculation())
+        : _s(pollable_fd_state::make(std::move(fd), speculate))
+    {}
+
 public:
     future<size_t> read_some(char* buffer, size_t size) {
         return _s->read_some(buffer, size);
