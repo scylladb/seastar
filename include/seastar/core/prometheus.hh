@@ -69,8 +69,17 @@ future<> add_prometheus_routes(httpd::http_server& server, config ctx);
 namespace details {
 using filter_t = std::function<bool(const metrics::impl::labels_type&)>;
 
+struct write_body_args {
+    filter_t filter;
+    sstring metric_family_name;
+    bool use_protobuf_format;
+    bool use_prefix;
+    bool show_help;
+    bool enable_aggregation;
+};
+
 class test_access {
-    future<> write_body(config cfg, bool use_protobuf_format, sstring metric_family_name, bool prefix, bool show_help, bool enable_aggregation, filter_t filter, output_stream<char>&& s);
+    future<> write_body(config cfg, write_body_args args, output_stream<char>&& s);
 
     friend struct metrics_perf_fixture;
     friend struct ::prometheus_test_fixture;

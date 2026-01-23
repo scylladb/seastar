@@ -173,12 +173,14 @@ struct prometheus_test_fixture {
         output_stream<char> out{data_sink{std::make_unique<testing::memory_data_sink_impl>(ss, 10)}};
         auto filter = test_conf.filter.value_or(always_true);
         co_await access{}.write_body(config,
-            false,
-            "",    // metric family name
-            false, // use protobuf
-            test_conf.show_help,
-            test_conf.aggregation_mode != aggr_mode::NO_AGGR,
-            filter,
+            sp::details::write_body_args{
+                .filter = filter,
+                .metric_family_name = "",
+                .use_protobuf_format = false,
+                .use_prefix = false,
+                .show_help = test_conf.show_help,
+                .enable_aggregation = test_conf.aggregation_mode != aggr_mode::NO_AGGR
+            },
             std::move(out));
 
         BOOST_REQUIRE_MESSAGE(expected == ss.str(),

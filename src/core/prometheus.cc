@@ -100,6 +100,7 @@ namespace pm = io::prometheus::client;
 namespace mi = metrics::impl;
 
 using mi::labels_type;
+using write_body_args = details::write_body_args;
 
 namespace {
 
@@ -888,15 +889,6 @@ void write_value_as_string(buf_t& s, const mi::metric_value& value) noexcept {
     }
 }
 
-struct write_body_args {
-    details::filter_t filter;
-    sstring metric_family_name;
-    bool use_protobuf_format;
-    bool use_prefix;
-    bool show_help;
-    bool enable_aggregation;
-};
-
 struct write_context {
     output_stream<char>& out;
     const config& ctx;
@@ -1098,17 +1090,9 @@ private:
     friend details::test_access;
 };
 
-future<> details::test_access::write_body(config cfg, bool use_protobuf_format, sstring metric_family_name, bool prefix, bool show_help, bool enable_aggregation, filter_t filter, output_stream<char>&& s) {
+future<> details::test_access::write_body(config cfg, write_body_args args, output_stream<char>&& s) {
     metrics_handler handler(std::move(cfg));
-
-    co_return co_await handler.write_body({
-        .filter = filter,
-        .metric_family_name = metric_family_name,
-        .use_protobuf_format = use_protobuf_format,
-        .use_prefix = prefix,
-        .show_help = show_help,
-        .enable_aggregation = enable_aggregation
-    }, std::move(s));
+    co_return co_await handler.write_body(std::move(args), std::move(s));
 }
 
 std::function<bool(const mi::labels_type&)> metrics_handler::_true_function = [](const mi::labels_type&) {
