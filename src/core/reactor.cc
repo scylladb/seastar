@@ -1680,6 +1680,7 @@ reactor::make_pollable_fd(socket_address sa, int proto) {
 namespace internal {
 
 future<> posix_connect(pollable_fd pfd, socket_address sa, socket_address local) {
+  try {
 #ifdef IP_BIND_ADDRESS_NO_PORT
     if (!sa.is_af_unix()) {
         try {
@@ -1700,6 +1701,9 @@ future<> posix_connect(pollable_fd pfd, socket_address sa, socket_address local)
         pfd.get_file_desc().bind(local.u.sa, local.length());
     }
     return pfd.connect(sa).finally([pfd] {});
+  } catch (...) {
+    return current_exception_as_future();
+  }
 }
 
 } // internal namespace
