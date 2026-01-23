@@ -935,7 +935,8 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
 }
 
 posix_ap_network_stack::posix_ap_network_stack(const program_options::option_group& opts, std::pmr::polymorphic_allocator<char>* allocator)
-        : posix_network_stack(opts, allocator), _reuseport(engine().posix_reuseport_available()) {
+        : posix_network_stack(opts, allocator)
+{
 }
 
 server_socket
@@ -949,7 +950,7 @@ posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
         return server_socket(std::make_unique<posix_ap_server_socket_impl>(0, sa, _allocator));
     }
     auto protocol = static_cast<int>(opt.proto);
-    return _reuseport ?
+    return posix_network_stack::_reuseport ?
         server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), _allocator))
         :
         server_socket(std::make_unique<posix_ap_server_socket_impl>(protocol, sa, _allocator));
