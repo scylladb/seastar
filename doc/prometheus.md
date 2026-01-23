@@ -18,6 +18,11 @@ While seastar still supports the binary protocol, it would be deprecated in a fu
 ## Querying subset of the metrics
 Seastar supports querying for a subset of the metrics by their names and labels.
 
+Filtering is recommended when you only need a subset of the available metrics, especially
+in systems with many metrics. Filtering reduces the processing overhead on the Seastar
+application, results in smaller HTTP responses, and decreases the load on your Prometheus
+server when scraping and storing metrics.
+
 ### Filtering by a metric name
 Use the `__name__` query parameter to select according to a metric name or a prefix.
 
@@ -26,6 +31,19 @@ For example, to get all the http metrics, point your browser to:
 Filtering by name only supports prefix matching.
 
 To query for only the http requests served metric, point your browser to `http://localhost:9180/metrics?__name__=httpd_requests_served`
+
+You can use either the full metric name as it appears in the output (e.g., `seastar_httpd_requests_served`)
+or the name without the prefix (e.g., `httpd_requests_served`). Both forms work identically.
+
+#### Multiple name filters
+You can specify multiple `__name__` parameters to query for several specific metrics at once.
+A metric is included if it matches any of the specified names.
+
+For example, to get both the http requests and connections metrics:
+`http://localhost:9180/metrics?__name__=httpd_requests_served&__name__=httpd_connections_total`
+
+This also works with prefix matching:
+`http://localhost:9180/metrics?__name__=httpd_requests*&__name__=httpd_connections*`
 
 ### Filtering by a label value
 The Prometheus protocol uses labels to differentiate the characteristics of the thing that is being measured.
@@ -67,9 +85,9 @@ This can be achieved by adding `__aggregate__=false` to the query string. For ex
 ### Configuring the Prometheus server for picking specific metrics
 The [Prometheus configuration](https://prometheus.io/docs/prometheus/1.8/configuration/configuration/) describes the general Prometheus configuration.
 
-To specify a specific metric or metrics add a `metrics_path` to the scrap config in the prometheue.yml file
+To specify a specific metric or metrics add a `metrics_path` to the scrape config in the prometheus.yml file
 
-For example, the following scrap config, will query for all the http metrics:
+For example, the following scrape config will query for all the http metrics:
 
 ```
   scrape_configs:
@@ -78,5 +96,16 @@ For example, the following scrap config, will query for all the http metrics:
       metrics_path: /metrics
       params:
         __name__: ['http*']
+```
+
+To query for multiple specific metrics, list them in the array:
+
+```
+  scrape_configs:
+    - job_name: selected_metrics
+      honor_labels: true
+      metrics_path: /metrics
+      params:
+        __name__: ['httpd_requests_served', 'httpd_connections_total', 'scheduler*']
 ```
 
