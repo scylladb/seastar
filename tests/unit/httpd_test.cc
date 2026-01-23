@@ -1449,18 +1449,28 @@ struct echo_string_handler : public echo_handler {
     }
 };
 
-/*
- * Checks if the server responds to the request equivalent to the concatenation of all req_parts with a reply containing
- * the resp_parts strings, assuming that the content streaming is set to stream and the /test route is handled by handl
- * */
-future<> check_http_reply (std::vector<sstring>&& req_parts, std::vector<std::string>&& resp_parts, bool stream, handler_base* handl) {
-    return seastar::async([req_parts = std::move(req_parts), resp_parts = std::move(resp_parts), stream, handl] {
+// Check that the HTTP response to the concatenation of req_parts:
+//  - contains every string in resp_parts
+//  - does not contain any string in absent_parts
+// The server uses content streaming mode `stream` and routes /test to `handl`.
+// An optional configure_server callback can be used to set server options before accepting.
+future<> check_http_reply(std::vector<sstring>&& req_parts, std::vector<std::string>&& resp_parts,
+        bool stream, handler_base* handl,
+        std::vector<std::string>&& absent_parts = {},
+        std::function<void(http_server&)> configure_server = {}) {
+    return seastar::async([req_parts = std::move(req_parts), resp_parts = std::move(resp_parts),
+            absent_parts = std::move(absent_parts), configure_server = std::move(configure_server),
+            stream, handl] {
         loopback_connection_factory lcf(1);
         http_server server("test");
         server.set_content_streaming(stream);
+        if (configure_server) {
+            configure_server(server);
+        }
         loopback_socket_impl lsi(lcf);
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
-        future<> client = seastar::async([req_parts = std::move(req_parts), resp_parts = std::move(resp_parts), &lsi] {
+        future<> client = seastar::async([req_parts = std::move(req_parts), resp_parts = std::move(resp_parts),
+                absent_parts = std::move(absent_parts), &lsi] {
             connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get();
             input_stream<char> input(c_socket.input());
             output_stream<char> output(c_socket.output());
@@ -1470,8 +1480,12 @@ future<> check_http_reply (std::vector<sstring>&& req_parts, std::vector<std::st
                 output.flush().get();
             }
             auto resp = input.read().get();
+            std::string resp_str(resp.get(), resp.size());
             for (auto& str : resp_parts) {
-                BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find(std::move(str)), std::string::npos);
+                BOOST_REQUIRE_NE(resp_str.find(str), std::string::npos);
+            }
+            for (auto& str : absent_parts) {
+                BOOST_REQUIRE_EQUAL(resp_str.find(str), std::string::npos);
             }
 
             input.close().get();
@@ -1809,6 +1823,47 @@ SEASTAR_TEST_CASE(test_close_response) {
         return check_http_reply({
             "/test\r\n\r\n"
         }, {"400 Bad Request", "Connection: close", "Can't parse the request"}, false, new echo_string_handler());
+    });
+}
+
+SEASTAR_TEST_CASE(test_server_header_default) {
+    return check_http_reply({
+        "GET /test HTTP/1.1\r\nHost: test\r\n\r\n"
+    }, {"Server: Seastar httpd"}, false, new echo_string_handler());
+}
+
+SEASTAR_TEST_CASE(test_server_header_custom) {
+    return check_http_reply({
+        "GET /test HTTP/1.1\r\nHost: test\r\n\r\n"
+    }, {"Server: MyApp"}, false, new echo_string_handler(), {}, [] (http_server& s) {
+        s.set_server_header("MyApp");
+    });
+}
+
+SEASTAR_TEST_CASE(test_server_header_empty) {
+    return check_http_reply({
+        "GET /test HTTP/1.1\r\nHost: test\r\n\r\n"
+    }, {}, false, new echo_string_handler(), {"Server:"}, [] (http_server& s) {
+        s.set_server_header(std::nullopt);
+    });
+}
+
+SEASTAR_TEST_CASE(test_date_header_default) {
+    return check_http_reply({
+        "GET /test HTTP/1.1\r\nHost: test\r\n\r\n"
+    }, {"Date:"}, false, new echo_string_handler());
+}
+
+SEASTAR_TEST_CASE(test_date_header_disabled) {
+    return check_http_reply({
+        "GET /test HTTP/1.1\r\nHost: test\r\n\r\n"
+    }, {}, false, new echo_string_handler(), {"Date:"}, [] (http_server& s) {
+        // Exercise double-enable (timer already armed from constructor)
+        s.set_generate_date_header(true);
+        s.set_generate_date_header(true);
+        // Disable, then re-disable
+        s.set_generate_date_header(false);
+        s.set_generate_date_header(false);
     });
 }
 
@@ -2413,6 +2468,31 @@ SEASTAR_THREAD_TEST_CASE(test_write_reply_body_writer) {
     // chunk: "2\r\n{}\r\n" followed by terminal "0\r\n\r\n"
     BOOST_REQUIRE_NE(s.find("2\r\n{}\r\n"), std::string::npos);
     BOOST_REQUIRE(s.ends_with("0\r\n\r\n"));
+}
+
+SEASTAR_THREAD_TEST_CASE(test_write_reply_body_no_content_type) {
+    // Tests write_body() with std::nullopt content_type:
+    // - response line is correctly formatted
+    // - Content-Type header is NOT added
+    // - Content-Length header matches the body
+    // - body is written verbatim
+    http::reply reply;
+    reply.set_version("1.1");
+    reply.set_status(http::reply::status_type::ok);
+    reply.write_body(std::nullopt, sstring("hello"));
+
+    std::stringstream ss;
+    auto os = output_stream<char>(data_sink(std::make_unique<testing::memory_data_sink_impl>(ss)));
+    auto close_os = deferred_close(os);
+
+    reply.write_reply(os).get();
+    os.flush().get();
+
+    auto s = ss.str();
+    BOOST_REQUIRE(s.starts_with("HTTP/1.1 200 OK\r\n"));
+    BOOST_REQUIRE_EQUAL(s.find("Content-Type:"), std::string::npos);
+    BOOST_REQUIRE_NE(s.find("Content-Length: 5\r\n"), std::string::npos);
+    BOOST_REQUIRE(s.ends_with("hello"));
 }
 
 SEASTAR_THREAD_TEST_CASE(test_reply_cookies) {

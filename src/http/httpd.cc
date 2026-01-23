@@ -327,8 +327,12 @@ future<> connection::respond() {
 }
 
 void connection::set_headers(http::reply& resp) {
-    resp._headers["Server"] = "Seastar httpd";
-    resp._headers["Date"] = _server._date;
+    if (_server._server_header.has_value()) {
+        resp._headers["Server"] = *_server._server_header;
+    }
+    if (_server._generate_date_header) {
+        resp._headers["Date"] = _server._date;
+    }
 }
 
 future<bool> connection::generate_reply(std::unique_ptr<http::request> req) {
@@ -370,6 +374,31 @@ bool http_server::get_content_streaming() const {
 
 void http_server::set_content_streaming(bool b) {
     _content_streaming = b;
+}
+
+const std::optional<sstring>& http_server::get_server_header() const {
+    return _server_header;
+}
+
+void http_server::set_server_header(std::optional<sstring> value) {
+    _server_header = std::move(value);
+}
+
+bool http_server::get_generate_date_header() const {
+    return _generate_date_header;
+}
+
+void http_server::set_generate_date_header(bool b) {
+    if (b == _generate_date_header) {
+        return;
+    }
+    _generate_date_header = b;
+    if (b) {
+        _date = http_date();
+        _date_format_timer.arm_periodic(1s);
+    } else {
+        _date_format_timer.cancel();
+    }
 }
 
 future<> http_server::listen(socket_address addr, listen_options lo,

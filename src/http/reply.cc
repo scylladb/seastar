@@ -114,12 +114,12 @@ sstring reply::response_line() const {
     });
 }
 
-void reply::write_body(const sstring& content_type, body_writer_type&& body_writer) {
+void reply::write_body(std::optional<std::string_view> content_type, body_writer_type&& body_writer) {
     set_content_type(content_type);
-    _body_writer  = std::move(body_writer);
+    _body_writer = std::move(body_writer);
 }
 
-void reply::write_body(const sstring& content_type, sstring content) {
+void reply::write_body(std::optional<std::string_view> content_type, sstring content) {
     set_content_type(content_type);
     _content = std::move(content);
 }

@@ -132,6 +132,8 @@ class http_server {
     timer<> _date_format_timer { [this] {_date = http_date();} };
     size_t _content_length_limit = std::numeric_limits<size_t>::max();
     bool _content_streaming = false;
+    std::optional<sstring> _server_header = sstring("Seastar httpd");
+    bool _generate_date_header = true;
     gate _task_gate;
     std::optional<net::keepalive_params> _keepalive_params;
 public:
@@ -181,6 +183,21 @@ public:
     bool get_content_streaming() const;
 
     void set_content_streaming(bool b);
+
+    /// Returns the value of the "Server" header that will be added to each response.
+    /// std::nullopt means the header will not be added.
+    const std::optional<sstring>& get_server_header() const;
+
+    /// Sets the value of the "Server" header added to each response.
+    /// Pass std::nullopt to suppress the header entirely.
+    void set_server_header(std::optional<sstring> value);
+
+    /// Returns whether the server adds a "Date" header to each response.
+    bool get_generate_date_header() const;
+
+    /// Controls whether the server adds a "Date" header to each response.
+    /// When set to false the periodic date-update timer is also stopped.
+    void set_generate_date_header(bool b);
 
     future<> listen(socket_address addr, server_credentials_ptr credentials);
     future<> listen(socket_address addr, listen_options lo, server_credentials_ptr credentials);
