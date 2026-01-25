@@ -28,10 +28,24 @@
 
 namespace seastar {
 
+class reactor;
+
 class task {
-protected:
-    scheduling_group _sg;
 private:
+    friend class reactor;
+    union {
+        unsigned _scheduling_group_id;
+        task* _next;
+    };
+
+    static uintptr_t disguise_sched_group(scheduling_group sg) noexcept {
+        unsigned id = internal::scheduling_group_index(sg);
+        return (id << 1) | 0x1;
+    }
+    static scheduling_group unveil_sched_group(uintptr_t val) noexcept {
+        SEASTAR_ASSERT(val & 0x1);
+        return internal::scheduling_group_from_index(val >> 1);
+    }
 #ifdef SEASTAR_TASK_BACKTRACE
     shared_backtrace _bt;
 #endif
@@ -43,14 +57,14 @@ protected:
     ~task() = default;
 
     scheduling_group set_scheduling_group(scheduling_group new_sg) noexcept{
-        return std::exchange(_sg, new_sg);
+        return unveil_sched_group(std::exchange(_scheduling_group_id, disguise_sched_group(new_sg)));
     }
 public:
-    explicit task(scheduling_group sg = current_scheduling_group()) noexcept : _sg(sg) {}
+    explicit task(scheduling_group sg = current_scheduling_group()) noexcept : _scheduling_group_id(disguise_sched_group(sg)) {}
     virtual void run_and_dispose() noexcept = 0;
     /// Returns the next task which is waiting for this task to complete execution, or nullptr.
     virtual task* waiting_task() noexcept = 0;
-    scheduling_group group() const { return _sg; }
+    scheduling_group group() const { return unveil_sched_group(_scheduling_group_id); }
 #ifdef SEASTAR_TASK_BACKTRACE
     void make_backtrace() noexcept;
     shared_backtrace get_backtrace() const { return _bt; }
@@ -60,6 +74,9 @@ public:
 #endif
 };
 
+// The sched_group disguising/unveiling (see above) assumes that
+// the task* always has its zero bit cleared
+static_assert(alignof(task) > 1, "task pointer must not occupy zero bit");
 
 void schedule(task* t) noexcept;
 void schedule_checked(task* t) noexcept;

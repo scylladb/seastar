@@ -58,6 +58,7 @@
 #include <seastar/util/log.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/split-list.hh>
 #include "internal/pollable_fd.hh"
 
 #include <atomic>
@@ -293,7 +294,7 @@ private:
         explicit task_queue(task_queue_group* p, unsigned id, sstring name, sstring shortname, float shares);
         const uint8_t _id;
         uint64_t _tasks_processed = 0;
-        circular_buffer<task*> _q;
+        internal::intrusive_split_list<task, 16, &task::_next> _q;
         sstring _name;
         // the shortened version of scheduling_gruop's name, only the first 4
         // chars are used.
