@@ -68,9 +68,30 @@ future<> add_prometheus_routes(httpd::http_server& server, config ctx);
 
 namespace details {
 using filter_t = std::function<bool(const metrics::impl::labels_type&)>;
+using family_filter_t = std::function<bool(std::string_view)>;
+
+struct name_filter {
+    sstring name;
+    bool is_prefix;
+};
+
+// Creates a family filter from multiple name filters.
+// Returns true if the family name matches any of the filters.
+// If filters is empty, returns a filter that matches all families.
+// If prefix is provided, filter names starting with "{prefix}_" will have the prefix stripped,
+// allowing users to query with either "foo" or "seastar_foo" when prefix is "seastar".
+family_filter_t make_family_filter(std::vector<name_filter> filters, std::string_view prefix = "");
+
+struct write_body_args {
+    filter_t filter;
+    family_filter_t family_filter;
+    bool use_protobuf_format;
+    bool show_help;
+    bool enable_aggregation;
+};
 
 class test_access {
-    future<> write_body(config cfg, bool use_protobuf_format, sstring metric_family_name, bool prefix, bool show_help, bool enable_aggregation, filter_t filter, output_stream<char>&& s);
+    future<> write_body(config cfg, write_body_args args, output_stream<char>&& s);
 
     friend struct metrics_perf_fixture;
     friend struct ::prometheus_test_fixture;
