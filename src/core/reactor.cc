@@ -1660,9 +1660,9 @@ void intrusive_ptr_release(pollable_fd_state* fd) {
     }
 }
 
-pollable_fd::pollable_fd(file_desc fd, pollable_fd::speculation speculate)
-    : _s(engine()._backend->make_pollable_fd_state(std::move(fd), speculate))
-{}
+pollable_fd_state_ptr pollable_fd_state::make(file_desc fd, speculation speculate) {
+    return engine()._backend->make_pollable_fd_state(std::move(fd), speculate);
+}
 
 void pollable_fd::shutdown(int how, shutdown_kernel_only kernel_only) {
     if (!kernel_only) {

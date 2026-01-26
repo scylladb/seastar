@@ -717,7 +717,6 @@ private:
 
     future<> run_exit_tasks();
     void stop();
-    friend class pollable_fd;
     friend class pollable_fd_state;
     friend class posix_file_impl;
     friend class blockdev_file_impl;
