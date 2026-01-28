@@ -353,6 +353,14 @@ seastar_add_test (httpd
     loopback_socket.hh
     memory-data-sink.hh)
 
+seastar_add_test (http_typed_parameters
+  SOURCES
+    http_typed_parameters_test.cc)
+
+seastar_add_test (http_code_generation
+  SOURCES
+    http_code_generation_test.cc)
+
 seastar_add_test (websocket
   SOURCES websocket_test.cc)
 
