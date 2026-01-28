@@ -932,6 +932,10 @@ reactor::task_queue_group::task_queue_group(task_queue_group* p, float shares)
     }
 }
 
+void reactor::task_queue_group::set_maximum_children(unsigned count) noexcept {
+    _max_children = count;
+}
+
 reactor::sched_entity::sched_entity(task_queue_group* p, float shares)
         : _shares(std::max(shares, 1.0f))
         , _reciprocal_shares_times_2_power_32((uint64_t(1) << 32) / _shares)
@@ -939,7 +943,7 @@ reactor::sched_entity::sched_entity(task_queue_group* p, float shares)
         , _ts(now())
 {
     if (_parent != nullptr) {
-        if (_parent->_nr_children >= max_scheduling_groups()) {
+        if (_parent->_nr_children >= _parent->_max_children) {
             on_fatal_internal_error(seastar_logger, "Attempted to create too many supergroups");
         }
         _parent->_nr_children++;
@@ -4964,7 +4968,7 @@ reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, sstri
             }
             group = _supergroups[parent.index()].get();
         }
-        if (group->_nr_children == max_scheduling_groups()) {
+        if (group->_nr_children >= group->_max_children) {
             return make_exception_future<>(std::runtime_error(fmt::format("Supergroup children limit exceeded while creating {}", name)));
         }
         _task_queues[sg._id] = std::make_unique<task_queue>(group, sg._id, name, shortname, shares);
@@ -5104,10 +5108,24 @@ void scheduling_supergroup::set_shares(float shares) noexcept {
     }
 }
 
+future<> set_maximum_subgroups(scheduling_supergroup sg, unsigned count) noexcept {
+    if (count > max_scheduling_groups()) {
+        return make_exception_future<>(std::runtime_error("Cannot set limit larger than SEASTAR_SCHEDULING_GROUPS_COUNT"));
+    }
+
+    return smp::invoke_on_all([sg, count] {
+        if (sg.is_root()) {
+            engine()._cpu_sched.set_maximum_children(count);
+        } else {
+            engine()._supergroups[sg.index()]->set_maximum_children(count);
+        }
+    });
+}
+
 future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept {
     auto index = co_await smp::submit_to(0, [shares] () -> unsigned {
         auto& r = engine();
-        if (r._cpu_sched._nr_children == max_scheduling_groups()) {
+        if (r._cpu_sched._nr_children >= r._cpu_sched._max_children) {
             throw std::runtime_error("Supergroup children limit exceeded while creating nested supergroup");
         }
         auto ssg = std::make_unique<reactor::task_queue_group>(&r._cpu_sched, shares);
