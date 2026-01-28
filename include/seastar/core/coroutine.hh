@@ -91,6 +91,9 @@ public:
     class promise_type final : public seastar::task, public coroutine_allocators {
         seastar::promise<T> _promise;
     public:
+        using value_type = T;
+
+    public:
         promise_type() = default;
         promise_type(promise_type&&) = delete;
         promise_type(const promise_type&) = delete;
@@ -134,6 +137,10 @@ public:
         scheduling_group set_scheduling_group(scheduling_group sg) noexcept {
             return std::exchange(this->_sg, sg);
         }
+
+        seastar::promise<T> exchange_underlying_promise(seastar::promise<T>&& new_promise) noexcept {
+            return std::exchange(_promise, std::move(new_promise));
+        }
     };
 };
 
@@ -142,6 +149,9 @@ class coroutine_traits_base<> {
 public:
    class promise_type final : public seastar::task, public coroutine_allocators {
         seastar::promise<> _promise;
+    public:
+        using value_type = void;
+
     public:
         promise_type() = default;
         promise_type(promise_type&&) = delete;
@@ -175,6 +185,10 @@ public:
 
         scheduling_group set_scheduling_group(scheduling_group new_sg) noexcept {
             return task::set_scheduling_group(new_sg);
+        }
+
+        seastar::promise<> exchange_underlying_promise(seastar::promise<>&& new_promise) noexcept {
+            return std::exchange(_promise, std::move(new_promise));
         }
     };
 };
