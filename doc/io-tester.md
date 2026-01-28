@@ -39,6 +39,16 @@ For example:
     reqsize: 256kB
     shares: 10
     think_time: 0
+
+- name: vectorized_writes
+  type: randwrite
+  shards: all
+  shard_info:
+    parallelism: 10
+    reqsize: 64kB
+    vectorized: true
+    iov_count: 4        # 4 segments of 16kB each
+    shares: 10
 ```
 
 * `name`: mandatory property, a string that identifies jobs of this class
@@ -63,6 +73,8 @@ be replicated to each shard. All properties under `shard_info` are optional, and
 * `class`: name of the job to share the sched class with (used if `shares` is not set)
 * `think_time`: how long to wait before submitting another request in this job once one finishes.
 * `execution_time`: (cpu loads only) for how long to execute a CPU loop
+* `vectorized`: (I/O loads only) if true, use scatter-gather I/O with multiple iovec segments per request
+* `iov_count`: (I/O loads only) number of iovec segments when `vectorized` is true. The `reqsize` is split into `iov_count` uniform segments. Each segment must be at least 4096 bytes and properly aligned.
 
 # Example output
 
