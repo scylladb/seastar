@@ -66,15 +66,15 @@ int main(int ac, char** av) {
 
         return seastar::async([=] {
             net::hostent e = net::dns::get_host_by_name(host, net::inet_address::family::INET).get();
-            std::unique_ptr<http::experimental::client> cln;
+            std::unique_ptr<http::client> cln;
             if (https) {
                 auto certs = ::make_shared<tls::certificate_credentials>();
                 certs->set_system_trust().get();
                 fmt::print("{} {}:443{}\n", method, e.addr_entries.front().addr, path);
-                cln = std::make_unique<http::experimental::client>(socket_address(e.addr_entries.front().addr, 443), std::move(certs), host);
+                cln = std::make_unique<http::client>(socket_address(e.addr_entries.front().addr, 443), std::move(certs), host);
             } else {
                 fmt::print("{} {}:80{}\n", method, e.addr_entries.front().addr, path);
-                cln = std::make_unique<http::experimental::client>(socket_address(e.addr_entries.front().addr, 80));
+                cln = std::make_unique<http::client>(socket_address(e.addr_entries.front().addr, 80));
             }
             auto req = http::request::make(method, host, path);
             if (body != "") {

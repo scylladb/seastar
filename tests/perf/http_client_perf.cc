@@ -20,7 +20,7 @@
  */
 
 /*
- * The test runs http::experimental::client against minimalistic (see below) server on
+ * The test runs http::client against minimalistic (see below) server on
  * one shard using single "in-memory" connection.
  *
  * The client sents one request at-a-time, waiting for the server response before sending
@@ -87,7 +87,7 @@ public:
     }
 };
 
-class loopback_http_factory : public http::experimental::connection_factory {
+class loopback_http_factory : public http::connection_factory {
     loopback_socket_impl lsi;
 public:
     explicit loopback_http_factory(loopback_connection_factory& f) : lsi(f) {}
@@ -97,7 +97,7 @@ public:
 };
 
 class client {
-    seastar::http::experimental::client _cln;
+    seastar::http::client _cln;
     const unsigned _warmup_limit;
     const unsigned _limit;
     linux_perf_event _instructions;
