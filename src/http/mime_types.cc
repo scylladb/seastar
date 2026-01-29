@@ -8,17 +8,10 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <string_view>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/http/mime_types.hh>
-#endif
 
 
 namespace seastar {

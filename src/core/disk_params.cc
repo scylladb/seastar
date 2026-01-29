@@ -20,9 +20,6 @@
  */
 
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <chrono>
 #include <unordered_set>
@@ -32,16 +29,12 @@ module;
 #include <sys/stat.h>
 #include <yaml-cpp/yaml.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/disk_params.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/core/smp_options.hh>
 #include <seastar/util/conversions.hh>
 
-#endif
 
 using namespace std::chrono_literals;
 

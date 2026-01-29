@@ -19,9 +19,6 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <memory>
 #include <set>
@@ -33,13 +30,9 @@ module;
 #include <sys/mman.h>
 #include <sys/inotify.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/posix.hh>
 #include <seastar/core/align.hh>
 #include <seastar/util/critical_alloc_section.hh>
-#endif
 #include <seastar/util/assert.hh>
 
 namespace seastar {

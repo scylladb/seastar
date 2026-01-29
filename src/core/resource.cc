@@ -20,9 +20,6 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <boost/program_options.hpp>
 #include <boost/algorithm/string.hpp>
@@ -38,9 +35,6 @@ module;
 #include <fmt/core.h>
 #include <seastar/util/assert.hh>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/resource.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/core/align.hh>
@@ -51,7 +45,6 @@ module seastar;
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/print.hh>
 #include "cgroup.hh"
-#endif
 
 #if SEASTAR_HAVE_HWLOC
 #include <hwloc.h>

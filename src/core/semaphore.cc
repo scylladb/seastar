@@ -19,17 +19,10 @@
  * Copyright (C) 2020 Cloudius Systems, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <fmt/format.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/semaphore.hh>
-#endif
 
 namespace seastar {
 

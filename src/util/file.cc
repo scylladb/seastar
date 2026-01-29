@@ -20,9 +20,6 @@
  * Copyright 2020 ScyllaDB
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <cstdint>
 #include <list>
@@ -34,14 +31,10 @@ module;
 #include <coroutine>
 #include <sys/statvfs.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/util/file.hh>
-#endif
 
 namespace seastar {
 

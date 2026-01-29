@@ -19,9 +19,6 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <fmt/format.h>
 #include <fmt/ostream.h>
@@ -32,9 +29,6 @@ module;
 #include <utility>
 #include <seastar/util/assert.hh>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/fstream.hh>
 #include <seastar/core/align.hh>
 #include <seastar/core/circular_buffer.hh>
@@ -42,7 +36,6 @@ module seastar;
 #include <seastar/core/reactor.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/io_intent.hh>
-#endif
 
 namespace seastar {
 

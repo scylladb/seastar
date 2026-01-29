@@ -15,9 +15,6 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <utility>
 #include <vector>
@@ -25,11 +22,7 @@ module;
 #include <cstdint>
 #include <memory>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/net/proxy.hh>
-#endif
 
 namespace seastar {
 

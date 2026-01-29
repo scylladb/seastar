@@ -19,9 +19,6 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <string.h>
 #include <string>
@@ -29,13 +26,9 @@ module;
 #include <sstream>
 #include <fmt/core.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/loop.hh>
 #include <seastar/core/print.hh>
 #include <seastar/json/json_elements.hh>
-#endif
 
 namespace seastar {
 

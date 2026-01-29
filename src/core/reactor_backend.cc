@@ -18,9 +18,6 @@
 /*
  * Copyright 2019 ScyllaDB
  */
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <atomic>
 #include <chrono>
@@ -41,9 +38,6 @@ module;
 #include <liburing.h>
 #endif
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include "core/reactor_backend.hh"
 #include "core/thread_pool.hh"
 #include "core/syscall_result.hh"
@@ -55,7 +49,6 @@ module seastar;
 #include <seastar/core/smp.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/read_first_line.hh>
-#endif
 
 namespace seastar {
 

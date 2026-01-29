@@ -19,9 +19,6 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <cstdlib>
 #include <memory>
@@ -29,12 +26,8 @@ module;
 #include <numeric>
 #include <span>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/http/common.hh>
 #include <seastar/core/iostream-impl.hh>
-#endif
 
 namespace seastar {
 

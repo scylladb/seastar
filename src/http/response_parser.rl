@@ -21,10 +21,8 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <memory>
 #include <unordered_map>
-#endif
 
 #include <seastar/core/ragel.hh>
 #include <seastar/http/reply.hh>

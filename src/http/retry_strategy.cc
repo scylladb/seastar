@@ -6,22 +6,15 @@
  * SPDX-License-Identifier: LicenseRef-ScyllaDB-Source-Available-1.0
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <chrono>
 #include <coroutine>
 #include <gnutls/gnutls.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/http/exception.hh>
 #include <seastar/http/retry_strategy.hh>
 #include <seastar/util/short_streams.hh>
 
-#endif
 
 using namespace std::chrono_literals;
 

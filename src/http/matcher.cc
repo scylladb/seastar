@@ -19,17 +19,10 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <iostream>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/http/matcher.hh>
-#endif
 
 namespace seastar {
 
