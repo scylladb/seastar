@@ -37,6 +37,7 @@
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/exception.hh>
 #include <seastar/coroutine/try_future.hh>
+#include <seastar/coroutine/finally.hh>
 #include <seastar/testing/random.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/util/defer.hh>
@@ -945,4 +946,84 @@ SEASTAR_TEST_CASE(test_try_future) {
     co_await run_try_future_test<false>(return_int, 128);
     co_await run_try_future_test<true>(return_ex_int, std::nullopt);
     co_await run_try_future_test<false>(return_ex_int, std::nullopt);
+}
+
+class canary {
+    bool* _flag{nullptr};
+public:
+    canary(bool& flag)
+        : _flag(&flag) {
+    }
+    canary(canary&& c) : _flag(std::exchange(c._flag, nullptr)) { }
+    canary(const canary&) = delete;
+    canary& operator=(const canary&) = delete;
+    canary& operator=(canary&&) = delete;
+    ~canary() {
+        if (_flag) {
+            *_flag = true;
+        }
+    }
+};
+
+template <typename R, typename Func>
+future<R> finally_coroutine(canary c, std::exception_ptr ex, Func&& func) {
+    co_await coroutine::finally(std::move(func));
+
+    co_await yield();
+
+    if (ex) {
+        std::rethrow_exception(ex);
+    }
+
+    if constexpr (std::is_void_v<R>) {
+        co_return;
+    } else {
+        co_return R{};
+    }
+}
+
+template <typename R, bool FuncTakesException>
+struct finally_tester {
+    future<> do_run(bool throw_exception, std::source_location sl) {
+        fmt::print("finally_tester<{}, {}>::do_run(throw_exception={}) at {}:{}\n", typeid(R).name(), FuncTakesException, throw_exception, sl.file_name(), sl.line());
+
+        bool destroyed = false;
+        bool called = false;
+
+        std::exception_ptr ex;
+        if (throw_exception) {
+            std::make_exception_ptr(std::runtime_error("finally test"));
+        }
+
+        if constexpr (FuncTakesException) {
+            std::exception_ptr ex_out;
+            co_await finally_coroutine<R>(canary{destroyed}, ex, [&destroyed, &called, &ex_out] (std::exception_ptr ex) mutable -> future<> {
+                ex_out = std::move(ex);
+                return yield().then([&] {
+                    called = destroyed;
+                });
+            });
+            BOOST_REQUIRE_EQUAL(fmt::to_string(ex), fmt::to_string(ex_out));
+        } else {
+            co_await finally_coroutine<R>(canary{destroyed}, ex, [&destroyed, &called] () mutable -> future<> {
+                return yield().then([&] {
+                    called = destroyed;
+                });
+            });
+        }
+        BOOST_REQUIRE(destroyed);
+        BOOST_REQUIRE(called);
+    }
+
+    future<> operator()(std::source_location sl = std::source_location::current()) {
+        co_await do_run(false, sl);
+        co_await do_run(true, sl);
+    }
+};
+
+SEASTAR_TEST_CASE(test_finally) {
+    co_await finally_tester<void, false>{}();
+    co_await finally_tester<int, false>{}();
+    co_await finally_tester<void, true>{}();
+    co_await finally_tester<int, true>{}();
 }
