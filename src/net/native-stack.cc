@@ -19,9 +19,6 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <chrono>
 #include <fstream>
@@ -38,9 +35,6 @@ module;
 #include <arpa/inet.h>
 #include <unistd.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/net/native-stack.hh>
 #include "net/native-stack-impl.hh"
 #include <seastar/net/net.hh>
@@ -54,7 +48,6 @@ module seastar;
 #include <seastar/net/dhcp.hh>
 #include <seastar/net/config.hh>
 #include <seastar/core/reactor.hh>
-#endif
 
 namespace seastar {
 

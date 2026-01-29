@@ -19,18 +19,11 @@
  * Copyright (C) 2018 ScyllaDB
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <ranges>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/sharded.hh>
 #include <seastar/core/loop.hh>
-#endif
 
 namespace seastar {
 

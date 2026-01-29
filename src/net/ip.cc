@@ -20,20 +20,11 @@
  *
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#include <chrono>
-#include <string>
-#include <boost/asio/ip/address_v4.hpp>
-#include <fmt/core.h>
-module seastar;
-#else
 #include <seastar/net/ip.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/net/toeplitz.hh>
 #include <seastar/core/metrics.hh>
-#endif
 
 namespace seastar {
 

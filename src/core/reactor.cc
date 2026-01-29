@@ -19,10 +19,6 @@
  * Copyright 2014 Cloudius Systems
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
-
 #include <atomic>
 #include <chrono>
 #include <cmath>

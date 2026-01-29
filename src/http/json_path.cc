@@ -19,13 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#include <vector>
-module seastar;
-#else
 #include <seastar/http/json_path.hh>
-#endif
 
 namespace seastar {
 

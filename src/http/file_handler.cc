@@ -19,17 +19,11 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <algorithm>
 #include <iostream>
 #include <memory>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/http/file_handler.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/reactor.hh>
@@ -37,7 +31,6 @@ module seastar;
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/http/exception.hh>
-#endif
 
 namespace seastar {
 

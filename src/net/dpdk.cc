@@ -20,9 +20,6 @@
  */
 #ifdef SEASTAR_HAVE_DPDK
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <cinttypes>
 #include <atomic>
@@ -44,9 +41,6 @@ module;
 
 #include <boost/preprocessor.hpp>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/posix.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/net/virtio-interface.hh>
@@ -69,7 +63,6 @@ module seastar;
 #include <seastar/net/toeplitz.hh>
 #include <seastar/net/native-stack.hh>
 #include "core/vla.hh"
-#endif
 
 #if RTE_VERSION <= RTE_VERSION_NUM(2,0,0,16)
 
@@ -2298,15 +2291,8 @@ std::unique_ptr<net::device> create_dpdk_net_device(
 
 #else
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/net/dpdk.hh>
-#endif
 
 #endif // SEASTAR_HAVE_DPDK
 

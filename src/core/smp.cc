@@ -18,9 +18,6 @@
 /*
  * Copyright 2019 ScyllaDB
  */
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <boost/range/algorithm/find_if.hpp>
 #include <atomic>
@@ -30,9 +27,6 @@ module;
 #include <unistd.h>
 #include <fcntl.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/smp.hh>
 #include <seastar/core/alien.hh>
 #include <seastar/core/resource.hh>
@@ -43,7 +37,6 @@ module seastar;
 #include <seastar/core/posix.hh>
 #include <seastar/core/align.hh>
 #include "prefault.hh"
-#endif
 
 namespace seastar {
 

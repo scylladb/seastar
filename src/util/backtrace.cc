@@ -18,9 +18,6 @@
 /*
  * Copyright 2017 ScyllaDB
  */
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <link.h>
 #include <sys/types.h>
@@ -36,14 +33,10 @@ module;
 #include <fmt/ostream.h>
 #include <fmt/ranges.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/util/backtrace.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/reactor.hh>
-#endif
 
 namespace seastar {
 

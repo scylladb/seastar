@@ -19,9 +19,6 @@
  * Copyright (C) 2022 Scylladb, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <cassert>
 #include <concepts>
@@ -31,9 +28,6 @@ module;
 #include <stdexcept>
 #include <utility>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/loop.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/reactor.hh>
@@ -45,7 +39,6 @@ module seastar;
 #include <seastar/util/defer.hh>
 #include <seastar/util/short_streams.hh>
 #include <seastar/util/string_utils.hh>
-#endif
 
 namespace seastar {
 logger http_log("http");

@@ -29,7 +29,6 @@
 #include <seastar/core/internal/linux-aio.hh>
 #include <seastar/core/cacheline.hh>
 
-#ifndef SEASTAR_MODULE
 #include <fmt/ostream.h>
 #include <sys/time.h>
 #include <thread>
@@ -38,7 +37,6 @@
 #include <boost/program_options.hpp>
 #include <boost/container/static_vector.hpp>
 
-#endif
 
 namespace seastar {
 

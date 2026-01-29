@@ -23,23 +23,16 @@
 
     Extracted from inet_address.cc.
  */
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <arpa/inet.h>
 #include <sys/un.h>
 #include <ostream>
 #include <boost/functional/hash.hpp>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/net/socket_defs.hh>
 #include <seastar/net/inet_address.hh>
 #include <seastar/net/ip.hh>
 #include <seastar/core/print.hh>
-#endif
 
 using namespace std::string_literals;
 

@@ -19,9 +19,6 @@
  * Copyright 2014 Cloudius Systems
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <chrono>
 #include <unordered_map>
@@ -30,14 +27,10 @@ module;
 #include <iostream>
 #include <arpa/inet.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/net/dhcp.hh>
 #include <seastar/net/ip.hh>
 #include <seastar/net/udp.hh>
 #include <seastar/net/stack.hh>
-#endif
 
 namespace seastar {
 

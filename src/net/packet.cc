@@ -19,9 +19,6 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <iostream>
 #include <algorithm>
@@ -30,13 +27,9 @@ module;
 #include <functional>
 #include <memory>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/print.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/net/packet.hh>
-#endif
 
 namespace seastar {
 

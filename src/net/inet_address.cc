@@ -19,9 +19,6 @@
  * Copyright (C) 2016 ScyllaDB.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <algorithm>
 #include <ostream>
@@ -29,16 +26,12 @@ module;
 #include <boost/functional/hash.hpp>
 #include <fmt/ostream.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/net/inet_address.hh>
 #include <seastar/net/socket_defs.hh>
 #include <seastar/net/dns.hh>
 #include <seastar/net/ip.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/print.hh>
-#endif
 
 static_assert(std::is_nothrow_default_constructible_v<seastar::net::ipv4_address>);
 static_assert(std::is_nothrow_copy_constructible_v<seastar::net::ipv4_address>);
