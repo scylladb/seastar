@@ -136,10 +136,16 @@ private:
     }
 public:
     using iterator_category = std::input_iterator_tag;
+    using iterator_concept = std::input_iterator_tag;
     using value_type = int;
     using difference_type = std::ptrdiff_t;
     using pointer = int*;
     using reference = int&;
+
+    set_iterator() noexcept
+        : _bitset()
+        , _index(0) {
+    }
 
     set_iterator(std::bitset<N> bitset, int offset = 0) noexcept
         : _bitset(bitset)
