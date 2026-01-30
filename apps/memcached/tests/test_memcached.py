@@ -210,9 +210,14 @@ class TcpSpecificTests(MemcacheTest):
     @slow
     def test_connection_statistics(self):
         with tcp_connection() as conn:
+            # Issue some command to ensure server has fully processed this
+            # connection, otherwise our stats query will race with the server
+            # userspace accepting the connection and registering it
+            conn('version\r\n')
             curr_connections = int(self.getStat('curr_connections', call_fn=conn))
             total_connections = int(self.getStat('total_connections', call_fn=conn))
             with tcp_connection() as conn2:
+                conn2('version\r\n')
                 self.assertEqual(curr_connections + 1, int(self.getStat('curr_connections', call_fn=conn)))
                 self.assertEqual(total_connections + 1, int(self.getStat('total_connections', call_fn=conn)))
             self.assertEqual(total_connections + 1, int(self.getStat('total_connections', call_fn=conn)))
