@@ -223,6 +223,8 @@ struct shard_info {
     std::chrono::duration<float> think_after = 0ms;
     std::chrono::duration<float> execution_time = 1ms;
     seastar::scheduling_group scheduling_group = seastar::default_scheduling_group();
+    bool vectorized = false;
+    unsigned iov_count = 1;
 };
 
 struct options {
@@ -443,7 +445,7 @@ public:
 
 protected:
     sstring type_str() const {
-        return std::unordered_map<request_type, sstring>{
+        auto base = std::unordered_map<request_type, sstring>{
             { request_type::seqread, "SEQ READ" },
             { request_type::overwrite, "OVERWRITE" },
             { request_type::randread, "RAND READ" },
@@ -451,7 +453,11 @@ protected:
             { request_type::append , "APPEND" },
             { request_type::cpu , "CPU" },
             { request_type::unlink, "UNLINK" },
-        }[_config.type];;
+        }[_config.type];
+        if (_config.shard_info.vectorized) {
+            return format("{} (vectorized, {} iovecs)", base, _config.shard_info.iov_count);
+        }
+        return base;
     }
 
     request_type req_type() const {
@@ -743,6 +749,88 @@ public:
     }
 };
 
+class vectorized_read_io_class_data : public io_class_data {
+    std::vector<std::unique_ptr<char[], free_deleter>> _buffers;
+    std::vector<iovec> _iovecs;
+    size_t _segment_size;
+
+public:
+    vectorized_read_io_class_data(job_config cfg)
+            : io_class_data(std::move(cfg))
+            , _segment_size(_config.shard_info.request_size / _config.shard_info.iov_count)
+    {
+        if (_config.shard_info.request_size % _config.shard_info.iov_count != 0) {
+            throw std::runtime_error(format("request_size {} must be evenly divisible by iov_count {}",
+                _config.shard_info.request_size, _config.shard_info.iov_count));
+        }
+        if (_segment_size < _alignment || _segment_size % _alignment != 0) {
+            throw std::runtime_error(format("segment_size {} must be at least {} and aligned to {}",
+                _segment_size, _alignment, _alignment));
+        }
+        allocate_buffers();
+    }
+
+    future<size_t> issue_request(char *buf, io_intent* intent) override {
+        auto pos = this->get_pos();
+        std::vector<iovec> iovs = _iovecs;
+        auto f = _file.dma_read(pos, std::move(iovs), intent);
+        return on_io_completed(std::move(f));
+    }
+
+private:
+    void allocate_buffers() {
+        _buffers.reserve(_config.shard_info.iov_count);
+        _iovecs.reserve(_config.shard_info.iov_count);
+
+        for (unsigned i = 0; i < _config.shard_info.iov_count; ++i) {
+            auto buf = allocate_aligned_buffer<char>(_segment_size, _alignment);
+            _iovecs.push_back(iovec{ buf.get(), _segment_size });
+            _buffers.push_back(std::move(buf));
+        }
+    }
+};
+
+class vectorized_write_io_class_data : public io_class_data {
+    std::vector<std::unique_ptr<char[], free_deleter>> _buffers;
+    std::vector<iovec> _iovecs;
+    size_t _segment_size;
+
+public:
+    vectorized_write_io_class_data(job_config cfg)
+            : io_class_data(std::move(cfg))
+            , _segment_size(_config.shard_info.request_size / _config.shard_info.iov_count)
+    {
+        if (_config.shard_info.request_size % _config.shard_info.iov_count != 0) {
+            throw std::runtime_error(format("request_size {} must be evenly divisible by iov_count {}",
+                _config.shard_info.request_size, _config.shard_info.iov_count));
+        }
+        if (_segment_size < _alignment || _segment_size % _alignment != 0) {
+            throw std::runtime_error(format("segment_size {} must be at least {} and aligned to {}",
+                _segment_size, _alignment, _alignment));
+        }
+        allocate_buffers();
+    }
+
+    future<size_t> issue_request(char *buf, io_intent* intent) override {
+        auto pos = this->get_pos();
+        std::vector<iovec> iovs = _iovecs;
+        auto f = _file.dma_write(pos, std::move(iovs), intent);
+        return on_io_completed(std::move(f));
+    }
+
+private:
+    void allocate_buffers() {
+        _buffers.reserve(_config.shard_info.iov_count);
+        _iovecs.reserve(_config.shard_info.iov_count);
+
+        for (unsigned i = 0; i < _config.shard_info.iov_count; ++i) {
+            auto buf = allocate_and_fill_buffer(_segment_size);
+            _iovecs.push_back(iovec{ buf.get(), _segment_size });
+            _buffers.push_back(std::move(buf));
+        }
+    }
+};
+
 class unlink_class_data : public class_data {
 private:
     sstring _dir_path{};
@@ -871,8 +959,14 @@ std::unique_ptr<class_data> job_config::gen_class_data() {
     } else if (type == request_type::unlink) {
         return std::make_unique<unlink_class_data>(*this);
     } else if ((type == request_type::seqread) || (type == request_type::randread)) {
+        if (shard_info.vectorized) {
+            return std::make_unique<vectorized_read_io_class_data>(*this);
+        }
         return std::make_unique<read_io_class_data>(*this);
     } else {
+        if (shard_info.vectorized) {
+            return std::make_unique<vectorized_write_io_class_data>(*this);
+        }
         return std::make_unique<write_io_class_data>(*this);
     }
 }
@@ -997,6 +1091,15 @@ struct convert<shard_info> {
         }
         if (node["execution_time"]) {
             sl.execution_time = node["execution_time"].as<duration_time>().time;
+        }
+        if (node["vectorized"]) {
+            sl.vectorized = node["vectorized"].as<bool>();
+        }
+        if (node["iov_count"]) {
+            sl.iov_count = node["iov_count"].as<unsigned>();
+            if (sl.iov_count == 0) {
+                throw std::runtime_error("iov_count must be at least 1");
+            }
         }
         return true;
     }
