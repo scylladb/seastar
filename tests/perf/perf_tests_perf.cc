@@ -123,6 +123,18 @@ PERF_TEST(perf_tests, test_timer_overhead) {
     return TIMER_LOOPS;
 }
 
+// Test to verify overhead measurement - this test intentionally has high overhead
+// because it does almost no work between start/stop calls
+PERF_TEST(overhead_check, high_overhead_test) {
+    constexpr size_t LOOPS = 1000;
+    for (size_t i = 0; i < LOOPS; i++) {
+        perf_tests::start_measuring_time();
+        perf_tests::do_not_optimize(i);
+        perf_tests::stop_measuring_time();
+    }
+    return LOOPS;
+}
+
 // The following tests run in order check that pre-run hooks are executed properly.
 
 static int hook_1_count = 0, hook_2_count = 1;
