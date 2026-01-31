@@ -91,6 +91,12 @@ future<> connection::do_response_loop() {
 }
 
 future<> connection::start_response() {
+    // While writing the response, disable the read timeout even though
+    // the server might already be reading the next request. If the connection
+    // dies we'll notice this when failing to write the response, and don't
+    // need to notice this via a read timeout. we'll re-arm the read timeout
+    // timer below - when we finish writing the response.
+    _request_timeout_timer.cancel();
     return _resp->write_reply(out()).then_wrapped([this] (auto f) {
         if (f.failed()) {
             // In case of an error during the write close the connection
@@ -123,6 +129,10 @@ future<> connection::start_response() {
             f.ignore_ready_future();
         }
         _resp.reset();
+        if (_server._request_timeout.count() > 0) {
+            _request_timeout_timer.cancel();
+            _request_timeout_timer.arm(_server._request_timeout);
+        }
         return make_ready_future<>();
     });
 }
@@ -201,7 +211,12 @@ void connection::generate_error_reply_and_close(std::unique_ptr<http::request> r
 
 future<> connection::read_one() {
     _parser.init();
+    if (_server._request_timeout.count() > 0) {
+        _request_timeout_timer.cancel();
+        _request_timeout_timer.arm(_server._request_timeout);
+    }
     return _read_buf.consume(_parser).then([this] () mutable {
+        _request_timeout_timer.cancel();
         if (_parser.eof()) {
             _done = true;
             return make_ready_future<>();
