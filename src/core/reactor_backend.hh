@@ -71,6 +71,7 @@ class aio_storage_context {
     };
 
     reactor& _r;
+    bool _use_aio_fdatasync;
     internal::linux_abi::aio_context_t _io_context;
     boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _submission_queue;
     iocb_pool _iocb_pool;
@@ -89,8 +90,9 @@ class aio_storage_context {
         return !_pending_aio_retry_fut.available();
     }
 
+    void fdatasync_via_syscall_thread(int fd, kernel_completion* desc);
 public:
-    explicit aio_storage_context(reactor& r);
+    aio_storage_context(reactor& r, bool use_aio_fdatasync);
     ~aio_storage_context();
 
     bool reap_completions(bool allow_retry = true);
@@ -164,6 +166,10 @@ public:
     void stop_tick();
 };
 
+struct reactor_backend_config {
+    bool use_aio_fdatasync = true; // io_submit() with IOCB_CMD_FDSYNC for backends that use aio
+};
+
 // The "reactor_backend" interface provides a method of waiting for various
 // basic events on one thread. We have one implementation based on epoll and
 // file-descriptors (reactor_backend_epoll), one implementation based on
@@ -223,8 +229,14 @@ public:
 // Linux. Can wait on multiple file descriptors, and converts other events
 // (such as timers, signals, inter-thread notifications) into file descriptors
 // using mechanisms like timerfd, signalfd and eventfd respectively.
-class reactor_backend_epoll : public reactor_backend {
+//
+// This base class takes care of everything except disk files. Disk file
+// support is left to a derived class to allow different implementations,
+// with and without linux-aio.
+class reactor_backend_epoll_base : public reactor_backend {
+protected:
     reactor& _r;
+private:
     std::atomic<bool> _highres_timer_pending = {};
     std::thread _task_quota_timer_thread;
     ::itimerspec _steady_clock_timer_deadline = {};
@@ -241,15 +253,14 @@ private:
     void task_quota_timer_thread_fn();
     future<> get_epoll_future(pollable_fd_state& fd, int event);
     void complete_epoll_event(pollable_fd_state& fd, int events, int event);
-    aio_storage_context _storage_context;
     void switch_steady_clock_timers(file_desc& from, file_desc& to);
     void maybe_switch_steady_clock_timers(int timeout, file_desc& from, file_desc& to);
     bool wait_and_process(int timeout, const sigset_t* active_sigmask);
     bool complete_hrtimer();
     bool _need_epoll_events = false;
 public:
-    explicit reactor_backend_epoll(reactor& r);
-    virtual ~reactor_backend_epoll() override;
+    reactor_backend_epoll_base(reactor& r, reactor_backend_config cfg);
+    virtual ~reactor_backend_epoll_base() override;
 
     virtual bool reap_kernel_completions() override;
     virtual bool kernel_submit_work() override;
@@ -285,6 +296,27 @@ public:
     make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
 };
 
+// reactor backend using epoll for non-disk file descriptors and linux-aio for disk files.
+class reactor_backend_epoll : public reactor_backend_epoll_base {
+    aio_storage_context _storage_context;
+public:
+    explicit reactor_backend_epoll(reactor& r, reactor_backend_config cfg);
+    virtual ~reactor_backend_epoll() override;
+    virtual bool reap_kernel_completions() override;
+    virtual bool kernel_submit_work() override;
+    virtual bool kernel_events_can_sleep() const override;
+};
+
+// reactor backend using epoll for everything, including disk files.
+// "using epoll" here means waiting on thread pool completion notification
+// via epoll, not issuing io via epoll. The idea is to avoid linux-aio
+// for environments where it is not available.
+class reactor_backend_epoll_pure : public reactor_backend_epoll_base {
+public:
+    using reactor_backend_epoll_base::reactor_backend_epoll_base;
+    virtual bool kernel_submit_work() override;
+};
+
 class reactor_backend_aio : public reactor_backend {
     reactor& _r;
     file_desc _hrtimer_timerfd;
@@ -299,7 +331,7 @@ class reactor_backend_aio : public reactor_backend {
     bool await_events(int timeout, const sigset_t* active_sigmask);
     future<> poll(pollable_fd_state& fd, int events);
 public:
-    explicit reactor_backend_aio(reactor& r);
+    reactor_backend_aio(reactor& r, reactor_backend_config cfg);
 
     virtual bool reap_kernel_completions() override;
     virtual bool kernel_submit_work() override;
@@ -344,7 +376,7 @@ private:
     explicit reactor_backend_selector(std::string name) : _name(std::move(name)) {}
 public:
     const std::string& name() const { return _name; }
-    std::unique_ptr<reactor_backend> create(reactor& r);
+    std::unique_ptr<reactor_backend> create(reactor& r, reactor_backend_config cfg) const;
     static reactor_backend_selector default_backend();
     static std::vector<reactor_backend_selector> available();
     friend std::ostream& operator<<(std::ostream& os, const reactor_backend_selector& rbs) {
