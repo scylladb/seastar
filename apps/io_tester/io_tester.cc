@@ -426,7 +426,7 @@ public:
     future<> start(sstring dir, directory_entry_type type) {
         return do_start(dir, type).then([this] {
             if (this_shard_id() == 0 && _config.shard_info.bandwidth != 0) {
-                return make_ready_future<>(); // FIXME _iop.update_bandwidth(_config.shard_info.bandwidth);
+                return _sg.update_io_bandwidth(_config.shard_info.bandwidth);
             } else {
                 return make_ready_future<>();
             }
