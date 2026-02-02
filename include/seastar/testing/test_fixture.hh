@@ -70,15 +70,15 @@ public:
     template<typename... Args>
     requires std::is_constructible_v<F, const Args&...>
     async_class_based_fixture(Args&& ...args)
-        : _create([args = std::make_tuple(std::forward<Args>(args)...)] { 
+        : _create([args = std::make_tuple(std::forward<Args>(args)...)] {
             return std::apply([](auto&& ...args) {
-                return std::make_unique<F>(args...); 
+                return std::make_unique<F>(args...);
             }, args);
         })
     {}
 private:
     // Fixture interface
-    void setup() override { 
+    void setup() override {
         // create and possibly init the fixture object in reactor, on the
         // test thread.
         global_test_runner().run_sync([this] {
@@ -86,7 +86,7 @@ private:
             return detail::conditional_invoke_setup(*_inst);
         });
     }
-    void teardown() override { 
+    void teardown() override {
         // possibly de-init and destroy the fixture object in reactor, on the
         // test thread.
         global_test_runner().run_sync([this] {
@@ -110,7 +110,7 @@ public:
     {}
 private:
     // Fixture interface
-    void setup() override { 
+    void setup() override {
         if (_setup) {
             // run in reactor thread
             global_test_runner().run_sync([this] {

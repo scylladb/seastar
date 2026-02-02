@@ -28,7 +28,7 @@ namespace seastar {
 class file_desc;
 
 namespace internal {
-// Reasons for why a function had to be submitted to the thread_pool 
+// Reasons for why a function had to be submitted to the thread_pool
 enum class thread_pool_submit_reason : size_t {
     // Used for aio operations what would block in `io_submit`.
     aio_fallback,

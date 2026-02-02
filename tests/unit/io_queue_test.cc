@@ -678,7 +678,7 @@ SEASTAR_THREAD_TEST_CASE(test_destroy_priority_class_with_requests) {
     auto pc = internal::priority_class(sg);
 
     auto fx = tio.queue_request(pc,
-        internal::io_direction_and_length(internal::io_direction_and_length::read_idx, 0), 
+        internal::io_direction_and_length(internal::io_direction_and_length::read_idx, 0),
         internal::io_request::make_write(0, 0, nullptr, 1, false),
         nullptr, {});
 

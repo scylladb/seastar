@@ -329,7 +329,7 @@ static sstring format_double_fit(double value, size_t width, size_t default_prec
 
 
 // Given a value in nanoseconds, scale to the first unit whose value is < 1000.
-// Progression: ns -> us -> ms -> s. 
+// Progression: ns -> us -> ms -> s.
 static inline scaled_duration calculate_units_and_scale(double nanoseconds) {
     static const std::array units = {
         "ns", "µs", "ms"
@@ -425,7 +425,7 @@ struct column {
     column(sstring header, int prec, F fn) : header{header}, fopts{default_width, prec} {
         using result_t = std::invoke_result_t<F, const result&>;
         using result_traits = value_traits<result_t>;
-        
+
         print_text = [=, fopts = fopts](const text_options& opts, const result& r) {
             printer p{fopts, opts.mad_columns.contains(header)};
             fmt::print(opts.file, "{}", p(fn(r)));
@@ -670,7 +670,7 @@ void performance_test::do_run(const config& conf)
                 auto add = [this](auto& m, double value) {
                     m.add(value, _single_run_iterations);
                 };
-                
+
                 add(r.runtime, ns);
 
                 total_iterations += _single_run_iterations;
@@ -807,14 +807,14 @@ int main(int ac, char** av)
             // calculate the effective column set
             auto selected_cols_str = split(app.configuration()["columns"].as<std::string>());
             std::set<std::string> selected_set(selected_cols_str.begin(), selected_cols_str.end());
-            
+
             columns selected_columns;
             for (const column& col : text_columns) {
                 if (selected_set.contains("all") || selected_set.contains(col.header)) {
                     selected_columns.emplace_back(col);
                 }
             }
-            
+
             auto selected_mad_str = split(app.configuration()["mad-columns"].as<std::string>());
             if (std::ranges::find(selected_mad_str, "all") != selected_mad_str.end()) {
                 selected_mad_str.clear();

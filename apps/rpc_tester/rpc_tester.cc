@@ -543,7 +543,7 @@ private:
         }
     }
 
-    // Streaming worker: 
+    // Streaming worker:
     // - client sends payload_t
     // - in bidirectional case: server echoes back payload_t
     // - in unidirectional case: server only sends EOS at the end
@@ -601,7 +601,7 @@ public:
         if (_total_duration.count() > 0) {
             double throughput = total_bytes / _total_duration.count();
             out << YAML::Key << "throughput" << YAML::Value << throughput << YAML::Comment("B/s");
-            
+
             double messages_per_sec = _total_messages / _total_duration.count();
             out << YAML::Key << "messages per second" << YAML::Value << messages_per_sec;
         } else {
@@ -652,8 +652,8 @@ public:
                 auto data = co_await source();
                 if (!data) {
                     // We need to have some kind of synchronization with client, so they don't close the main RPC connection
-                    // until server received EOS (client -> server connection was closed). If we don't do that, server might 
-                    // receive `seastar::rpc::stream_closed` exception on reading from the source, as the stream is terminated 
+                    // until server received EOS (client -> server connection was closed). If we don't do that, server might
+                    // receive `seastar::rpc::stream_closed` exception on reading from the source, as the stream is terminated
                     // on connection close.
                     // In order to do that, we create a connection to the other side - from server to client, and keep it
                     // open until client sends EOS - then, by closing this connection, server also sends EOS.
@@ -810,7 +810,7 @@ public:
         });
         _rpc->register_handler(rpc_verb::STREAM_UNIDIRECTIONAL, [] (rpc::source<payload_t> source) {
             auto sink = source.make_sink<serializer, uint64_t>();
-            
+
             (void)job_rpc_streaming::process_uni_source(std::move(source), sink);
 
             return sink;

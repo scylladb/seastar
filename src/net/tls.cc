@@ -1324,7 +1324,7 @@ public:
         if (!_connected) {
             return handshake();
         }
-        // Note: only applicable to server. 
+        // Note: only applicable to server.
         if (_type == type::CLIENT) {
             throw std::system_error(GNUTLS_E_INVALID_REQUEST, error_category(), "re-handshake only applicable for server socket");
         }
@@ -1531,12 +1531,12 @@ private:
 
     future<> do_put_one(const char* ptr, size_t size) {
         // #2859
-        // Normally, gnutls_record_send will break up data into gnutls_record_get_max_size() 
+        // Normally, gnutls_record_send will break up data into gnutls_record_get_max_size()
         // sized chunks for us (only processing the first 16k or so of provided buffer).
         // However, if the session is in a re-handshake state, gnutls will
         // make an intermediate alloc to prepend the requested session key
         // to the sent data. This can cause large alloc warnings.
-        // To avoid this, we explicitly break the message into 
+        // To avoid this, we explicitly break the message into
         // block sized parts (same as normal case in gnutls)
         auto max_record_len = gnutls_record_get_max_size(*this);
 
@@ -1554,9 +1554,9 @@ private:
             // NOTE: we _can_ get an EAGAIN here since the
             // addition of force_rehandshake ability (and possibly before)
             // due to the tls buffering. Just wait + retrying should work
-            // in all cases. 
+            // in all cases.
             auto f = res < 0  && res != GNUTLS_E_AGAIN
-                ? handle_output_error(res) 
+                ? handle_output_error(res)
                 : wait_for_output()
                 ;
             return f.then([] {

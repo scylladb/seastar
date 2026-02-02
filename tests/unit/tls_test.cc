@@ -2073,7 +2073,7 @@ SEASTAR_THREAD_TEST_CASE(test_send_recv_alloc_limits) {
             auto fout = write(sout);
             auto fin = read(cin);
 
-            auto h = (i > 0 && (i & 0xff) == 0) 
+            auto h = (i > 0 && (i & 0xff) == 0)
                 ? BOOST_TEST_MESSAGE("Forcing re-handshake"), tls::force_rehandshake(s.connection)
                 : make_ready_future<>()
                 ;
