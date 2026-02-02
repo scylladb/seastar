@@ -227,5 +227,5 @@ pre-commit run --all-files
 Run hooks on staged files only:
 
 ```
-pre-commit run
+pre-commit run  
 ```
