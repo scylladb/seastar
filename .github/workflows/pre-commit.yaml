@@ -15,4 +15,4 @@ jobs:
           extra_args: --all-files
       - name: Show diff of fixes
         if: failure()
-        run: git diff --ws-error-highlight=all
+        run: git diff --color --ws-error-highlight=all
