@@ -11,8 +11,7 @@ jobs:
         with:
           python-version: '3.x'
       - uses: pre-commit/action@v3.0.1
-        with:
-          extra_args: --all-files
-      - name: Show diff of fixes
+      - name: Show diff of fixes ($ at EOL)
+        # trailing whitespace is hard to see, so add $
         if: failure()
-        run: git diff --color --ws-error-highlight=all
+        run: git diff | sed '/^[+-]/s/$/$/'
