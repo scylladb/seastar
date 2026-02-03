@@ -182,14 +182,19 @@ class io_queue::priority_class_data {
         }
     };
 
-    bandwidth_throttler _bw;
+    boost::container::static_vector<bandwidth_throttler, 2> _bw;
+    unsigned _throttled;
 
     void throttle() noexcept {
-        _queue.throttle_priority_class(*this);
+        if (_throttled++ == 0) {
+            _queue.throttle_priority_class(*this);
+        }
     }
 
     void unthrottle() noexcept {
-        _queue.unthrottle_priority_class(*this);
+        if (--_throttled == 0) {
+            _queue.unthrottle_priority_class(*this);
+        }
     }
 
 public:
@@ -207,8 +212,12 @@ public:
         , _total_queue_time(0)
         , _total_execution_time(0)
         , _starvation_time(0)
-        , _bw(pg, *this)
+        , _throttled(0)
     {
+        _bw.emplace_back(pg, *this);
+        if (pg.parent != nullptr) {
+            _bw.emplace_back(*pg.parent, *this);
+        }
     }
     priority_class_data(const priority_class_data&) = delete;
     priority_class_data(priority_class_data&&) = delete;
@@ -236,7 +245,9 @@ public:
         }
 
         auto tokens = io_group::priority_class_data::tokens(dnl.length());
-        _bw.grab(tokens);
+        for (auto& bw : _bw) {
+            bw.grab(tokens);
+        }
     }
 
     void on_cancel() noexcept {
