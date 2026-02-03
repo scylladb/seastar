@@ -387,6 +387,7 @@ public:
     explicit io_group(io_queue::config io_cfg, unsigned nr_queues);
     ~io_group();
     struct priority_class_data;
+    using priority_class_group_data = priority_class_data;
 
     std::chrono::duration<double> io_latency_goal() const noexcept;
 
@@ -408,12 +409,16 @@ private:
         request_length_limit  // read
     };
     boost::container::static_vector<io_throttler, 2> _fgs;
+    std::vector<std::unique_ptr<priority_class_group_data>> _priority_groups;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     util::spinlock _lock;
     const shard_id _allocated_on;
 
     static io_throttler::config configure_throttler(const io_queue::config& qcfg) noexcept;
     priority_class_data& find_or_create_class(internal::priority_class pc);
+    priority_class_data& find_or_create_class(internal::priority_class pc, std::optional<unsigned> group_index);
+    priority_class_group_data& find_or_create_class_group(unsigned group_index);
+    priority_class_group_data& find_or_create_class_group_locked(unsigned group_index);
 
     inline size_t max_request_length(int dnl_idx) const noexcept {
         return _max_request_length[dnl_idx];

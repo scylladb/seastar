@@ -99,6 +99,8 @@ auto io_throttler::capacity_deficiency(capacity_t from) const noexcept -> capaci
 }
 
 struct io_group::priority_class_data {
+    priority_class_group_data* parent;
+
     using token_bucket_t = internal::shared_token_bucket<uint64_t, std::ratio<1>, internal::capped_release::no>;
 
     static constexpr uint64_t bandwidth_burst_in_blocks = 10 << (20 - io_queue::block_size_shift); // 10MB
@@ -118,8 +120,9 @@ struct io_group::priority_class_data {
         tb.update_rate(tokens(bandwidth));
     }
 
-    priority_class_data() noexcept
-            : tb(std::numeric_limits<uint64_t>::max(), bandwidth_burst_in_blocks, bandwidth_threshold_in_blocks)
+    priority_class_data(priority_class_group_data* p) noexcept
+            : parent(p)
+            , tb(std::numeric_limits<uint64_t>::max(), bandwidth_burst_in_blocks, bandwidth_threshold_in_blocks)
     {
     }
 };
@@ -846,7 +849,6 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
         //
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by shard)
-        auto& pg = _group->find_or_create_class(pc);
 
         std::optional<unsigned> group_index;
         if (!ssg.is_root()) {
@@ -855,6 +857,8 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
                 s.fq.ensure_priority_group(*group_index, ssg.get_shares());
             }
         }
+
+        auto& pg = _group->find_or_create_class(pc, group_index);
 
         auto shares = sg.get_shares();
         auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg);
@@ -868,15 +872,46 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
     return *_priority_classes[id];
 }
 
-io_group::priority_class_data& io_group::find_or_create_class(internal::priority_class pc) {
+io_group::priority_class_group_data& io_group::find_or_create_class_group(unsigned group_index) {
     std::lock_guard _(_lock);
+    return find_or_create_class_group_locked(group_index);
+}
+
+io_group::priority_class_group_data& io_group::find_or_create_class_group_locked(unsigned id) {
+    if (id >= _priority_groups.size()) {
+        _priority_groups.resize(id + 1);
+    }
+    if (!_priority_groups[id]) {
+        auto pg = std::make_unique<priority_class_group_data>(nullptr);
+        _priority_groups[id] = std::move(pg);
+    }
+    return *_priority_groups[id];
+}
+
+io_group::priority_class_data& io_group::find_or_create_class(internal::priority_class pc) {
+    auto sg = internal::scheduling_group_from_index(pc.id());
+    auto ssg = internal::scheduling_supergroup_for(sg);
+    std::optional<unsigned> group_index;
+    if (!ssg.is_root()) {
+        group_index = ssg.index();
+    }
+    return find_or_create_class(pc, group_index);
+}
+
+io_group::priority_class_data& io_group::find_or_create_class(internal::priority_class pc, std::optional<unsigned> group_index) {
+    std::lock_guard _(_lock);
+
+    priority_class_group_data* parent = nullptr;
+    if (group_index.has_value()) {
+        parent = &find_or_create_class_group_locked(*group_index);
+    }
 
     auto id = pc.id();
     if (id >= _priority_classes.size()) {
         _priority_classes.resize(id + 1);
     }
     if (!_priority_classes[id]) {
-        auto pg = std::make_unique<priority_class_data>();
+        auto pg = std::make_unique<priority_class_data>(parent);
         _priority_classes[id] = std::move(pg);
     }
 
