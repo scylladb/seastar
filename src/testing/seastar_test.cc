@@ -40,9 +40,6 @@ namespace seastar {
 
 namespace testing {
 
-exchanger_base::exchanger_base() { }
-exchanger_base::~exchanger_base() { }
-
 // #3165 - build a message for a possibly nested exception chain.
 static boost::execution_exception::location
 add_exception_message(const std::exception* ep, bool rec, char *out, char *end) {
