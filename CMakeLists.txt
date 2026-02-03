@@ -182,11 +182,45 @@ mark_as_advanced (
     CMAKE_EXE_LINKER_FLAGS_SANITIZE
     CMAKE_SHARED_LINKER_FLAGS_SANITIZE)
 
+set (CMAKE_CXX_FLAGS_FUZZ
+  "-O1 -g"
+  CACHE
+  STRING
+  "Flags used by the C++ compiler during fuzz builds."
+  FORCE)
+
+set (CMAKE_C_FLAGS_FUZZ
+  "-O1 -g"
+  CACHE
+  STRING
+  "Flags used by the C compiler during fuzz builds."
+  FORCE)
+
+set (CMAKE_EXE_LINKER_FLAGS_FUZZ
+  ""
+  CACHE
+  STRING
+  "Flags used for linking binaries during fuzz builds."
+  FORCE)
+
+set (CMAKE_SHARED_LINKER_FLAGS_FUZZ
+  ""
+  CACHE
+  STRING
+  "Flags used by the shared libraries linker during fuzz builds."
+  FORCE)
+
+mark_as_advanced (
+    CMAKE_CXX_FLAGS_FUZZ
+    CMAKE_C_FLAGS_FUZZ
+    CMAKE_EXE_LINKER_FLAGS_FUZZ
+    CMAKE_SHARED_LINKER_FLAGS_FUZZ)
+
 set (CMAKE_BUILD_TYPE
   "${CMAKE_BUILD_TYPE}"
   CACHE
   STRING
-  "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel Dev Sanitize."
+  "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel Dev Sanitize Fuzz."
   FORCE)
 
 if (NOT CMAKE_BUILD_TYPE)
@@ -871,7 +905,7 @@ endif ()
 
 include (TriStateOption)
 tri_state_option (${Seastar_SANITIZE}
-  DEFAULT_BUILD_TYPES "Debug" "Sanitize"
+  DEFAULT_BUILD_TYPES "Debug" "Sanitize" "Fuzz"
   CONDITION condition)
 if (condition)
   if (NOT Sanitizers_FOUND)
@@ -883,6 +917,13 @@ if (condition)
       $<${condition}:Sanitizers::address>
       $<${condition}:Sanitizers::undefined_behavior>
       $<${condition}:Sanitizers::vptr>)
+endif ()
+
+# Link with fuzzer instrumentation for Fuzz builds
+if (CMAKE_BUILD_TYPE STREQUAL "Fuzz")
+  find_package (Sanitizers REQUIRED COMPONENTS fuzzer)
+  target_link_libraries (seastar
+    PUBLIC Sanitizers::fuzzer)
 endif ()
 
 # We only need valgrind to find uninitialized memory uses, so disable
@@ -1064,11 +1105,11 @@ foreach (definition
     SEASTAR_SHUFFLE_TASK_QUEUE)
   target_compile_definitions (seastar
     PUBLIC
-      $<$<IN_LIST:$<CONFIG>,Debug;Sanitize>:${definition}>)
+      $<$<IN_LIST:$<CONFIG>,Debug;Sanitize;Fuzz>:${definition}>)
 endforeach ()
 
 tri_state_option (${Seastar_DEBUG_SHARED_PTR}
-  DEFAULT_BUILD_TYPES "Debug" "Sanitize"
+  DEFAULT_BUILD_TYPES "Debug" "Sanitize" "Fuzz"
   CONDITION condition)
 if (condition)
   target_compile_definitions (seastar
@@ -1077,7 +1118,7 @@ if (condition)
 endif ()
 
 tri_state_option (${Seastar_DEBUG_SHARED_PTR}
-  DEFAULT_BUILD_TYPES "Debug" "Sanitize"
+  DEFAULT_BUILD_TYPES "Debug" "Sanitize" "Fuzz"
   CONDITION condition)
 if (condition)
   target_compile_definitions (seastar
@@ -1088,7 +1129,7 @@ endif ()
 include (CheckLibc)
 
 tri_state_option (${Seastar_STACK_GUARDS}
-  DEFAULT_BUILD_TYPES "Debug" "Sanitize" "Dev"
+  DEFAULT_BUILD_TYPES "Debug" "Sanitize" "Dev" "Fuzz"
   CONDITION condition)
 if (condition)
   # check for -fstack-clash-protection together with -Werror, because
