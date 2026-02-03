@@ -37,3 +37,6 @@ add_subdirectory (perf)
 
 # Unit tests.
 add_subdirectory (unit)
+
+# Fuzz tests.
+add_subdirectory (fuzz)

@@ -41,6 +41,12 @@ foreach (component ${Sanitizers_FIND_COMPONENTS})
     # since Clang version 21, -fsanitize=undefined no longer implies vptr,
     # so we enable it explicitly
     list (APPEND ${compile_options} -fsanitize=vptr)
+  elseif (component STREQUAL "fuzzer")
+    # fuzzer-no-link provides instrumentation without the libfuzzer main
+    list (APPEND ${compile_options} -fsanitize=fuzzer-no-link)
+  elseif (component STREQUAL "fuzzer_main")
+    # fuzzer provides the full fuzzer with main function
+    list (APPEND ${compile_options} -fsanitize=fuzzer)
   else ()
     message (FATAL_ERROR "Unsupported sanitizer: ${component}")
   endif ()
