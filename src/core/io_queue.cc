@@ -164,11 +164,6 @@ public:
         _shares = std::max(shares, 1u);
     }
 
-    void update_bandwidth(uint64_t bandwidth) {
-        _group.update_bandwidth(bandwidth);
-        io_log.debug("Updated {} class bandwidth to {}MB/s", _pc.id(), bandwidth >> 20);
-    }
-
     priority_class_data(internal::priority_class pc, uint32_t shares, io_queue& q, io_group::priority_class_data& pg)
         : _queue(q)
         , _pc(pc)
@@ -1146,8 +1141,9 @@ void io_queue::update_shares_for_class_group(unsigned index, size_t new_shares) 
 future<> io_queue::update_bandwidth_for_class(internal::priority_class pc, uint64_t new_bandwidth) {
     return futurize_invoke([this, pc, new_bandwidth] {
         if (_group->_allocated_on == this_shard_id()) {
-            auto& pclass = find_or_create_class(pc);
+            auto& pclass = _group->find_or_create_class(pc);
             pclass.update_bandwidth(new_bandwidth);
+            io_log.debug("Updated {} class bandwidth to {}MB/s", pc.id(), new_bandwidth >> 20);
         }
     });
 }
