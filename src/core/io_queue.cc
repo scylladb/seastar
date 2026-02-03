@@ -1217,6 +1217,16 @@ future<> io_queue::update_bandwidth_for_class(internal::priority_class pc, uint6
     });
 }
 
+future<> io_queue::update_bandwidth_for_class_group(unsigned group_index, uint64_t new_bandwidth) {
+    return futurize_invoke([this, group_index, new_bandwidth] {
+        if (_group->_allocated_on == this_shard_id()) {
+            auto& pclass = _group->find_or_create_class_group(group_index);
+            pclass.update_bandwidth(new_bandwidth);
+            io_log.debug("Updated {} class group bandwidth to {}MB/s", group_index, new_bandwidth >> 20);
+        }
+    });
+}
+
 void
 io_queue::rename_priority_class(internal::priority_class pc, sstring new_name) {
     if (_priority_classes.size() > pc.id() &&
