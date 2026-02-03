@@ -152,14 +152,23 @@ class io_queue::priority_class_data {
         io_group::priority_class_data::token_bucket_t& _tb;
         uint64_t _replenish_head;
         priority_class_data& _pc;
+        std::optional<unsigned> _group;
         timer<lowres_clock> _replenish;
 
         void throttle() noexcept {
-            _pc._queue.throttle_priority_class(_pc);
+            if (_group) {
+                _pc._queue.throttle_priority_class_group(*_group);
+            } else {
+                _pc._queue.throttle_priority_class(_pc);
+            }
         }
 
         void unthrottle() noexcept {
-            _pc._queue.unthrottle_priority_class(_pc);
+            if (_group) {
+                _pc._queue.unthrottle_priority_class_group(*_group);
+            } else {
+                _pc._queue.unthrottle_priority_class(_pc);
+            }
         }
 
         void try_to_replenish() noexcept {
@@ -173,9 +182,10 @@ class io_queue::priority_class_data {
         }
 
     public:
-        bandwidth_throttler(io_group::priority_class_data& pg, priority_class_data& pc) noexcept
+        bandwidth_throttler(io_group::priority_class_data& pg, priority_class_data& pc, std::optional<unsigned> g) noexcept
                 : _tb(pg.tb)
                 , _pc(pc)
+                , _group(g)
                 , _replenish([this] { try_to_replenish(); })
         {}
 
@@ -190,14 +200,14 @@ class io_queue::priority_class_data {
         }
     };
 
-    bandwidth_throttler _bw;
+    boost::container::static_vector<bandwidth_throttler, 2> _bw;
 
 public:
     void update_shares(uint32_t shares) noexcept {
         _shares = std::max(shares, 1u);
     }
 
-    priority_class_data(internal::priority_class pc, uint32_t shares, io_queue& q, io_group::priority_class_data& pg)
+    priority_class_data(internal::priority_class pc, uint32_t shares, io_queue& q, io_group::priority_class_data& pg, std::optional<unsigned> group_index)
         : _queue(q)
         , _pc(pc)
         , _shares(shares)
@@ -207,8 +217,11 @@ public:
         , _total_queue_time(0)
         , _total_execution_time(0)
         , _starvation_time(0)
-        , _bw(pg, *this)
     {
+        _bw.emplace_back(pg, *this, std::nullopt);
+        if (pg.parent != nullptr) {
+            _bw.emplace_back(*pg.parent, *this, group_index);
+        }
     }
     priority_class_data(const priority_class_data&) = delete;
     priority_class_data(priority_class_data&&) = delete;
@@ -236,7 +249,9 @@ public:
         }
 
         auto tokens = io_group::priority_class_data::tokens(dnl.length());
-        _bw.grab(tokens);
+        for (auto& bw : _bw) {
+            bw.grab(tokens);
+        }
     }
 
     void on_cancel() noexcept {
@@ -884,7 +899,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
         auto& pg = _group->find_or_create_class(pc, group_index);
 
         auto shares = sg.get_shares();
-        auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg);
+        auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg, group_index);
         for (auto&& s : _streams) {
             s.fq.register_priority_class(pc_data->fq_class(), shares, group_index);
         }
@@ -1240,6 +1255,18 @@ void io_queue::throttle_priority_class(const priority_class_data& pc) noexcept {
 void io_queue::unthrottle_priority_class(const priority_class_data& pc) noexcept {
     for (auto&& s : _streams) {
         s.fq.plug_class(pc.fq_class());
+    }
+}
+
+void io_queue::throttle_priority_class_group(unsigned group) noexcept {
+    for (auto&& s : _streams) {
+        s.fq.unplug_class_group(group);
+    }
+}
+
+void io_queue::unthrottle_priority_class_group(unsigned group) noexcept {
+    for (auto&& s : _streams) {
+        s.fq.plug_class_group(group);
     }
 }
 

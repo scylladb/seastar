@@ -223,6 +223,8 @@ public:
     void destroy_priority_class(internal::priority_class pc) noexcept;
     void throttle_priority_class(const priority_class_data& pc) noexcept;
     void unthrottle_priority_class(const priority_class_data& pc) noexcept;
+    void throttle_priority_class_group(unsigned group) noexcept;
+    void unthrottle_priority_class_group(unsigned group) noexcept;
 
     struct request_limits {
         size_t max_read;
