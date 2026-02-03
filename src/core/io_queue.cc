@@ -105,7 +105,7 @@ struct io_group::priority_class_data {
     static constexpr uint64_t bandwidth_threshold_in_blocks = 128 << (10 - io_queue::block_size_shift); // 128kB
     token_bucket_t tb;
 
-    uint64_t tokens(size_t length) const noexcept {
+    static uint64_t tokens(size_t length) noexcept {
         return length >> io_queue::block_size_shift;
     }
 
@@ -208,7 +208,7 @@ public:
             _starvation_time += io_queue::clock_type::now() - _activated;
         }
 
-        auto tokens = _group.tokens(dnl.length());
+        auto tokens = io_group::priority_class_data::tokens(dnl.length());
         auto ph = _group.tb.grab(tokens);
         auto delta = _group.tb.deficiency(ph);
         if (delta > 0) {
