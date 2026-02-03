@@ -148,18 +148,48 @@ class io_queue::priority_class_data {
     std::chrono::duration<double> _starvation_time;
     io_queue::clock_type::time_point _activated;
 
-    io_group::priority_class_data& _group;
-    size_t _replenish_head;
-    timer<lowres_clock> _replenish;
+    class bandwidth_throttler {
+        io_group::priority_class_data::token_bucket_t& _tb;
+        uint64_t _replenish_head;
+        priority_class_data& _pc;
+        timer<lowres_clock> _replenish;
 
-    void try_to_replenish() noexcept {
-        _group.tb.replenish(io_queue::clock_type::now());
-        auto delta = _group.tb.deficiency(_replenish_head);
-        if (delta > 0) {
-            _replenish.arm(std::chrono::duration_cast<std::chrono::microseconds>(_group.tb.duration_for(delta)));
-        } else {
-            _queue.unthrottle_priority_class(*this);
+        void try_to_replenish() noexcept {
+            _tb.replenish(io_queue::clock_type::now());
+            auto delta = _tb.deficiency(_replenish_head);
+            if (delta > 0) {
+                _replenish.arm(std::chrono::duration_cast<std::chrono::microseconds>(_tb.duration_for(delta)));
+            } else {
+                _pc.unthrottle();
+            }
         }
+
+    public:
+        bandwidth_throttler(io_group::priority_class_data& pg, priority_class_data& pc) noexcept
+                : _tb(pg.tb)
+                , _pc(pc)
+                , _replenish([this] { try_to_replenish(); })
+        {}
+
+        void grab(uint64_t tokens) noexcept {
+            auto ph = _tb.grab(tokens);
+            auto delta = _tb.deficiency(ph);
+            if (delta > 0) {
+                _pc.throttle();
+                _replenish_head = ph;
+                _replenish.arm(std::chrono::duration_cast<std::chrono::microseconds>(_tb.duration_for(delta)));
+            }
+        }
+    };
+
+    bandwidth_throttler _bw;
+
+    void throttle() noexcept {
+        _queue.throttle_priority_class(*this);
+    }
+
+    void unthrottle() noexcept {
+        _queue.unthrottle_priority_class(*this);
     }
 
 public:
@@ -177,8 +207,7 @@ public:
         , _total_queue_time(0)
         , _total_execution_time(0)
         , _starvation_time(0)
-        , _group(pg)
-        , _replenish([this] { try_to_replenish(); })
+        , _bw(pg, *this)
     {
     }
     priority_class_data(const priority_class_data&) = delete;
@@ -207,13 +236,7 @@ public:
         }
 
         auto tokens = io_group::priority_class_data::tokens(dnl.length());
-        auto ph = _group.tb.grab(tokens);
-        auto delta = _group.tb.deficiency(ph);
-        if (delta > 0) {
-            _queue.throttle_priority_class(*this);
-            _replenish_head = ph;
-            _replenish.arm(std::chrono::duration_cast<std::chrono::microseconds>(_group.tb.duration_for(delta)));
-        }
+        _bw.grab(tokens);
     }
 
     void on_cancel() noexcept {
