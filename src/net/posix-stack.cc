@@ -906,6 +906,7 @@ void posix_data_sink_impl::on_batch_flush_error() noexcept {
 
 posix_network_stack::posix_network_stack(const program_options::option_group& opts, std::pmr::polymorphic_allocator<char>* allocator)
         : _reuseport(engine().posix_reuseport_available())
+        , _sock_need_nonblock(engine().posix_sock_need_nonblock())
         , _allocator(allocator)
 {
 }

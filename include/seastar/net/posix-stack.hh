@@ -232,6 +232,7 @@ public:
 class posix_network_stack : public network_stack {
 protected:
     const bool _reuseport;
+    const bool _sock_need_nonblock;
     std::pmr::polymorphic_allocator<char>* _allocator;
 public:
     explicit posix_network_stack(const program_options::option_group& opts, std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator);
