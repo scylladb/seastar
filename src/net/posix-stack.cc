@@ -515,7 +515,9 @@ class posix_socket_impl final : public socket_impl {
     }
 
 public:
-    explicit posix_socket_impl(std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _allocator(allocator) {}
+    posix_socket_impl(std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator)
+            : _allocator(allocator)
+    {}
 
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
         if (sa.is_af_unix()) {
@@ -903,7 +905,9 @@ void posix_data_sink_impl::on_batch_flush_error() noexcept {
 }
 
 posix_network_stack::posix_network_stack(const program_options::option_group& opts, std::pmr::polymorphic_allocator<char>* allocator)
-        : _reuseport(engine().posix_reuseport_available()), _allocator(allocator) {
+        : _reuseport(engine().posix_reuseport_available())
+        , _allocator(allocator)
+{
 }
 
 server_socket
