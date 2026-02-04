@@ -74,13 +74,13 @@ SEASTAR_FIXTURE_THREAD_TEST_CASE(test_single_thread_test_fixture_void_ret, SyncT
     BOOST_REQUIRE(inited);
 }
 
-// having these thread local subtly verifies that the fixture 
+// having these thread local subtly verifies that the fixture
 // is run on the proper shard.
 static thread_local int num_shared_test_fixts_setup = 0;
 static thread_local int num_shared_test_fixts_teardown = 0;
 static thread_local std::string shared_test_fixts_string;
 
-struct SharedTestFixture { 
+struct SharedTestFixture {
     SharedTestFixture()
     {}
     SharedTestFixture(const std::string& s)
@@ -98,7 +98,7 @@ struct SharedTestFixture {
     }
 };
 
-BOOST_AUTO_TEST_SUITE(shared_fixtures, 
+BOOST_AUTO_TEST_SUITE(shared_fixtures,
     *async_fixture<SharedTestFixture>()
     *async_fixture<SharedTestFixture>("los lobos")
     *async_fixture(

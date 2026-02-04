@@ -48,7 +48,7 @@ You can now ping the IP address shown (`192.168.122.18`) or connect to it:
 	--- 192.168.122.18 ping statistics ---
 	6 packets transmitted, 6 received, 0% packet loss, time 4999ms
 	rtt min/avg/max/mdev = 0.093/0.116/0.160/0.023 ms
-	
+
 	$ curl http://192.168.122.18:10000/
 	"hello"
 

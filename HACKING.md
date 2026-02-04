@@ -189,3 +189,43 @@ g++ -o foo_bar foo.o bar.o $(pkg-config --libs --static /path/to/seastar.pc)
 ```
 
 The `--static` flag is needed to include transitive (private) dependencies of `libseastar.a`.
+
+## Development Tools
+
+### Pre-commit hooks
+
+This project uses [pre-commit](https://pre-commit.com/) to enforce some basic checks. These
+checks run in CI, but you can also run them locally as a pre-commit hook as follows.
+
+#### Installation
+
+[Install pre-commit](https://pre-commit.com/#install), following those instructions or
+perhaps using `uv` to avoid polluting your global environment:
+
+```
+uv tool install pre-commit
+```
+
+#### Setup
+
+Install the git hooks:
+
+```
+pre-commit install
+```
+
+This will run the configured hooks automatically on every commit.
+
+#### Manual execution
+
+Run hooks on all files:
+
+```
+pre-commit run --all-files
+```
+
+Run hooks on staged files only:
+
+```
+pre-commit run
+```

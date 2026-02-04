@@ -22,7 +22,7 @@ body {
 div#header, header {
 	border-top: 1px solid #aaa;
 	border-bottom: 1px solid #aaa;
-	background: #F0F0C0;	
+	background: #F0F0C0;
 	margin: 10pt;
 	margin-left: 10%;
 	margin-right: 10%;
@@ -67,7 +67,7 @@ a {
 	text-decoration: none;
 }
 a:link, a:visited {
-	color: #0000CC;	
+	color: #0000CC;
 }
 a:hover {
 	color: #CC0000;

@@ -3,7 +3,7 @@
 # Test scenario:
 # Simulation of a ScyllaDB workload which prompted some changes to the IO scheduler:
 # database queries concurrent with tablet streaming.
-# 
+#
 # All 7 shards are running a low-priority (200 shares) batch IO workload
 # and a high-priority (1000 shares), moderate-bandwidth, interactive workload.
 #
@@ -17,7 +17,7 @@
 # doesn't need more than 35% of the fair bandwidth of this shard.
 #
 # Due to the distribution of shares across IO classes, the user expects that
-# the interactive workload should be guaranteed (1000 / (1000 + 200)) == ~84% of 
+# the interactive workload should be guaranteed (1000 / (1000 + 200)) == ~84% of
 # the disk bandwidth on each shard. So if it's only asking for less than 35%,
 # the lower-priority job shouldn't disturb it.
 #

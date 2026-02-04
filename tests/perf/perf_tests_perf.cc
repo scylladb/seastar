@@ -81,7 +81,7 @@ PERF_TEST(output_check, high_runtime_allocs) {
         auto* p = new int(i);
         perf_tests::do_not_optimize(p);
         delete p;
-    }   
+    }
 }
 
 PERF_TEST(output_check, highly_variable_runtime) {
@@ -94,7 +94,7 @@ PERF_TEST(output_check, highly_variable_runtime) {
         auto* p = new int(i);
         perf_tests::do_not_optimize(p);
         delete p;
-    }   
+    }
 }
 
 PERF_TEST_F(fixture, test_fixture_1) { perf_tests::do_not_optimize(sink); }
