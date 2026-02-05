@@ -50,19 +50,22 @@ class posix_file_handle_impl : public seastar::file_handle_impl {
     uint32_t _disk_write_dma_alignment;
     uint32_t _disk_overwrite_dma_alignment;
     bool _nowait_works;
+    bool _skip_flush;
 public:
     posix_file_handle_impl(int fd, open_flags f, std::atomic<unsigned>* refcount, dev_t device_id,
             uint32_t memory_dma_alignment,
             uint32_t disk_read_dma_alignment,
             uint32_t disk_write_dma_alignment,
             uint32_t disk_overwrite_dma_alignment,
-            bool nowait_works)
+            bool nowait_works, bool skip_flush)
             : _fd(fd), _refcount(refcount), _device_id(device_id), _open_flags(f)
             , _memory_dma_alignment(memory_dma_alignment)
             , _disk_read_dma_alignment(disk_read_dma_alignment)
             , _disk_write_dma_alignment(disk_write_dma_alignment)
             , _disk_overwrite_dma_alignment(disk_overwrite_dma_alignment)
-            , _nowait_works(nowait_works) {
+            , _nowait_works(nowait_works)
+            , _skip_flush(skip_flush)
+    {
     }
     virtual ~posix_file_handle_impl();
     posix_file_handle_impl(const posix_file_handle_impl&) = delete;
@@ -74,6 +77,7 @@ public:
 class posix_file_impl : public file_impl {
     std::atomic<unsigned>* _refcount = nullptr;
     const bool _nowait_works;
+    const bool _skip_flush;
     const dev_t _device_id;
     io_queue& _io_queue;
     const open_flags _open_flags;
@@ -86,7 +90,7 @@ protected:
             uint32_t disk_read_dma_alignment,
             uint32_t disk_write_dma_alignment,
             uint32_t disk_overwrite_dma_alignment,
-            bool nowait_works);
+            bool nowait_works, bool skip_flush);
 public:
     virtual ~posix_file_impl() override;
     future<> flush() noexcept override;
@@ -162,8 +166,8 @@ public:
     posix_file_real_impl(int fd, open_flags of, file_open_options options, const internal::fs_info& fsi, dev_t device_id)
         : posix_file_impl(fd, of, std::move(options), device_id, fsi) {}
     posix_file_real_impl(int fd, open_flags of, std::atomic<unsigned>* refcount, dev_t device_id,
-            uint32_t memory_dma_alignment, uint32_t disk_read_dma_alignment, uint32_t disk_write_dma_alignment, uint32_t disk_overwrite_dma_alignment, bool nowait_works)
-        : posix_file_impl(fd, of, refcount, device_id, memory_dma_alignment, disk_read_dma_alignment, disk_write_dma_alignment, disk_overwrite_dma_alignment, nowait_works) {}
+            uint32_t memory_dma_alignment, uint32_t disk_read_dma_alignment, uint32_t disk_write_dma_alignment, uint32_t disk_overwrite_dma_alignment, bool nowait_works, bool skip_flush)
+        : posix_file_impl(fd, of, refcount, device_id, memory_dma_alignment, disk_read_dma_alignment, disk_write_dma_alignment, disk_overwrite_dma_alignment, nowait_works, skip_flush) {}
     virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, io_intent* intent) noexcept override;
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* intent) noexcept override;
@@ -283,8 +287,8 @@ public:
     blockdev_file_impl(int fd, open_flags f, file_open_options options, const internal::fs_info& fsi, dev_t device_id)
         : posix_file_impl(fd, f, options, device_id, fsi) {}
     blockdev_file_impl(int fd, open_flags of, std::atomic<unsigned>* refcount, dev_t device_id,
-            uint32_t memory_dma_alignment, uint32_t disk_read_dma_alignment, uint32_t disk_write_dma_alignment, uint32_t disk_overwrite_dma_alignment, bool nowait_works)
-        : posix_file_impl(fd, of, refcount, device_id, memory_dma_alignment, disk_read_dma_alignment, disk_write_dma_alignment, disk_overwrite_dma_alignment, nowait_works) {}
+            uint32_t memory_dma_alignment, uint32_t disk_read_dma_alignment, uint32_t disk_write_dma_alignment, uint32_t disk_overwrite_dma_alignment, bool nowait_works, bool skip_flush)
+        : posix_file_impl(fd, of, refcount, device_id, memory_dma_alignment, disk_read_dma_alignment, disk_write_dma_alignment, disk_overwrite_dma_alignment, nowait_works, skip_flush) {}
 
     future<> truncate(uint64_t length) noexcept override;
     future<> discard(uint64_t offset, uint64_t length) noexcept override;
