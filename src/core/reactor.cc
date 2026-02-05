@@ -333,6 +333,51 @@ reactor::do_sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) {
     });
 }
 
+future<size_t>
+reactor::do_write(pollable_fd_state& fd, const void* buffer, size_t len) {
+    return writeable(fd).then([this, &fd, buffer, len] () mutable {
+        auto r = fd.fd.write(buffer, len);
+        if (!r) {
+            return do_write(fd, buffer, len);
+        }
+        if (size_t(*r) == len) {
+            fd.speculate_epoll(EPOLLOUT);
+        }
+        return make_ready_future<size_t>(*r);
+    });
+}
+
+future<size_t>
+reactor::do_writev(pollable_fd_state& fd, std::span<iovec> iov) {
+    return writeable(fd).then([this, &fd, iov] () mutable {
+        auto r = fd.fd.writev(iov.data(), std::min<size_t>(iov.size(), IOV_MAX));
+        if (!r) {
+            return do_writev(fd, iov);
+        }
+        if (size_t(*r) == internal::iovec_len(iov)) {
+            fd.speculate_epoll(EPOLLOUT);
+        }
+        return make_ready_future<size_t>(*r);
+    });
+}
+
+future<>
+reactor::write_all_part(pollable_fd_state& fd, const void* buffer, size_t len, size_t completed) {
+    if (completed == len) {
+        return make_ready_future<>();
+    } else {
+        return do_write(fd, static_cast<const char*>(buffer) + completed, len - completed).then(
+                [&fd, buffer, len, completed, this] (size_t part) mutable {
+            return write_all_part(fd, buffer, len, completed + part);
+        });
+    }
+}
+
+future<>
+reactor::write_all(pollable_fd_state& fd, const void* buffer, size_t len) {
+    return write_all_part(fd, buffer, len, 0);
+}
+
 #if SEASTAR_API_LEVEL < 9
 future<>
 reactor::send_all_part(pollable_fd_state& fd, const void* buffer, size_t len, size_t completed) {
@@ -387,12 +432,34 @@ future<temporary_buffer<char>> pollable_fd_state::read_some(internal::buffer_all
     return engine()._backend->read_some(*this, ba);
 }
 
+future<size_t> pollable_fd_state::write_some(const void* buffer, size_t size) {
+    return engine().do_write(*this, buffer, size);
+}
+
+future<size_t> pollable_fd_state::write_some(std::span<iovec> iov) {
+    return engine().do_writev(*this, iov);
+}
+
+future<> pollable_fd_state::write_all(const void* buffer, size_t size) {
+    if (size == 0) {
+        return make_ready_future<>();
+    }
+    return engine().write_all(*this, buffer, size);
+}
+
+future<> pollable_fd_state::write_all(std::span<iovec> iov) {
+    return write_some(iov).then([this, iov] (size_t size) {
+        auto niovs = internal::iovec_trim_front(iov, size);
+        return niovs.empty() ? make_ready_future<>() : write_all(niovs);
+    });
+}
+
 #if SEASTAR_API_LEVEL >= 9
-future<size_t> pollable_fd_state::write_some(std::span<iovec> iovs) {
+future<size_t> pollable_fd_state::send_some(std::span<iovec> iovs) {
     return engine()._backend->sendmsg(*this, iovs, internal::iovec_len(iovs));
 }
 #else
-future<size_t> pollable_fd_state::write_some(net::packet& p) {
+future<size_t> pollable_fd_state::send_some(net::packet& p) {
     static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
         sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
         offsetof(iovec, iov_len) == offsetof(net::fragment, size) &&
@@ -408,28 +475,28 @@ future<size_t> pollable_fd_state::write_some(net::packet& p) {
 #endif
 
 #if SEASTAR_API_LEVEL >= 9
-future<> pollable_fd_state::write_all(std::span<iovec> iovs) {
-    return write_some(iovs).then([this, iovs] (size_t size) {
+future<> pollable_fd_state::send_all(std::span<iovec> iovs) {
+    return send_some(iovs).then([this, iovs] (size_t size) {
         auto niovs = internal::iovec_trim_front(iovs, size);
-        return niovs.empty() ? make_ready_future<>() : write_all(niovs);
+        return niovs.empty() ? make_ready_future<>() : send_all(niovs);
     });
 }
 #else
-future<> pollable_fd_state::write_all(net::packet& p) {
-    return write_some(p).then([this, &p] (size_t size) {
+future<> pollable_fd_state::send_all(net::packet& p) {
+    return send_some(p).then([this, &p] (size_t size) {
         if (p.len() == size) {
             return make_ready_future<>();
         }
         p.trim_front(size);
-        return write_all(p);
+        return send_all(p);
     });
 }
 
-future<> pollable_fd_state::write_all(const char* buffer, size_t size) {
+future<> pollable_fd_state::send_all(const char* buffer, size_t size) {
     return engine().send_all(*this, buffer, size);
 }
 
-future<> pollable_fd_state::write_all(const uint8_t* buffer, size_t size) {
+future<> pollable_fd_state::send_all(const uint8_t* buffer, size_t size) {
     return engine().send_all(*this, buffer, size);
 }
 #endif
@@ -463,12 +530,12 @@ future<temporary_buffer<char>> pollable_fd_state::recv_some(internal::buffer_all
     return engine()._backend->recv_some(*this, ba);
 }
 
-future<size_t> pollable_fd_state::recvmsg(struct msghdr *msg) {
+future<size_t> pollable_fd_state::recv(struct msghdr *msg) {
     maybe_no_more_recv();
     return engine().readable(*this).then([this, msg] {
         auto r = fd.recvmsg(msg, 0);
         if (!r) {
-            return recvmsg(msg);
+            return recv(msg);
         }
         // We always speculate here to optimize for throughput in a workload
         // with multiple outstanding requests. This way the caller can consume
@@ -482,12 +549,12 @@ future<size_t> pollable_fd_state::recvmsg(struct msghdr *msg) {
     });
 }
 
-future<size_t> pollable_fd_state::sendmsg(struct msghdr* msg) {
+future<size_t> pollable_fd_state::send(struct msghdr* msg) {
     maybe_no_more_send();
     return engine().writeable(*this).then([this, msg] () mutable {
         auto r = fd.sendmsg(msg, 0);
         if (!r) {
-            return sendmsg(msg);
+            return send(msg);
         }
         // For UDP this will always speculate. We can't know if there's room
         // or not, but most of the time there should be so the cost of mis-
@@ -1052,12 +1119,15 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
     , _cpu_stall_detector(internal::make_cpu_stall_detector())
     , _cpu_sched(nullptr, 0)
     , _thread_pool(std::make_unique<thread_pool>(seastar::format("syscall-{}", id), _notify_eventfd)) {
+    auto backend_config = reactor_backend_config{
+        .use_aio_fdatasync = cfg.have_aio_fsync,
+    };
     /*
      * The _backend assignment is here, not on the initialization list as
      * the chosen backend constructor may want to handle signals and thus
      * needs the _signals._signal_handlers map to be initialized.
      */
-    _backend = rbs.create(*this);
+    _backend = rbs.create(*this, backend_config);
     *internal::get_scheduling_group_specific_thread_local_data_ptr() = &_scheduling_group_specific_data;
     _task_queues[0] = std::make_unique<task_queue>(&_cpu_sched, 0, "main", "main", 1000);
     _task_queues[1] = std::make_unique<task_queue>(&_cpu_sched, 1, "atexit", "exit", 1000);
@@ -1298,7 +1368,7 @@ cpu_stall_detector_linux_perf_event::cpu_stall_detector_linux_perf_event(file_de
         : cpu_stall_detector(cfg), _fd(std::move(fd)) {
     void* ret = ::mmap(nullptr, 2*getpagesize(), PROT_READ|PROT_WRITE, MAP_SHARED, _fd.get(), 0);
     if (ret == MAP_FAILED) {
-        abort();
+        throw std::system_error(errno, std::system_category(), "mmap() failed for perf_event_open");
     }
     _mmap = static_cast<struct ::perf_event_mmap_page*>(ret);
     _data_area = reinterpret_cast<char*>(_mmap) + getpagesize();
@@ -2367,10 +2437,7 @@ reactor::touch_directory(std::string_view name_view, file_permissions permission
 future<>
 reactor::fdatasync(int fd) noexcept {
     ++_fsyncs;
-    if (_cfg.bypass_fsync) {
-        co_return;
-    }
-    if (_cfg.have_aio_fsync) {
+    if (!_cfg.bypass_fsync) {
         // Does not go through the I/O queue, but has to be deleted
         struct fsync_io_desc final : public io_completion {
             promise<> _pr;
@@ -2395,13 +2462,7 @@ reactor::fdatasync(int fd) noexcept {
         auto req = internal::io_request::make_fdatasync(fd);
         _io_sink.submit(desc, std::move(req));
         co_await std::move(fut);
-        co_return;
     }
-    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
-            internal::thread_pool_submit_reason::file_operation, [fd] {
-        return wrap_syscall<int>(::fdatasync(fd));
-    });
-    sr.throw_if_error();
 }
 
 // Note: terminate if arm_highres_timer throws
@@ -3813,10 +3874,6 @@ bool operator==(const ::sockaddr_in a, const ::sockaddr_in b) {
 
 namespace seastar {
 
-static bool kernel_supports_aio_fsync() {
-    return internal::kernel_uname().whitelisted({"4.18"});
-}
-
 static std::tuple<std::filesystem::path, uint64_t> wakeup_granularity() {
     auto try_read = [] (auto path) -> uint64_t {
         try {
@@ -3911,8 +3968,8 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
                  " Note that if the seastar_memory logger is set to debug or trace level, the diagnostics will be logged irrespective of this setting.")
     , reactor_backend(*this, "reactor-backend", backend_selector_candidates(), reactor_backend_selector::default_backend().name(),
                 fmt::format("Internal reactor implementation ({})", reactor_backend_selector::available()))
-    , aio_fsync(*this, "aio-fsync", kernel_supports_aio_fsync(),
-                "Use Linux aio for fsync() calls. This reduces latency; requires Linux 4.18 or later.")
+    , aio_fsync(*this, "aio-fsync", true,
+                "Use Linux aio for fsync() calls, if available, for backends that use linux-aio. This reduces latency; requires Linux 4.18 or later.")
     , max_networking_io_control_blocks(*this, "max-networking-io-control-blocks", 10000,
                 "Maximum number of I/O control blocks (IOCBs) to allocate per shard. This translates to the number of sockets supported per shard."
                 " Requires tuning /proc/sys/fs/aio-max-nr. Only valid for the linux-aio reactor backend (see --reactor-backend).")

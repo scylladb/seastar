@@ -22,7 +22,7 @@
 
 #include <seastar/core/fstream.hh>
 #include <seastar/core/internal/buffer_allocator.hh>
-#include <seastar/core/io_queue.hh>
+#include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/core/polymorphic_temporary_buffer.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/util/process.hh>
@@ -56,29 +56,19 @@ public:
 };
 
 class pipe_data_sink_impl final : public data_sink_impl {
-    file_desc _fd;
-    io_queue& _io_queue;
+    pollable_fd _fd;
     const size_t _buffer_size;
 public:
-    explicit pipe_data_sink_impl(file_desc&& fd)
+    explicit pipe_data_sink_impl(pollable_fd&& fd)
         : _fd(std::move(fd))
-        , _io_queue(engine().get_io_queue(0))
         , _buffer_size(file_input_stream_options{}.buffer_size) {}
     static auto from_fd(file_desc&& fd) {
-        return std::make_unique<pipe_data_sink_impl>(std::move(fd));
+        return std::make_unique<pipe_data_sink_impl>(pollable_fd(std::move(fd)));
     }
 private:
     future<> do_put(temporary_buffer<char> buf) {
         size_t buf_size = buf.size();
-        auto req = internal::io_request::make_write(_fd.get(), 0, buf.get(), buf_size, false);
-        return _io_queue.submit_io_write(buf_size, std::move(req), nullptr).then(
-            [this, buf = std::move(buf), buf_size] (size_t written) mutable {
-                if (written < buf_size) {
-                    buf.trim_front(written);
-                    return do_put(std::move(buf));
-                }
-                return make_ready_future();
-            });
+        return _fd.write_all(buf.get(), buf_size).then([buf = std::move(buf)] {});
     }
 
 public:
