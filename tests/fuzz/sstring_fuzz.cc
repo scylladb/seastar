@@ -683,10 +683,8 @@ void execute_program(FuzzReader& reader) {
             }
 
             case Op::C_STR: {
-                const char* cs = ss.c_str();
-                if (ss.size() != rs.size() || std::memcmp(cs, rs.c_str(), ss.size()) != 0) {
-                    SEASTAR_ASSERT(false);
-                }
+                // Use strcmp to verify null termination is correct
+                SEASTAR_ASSERT(std::strcmp(ss.c_str(), rs.c_str()) == 0);
                 break;
             }
 
