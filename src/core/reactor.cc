@@ -2371,7 +2371,6 @@ reactor::touch_directory(std::string_view name_view, file_permissions permission
 
 future<>
 reactor::fdatasync(int fd) noexcept {
-    ++_io_stats.fsyncs;
     if (_cfg.bypass_fsync) {
         co_return;
     }

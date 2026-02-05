@@ -208,6 +208,8 @@ posix_file_impl::flush() noexcept {
         // fdatasync-ed to the disk, so we don't need to fdatasync again.
         return make_ready_future<>();
     }
+
+    reactor::io_stats::local().fsyncs++;
     return engine().fdatasync(_fd);
 }
 
