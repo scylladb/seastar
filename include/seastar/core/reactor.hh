@@ -506,6 +506,7 @@ public:
 
 private:
     future<> update_bandwidth_for_queues(internal::priority_class pc, uint64_t bandwidth);
+    future<> update_bandwidth_for_queues(unsigned group_index, uint64_t bandwidth);
     void rename_queues(internal::priority_class pc, sstring new_name);
     void update_shares_for_queues(internal::priority_class pc, uint32_t shares);
     void update_group_shares_for_queues(unsigned, uint32_t shares);
