@@ -1214,7 +1214,7 @@ public:
     }
 
     test_posix_file_impl(const temporary_buffer<char>& d)
-        : posix_file_impl(0, {}, nullptr, 0, block_size, block_size, block_size, block_size, true, true)
+        : posix_file_impl(0, {}, nullptr, 0, block_size, block_size, block_size, block_size, true, true, true)
         , _data(d)
     {}
 };

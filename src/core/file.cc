@@ -135,6 +135,7 @@ file_handle::to_file() && {
 posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, const internal::fs_info& fsi)
         : _nowait_works(fsi.nowait_works)
         , _durable(options.durable)
+        , _aio_fdatasync(engine().have_aio_fdatasync())
         , _device_id(device_id)
         , _io_queue(engine().get_io_queue(_device_id))
         , _open_flags(f)
@@ -178,7 +179,7 @@ posix_file_impl::do_dup() {
     }
     auto ret = std::make_unique<posix_file_handle_impl<FileImpl>>(_fd, _open_flags, _refcount, _device_id,
             _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment,
-            _nowait_works, _durable);
+            _nowait_works, _durable, _aio_fdatasync);
     _refcount->fetch_add(1, std::memory_order_relaxed);
     return ret;
 }
@@ -188,10 +189,11 @@ posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* re
         uint32_t disk_read_dma_alignment,
         uint32_t disk_write_dma_alignment,
         uint32_t disk_overwrite_dma_alignment,
-        bool nowait_works, bool durable)
+        bool nowait_works, bool durable, bool aio_fdatasync)
         : _refcount(refcount)
         , _nowait_works(nowait_works)
         , _durable(durable)
+        , _aio_fdatasync(aio_fdatasync)
         , _device_id(device_id)
         , _io_queue(engine().get_io_queue(_device_id))
         , _open_flags(f)
@@ -1068,7 +1070,7 @@ template <typename FileImpl>
 std::unique_ptr<seastar::file_handle_impl>
 posix_file_handle_impl<FileImpl>::clone() const {
     auto ret = std::make_unique<posix_file_handle_impl<FileImpl>>(_fd, _open_flags, _refcount, _device_id,
-            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment, _nowait_works, _durable);
+            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment, _nowait_works, _durable, _aio_fdatasync);
     if (_refcount) {
         _refcount->fetch_add(1, std::memory_order_relaxed);
     }
@@ -1079,7 +1081,7 @@ template <typename FileImpl>
 shared_ptr<file_impl>
 posix_file_handle_impl<FileImpl>::to_file() && {
     auto ret = ::seastar::make_shared<FileImpl>(_fd, _open_flags, _refcount, _device_id,
-            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment, _nowait_works, _durable);
+            _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment, _nowait_works, _durable, _aio_fdatasync);
     _fd = -1;
     _refcount = nullptr;
     return ret;
