@@ -98,6 +98,7 @@ struct file_open_options {
     uint64_t sloppy_size_hint = 1 << 20; ///< Hint as to what the eventual file size will be
     file_permissions create_permissions = file_permissions::default_file_permissions; ///< File permissions to use when creating a file
     bool append_is_unlikely = false; ///< Hint that user promises (or at least tries hard) not to write behind file size
+    bool durable = true; ///< If false, sacrifies file data integrity to IO performance (includes skipping flush() and dropping O_DSYNC)
 
     // The fsxattr.fsx_extsize is 32-bit
     static constexpr uint64_t max_extent_allocation_size_hint = 1 << 31;
