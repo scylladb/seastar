@@ -16,7 +16,7 @@
  * under the License.
  */
 /*
- * Copyright (C) 2025 ScyllaDB
+ * Copyright (C) 2026 Redpanda Data.
  */
 
 /**
@@ -45,13 +45,16 @@
 
 #include <seastar/core/sstring.hh>
 #include <seastar/util/assert.hh>
-#include <cstdint>
+#include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <optional>
 #include <random>
 #include <string>
 #include <string_view>
-#include <algorithm>
+#include <type_traits>
+#include <typeindex>
 
 using seastar::sstring;
 
@@ -149,6 +152,13 @@ enum class Op : uint8_t {
     // Raw data operations (bytes read directly from fuzz input)
     ASSIGN_RAW,             // Assign from raw fuzz input bytes
     APPEND_RAW,             // Append raw fuzz input bytes
+
+    // Exception testing (out-of-bounds operations)
+    AT_THROWING,            // at() with invalid position (must throw)
+    SUBSTR_THROWING,        // substr() with invalid position (must throw)
+    COMPARE_SUBSTR_THROWING, // compare() with invalid position (must throw)
+    REPLACE_THROWING,       // replace() with invalid position (must throw)
+    INSERT_THROWING,        // insert() with invalid iterator (must throw)
 
     OP_COUNT
 };
@@ -265,6 +275,37 @@ void verify_equal(const sstring& ss, const std::string& rs) {
     SEASTAR_ASSERT(ss.size() == rs.size());
     SEASTAR_ASSERT(ss.empty() == rs.empty());
     SEASTAR_ASSERT(ss.size() == 0 || std::memcmp(ss.data(), rs.data(), ss.size()) == 0);
+}
+
+// Verify both implementations throw the same exception type
+// Both MUST throw - this is for testing operations that should fail
+// Op is a generic lambda that works on both sstring and std::string
+template<typename Op>
+void both_throw(sstring& ss, std::string& rs, Op&& op) {
+    std::optional<std::type_index> ss_exception_type;
+    std::optional<std::type_index> rs_exception_type;
+
+    try {
+        op(ss);
+    } catch (const std::exception& e) {
+        ss_exception_type = std::type_index(typeid(e));
+    } catch (...) {
+        ss_exception_type = std::type_index(typeid(void));
+    }
+
+    try {
+        op(rs);
+    } catch (const std::exception& e) {
+        rs_exception_type = std::type_index(typeid(e));
+    } catch (...) {
+        rs_exception_type = std::type_index(typeid(void));
+    }
+
+    // Both must throw
+    SEASTAR_ASSERT(ss_exception_type.has_value());
+    SEASTAR_ASSERT(rs_exception_type.has_value());
+    // Exception types must match
+    SEASTAR_ASSERT(ss_exception_type == rs_exception_type);
 }
 
 // Execute the fuzzer program
@@ -696,6 +737,60 @@ void execute_program(FuzzReader& reader) {
                     ss.append(data.data(), data.size());
                     rs.append(data.data(), data.size());
                 }
+                break;
+            }
+
+            case Op::AT_THROWING: {
+                // Force position >= size() to guarantee exception
+                size_t pos = ss.size() + reader.read_size(10);
+                both_throw(ss, rs, [pos](auto& s) { (void)s.at(pos); });
+                break;
+            }
+
+            case Op::SUBSTR_THROWING: {
+                // Force from > size() to guarantee exception
+                size_t from = ss.size() + 1 + reader.read_size(10);
+                size_t len = reader.read_size(MAX_STRING_SIZE);
+                both_throw(ss, rs, [from, len](auto& s) { (void)s.substr(from, len); });
+                break;
+            }
+
+            case Op::COMPARE_SUBSTR_THROWING: {
+                uint8_t other = reader.read_u8() % NUM_SLOTS;
+                // Force pos > size() to guarantee exception
+                size_t pos = ss.size() + 1 + reader.read_size(10);
+                size_t len = reader.read_size(MAX_STRING_SIZE);
+                // Work around libstdc++ bug: string_view overload of compare()
+                // has incorrect noexcept, causing terminate() instead of throwing.
+                // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=123991
+                both_throw(ss, rs, [pos, len, &slots, &rss, other](auto& s) {
+                    if constexpr (std::is_same_v<std::decay_t<decltype(s)>, sstring>) {
+                        (void)s.compare(pos, len, std::string_view(slots[other]));
+                    } else {
+                        (void)s.compare(pos, len, rss[other]);
+                    }
+                });
+                break;
+            }
+
+            case Op::REPLACE_THROWING: {
+                // Force pos > size() to guarantee exception
+                size_t pos = ss.size() + 1 + reader.read_size(10);
+                size_t n1 = reader.read_size(MAX_STRING_SIZE);
+                auto data = reader.read_generated_data(MAX_STRING_SIZE);
+                both_throw(ss, rs, [pos, n1, &data](auto& s) {
+                    s.replace(pos, n1, data.data(), data.size());
+                });
+                break;
+            }
+
+            case Op::INSERT_THROWING: {
+                // Force position > size() to guarantee exception
+                size_t pos = ss.size() + 1 + reader.read_size(10);
+                auto data = reader.read_generated_data(MAX_STRING_SIZE);
+                both_throw(ss, rs, [pos, &data](auto& s) {
+                    s.insert(s.begin() + pos, data.begin(), data.end());
+                });
                 break;
             }
 
