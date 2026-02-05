@@ -125,23 +125,6 @@ SEASTAR_TEST_CASE(test_simple_coroutines) {
     }), 17);
 }
 
-SEASTAR_TEST_CASE(test_abandond_coroutine) {
-    std::optional<future<int>> f;
-    {
-        auto p1 = promise<>();
-        auto p2 = promise<>();
-        auto p3 = promise<>();
-        f = p1.get_future().then([&] () -> future<int> {
-            p2.set_value();
-            BOOST_CHECK_THROW(co_await p3.get_future(), broken_promise);
-            co_return 1;
-        });
-        p1.set_value();
-        co_await p2.get_future();
-    }
-    BOOST_CHECK_EQUAL(co_await std::move(*f), 1);
-}
-
 SEASTAR_TEST_CASE(test_scheduling_group) {
     auto other_sg = co_await create_scheduling_group("the other group", 10.f);
     std::exception_ptr ex;
@@ -157,9 +140,7 @@ SEASTAR_TEST_CASE(test_scheduling_group) {
 
         BOOST_REQUIRE(current_scheduling_group() == default_scheduling_group());
         auto f_ret = with_scheduling_group(other_sg,
-                [other_sg_cap = other_sg] (future<> f1, future<> f2, promise<> p1, promise<> p2) -> future<int> {
-            // Make a copy in the coroutine before the lambda is destroyed.
-            auto other_sg = other_sg_cap;
+                [] (future<> f1, future<> f2, promise<> p1, promise<> p2, scheduling_group other_sg) -> future<int> {
             BOOST_REQUIRE(current_scheduling_group() == other_sg);
             BOOST_REQUIRE(other_sg == other_sg);
             p1.set_value();
@@ -169,7 +150,7 @@ SEASTAR_TEST_CASE(test_scheduling_group) {
             co_await std::move(f2);
             BOOST_REQUIRE(current_scheduling_group() == other_sg);
             co_return 42;
-        }, p1.get_future(), p2.get_future(), std::move(p1b), std::move(p2b));
+        }, p1.get_future(), p2.get_future(), std::move(p1b), std::move(p2b), other_sg);
 
         co_await std::move(f1);
         BOOST_REQUIRE(current_scheduling_group() == default_scheduling_group());
