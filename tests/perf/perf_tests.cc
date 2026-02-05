@@ -358,7 +358,7 @@ struct result {
     float_stats<> overhead;  // overhead percentage from start/stop timing calls
 };
 
-struct duration { 
+struct duration {
     double value;  // in nanoseconds
 
     constexpr explicit duration(double nanos = 0) : value(nanos) {}
