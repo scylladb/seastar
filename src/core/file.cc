@@ -214,12 +214,20 @@ posix_file_impl::flush() noexcept {
     }
 
     reactor::io_stats::local().fsyncs++;
-    return engine().fdatasync(_fd);
+    return fdatasync(_aio_fdatasync, _fd, _io_queue.sink());
 }
 
 future<>
 reactor::fdatasync(int fd) noexcept {
-    if (_cfg.have_aio_fsync) {
+    if (_cfg.bypass_fsync) {
+        return make_ready_future<>();
+    }
+    _io_stats.fsyncs++;
+    return posix_file_impl::fdatasync(_cfg.have_aio_fsync, fd, _io_sink);
+}
+
+future<> posix_file_impl::fdatasync(bool with_aio, int fd, internal::io_sink& sink) {
+    if (with_aio) {
         // Does not go through the I/O queue, but has to be deleted
         struct fsync_io_desc final : public io_completion {
             promise<> _pr;
@@ -242,11 +250,11 @@ reactor::fdatasync(int fd) noexcept {
         auto desc = new fsync_io_desc;
         auto fut = desc->get_future();
         auto req = internal::io_request::make_fdatasync(fd);
-        _io_sink.submit(desc, std::move(req));
+        sink.submit(desc, std::move(req));
         co_await std::move(fut);
         co_return;
     }
-    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+    syscall_result<int> sr = co_await engine()._thread_pool->submit<syscall_result<int>>(
             internal::thread_pool_submit_reason::file_operation, [fd] {
         return wrap_syscall<int>(::fdatasync(fd));
     });
