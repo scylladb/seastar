@@ -2370,42 +2370,6 @@ reactor::touch_directory(std::string_view name_view, file_permissions permission
     }
 }
 
-future<>
-reactor::fdatasync(int fd) noexcept {
-    if (_cfg.have_aio_fsync) {
-        // Does not go through the I/O queue, but has to be deleted
-        struct fsync_io_desc final : public io_completion {
-            promise<> _pr;
-        public:
-            virtual void complete(size_t res) noexcept override {
-                _pr.set_value();
-                delete this;
-            }
-
-            virtual void set_exception(std::exception_ptr eptr) noexcept override {
-                _pr.set_exception(std::move(eptr));
-                delete this;
-            }
-
-            future<> get_future() {
-                return _pr.get_future();
-            }
-        };
-
-        auto desc = new fsync_io_desc;
-        auto fut = desc->get_future();
-        auto req = internal::io_request::make_fdatasync(fd);
-        _io_sink.submit(desc, std::move(req));
-        co_await std::move(fut);
-        co_return;
-    }
-    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
-            internal::thread_pool_submit_reason::file_operation, [fd] {
-        return wrap_syscall<int>(::fdatasync(fd));
-    });
-    sr.throw_if_error();
-}
-
 // Note: terminate if arm_highres_timer throws
 // `when` should always be valid
 void reactor::enable_timer(steady_clock_type::time_point when) noexcept
