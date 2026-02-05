@@ -123,15 +123,13 @@ class performance_test {
 
     uint64_t _single_run_iterations = 0;
     std::atomic<uint64_t> _max_single_run_iterations;
-protected:
-    linux_perf_event _instructions_retired_counter = linux_perf_event::user_instructions_retired();
-    linux_perf_event _cpu_cycles_retired_counter = linux_perf_event::user_cpu_cycles_retired();
 private:
     void do_run(const config&);
 public:
     struct run_result {
         clock_type::duration duration;
         perf_stats stats;
+        uint64_t start_stop_count = 0;
     };
 protected:
     [[gnu::always_inline]] [[gnu::hot]]
@@ -150,6 +148,10 @@ protected:
 
     // execute the pre-run hooks
     void run_hooks();
+
+    // start/stop timing for a single run - called by do_single_run()
+    void start_run();
+    run_result stop_run();
 public:
     performance_test(const std::string& test_case, const std::string& test_group)
         : _test_case(test_case)
@@ -167,69 +169,9 @@ public:
     static void register_test(std::unique_ptr<performance_test>);
 };
 
-// Helper for measuring time.
-// Each microbenchmark can either use the default behaviour which measures
-// only the start and stop time of the whole run or manually invoke
-// start_measuring_time() and stop_measuring_time() in order to measure
-// only parts of each iteration.
-class time_measurement {
-    clock_type::time_point _run_start_time;
-    clock_type::time_point _start_time;
-    clock_type::duration _total_time;
-
-    perf_stats _start_stats;
-    perf_stats _total_stats;
-
-    linux_perf_event* _instructions_retired_counter = nullptr;
-    linux_perf_event* _cpu_cycles_retired_counter = nullptr;
-
-public:
-    [[gnu::always_inline]] [[gnu::hot]]
-    void start_run(linux_perf_event* instructions_retired_counter = nullptr, linux_perf_event* cpu_cycles_retired_counter = nullptr) {
-        _instructions_retired_counter = instructions_retired_counter;
-        _cpu_cycles_retired_counter = cpu_cycles_retired_counter;
-        _total_time = { };
-        _total_stats = {};
-        auto t = clock_type::now();
-        _run_start_time = t;
-        _start_time = t;
-        _start_stats = perf_stats::snapshot(_instructions_retired_counter, _cpu_cycles_retired_counter);
-    }
-
-    [[gnu::always_inline]] [[gnu::hot]]
-    performance_test::run_result stop_run() {
-        auto t = clock_type::now();
-        performance_test::run_result ret;
-        if (_start_time == _run_start_time) {
-            ret.duration = t - _start_time;
-            auto stats = perf_stats::snapshot(_instructions_retired_counter, _cpu_cycles_retired_counter);
-            ret.stats = stats - _start_stats;
-        } else {
-            ret.duration = _total_time;
-            ret.stats = _total_stats;
-        }
-        _instructions_retired_counter = nullptr;
-        _cpu_cycles_retired_counter = nullptr;
-        return ret;
-    }
-
-    [[gnu::always_inline]] [[gnu::hot]]
-    void start_iteration() {
-        _start_time = clock_type::now();
-        _start_stats = perf_stats::snapshot(_instructions_retired_counter, _cpu_cycles_retired_counter);
-    }
-
-    [[gnu::always_inline]] [[gnu::hot]]
-    void stop_iteration() {
-        auto t = clock_type::now();
-        _total_time += t - _start_time;
-        perf_stats stats;
-        stats = perf_stats::snapshot(_instructions_retired_counter, _cpu_cycles_retired_counter);
-        _total_stats += stats - _start_stats;
-    }
-};
-
-extern time_measurement measure_time;
+// Functions for time measurement iteration control - implementation in perf_tests.cc
+void time_measurement_start_iteration();
+void time_measurement_stop_iteration();
 
 template<typename Test>
 class concrete_performance_test final : public performance_test {
@@ -255,9 +197,7 @@ protected:
     [[gnu::hot]]
     virtual future<run_result> do_single_run() override {
         run_hooks();
-        _instructions_retired_counter.enable();
-        _cpu_cycles_retired_counter.enable();
-        measure_time.start_run(&_instructions_retired_counter, &_cpu_cycles_retired_counter);
+        start_run();
         while (!stop_iteration()) {
             if constexpr (is_async_test) {
                 if constexpr (is_iteration_returning) {
@@ -281,10 +221,7 @@ protected:
                 }
             }
         }
-        auto ret = measure_time.stop_run();
-        _instructions_retired_counter.disable();
-        _cpu_cycles_retired_counter.disable();
-        co_return ret;
+        co_return stop_run();
     }
 public:
     using performance_test::performance_test;
@@ -307,13 +244,13 @@ int register_pre_run_hook(pre_run_hook hook);
 [[gnu::always_inline]]
 inline void start_measuring_time()
 {
-    internal::measure_time.start_iteration();
+    internal::time_measurement_start_iteration();
 }
 
 [[gnu::always_inline]]
 inline void stop_measuring_time()
 {
-    internal::measure_time.stop_iteration();
+    internal::time_measurement_stop_iteration();
 }
 
 
