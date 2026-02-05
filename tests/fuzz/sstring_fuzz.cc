@@ -38,14 +38,8 @@
  * and large strings generated from the fuzz input.
  */
 
-// Force the custom sstring implementation for fuzzing
-#ifndef SEASTAR_SSTRING
-#define SEASTAR_SSTRING
-#endif
-
 #include <seastar/core/sstring.hh>
 #include <seastar/util/assert.hh>
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
