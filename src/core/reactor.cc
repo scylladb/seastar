@@ -1682,6 +1682,10 @@ bool reactor::posix_sock_need_nonblock() const {
     return !_backend->do_blocking_io();
 }
 
+bool reactor::have_aio_fdatasync() const {
+    return _cfg.have_aio_fsync && _backend->have_aio_fdatasync();
+}
+
 namespace internal {
 
 future<> posix_connect(pollable_fd pfd, socket_address sa, socket_address local) {
