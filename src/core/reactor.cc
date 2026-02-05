@@ -1831,6 +1831,9 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
         };
         open_flags |= O_CLOEXEC;
         if (bypass_fsync) {
+            options.durable = false;
+        }
+        if (!options.durable) {
             open_flags &= ~O_DSYNC;
         }
         struct stat st;
@@ -2390,9 +2393,6 @@ reactor::touch_directory(std::string_view name_view, file_permissions permission
 
 future<>
 reactor::fdatasync(int fd) noexcept {
-    if (_cfg.bypass_fsync) {
-        co_return;
-    }
     if (_cfg.have_aio_fsync) {
         // Does not go through the I/O queue, but has to be deleted
         struct fsync_io_desc final : public io_completion {
