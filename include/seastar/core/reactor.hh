@@ -198,6 +198,7 @@ public:
         uint64_t fstream_read_bytes_blocked = 0;
         uint64_t fstream_read_aheads_discarded = 0;
         uint64_t fstream_read_ahead_discarded_bytes = 0;
+        uint64_t fsyncs = 0;
 
     private:
         friend class file_data_source_impl;
@@ -259,7 +260,6 @@ private:
     timer<manual_clock>::set_t _manual_timers;
     timer<manual_clock>::set_t::timer_list_t _expired_manual_timers;
     io_stats _io_stats;
-    uint64_t _fsyncs = 0;
     uint64_t _cxx_exceptions = 0;
     uint64_t _abandoned_failed_futures = 0;
 

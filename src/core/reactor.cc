@@ -2371,7 +2371,7 @@ reactor::touch_directory(std::string_view name_view, file_permissions permission
 
 future<>
 reactor::fdatasync(int fd) noexcept {
-    ++_fsyncs;
+    ++_io_stats.fsyncs;
     if (_cfg.bypass_fsync) {
         co_return;
     }
@@ -2570,7 +2570,7 @@ void reactor::register_metrics() {
             sm::make_counter("aio_errors", _io_stats.aio_errors, sm::description("Total aio errors")),
             sm::make_histogram("stalls", sm::description("A histogram of reactor stall durations"), [this] {return _stalls_histogram.to_metrics_histogram();}).aggregate({seastar::metrics::shard_label}).set_skip_when_empty(),
             // total_operations value:DERIVE:0:U
-            sm::make_counter("fsyncs", _fsyncs, sm::description("Total number of fsync operations")),
+            sm::make_counter("fsyncs", _io_stats.fsyncs, sm::description("Total number of fsync operations")),
             sm::make_counter("aio_retries", _io_stats.aio_retries, sm::description("Total number of IOCB-s re-submitted via thread-pool")),
             // total_operations value:DERIVE:0:U
             io_fallback_counter("aio_fallback", internal::thread_pool_submit_reason::aio_fallback),
