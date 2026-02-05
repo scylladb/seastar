@@ -703,6 +703,7 @@ private:
     future<> send_all_part(pollable_fd_state& fd, const void* buffer, size_t size, size_t completed);
 #endif
 
+    [[deprecated("Use file::flush() instead")]]
     future<> fdatasync(int fd) noexcept;
 
     void add_timer(timer<steady_clock_type>*) noexcept;
