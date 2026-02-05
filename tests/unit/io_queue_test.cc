@@ -39,6 +39,8 @@
 #include <seastar/util/assert.hh>
 #include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/util/defer.hh>
+#include <seastar/util/later.hh>
+#include <seastar/util/integrated-length.hh>
 
 using namespace seastar;
 
@@ -694,4 +696,61 @@ SEASTAR_THREAD_TEST_CASE(test_destroy_priority_class_with_requests) {
     tio.queue.destroy_priority_class(internal::priority_class(sg));
     destroy_scheduling_group(sg).get();
     BOOST_REQUIRE(!tio.is_class_registered(pc));
+}
+
+SEASTAR_THREAD_TEST_CASE(test_gauge_integrator_test) {
+    util::integrated_length<unsigned short, std::chrono::steady_clock> gi;
+    auto seed = std::random_device{}();
+    std::default_random_engine reng(seed);
+    std::uniform_int_distribution<> qlen(0, 250);
+    std::uniform_int_distribution<> dur(100, 1000);
+    auto now = std::chrono::steady_clock::now();
+    auto prev_value = gi.integral();
+
+    auto accumulate = [&] (std::function<unsigned short()> v) {
+        std::chrono::microseconds total_duration(0);
+        for (int i = 0; i < 13425; i++) {
+            auto d = std::chrono::microseconds(dur(reng));
+            total_duration += d;
+            now += d;
+            gi = v();
+            gi.checkpoint(now);
+        }
+        return std::chrono::duration_cast<std::chrono::seconds>(total_duration);
+    };
+
+    // step one -- check static value
+    for (int m = 0; m < 10; m++) {
+        auto value = qlen(reng);
+        auto seconds = accumulate([value] { return value; });
+        auto iv = gi.integral();
+        auto delta = iv - prev_value;
+        prev_value = iv;
+        fmt::print("value={:<6d} integral={:<10d} duration={:<4d} result={:<6d}\n",
+            value, delta, seconds.count(), delta / seconds.count()
+        );
+        BOOST_REQUIRE_GE(delta / seconds.count(), (unsigned short)(value * 0.9));
+        BOOST_REQUIRE_LE(delta / seconds.count(), (unsigned short)(value * 1.9));
+    }
+
+    // step two -- check disperse values
+    for (int m = 0; m < 16; m++) {
+        auto min_v = std::numeric_limits<unsigned short>::max();
+        auto max_v = std::numeric_limits<unsigned short>::min();
+        auto seconds = accumulate([&] {
+                auto v = qlen(reng);
+                min_v = std::min<unsigned short>(v, min_v);
+                max_v = std::max<unsigned short>(v, max_v);
+                return v;
+        });
+        auto iv = gi.integral();
+        auto delta = iv - prev_value;
+        prev_value = iv;
+        fmt::print("value=[{:d},{:d}] integral={:<10d} duration={:<4d} result={:<6d}\n",
+            min_v, max_v, delta, seconds.count(), delta / seconds.count()
+        );
+        BOOST_REQUIRE_GE(delta / seconds.count(), min_v);
+        BOOST_REQUIRE_LE(delta / seconds.count(), max_v);
+    }
+    fmt::print("done\n");
 }
