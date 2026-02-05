@@ -23,6 +23,7 @@
 
 #include <seastar/util/std-compat.hh>
 #include <seastar/core/coroutine.hh>
+#include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/generator.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/stream.hh>
@@ -593,14 +594,11 @@ private:
 /// \param func A function that uses a file
 /// \returns the future returned by \c func, or an exceptional future if either \c file_fut or closing the file failed.
 template <std::invocable<file&> Func>
-requires std::is_nothrow_move_constructible_v<Func>
-auto with_file(future<file> file_fut, Func func) noexcept {
-    return file_fut.then([func = std::move(func)] (file f) mutable {
-        return do_with(std::move(f), [func = std::move(func)] (file& f) mutable {
-            return futurize_invoke(func, f).finally([&f] {
-                return f.close();
-            });
-        });
+futurize_t<std::invoke_result_t<Func, file&>> with_file(future<file> file_fut, Func func) noexcept {
+    auto f = co_await std::move(file_fut);
+    // If f.close() fails, return that as nested exception.
+    co_return co_await futurize_invoke(func, f).finally([&f] {
+        return f.close();
     });
 }
 
@@ -619,21 +617,16 @@ auto with_file(future<file> file_fut, Func func) noexcept {
 /// \param func A function that uses a file
 /// \returns the future returned by \c func, or an exceptional future if \c file_fut failed or a nested exception if closing the file failed.
 template <std::invocable<file&> Func>
-requires std::is_nothrow_move_constructible_v<Func>
-auto with_file_close_on_failure(future<file> file_fut, Func func) noexcept {
-    return file_fut.then([func = std::move(func)] (file f) mutable {
-        return do_with(std::move(f), [func = std::move(func)] (file& f) mutable {
-            return futurize_invoke(std::move(func), f).then_wrapped([&f] (auto ret) mutable {
-                if (!ret.failed()) {
-                    return ret;
-                }
-                return ret.finally([&f] {
-                    // If f.close() fails, return that as nested exception.
-                    return f.close();
-                });
-             });
-         });
-     });
+futurize_t<std::invoke_result_t<Func, file&>> with_file_close_on_failure(future<file> file_fut, Func func) noexcept {
+    auto f = co_await std::move(file_fut);
+    auto fut = co_await coroutine::as_future(futurize_invoke(func, f));
+    // If f.close() fails, return that as nested exception.
+    if (fut.failed()) {
+        fut = fut.finally([&f] {
+            return f.close();
+        });
+    }
+    co_return co_await std::move(fut);
 }
 
 /// \example file_demo.cc
