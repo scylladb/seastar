@@ -144,23 +144,6 @@ void run_on(instance& instance, unsigned shard, Func func) {
     instance._qs[shard].submit(std::move(func));
 }
 
-/// Runs a function on a remote shard from an alien thread where engine() is not available.
-///
-/// \param shard designates the shard to run the function on
-/// \param func a callable to run on shard \c t.  If \c func is a temporary object,
-///          its lifetime will be extended by moving it.  If \c func is a reference,
-///          the caller must guarantee that it will survive the call.
-/// \note the func must not throw and should return \c void. as we cannot identify the
-///          alien thread, hence we are not able to post the fulfilled promise to the
-///          message queue managed by the shard executing the alien thread which is
-///          interested to the return value. Please use \c submit_to() instead, if
-///          \c func throws.
-template <typename Func>
-[[deprecated("Use run_on(instance&, unsigned shard, Func) instead")]]
-void run_on(unsigned shard, Func func) {
-    run_on(*internal::default_instance, shard, std::move(func));
-}
-
 namespace internal {
 template<typename Func>
 using return_value_t = typename futurize<std::invoke_result_t<Func>>::value_type;
@@ -208,20 +191,6 @@ std::future<T> submit_to(instance& instance, unsigned shard, Func func) {
         });
     });
     return fut;
-}
-
-/// Runs a function on a remote shard from an alien thread where engine() is not available.
-///
-/// \param shard designates the shard to run the function on
-/// \param func a callable to run on \c shard.  If \c func is a temporary object,
-///          its lifetime will be extended by moving it.  If \c func is a reference,
-///          the caller must guarantee that it will survive the call.
-/// \return whatever \c func returns, as a \c std::future<>
-/// \note the caller must keep the returned future alive until \c func returns
-template<typename Func, typename T = internal::return_type_t<Func>>
-[[deprecated("Use submit_to(instance&, unsigned shard, Func) instead.")]]
-std::future<T> submit_to(unsigned shard, Func func) {
-    return submit_to(*internal::default_instance, shard, std::move(func));
 }
 
 }
