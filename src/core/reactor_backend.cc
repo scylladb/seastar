@@ -754,7 +754,7 @@ reactor_backend_epoll::task_quota_timer_thread_fn() {
         _r.request_preemption();
     }
 
-    while (!_r._dying.load(std::memory_order_relaxed)) {
+    while (!_dying.load(std::memory_order_relaxed)) {
         // Wait for either the task quota timer, or the high resolution timer, or both,
         // to expire.
         struct pollfd pfds[2] = {};
@@ -795,7 +795,7 @@ void reactor_backend_epoll::start_tick() {
 }
 
 void reactor_backend_epoll::stop_tick() {
-    _r._dying.store(true, std::memory_order_relaxed);
+    _dying.store(true, std::memory_order_relaxed);
     _r._task_quota_timer.timerfd_settime(0, seastar::posix::to_relative_itimerspec(1ns, 1ms)); // Make the timer fire soon
     _task_quota_timer_thread.join();
 }

@@ -236,6 +236,7 @@ class reactor_backend_epoll : public reactor_backend {
     // Only one of the two is active at any time.
     file_desc _steady_clock_timer_reactor_thread;
     file_desc _steady_clock_timer_timer_thread;
+    std::atomic<bool> _dying{false};
 private:
     file_desc _epollfd;
     void task_quota_timer_thread_fn();
