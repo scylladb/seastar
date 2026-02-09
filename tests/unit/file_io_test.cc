@@ -27,6 +27,8 @@
 #include <seastar/testing/test_runner.hh>
 
 #include <seastar/core/reactor.hh>
+#include <seastar/core/smp.hh>
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/condition-variable.hh>
@@ -107,6 +109,36 @@ SEASTAR_TEST_CASE(file_access_test) {
         f.close().get();
         auto is_accessible = file_accessible(filename, access_flags::read | access_flags::write).get();
         BOOST_REQUIRE(is_accessible);
+    });
+}
+
+// Test that a file handle can be transferred to another shard, and
+// that a file obtained from the handle is the same one, as it was
+// when the file was opened.
+SEASTAR_TEST_CASE(file_ro_dup_test) {
+    if (seastar::smp::count < 2) {
+        fmt::print("This test needs at least 2 shards to run\n");
+        return make_ready_future<>();
+    }
+    return tmp_dir::do_with([] (tmp_dir& t) -> future<> {
+        struct file_open_info {
+            seastar::file_handle handle;
+            struct stat st;
+        };
+        auto fi = co_await smp::submit_to(0, [&t] () -> future<file_open_info> {
+            sstring filename = (t.get_path() / "testfile.tmp").native();
+            auto f = co_await open_file_dma(filename, open_flags::ro | open_flags::create);
+            auto st = co_await f.stat();
+            auto fh = f.dup();
+            co_await f.close();
+            co_return file_open_info{ std::move(fh), st };
+        });
+        co_await smp::submit_to(1, [fi = std::move(fi)] () mutable -> future<> {
+            auto f = std::move(fi.handle).to_file();
+            auto st = co_await f.stat();
+            BOOST_REQUIRE_EQUAL(st.st_dev, fi.st.st_dev);
+            BOOST_REQUIRE_EQUAL(st.st_ino, fi.st.st_ino);
+        });
     });
 }
 
