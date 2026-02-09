@@ -364,7 +364,6 @@ private:
     sched_clock::time_point _start_time = now();
     output_stream<char>::batch_flush_list_t _flush_batching;
     std::atomic<bool> _sleeping alignas(seastar::cache_line_size){0};
-    std::atomic<bool> _dying{false};
     gate _background_gate;
 
     inline auto& get_sg_data(const scheduling_group& sg) {
