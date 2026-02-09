@@ -1183,6 +1183,7 @@ public:
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* i) noexcept override { abort(); }
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* i) noexcept override { abort(); }
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* i) noexcept override { abort(); }
+    virtual std::unique_ptr<seastar::file_handle_impl> dup() override { abort(); }
 
     virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, io_intent* i) noexcept override {
         fmt::print("  IO {}:{}\n", pos, len);

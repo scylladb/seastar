@@ -166,7 +166,7 @@ void posix_file_impl::configure_io_lengths() noexcept {
 }
 
 std::unique_ptr<seastar::file_handle_impl>
-posix_file_impl::dup() {
+posix_file_impl::do_dup() {
     if (!_refcount) {
         _refcount = new std::atomic<unsigned>(1u);
     }
@@ -544,6 +544,11 @@ posix_file_real_impl::read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* 
     return posix_file_impl::do_read_dma(pos, std::move(iov), intent);
 }
 
+std::unique_ptr<seastar::file_handle_impl>
+posix_file_real_impl::dup() {
+    return posix_file_impl::do_dup();
+}
+
 future<temporary_buffer<uint8_t>>
 posix_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept {
     auto front = offset & (_disk_read_dma_alignment - 1);
@@ -679,6 +684,11 @@ blockdev_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, io_intent* 
 future<size_t>
 blockdev_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept {
     return posix_file_impl::do_read_dma(pos, std::move(iov), intent);
+}
+
+std::unique_ptr<seastar::file_handle_impl>
+blockdev_file_impl::dup() {
+    return posix_file_impl::do_dup();
 }
 
 append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options, const internal::fs_info& fsi, dev_t device_id)
@@ -976,6 +986,11 @@ append_challenged_posix_file_impl::truncate(uint64_t length) noexcept {
 future<uint64_t>
 append_challenged_posix_file_impl::size() noexcept {
     return make_ready_future<size_t>(_logical_size);
+}
+
+std::unique_ptr<seastar::file_handle_impl>
+append_challenged_posix_file_impl::dup() {
+    return posix_file_impl::do_dup();
 }
 
 future<>

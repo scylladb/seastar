@@ -102,7 +102,7 @@ public:
     // close() never fails. It just reports errors and swallows them.
     // The user must call flush() first if they care aout stable storage semantics.
     virtual future<> close() noexcept override;
-    virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
+    virtual std::unique_ptr<seastar::file_handle_impl> dup() override = 0;
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override;
     virtual list_directory_generator_type experimental_list_directory() override;
 
@@ -152,6 +152,7 @@ protected:
     future<size_t> do_write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept;
     future<size_t> do_read_dma(uint64_t pos, void* buffer, size_t len, io_intent* intent) noexcept;
     future<size_t> do_read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept;
+    std::unique_ptr<seastar::file_handle_impl> do_dup();
 };
 
 class posix_file_real_impl final : public posix_file_impl {
@@ -165,6 +166,7 @@ public:
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
+    virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
 };
 
 namespace testing {
@@ -256,6 +258,7 @@ public:
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
+    virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
 
     future<> flush() noexcept override;
     future<struct stat> stat() noexcept override;
@@ -286,6 +289,7 @@ public:
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
+    virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
 };
 
 }
