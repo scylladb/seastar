@@ -167,6 +167,10 @@ void posix_file_impl::configure_io_lengths() noexcept {
 
 std::unique_ptr<seastar::file_handle_impl>
 posix_file_impl::do_dup() {
+    if ((_open_flags & open_flags::ro) != open_flags{}) {
+        throw std::runtime_error("File is not read-only");
+    }
+
     if (!_refcount) {
         _refcount = new std::atomic<unsigned>(1u);
     }
@@ -990,7 +994,8 @@ append_challenged_posix_file_impl::size() noexcept {
 
 std::unique_ptr<seastar::file_handle_impl>
 append_challenged_posix_file_impl::dup() {
-    return posix_file_impl::do_dup();
+    throw std::runtime_error("File is not read-only");
+    return nullptr;
 }
 
 future<>
