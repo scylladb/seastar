@@ -21,7 +21,7 @@ using namespace std::chrono_literals;
 namespace seastar {
 extern logger http_log;
 
-namespace http::experimental {
+namespace http {
 logger rs_logger("default_http_retry_strategy");
 
 static bool is_retryable_exception(std::exception_ptr ex) {

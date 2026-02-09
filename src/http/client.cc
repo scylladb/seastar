@@ -45,7 +45,7 @@ logger http_log("http");
 namespace http {
 namespace internal {
 
-client_ref::client_ref(http::experimental::client* c) noexcept : _c(c) {
+client_ref::client_ref(http::client* c) noexcept : _c(c) {
     _c->_nr_connections++;
 }
 
@@ -57,8 +57,6 @@ client_ref::~client_ref() {
 }
 
 }
-
-namespace experimental {
 
 connection::connection(connected_socket&& fd, internal::client_ref cr)
         : _fd(std::move(fd))
@@ -461,6 +459,5 @@ future<> client::close() {
     });
 }
 
-} // experimental namespace
 } // http namespace
 } // seastar namespace
