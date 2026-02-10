@@ -53,8 +53,10 @@
 using namespace seastar;
 namespace fs = std::filesystem;
 
+constexpr open_flags default_create_open_flags = open_flags::rw | open_flags::create;
+
 SEASTAR_TEST_CASE(open_flags_test) {
-    open_flags flags = open_flags::rw | open_flags::create  | open_flags::exclusive;
+    open_flags flags = default_create_open_flags | open_flags::exclusive;
     BOOST_REQUIRE(std::underlying_type_t<open_flags>(flags) ==
                   (std::underlying_type_t<open_flags>(open_flags::rw) |
                    std::underlying_type_t<open_flags>(open_flags::create) |
@@ -77,7 +79,7 @@ SEASTAR_TEST_CASE(access_flags_test) {
 SEASTAR_TEST_CASE(file_exists_test) {
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         sstring filename = (t.get_path() / "testfile.tmp").native();
-        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get();
+        auto f = open_file_dma(filename, default_create_open_flags).get();
         f.close().get();
         auto exists = file_exists(filename).get();
         BOOST_REQUIRE(exists);
@@ -90,7 +92,7 @@ SEASTAR_TEST_CASE(file_exists_test) {
 SEASTAR_TEST_CASE(handle_bad_alloc_test) {
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         sstring filename = (t.get_path() / "testfile.tmp").native();
-        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get();
+        auto f = open_file_dma(filename, default_create_open_flags).get();
         f.close().get();
         bool exists = false;
         memory::with_allocation_failures([&] {
@@ -103,7 +105,7 @@ SEASTAR_TEST_CASE(handle_bad_alloc_test) {
 SEASTAR_TEST_CASE(file_access_test) {
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         sstring filename = (t.get_path() / "testfile.tmp").native();
-        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get();
+        auto f = open_file_dma(filename, default_create_open_flags).get();
         f.close().get();
         auto is_accessible = file_accessible(filename, access_flags::read | access_flags::write).get();
         BOOST_REQUIRE(is_accessible);
@@ -122,7 +124,7 @@ SEASTAR_TEST_CASE(test1) {
   return tmp_dir::do_with([] (tmp_dir& t) {
     static constexpr auto max = 10000;
     sstring filename = (t.get_path() / "testfile.tmp").native();
-    return open_file_dma(filename, open_flags::rw | open_flags::create).then([filename] (file f) {
+    return open_file_dma(filename, default_create_open_flags).then([filename] (file f) {
         auto ft = new file_test{std::move(f)};
         for (size_t i = 0; i < max; ++i) {
             // Don't wait for future, use semaphore to signal when done instead.
@@ -169,7 +171,7 @@ SEASTAR_TEST_CASE(parallel_write_fsync) {
             auto written = uint64_t(0);
             auto fsynced_at = uint64_t(0);
 
-            file f = open_file_dma(fname, open_flags::rw | open_flags::create | open_flags::truncate).get();
+            file f = open_file_dma(fname, default_create_open_flags | open_flags::truncate).get();
             auto close_f = deferred_close(f);
             // Avoid filesystem problems with size-extending operations
             f.truncate(sz).get();
