@@ -48,3 +48,12 @@ jobs:
       mode: debug
       enables: --enable-cxx-modules
       enable-ccache: false
+
+  fuzz_test:
+    name: "Fuzz Tests"
+    uses: ./.github/workflows/test.yaml
+    with:
+      compiler: clang++
+      standard: 23
+      mode: fuzz
+      test-args: "-- -R 'Seastar.fuzz.'"
