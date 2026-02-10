@@ -5236,7 +5236,7 @@ rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_short
         return make_exception_future<>(make_backtraced_exception_ptr<std::runtime_error>("Attempt to rename the default scheduling group"));
     }
     return smp::invoke_on_all([sg, new_name, new_shortname] {
-        engine()._task_queues[sg._id]->rename(new_name, new_shortname);
+        engine()._task_queues[internal::scheduling_group_index(sg)]->rename(new_name, new_shortname);
         internal::execution_stage_manager::get().update_scheduling_group_name(sg);
         engine().rename_queues(internal::priority_class(sg), new_name);
         return engine().rename_scheduling_group_specific_data(sg);
