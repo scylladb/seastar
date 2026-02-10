@@ -2616,10 +2616,10 @@ void reactor::register_metrics() {
     });
 }
 
-seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::internal::log_buf::inserter_iterator it, const reactor::task_queue& tq) {
+seastar::internal::log_buf::inserter_iterator reactor::task_queue::do_dump(seastar::internal::log_buf::inserter_iterator it) const {
     memory::scoped_critical_alloc_section _;
     std::unordered_map<std::pair<std::string_view, int>, std::pair<unsigned, task*>> infos;
-    for (const auto& tp : tq._q) {
+    for (const auto& tp : _q) {
         std::string_view name = tp->get_resume_point().file_name();
         if (name.empty()) {
             name = typeid(*tp).name();
@@ -2628,7 +2628,7 @@ seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::intern
         ++count;
         task = tp;
     }
-    it = fmt::format_to(it, "Too long queue accumulated for {} ({} tasks)\n", tq._name, tq._q.size());
+    it = fmt::format_to(it, "Too long queue accumulated for {} ({} tasks)\n", _name, _q.size());
     auto dump_task = [](auto it, task& task) {
         const auto rp = task.get_resume_point();
         const std::string_view file_name = rp.file_name();
@@ -2676,7 +2676,7 @@ bool reactor::task_queue::run_tasks() {
                 lowres_clock::update();
 
                 static thread_local logger::rate_limit rate_limit(std::chrono::seconds(10));
-                logger::lambda_log_writer writer([this] (auto it) { return do_dump_task_queue(it, *this); });
+                logger::lambda_log_writer writer([this] (auto it) { return do_dump(it); });
                 seastar_logger.log(log_level::warn, rate_limit, writer);
                 if (r._cfg.abort_on_too_long_task_queue) {
                     auto msg = fmt::format("Too long task queue: {}, max_task_backlog={}", _q.size(), r._cfg.max_task_backlog);
