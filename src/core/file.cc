@@ -165,12 +165,17 @@ void posix_file_impl::configure_io_lengths() noexcept {
     _write_max_length = std::min<size_t>(_write_max_length, limits.max_write);
 }
 
+template <typename FileImpl>
 std::unique_ptr<seastar::file_handle_impl>
-posix_file_impl::dup() {
+posix_file_impl::do_dup() {
+    if ((_open_flags & open_flags::ro) != open_flags{}) {
+        throw std::runtime_error("File is not read-only");
+    }
+
     if (!_refcount) {
         _refcount = new std::atomic<unsigned>(1u);
     }
-    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id,
+    auto ret = std::make_unique<posix_file_handle_impl<FileImpl>>(_fd, _open_flags, _refcount, _device_id,
             _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment,
             _nowait_works);
     _refcount->fetch_add(1, std::memory_order_relaxed);
@@ -544,6 +549,11 @@ posix_file_real_impl::read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* 
     return posix_file_impl::do_read_dma(pos, std::move(iov), intent);
 }
 
+std::unique_ptr<seastar::file_handle_impl>
+posix_file_real_impl::dup() {
+    return posix_file_impl::do_dup<posix_file_real_impl>();
+}
+
 future<temporary_buffer<uint8_t>>
 posix_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept {
     auto front = offset & (_disk_read_dma_alignment - 1);
@@ -679,6 +689,11 @@ blockdev_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, io_intent* 
 future<size_t>
 blockdev_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept {
     return posix_file_impl::do_read_dma(pos, std::move(iov), intent);
+}
+
+std::unique_ptr<seastar::file_handle_impl>
+blockdev_file_impl::dup() {
+    return posix_file_impl::do_dup<blockdev_file_impl>();
 }
 
 append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options, const internal::fs_info& fsi, dev_t device_id)
@@ -978,6 +993,12 @@ append_challenged_posix_file_impl::size() noexcept {
     return make_ready_future<size_t>(_logical_size);
 }
 
+std::unique_ptr<seastar::file_handle_impl>
+append_challenged_posix_file_impl::dup() {
+    throw std::runtime_error("File is not read-only");
+    return nullptr;
+}
+
 future<>
 append_challenged_posix_file_impl::close() noexcept {
     // Caller should have drained all pending I/O
@@ -995,16 +1016,18 @@ append_challenged_posix_file_impl::close() noexcept {
     });
 }
 
-posix_file_handle_impl::~posix_file_handle_impl() {
+template <typename FileImpl>
+posix_file_handle_impl<FileImpl>::~posix_file_handle_impl() {
     if (_refcount && _refcount->fetch_add(-1, std::memory_order_relaxed) == 1) {
         ::close(_fd);
         delete _refcount;
     }
 }
 
+template <typename FileImpl>
 std::unique_ptr<seastar::file_handle_impl>
-posix_file_handle_impl::clone() const {
-    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id,
+posix_file_handle_impl<FileImpl>::clone() const {
+    auto ret = std::make_unique<posix_file_handle_impl<FileImpl>>(_fd, _open_flags, _refcount, _device_id,
             _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment, _nowait_works);
     if (_refcount) {
         _refcount->fetch_add(1, std::memory_order_relaxed);
@@ -1012,9 +1035,10 @@ posix_file_handle_impl::clone() const {
     return ret;
 }
 
+template <typename FileImpl>
 shared_ptr<file_impl>
-posix_file_handle_impl::to_file() && {
-    auto ret = ::seastar::make_shared<posix_file_real_impl>(_fd, _open_flags, _refcount, _device_id,
+posix_file_handle_impl<FileImpl>::to_file() && {
+    auto ret = ::seastar::make_shared<FileImpl>(_fd, _open_flags, _refcount, _device_id,
             _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment, _nowait_works);
     _fd = -1;
     _refcount = nullptr;

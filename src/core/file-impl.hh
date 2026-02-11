@@ -39,6 +39,7 @@ struct fs_info;
 
 }
 
+template <typename FileImpl>
 class posix_file_handle_impl : public seastar::file_handle_impl {
     int _fd;
     std::atomic<unsigned>* _refcount;
@@ -102,7 +103,7 @@ public:
     // close() never fails. It just reports errors and swallows them.
     // The user must call flush() first if they care aout stable storage semantics.
     virtual future<> close() noexcept override;
-    virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
+    virtual std::unique_ptr<seastar::file_handle_impl> dup() override = 0;
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override;
     virtual list_directory_generator_type experimental_list_directory() override;
 
@@ -152,6 +153,8 @@ protected:
     future<size_t> do_write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept;
     future<size_t> do_read_dma(uint64_t pos, void* buffer, size_t len, io_intent* intent) noexcept;
     future<size_t> do_read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept;
+    template <typename FileImpl>
+    std::unique_ptr<seastar::file_handle_impl> do_dup();
 };
 
 class posix_file_real_impl final : public posix_file_impl {
@@ -165,6 +168,7 @@ public:
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
+    virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
 };
 
 namespace testing {
@@ -256,6 +260,7 @@ public:
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
+    virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
 
     future<> flush() noexcept override;
     future<struct stat> stat() noexcept override;
@@ -277,6 +282,9 @@ class blockdev_file_impl final : public posix_file_impl {
 public:
     blockdev_file_impl(int fd, open_flags f, file_open_options options, const internal::fs_info& fsi, dev_t device_id)
         : posix_file_impl(fd, f, options, device_id, fsi) {}
+    blockdev_file_impl(int fd, open_flags of, std::atomic<unsigned>* refcount, dev_t device_id,
+            uint32_t memory_dma_alignment, uint32_t disk_read_dma_alignment, uint32_t disk_write_dma_alignment, uint32_t disk_overwrite_dma_alignment, bool nowait_works)
+        : posix_file_impl(fd, of, refcount, device_id, memory_dma_alignment, disk_read_dma_alignment, disk_write_dma_alignment, disk_overwrite_dma_alignment, nowait_works) {}
 
     future<> truncate(uint64_t length) noexcept override;
     future<> discard(uint64_t offset, uint64_t length) noexcept override;
@@ -286,6 +294,7 @@ public:
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
+    virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
 };
 
 }
