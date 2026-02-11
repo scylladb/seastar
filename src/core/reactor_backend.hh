@@ -208,6 +208,9 @@ public:
     virtual bool do_blocking_io() const {
         return false;
     }
+    virtual bool have_aio_fdatasync() const {
+        return true;
+    }
     virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) = 0;
     virtual void start_tick() = 0;
     virtual void stop_tick() = 0;
