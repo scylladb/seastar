@@ -1104,8 +1104,9 @@ reactor::~reactor() {
         if (tq) {
             // The following line will preserve the convention that constructor and destructor functions
             // for the per sg values are called in the context of the containing scheduling group.
-            *internal::current_scheduling_group_ptr() = scheduling_group(tq->_id);
-            get_sg_data(tq->_id).specific_vals.clear();
+            auto sg = scheduling_group(tq->_id);
+            *internal::current_scheduling_group_ptr() = sg;
+            get_sg_data(sg).specific_vals.clear();
         }
     }
 }

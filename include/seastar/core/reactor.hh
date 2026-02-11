@@ -370,10 +370,6 @@ private:
         return _scheduling_group_specific_data.per_scheduling_group_data[sg._id];
     }
 
-    inline auto& get_sg_data(unsigned sg_id) {
-        return _scheduling_group_specific_data.per_scheduling_group_data[sg_id];
-    }
-
 private:
     static std::chrono::nanoseconds calculate_poll_time();
     static void block_notifier(int);
