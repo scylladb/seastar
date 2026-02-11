@@ -1677,6 +1677,10 @@ reactor::make_pollable_fd(socket_address sa, int proto) {
     return pollable_fd(std::move(fd));
 }
 
+bool reactor::posix_sock_need_nonblock() const {
+    return !_backend->do_blocking_io();
+}
+
 namespace internal {
 
 future<> posix_connect(pollable_fd pfd, socket_address sa, socket_address local) {
