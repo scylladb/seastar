@@ -220,6 +220,13 @@ public:
         return _vtable->call(this, std::forward<Args>(args)...);
     }
 
+    /// Returns the address of the unique 'call' thunk for the contained function.
+    /// This address uniquely identifies the underlying lambda type in the binary.
+    /// This address can be used to output symbols for the user-provided function.
+    void* target_function_address() const noexcept {
+        return reinterpret_cast<void*>(_vtable->call);
+    }
+
     explicit operator bool() const {
         return _vtable != &_s_empty_vtable;
     }

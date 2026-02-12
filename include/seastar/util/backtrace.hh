@@ -128,23 +128,27 @@ using shared_backtrace = seastar::lw_shared_ptr<simple_backtrace>;
 
 // Represents a task object inside a tasktrace.
 class task_entry {
-    const std::type_info* _task_type;
+    void* _task_symbol;
 public:
-    task_entry(const std::type_info& ti) noexcept
-        : _task_type(&ti)
+    task_entry(void* symbol) noexcept
+        : _task_symbol(symbol)
     { }
 
     friend fmt::formatter<task_entry>;
 
     bool operator==(const task_entry& o) const noexcept {
-        return *_task_type == *o._task_type;
+        return _task_symbol == o._task_symbol;
     }
 
     bool operator!=(const task_entry& o) const noexcept {
         return !(*this == o);
     }
 
-    size_t hash() const noexcept { return _task_type->hash_code(); }
+    size_t hash() const noexcept { return reinterpret_cast<size_t>(_task_symbol); }
+
+    frame get_frame() const {
+        return decorate(reinterpret_cast<uintptr_t>(_task_symbol));
+    }
 };
 
 // Extended backtrace which consists of a backtrace of the currently running task
@@ -192,6 +196,13 @@ template<>
 struct hash<seastar::tasktrace> {
     size_t operator()(const seastar::tasktrace& b) const {
         return b.hash();
+    }
+};
+
+template<>
+struct hash<seastar::task_entry> {
+    size_t operator()(const seastar::task_entry& e) const {
+        return e.hash();
     }
 };
 

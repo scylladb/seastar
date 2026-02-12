@@ -58,6 +58,7 @@ public:
     void make_backtrace() noexcept {}
     shared_backtrace get_backtrace() const { return {}; }
 #endif
+    virtual void* symbol() const;
 };
 
 

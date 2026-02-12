@@ -26,7 +26,9 @@
 
 namespace seastar {
 
-parallel_for_each_state::parallel_for_each_state(size_t n) {
+parallel_for_each_state::parallel_for_each_state(size_t n, void* symbol)
+    : _symbol(symbol)
+{
     _incomplete.reserve(n);
 }
 

@@ -85,6 +85,13 @@ public:
 #endif
 };
 
+template <typename Promise>
+void* get_resume_address(std::coroutine_handle<Promise> coro) {
+    void* frame_ptr = coro.address();
+    // ABI: The first pointer in the frame is the resume function address
+    return *reinterpret_cast<void**>(frame_ptr);
+}
+
 template <typename T = void>
 class coroutine_traits_base {
 public:
@@ -134,6 +141,12 @@ public:
         scheduling_group set_scheduling_group(scheduling_group sg) noexcept {
             return std::exchange(this->_sg, sg);
         }
+
+        void* symbol() const override {
+            auto& self = const_cast<promise_type&>(*this);
+            auto handle = std::coroutine_handle<promise_type>::from_promise(self);
+            return get_resume_address(handle);
+        }
     };
 };
 
@@ -175,6 +188,12 @@ public:
 
         scheduling_group set_scheduling_group(scheduling_group new_sg) noexcept {
             return task::set_scheduling_group(new_sg);
+        }
+
+        void* symbol() const override {
+            auto& self = const_cast<promise_type&>(*this);
+            auto handle = std::coroutine_handle<promise_type>::from_promise(self);
+            return get_resume_address(handle);
         }
     };
 };

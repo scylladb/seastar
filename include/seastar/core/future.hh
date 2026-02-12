@@ -720,7 +720,7 @@ protected:
     Promise _pr;
 };
 
-template <typename Promise, typename Func, typename Wrapper, typename T = void>
+template <typename Promise, typename Func, typename Wrapper, void* Symbol, typename T = void>
 struct continuation final : continuation_base_with_promise<Promise, T> {
     // Func is the original function passed to then/then_wrapped. The
     // Wrapper is a helper function that implements the specific logic
@@ -743,6 +743,9 @@ struct continuation final : continuation_base_with_promise<Promise, T> {
             this->_pr.set_to_current_exception();
         }
         delete this;
+    }
+    virtual void* symbol() const override {
+        return Symbol;
     }
     Func _func;
     [[no_unique_address]] Wrapper _wrapper;
@@ -1461,7 +1464,7 @@ private:
         return fut;
     }
 
-    template <typename Func, typename Result = futurize_t<internal::future_result_t<Func, T>>>
+    template <void* Symbol, typename Func, typename Result = futurize_t<internal::future_result_t<Func, T>>>
     Result
     then_impl(Func&& func) noexcept {
         static_assert(internal::expect_only_rvalue_refs<Func>);
