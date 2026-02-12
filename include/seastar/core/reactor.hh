@@ -485,7 +485,7 @@ public:
     static sched_clock::time_point now() noexcept {
         return sched_clock::now();
     }
-    sched_clock::duration uptime() {
+    sched_clock::duration uptime() const {
         return now() - _start_time;
     }
 
