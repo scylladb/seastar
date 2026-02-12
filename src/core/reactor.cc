@@ -179,6 +179,13 @@ module;
 #include <seastar/util/assert.hh>
 #include <seastar/core/internal/systemwide_memory_barrier.hh>
 
+namespace std {
+    template <> struct hash<std::pair<std::string_view, int>> {
+        size_t operator () (std::pair<std::string_view, int> v) const {
+            return std::hash<std::string_view>()(v.first) * 1009 + v.second;
+        }
+    };
+}
 namespace seastar {
 
 static_assert(posix::shutdown_mask(SHUT_RD) == posix::rcv_shutdown);
@@ -2627,15 +2634,14 @@ void reactor::register_metrics() {
 
 seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::internal::log_buf::inserter_iterator it, const reactor::task_queue& tq) {
     memory::scoped_critical_alloc_section _;
-    std::unordered_map<const char*, unsigned> infos;
+    std::unordered_map<std::pair<std::string_view, int>, unsigned> infos;
     for (const auto& tp : tq._q) {
-        const std::type_info& ti = typeid(*tp);
-        auto [ it, ins ] = infos.emplace(std::make_pair(ti.name(), 0u));
-        it->second++;
+        infos[{ tp->get_resume_point().file_name(), tp->get_resume_point().line() }]++;
     }
     it = fmt::format_to(it, "Too long queue accumulated for {} ({} tasks)\n", tq._name, tq._q.size());
-    for (auto& ti : infos) {
-        it = fmt::format_to(it, " {}: {}\n", ti.second, ti.first);
+    for (const auto& ti : infos) {
+        auto [ file_name, line ] = ti.first;
+        it = fmt::format_to(it, " {}: {}:{}\n", ti.second, file_name, line);
     }
     return it;
 }
