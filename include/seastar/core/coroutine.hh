@@ -26,11 +26,13 @@
 #include <seastar/core/make_task.hh>
 #include <seastar/coroutine/exception.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/log.hh>
 
 
 #include <coroutine>
 #include <new>
 #include <cstdlib>
+#include <forward_list>
 
 #if !(__GLIBC__ == 2 && __GLIBC_MINOR__ >= 43) && !(__GLIBC__ > 2)
 
@@ -85,11 +87,134 @@ public:
 #endif
 };
 
+using finally_function = noncopyable_function<future<>(std::exception_ptr)>;
+
+inline std::exception_ptr combine_exceptions(std::exception_ptr ex1, std::exception_ptr ex2) {
+    if (ex1 && ex2) {
+        return std::make_exception_ptr(nested_exception(std::move(ex1), std::move(ex2)));
+    } else if (ex1) {
+        return ex1;
+    } else {
+        return ex2;
+    }
+}
+
+class coroutine_promise_base : public seastar::task {
+    friend class final_awaiter;
+
+    // LIFO order
+    std::forward_list<finally_function> _finally_funcs;
+    coroutine_promise_base* _prev{};
+
+private:
+    virtual std::exception_ptr get_exception() noexcept = 0;
+    virtual void set_promise_exception(std::exception_ptr&&) noexcept = 0;
+    virtual void set_promise_value() noexcept = 0;
+
+    void resume_after_finally(std::exception_ptr finally_ex) {
+        if (auto ex = combine_exceptions(std::move(finally_ex), get_exception()); ex) {
+            set_promise_exception(std::move(ex));
+        } else {
+            set_promise_value();
+        }
+    }
+
+public:
+    void push_coroutine();
+    void pop_coroutine();
+
+    void push_finally_function(finally_function&& func) {
+        _finally_funcs.emplace_front(std::move(func));
+    }
+};
+
+template <typename U>
+void destroy_coroutine(seastar::task& coroutine_task) {
+    auto promise_ptr = static_cast<U*>(&coroutine_task);
+    auto hndl = std::coroutine_handle<U>::from_promise(*promise_ptr);
+    hndl.destroy();
+}
+
+class final_awaiter : public seastar::task {
+    coroutine_promise_base& _promise;
+
+    seastar::future<> _future;
+    std::exception_ptr _ex;
+
+    seastar::task* _coroutine_task{};
+    seastar::task* _waiting_task{};
+    void (*_destroy_coroutine)(seastar::task&){};
+
+private:
+    void execute_one() {
+        _future = _promise._finally_funcs.front()(_promise.get_exception());
+        _future.set_coroutine(*this);
+    }
+
+public:
+    explicit final_awaiter(coroutine_promise_base& promise)
+        : _promise(promise)
+        , _future(seastar::make_ready_future<>())
+    { }
+    final_awaiter(final_awaiter&&) = default;
+    final_awaiter(const final_awaiter&) = delete;
+
+    bool await_ready() const noexcept { return _promise._finally_funcs.empty(); }
+
+    template <typename U>
+    void await_suspend(std::coroutine_handle<U> hndl) noexcept {
+        _coroutine_task = &hndl.promise();
+        _waiting_task = hndl.promise().waiting_task();
+        _destroy_coroutine = destroy_coroutine<U>;
+
+        execute_one();
+    }
+
+    void await_resume() noexcept {
+        _promise.resume_after_finally({});
+    }
+
+    virtual void run_and_dispose() noexcept final override {
+        if (_future.failed()) {
+            _ex = combine_exceptions(std::move(_ex), _future.get_exception());
+        }
+
+        _promise._finally_funcs.pop_front();
+
+        if (!_promise._finally_funcs.empty()) {
+            execute_one();
+        } else {
+            _promise.resume_after_finally(std::move(_ex));
+            _destroy_coroutine(*_coroutine_task);
+        }
+    }
+
+    virtual task* waiting_task() noexcept final override {
+        return _waiting_task;
+    }
+};
+
 template <typename T = void>
 class coroutine_traits_base {
 public:
-    class promise_type final : public seastar::task, public coroutine_allocators {
+    class promise_type final : public coroutine_promise_base, public coroutine_allocators {
         seastar::promise<T> _promise;
+        std::variant<std::monostate, T, std::exception_ptr> _result;
+
+    private:
+        virtual std::exception_ptr get_exception() noexcept final override {
+            if (auto ex = std::get_if<std::exception_ptr>(&_result); ex) {
+                return *ex;
+            }
+            return {};
+        }
+        virtual void set_promise_exception(std::exception_ptr&& ex) noexcept final override {
+            _promise.set_exception(std::move(ex));
+        }
+        virtual void set_promise_value() noexcept final override {
+            _promise.set_value(std::move(std::get<T>(std::move(_result))));
+        }
+
     public:
         promise_type() = default;
         promise_type(promise_type&&) = delete;
@@ -97,15 +222,15 @@ public:
 
         template<typename... U>
         void return_value(U&&... value) {
-            _promise.set_value(std::forward<U>(value)...);
+            _result.template emplace<T>(std::forward<U>(value)...);
         }
 
         void return_value(coroutine::exception ce) noexcept {
-            _promise.set_exception(std::move(ce.eptr));
+            _result.template emplace<std::exception_ptr>(std::move(ce.eptr));
         }
 
         void set_exception(std::exception_ptr&& eptr) noexcept {
-            _promise.set_exception(std::move(eptr));
+            _result.template emplace<std::exception_ptr>(std::move(eptr));
         }
 
         [[deprecated("Forwarding coroutine returns are deprecated as too dangerous. Use 'co_return co_await ...' until explicit syntax is available.")]]
@@ -114,17 +239,24 @@ public:
         }
 
         void unhandled_exception() noexcept {
-            _promise.set_exception(std::current_exception());
+            _result.template emplace<std::exception_ptr>(std::current_exception());
         }
 
         seastar::future<T> get_return_object() noexcept {
             return _promise.get_future();
         }
 
-        std::suspend_never initial_suspend() noexcept { return { }; }
-        std::suspend_never final_suspend() noexcept { return { }; }
+        std::suspend_never initial_suspend() noexcept {
+            push_coroutine();
+            return { };
+        }
+        final_awaiter final_suspend() noexcept {
+            pop_coroutine();
+            return final_awaiter(*this);
+        }
 
         virtual void run_and_dispose() noexcept override {
+            push_coroutine();
             auto handle = std::coroutine_handle<promise_type>::from_promise(*this);
             handle.resume();
         }
@@ -140,33 +272,51 @@ public:
 template <>
 class coroutine_traits_base<> {
 public:
-   class promise_type final : public seastar::task, public coroutine_allocators {
+   class promise_type final : public coroutine_promise_base, public coroutine_allocators {
         seastar::promise<> _promise;
+        std::exception_ptr _ex;
+
+    private:
+        virtual std::exception_ptr get_exception() noexcept final override {
+            return _ex;
+        }
+        virtual void set_promise_exception(std::exception_ptr&& ex) noexcept final override {
+            _promise.set_exception(std::move(ex));
+        }
+        virtual void set_promise_value() noexcept final override {
+            _promise.set_value();
+        }
+
     public:
         promise_type() = default;
         promise_type(promise_type&&) = delete;
         promise_type(const promise_type&) = delete;
 
-        void return_void() noexcept {
-            _promise.set_value();
-        }
+        void return_void() noexcept { }
 
         void set_exception(std::exception_ptr&& eptr) noexcept {
-            _promise.set_exception(std::move(eptr));
+            _ex = std::move(eptr);
         }
 
         void unhandled_exception() noexcept {
-            _promise.set_exception(std::current_exception());
+            _ex = std::current_exception();
         }
 
         seastar::future<> get_return_object() noexcept {
             return _promise.get_future();
         }
 
-        std::suspend_never initial_suspend() noexcept { return { }; }
-        std::suspend_never final_suspend() noexcept { return { }; }
+        std::suspend_never initial_suspend() noexcept {
+            push_coroutine();
+            return { };
+        }
+        final_awaiter final_suspend() noexcept {
+            pop_coroutine();
+            return final_awaiter(*this);
+        }
 
         virtual void run_and_dispose() noexcept override {
+            push_coroutine();
             auto handle = std::coroutine_handle<promise_type>::from_promise(*this);
             handle.resume();
         }
@@ -219,6 +369,9 @@ public:
 
     template<typename U>
     void await_suspend(std::coroutine_handle<U> hndl) noexcept {
+        if constexpr (std::is_base_of_v<coroutine_promise_base, std::remove_cvref_t<decltype(hndl.promise())>>) {
+            hndl.promise().pop_coroutine();
+        }
         if (!CheckPreempt || !_future.available()) {
             _future.set_coroutine(hndl.promise());
         } else {

@@ -37,6 +37,7 @@
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/exception.hh>
 #include <seastar/coroutine/try_future.hh>
+#include <seastar/coroutine/finally.hh>
 #include <seastar/testing/random.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/util/defer.hh>
@@ -945,4 +946,177 @@ SEASTAR_TEST_CASE(test_try_future) {
     co_await run_try_future_test<false>(return_int, 128);
     co_await run_try_future_test<true>(return_ex_int, std::nullopt);
     co_await run_try_future_test<false>(return_ex_int, std::nullopt);
+}
+
+class scope_canary {
+    bool* _flag{nullptr};
+public:
+    scope_canary(bool& flag)
+        : _flag(&flag) { }
+    scope_canary(scope_canary&& c) : _flag(std::exchange(c._flag, nullptr)) { }
+    scope_canary(const scope_canary&) = delete;
+    scope_canary& operator=(const scope_canary&) = delete;
+    scope_canary& operator=(scope_canary&&) = delete;
+    ~scope_canary() {
+        if (_flag) {
+            *_flag = true;
+        }
+    }
+};
+
+struct coroutine_exception : public std::exception {
+    const char* what() const noexcept override {
+        return "exception from coroutine";
+    }
+};
+
+struct finally_exception : public std::exception {
+    const char* what() const noexcept override {
+        return "exception from finally";
+    }
+};
+
+using coroutine_throws_exception = seastar::bool_class<struct coroutine_throws_tag>;
+using finally_throws_exception = seastar::bool_class<struct finally_throws_tag>;
+
+template <typename R, typename Func>
+future<R> finally_coroutine(scope_canary c, coroutine_throws_exception throws, std::list<Func> funcs) {
+    coroutine::finally(std::move(funcs.front()));
+    funcs.pop_front();
+
+    co_await yield();
+
+    while (!funcs.empty()) {
+        coroutine::finally(std::move(funcs.front()));
+        funcs.pop_front();
+        co_await yield();
+    }
+
+    if (throws) {
+        fmt::print("  finally_coroutine(): throw\n");
+        throw coroutine_exception{};
+    }
+    fmt::print("  finally_coroutine(): return\n");
+
+    if constexpr (std::is_void_v<R>) {
+        co_return;
+    } else {
+        co_return R{};
+    }
+}
+
+struct finally_func_result {
+    bool called;
+    std::exception_ptr ex;
+};
+
+class basic_finally_func_instance {
+protected:
+    finally_func_result& _result;
+    const finally_throws_exception _throws;
+
+    future<> invoke(std::exception_ptr ex) {
+        _result.ex = std::move(ex);
+        return yield().then([&] {
+            _result.called = true;
+            if (_throws) {
+                fmt::print("  func in finally throws\n");
+                throw finally_exception{};
+            }
+        });
+    }
+
+public:
+    explicit basic_finally_func_instance(finally_func_result& result, finally_throws_exception throws) : _result(result), _throws(throws) { }
+};
+
+template <bool TakesException>
+class finally_func_instance : public basic_finally_func_instance { };
+
+template <>
+class finally_func_instance<true> : public basic_finally_func_instance {
+public:
+    finally_func_instance(finally_func_result& result, finally_throws_exception throws) : basic_finally_func_instance(result, throws) { }
+    future<> operator() (std::exception_ptr ex) {
+        return this->invoke(std::move(ex));
+    }
+};
+
+template <>
+class finally_func_instance<false> : public basic_finally_func_instance {
+public:
+    finally_func_instance(finally_func_result& result, finally_throws_exception throws) : basic_finally_func_instance(result, throws) { }
+    future<> operator() () {
+        return this->invoke(nullptr);
+    }
+};
+
+template <typename R, bool FuncTakesException>
+class finally_tester {
+    future<> do_run(size_t num_finally_functions, coroutine_throws_exception coroutine_throws, finally_throws_exception finally_throws, std::source_location sl) {
+        fmt::print("finally_tester<{}, {}>::do_run(num_finally_functions={}, coroutine_throws={}, finally_throws={}) at {}:{}\n", typeid(R).name(), FuncTakesException, num_finally_functions, coroutine_throws, finally_throws, sl.file_name(), sl.line());
+
+        bool scope_canary_destroyed = false;
+
+        std::vector<finally_func_result> results(num_finally_functions);
+        std::list<finally_func_instance<FuncTakesException>> finally_funcs;
+        for (auto& result : results) {
+            finally_funcs.emplace_back(result, finally_throws);
+        }
+
+        auto f = co_await coroutine::as_future(finally_coroutine<R>(scope_canary{scope_canary_destroyed}, coroutine_throws, std::move(finally_funcs)));
+
+        if (f.failed()) {
+            auto ex = f.get_exception();
+            fmt::print("  coroutine returned exception: {}\n", ex);
+
+            BOOST_REQUIRE(coroutine_throws || finally_throws);
+            if (coroutine_throws && finally_throws) {
+                BOOST_REQUIRE_THROW(std::rethrow_exception(ex), seastar::nested_exception);
+            } else if (coroutine_throws) {
+                BOOST_REQUIRE_THROW(std::rethrow_exception(ex), coroutine_exception);
+            } else {
+                if (results.size() == 1) {
+                    BOOST_REQUIRE_THROW(std::rethrow_exception(ex), finally_exception);
+                } else {
+                    BOOST_REQUIRE_THROW(std::rethrow_exception(ex), seastar::nested_exception);
+                }
+            }
+        } else {
+            f.ignore_ready_future();
+        }
+
+        BOOST_REQUIRE(scope_canary_destroyed);
+
+        for (const auto& result : results) {
+            BOOST_REQUIRE(result.called);
+            BOOST_REQUIRE_EQUAL(bool(result.ex), FuncTakesException && bool(coroutine_throws));
+            if (result.ex) {
+                BOOST_REQUIRE_THROW(std::rethrow_exception(result.ex), coroutine_exception);
+            }
+        }
+    }
+
+public:
+    future<> operator()(std::source_location sl = std::source_location::current()) {
+        for (size_t i = 1; i < 4; ++i) {
+            co_await do_run(i, coroutine_throws_exception::no,  finally_throws_exception::no,  sl);
+            co_await do_run(i, coroutine_throws_exception::no,  finally_throws_exception::yes, sl);
+            co_await do_run(i, coroutine_throws_exception::yes, finally_throws_exception::no,  sl);
+            co_await do_run(i, coroutine_throws_exception::yes, finally_throws_exception::yes, sl);
+        }
+    }
+};
+
+SEASTAR_TEST_CASE(test_finally_invoked_outside_of_coroutine) {
+    BOOST_REQUIRE_THROW(coroutine::finally([] { return make_ready_future<>(); }), std::logic_error);
+
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_finally) {
+    co_await finally_tester<void, false>{}();
+    co_await finally_tester<void, true>{}();
+    co_await finally_tester<int, false>{}();
+    co_await finally_tester<int, true>{}();
 }
