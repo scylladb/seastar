@@ -2627,15 +2627,14 @@ void reactor::register_metrics() {
 
 seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::internal::log_buf::inserter_iterator it, const reactor::task_queue& tq) {
     memory::scoped_critical_alloc_section _;
-    std::unordered_map<const char*, unsigned> infos;
+    std::unordered_map<task_entry, unsigned> infos;
     for (const auto& tp : tq._q) {
-        const std::type_info& ti = typeid(*tp);
-        auto [ it, ins ] = infos.emplace(std::make_pair(ti.name(), 0u));
+        auto [ it, ins ] = infos.emplace(tp->symbol(), 0u);
         it->second++;
     }
     it = fmt::format_to(it, "Too long queue accumulated for {} ({} tasks)\n", tq._name, tq._q.size());
-    for (auto& ti : infos) {
-        it = fmt::format_to(it, " {}: {}\n", ti.second, ti.first);
+    for (const auto& [e, count] : infos) {
+        it = fmt::format_to(it, " {}: {}\n", count, e);
     }
     return it;
 }
@@ -2658,7 +2657,8 @@ bool reactor::task_queue::run_tasks() {
         ++r._global_tasks_processed;
         // check at end of loop, to allow at least one task to run
         if (internal::scheduler_need_preempt()) {
-            if (_q.size() <= r._cfg.max_task_backlog) {
+            // if (_q.size() <= r._cfg.max_task_backlog) {
+            if (_q.size() <= 10) {
                 break;
             } else {
                 // While need_preempt() is set, task execution is inefficient due to
@@ -5357,5 +5357,10 @@ void task::make_backtrace() noexcept {
 }
 
 #endif
+
+void* task::symbol() const {
+    // In the Itanium C++ ABI (Linux/GCC/Clang), the vptr is at offset 0.
+    return *reinterpret_cast<void* const*>(this);
+}
 
 }

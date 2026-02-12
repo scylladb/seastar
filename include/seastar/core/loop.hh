@@ -534,6 +534,7 @@ class parallel_for_each_state final : private continuation_base<> {
     std::vector<future<>> _incomplete;
     promise<> _result;
     std::exception_ptr _ex;
+    void* _symbol;
 private:
     // Wait for one of the futures in _incomplete to complete, and then
     // decide what to do: wait for another one, or deliver _result if all
@@ -541,8 +542,9 @@ private:
     void wait_for_one() noexcept;
     virtual void run_and_dispose() noexcept override;
     task* waiting_task() noexcept override { return _result.waiting_task(); }
+    void* symbol() const override { return _symbol; }
 public:
-    parallel_for_each_state(size_t n);
+    parallel_for_each_state(size_t n, void* symbol);
     void add_future(future<>&& f);
     future<> get_future();
 };
@@ -593,7 +595,7 @@ parallel_for_each(Iterator begin, Sentinel end, Func&& func) noexcept {
                     // does not have 'iterator_category' as member type
                     n = (internal::iterator_range_estimate_vector_capacity(begin, end) + 1);
                 }
-                s = new parallel_for_each_state(n);
+                s = new parallel_for_each_state(n, reinterpret_cast<void*>(&parallel_for_each<Iterator, Sentinel, Func>));
             }
             s->add_future(std::move(f));
         }

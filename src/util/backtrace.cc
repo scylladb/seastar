@@ -128,7 +128,7 @@ std::ostream& operator<<(std::ostream& out, const tasktrace& b) {
 }
 
 std::ostream& operator<<(std::ostream& out, const task_entry& e) {
-    fmt::print(out, "{}", e);
+    fmt::print(out, "{}", e.get_frame());
     return out;
 }
 
@@ -152,10 +152,10 @@ tasktrace current_tasktrace() noexcept {
             hash *= 31;
             if (bt) {
                 hash ^= bt->hash();
-                prev.push_back(bt);
+                prev.emplace_back(bt);
             } else {
                 const std::type_info& ti = typeid(*tsk);
-                prev.push_back(task_entry(ti));
+                prev.emplace_back(tsk->symbol());
                 hash ^= ti.hash_code();
             }
             tsk = tsk->waiting_task();
@@ -219,7 +219,7 @@ auto formatter<seastar::tasktrace>::format(const seastar::tasktrace& b, format_c
 
 auto formatter<seastar::task_entry>::format(const seastar::task_entry& e, format_context& ctx) const
     -> decltype(ctx.out()) {
-    return fmt::format_to(ctx.out(), "{}", seastar::pretty_type_name(*e._task_type));
+    return fmt::format_to(ctx.out(), "{}", e.get_frame());
 }
 
 }
