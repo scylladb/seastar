@@ -30,6 +30,7 @@
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
+#include <source_location>
 
 #include <seastar/core/task.hh>
 #include <seastar/core/thread_impl.hh>
@@ -1253,7 +1254,7 @@ private:
         future_base::schedule(tws, &tws->_state);
     }
     template <typename Pr, typename Func, typename Wrapper>
-    void schedule(Pr&& pr, Func&& func, Wrapper&& wrapper) noexcept {
+    void schedule(Pr&& pr, Func&& func, Wrapper&& wrapper, std::source_location sl) noexcept {
         static_assert(internal::expect_only_rvalue_refs<Func>);
         // If this new throws a std::bad_alloc there is nothing that
         // can be done about it. The corresponding future is not ready
@@ -1261,6 +1262,7 @@ private:
         // noexcept, it will call std::terminate if new throws.
         memory::scoped_critical_alloc_section _;
         auto tws = new continuation<Pr, Func, Wrapper, T>(std::move(pr), std::move(func), std::move(wrapper));
+        tws->update_resume_point(sl);
         // In a debug build we schedule ready futures, but not in
         // other build modes.
 #ifdef SEASTAR_DEBUG
@@ -1383,14 +1385,14 @@ public:
     requires std::invocable<Func, T>
                  || (std::same_as<void, T> && std::invocable<Func>)
     Result
-    then(Func&& func) noexcept {
+    then(Func&& func, std::source_location sl = std::source_location::current()) noexcept {
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
-        return then(func_to_rvalue(func));
+        return then(func_to_rvalue(func), sl);
       } else {
 #ifndef SEASTAR_TYPE_ERASE_MORE
-        return then_impl(std::move(func));
+        return then_impl(std::move(func), sl);
 #else
         using func_type = typename internal::future_result<Func, T>::func_type;
         noncopyable_function<func_type> ncf;
@@ -1400,7 +1402,7 @@ public:
                 return futurize_invoke(std::move(func), std::forward<decltype(args)>(args)...);
             });
         }
-        return then_impl(std::move(ncf));
+        return then_impl(std::move(ncf), sl);
 #endif
       }
     }
@@ -1427,14 +1429,14 @@ public:
     template <typename Func, typename Result = futurize_t<internal::result_of_apply_t<Func, T>>>
     requires ::seastar::CanApplyTuple<Func, T>
     Result
-    then_unpack(Func&& func) noexcept {
+    then_unpack(Func&& func, std::source_location sl = std::source_location::current()) noexcept {
       if constexpr (std::is_lvalue_reference_v<Func>) {
         return then_unpack(func_to_rvalue(func));
       } else {
         return then([func = std::forward<Func>(func)] (T&& tuple) mutable {
             // sizeof...(tuple) is required to be 1
             return std::apply(func, std::move(tuple));
-        });
+        }, sl);
       }
     }
 
@@ -1442,7 +1444,7 @@ private:
 
     // Keep this simple so that Named Return Value Optimization is used.
     template <typename Func, typename Result>
-    Result then_impl_nrvo(Func&& func) noexcept {
+    Result then_impl_nrvo(Func&& func, std::source_location sl) noexcept {
         using futurator = futurize<internal::future_result_t<Func, T>>;
         typename futurator::type fut(future_for_get_promise_marker{});
         using pr_type = decltype(fut.get_promise());
@@ -1457,13 +1459,13 @@ private:
                     return internal::future_invoke(std::move(func), std::move(state).get_value());
                 });
             }
-        });
+        }, sl);
         return fut;
     }
 
     template <typename Func, typename Result = futurize_t<internal::future_result_t<Func, T>>>
     Result
-    then_impl(Func&& func) noexcept {
+    then_impl(Func&& func, std::source_location sl) noexcept {
         static_assert(internal::expect_only_rvalue_refs<Func>);
 #ifndef SEASTAR_DEBUG
         using futurator = futurize<internal::future_result_t<Func, T>>;
@@ -1473,7 +1475,7 @@ private:
             return futurator::invoke(std::forward<Func>(func), get_available_state_ref().take_value());
         }
 #endif
-        return then_impl_nrvo<Func, Result>(std::forward<Func>(func));
+        return then_impl_nrvo<Func, Result>(std::forward<Func>(func), sl);
     }
 
 public:
@@ -1494,25 +1496,25 @@ public:
     ///         to the eventual value of this future.
     template <std::invocable<future> Func, typename FuncResult = std::invoke_result_t<Func, future>>
     futurize_t<FuncResult>
-    then_wrapped(Func&& func) & noexcept {
+    then_wrapped(Func&& func, std::source_location sl = std::source_location::current()) & noexcept {
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
-        return then_wrapped(func_to_rvalue(func));
+        return then_wrapped(func_to_rvalue(func), sl);
       } else {
-        return then_wrapped_maybe_erase<false, FuncResult>(std::forward<Func>(func));
+        return then_wrapped_maybe_erase<false, FuncResult>(std::forward<Func>(func), sl);
       }
     }
 
     template <std::invocable<future&&> Func, typename FuncResult = std::invoke_result_t<Func, future&&>>
     futurize_t<FuncResult>
-    then_wrapped(Func&& func) && noexcept {
+    then_wrapped(Func&& func, std::source_location sl = std::source_location::current()) && noexcept {
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
-        return std::move(*this).then_wrapped(func_to_rvalue(func));
+        return std::move(*this).then_wrapped(func_to_rvalue(func), sl);
       } else {
-        return then_wrapped_maybe_erase<true, FuncResult>(std::forward<Func>(func));
+        return then_wrapped_maybe_erase<true, FuncResult>(std::forward<Func>(func), sl);
       }
     }
 
@@ -1520,10 +1522,10 @@ private:
 
     template <bool AsSelf, typename FuncResult, typename Func>
     futurize_t<FuncResult>
-    then_wrapped_maybe_erase(Func&& func) noexcept {
+    then_wrapped_maybe_erase(Func&& func, std::source_location sl) noexcept {
         static_assert(internal::expect_only_rvalue_refs<Func>);
 #ifndef SEASTAR_TYPE_ERASE_MORE
-        return then_wrapped_common<AsSelf, FuncResult>(std::forward<Func>(func));
+        return then_wrapped_common<AsSelf, FuncResult>(std::forward<Func>(func), sl);
 #else
         using futurator = futurize<FuncResult>;
         using WrapFuncResult = typename futurator::type;
@@ -1534,14 +1536,14 @@ private:
                 return futurator::invoke(std::move(func), std::move(f));
             });
         }
-        return then_wrapped_common<AsSelf, WrapFuncResult>(std::move(ncf));
+        return then_wrapped_common<AsSelf, WrapFuncResult>(std::move(ncf), sl);
 #endif
     }
 
     // Keep this simple so that Named Return Value Optimization is used.
     template <typename FuncResult, typename Func>
     futurize_t<FuncResult>
-    then_wrapped_nrvo(Func&& func) noexcept {
+    then_wrapped_nrvo(Func&& func, std::source_location sl) noexcept {
         using futurator = futurize<FuncResult>;
         typename futurator::type fut(future_for_get_promise_marker{});
         using pr_type = decltype(fut.get_promise());
@@ -1549,14 +1551,14 @@ private:
             futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
                 return std::move(func)(future(std::move(state)));
             });
-        });
+        }, sl);
         return fut;
     }
 
 
     template <bool AsSelf, typename FuncResult, typename Func>
     futurize_t<FuncResult>
-    then_wrapped_common(Func&& func) noexcept {
+    then_wrapped_common(Func&& func, std::source_location sl) noexcept {
 #ifndef SEASTAR_DEBUG
         using futurator = futurize<FuncResult>;
         if (available()) {
@@ -1570,7 +1572,7 @@ private:
             }
         }
 #endif
-        return then_wrapped_nrvo<FuncResult, Func>(std::forward<Func>(func));
+        return then_wrapped_nrvo<FuncResult, Func>(std::forward<Func>(func), sl);
     }
 
     void forward_to(internal::promise_base_with_type<T>&& pr) noexcept {
@@ -1624,13 +1626,13 @@ public:
      * See then() for lifetime and call semantics.
      */
     template <std::invocable Func>
-    future<T> finally(Func&& func) noexcept {
+    future<T> finally(Func&& func, std::source_location sl = std::source_location::current()) noexcept {
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
-        return finally(func_to_rvalue(func));
+        return finally(func_to_rvalue(func), sl);
       } else {
-        return then_wrapped(finally_body<Func, is_future<std::invoke_result_t<Func>>::value>(std::forward<Func>(func)));
+        return then_wrapped(finally_body<Func, is_future<std::invoke_result_t<Func>>::value>(std::forward<Func>(func)), sl);
       }
     }
 
@@ -1679,24 +1681,24 @@ public:
     ///
     /// Terminates the entire program is this future resolves
     /// to an exception.  Use with caution.
-    future<> or_terminate() noexcept {
+    future<> or_terminate(std::source_location sl = std::source_location::current()) noexcept {
         return then_wrapped([] (auto&& f) {
             try {
                 f.get();
             } catch (...) {
                 engine_exit(std::current_exception());
             }
-        });
+        }, sl);
     }
 
     /// \brief Discards the value carried by this future.
     ///
     /// Converts the future into a no-value \c future<>, by
     /// ignoring any result.  Exceptions are propagated unchanged.
-    future<> discard_result() noexcept {
+    future<> discard_result(std::source_location sl = std::source_location::current()) noexcept {
         // We need the generic variadic lambda, below, because then() behaves differently
         // when value_type is when_all_succeed_tuple
-        return then([] (auto&&...) {});
+        return then([] (auto&&...) {}, sl);
     }
 
     /// \brief Handle the exception carried by this future.
@@ -1717,11 +1719,11 @@ public:
                     || (std::tuple_size_v<tuple_type> == 0 && std::is_invocable_r_v<void, Func, std::exception_ptr>)
                     || (std::tuple_size_v<tuple_type> == 1 && std::is_invocable_r_v<T, Func, std::exception_ptr>)
                     || (std::tuple_size_v<tuple_type> > 1 && std::is_invocable_r_v<tuple_type ,Func, std::exception_ptr>)
-    future<T> handle_exception(Func&& func) noexcept {
+    future<T> handle_exception(Func&& func, std::source_location sl = std::source_location::current()) noexcept {
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
-        return handle_exception(func_to_rvalue(func));
+        return handle_exception(func_to_rvalue(func), sl);
       } else {
         return then_wrapped([func = std::forward<Func>(func)]
                              (auto&& fut) mutable -> future<T> {
@@ -1730,7 +1732,7 @@ public:
             } else {
                 return futurize_invoke(func, fut.get_exception());
             }
-        });
+        }, sl);
       }
     }
 
@@ -1745,11 +1747,11 @@ public:
     /// If exception, that future holds, does not match func parameter type
     /// it is propagated as is.
     template <typename Func>
-    future<T> handle_exception_type(Func&& func) noexcept {
+    future<T> handle_exception_type(Func&& func, std::source_location sl = std::source_location::current()) noexcept {
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
-        return handle_exception_type(func_to_rvalue(func));
+        return handle_exception_type(func_to_rvalue(func), sl);
       } else {
         using trait = function_traits<Func>;
         static_assert(trait::arity == 1, "func can take only one parameter");
@@ -1761,7 +1763,7 @@ public:
             } catch(ex_type& ex) {
                 return futurize_invoke(func, ex);
             }
-        });
+        }, sl);
       }
     }
 
