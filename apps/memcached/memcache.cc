@@ -891,25 +891,33 @@ private:
     static constexpr const char *msg_out_of_memory = "SERVER_ERROR Out of memory allocating new item\r\n";
     static constexpr const char *msg_error_non_numeric_value = "CLIENT_ERROR cannot increment or decrement non-numeric value\r\n";
 private:
+    static void append(std::vector<temporary_buffer<char>>& bufs, const char* buf, size_t size) {
+        if (size) {
+            bufs.emplace_back(const_cast<char*>(buf), size, deleter());
+        }
+    }
+
+    static void append(std::vector<temporary_buffer<char>>& bufs, const char* s) { append(bufs, s, strlen(s)); }
+    static void append(std::vector<temporary_buffer<char>>& bufs, const std::string_view& s) { append(bufs, s.data(), s.size()); }
+
     template <bool WithVersion>
-    static void append_item(scattered_message<char>& msg, item_ptr item) {
+    static void serialize(std::vector<temporary_buffer<char>>& bufs, item_ptr item) {
         if (!item) {
             return;
         }
 
-        msg.append_static("VALUE ");
-        msg.append_static(item->key());
-        msg.append_static(item->ascii_prefix());
+        append(bufs, "VALUE ");
+        append(bufs, item->key());
+        append(bufs, item->ascii_prefix());
 
         if (WithVersion) {
-             msg.append_static(" ");
-             msg.append(to_sstring(item->version()));
+            append(bufs, " ");
+            bufs.emplace_back(temporary_buffer<char>::copy_of(to_sstring(item->version())));
         }
 
-        msg.append_static(msg_crlf);
-        msg.append_static(item->value());
-        msg.append_static(msg_crlf);
-        msg.on_delete([item = std::move(item)] {});
+        append(bufs, msg_crlf);
+        append(bufs, item->value());
+        bufs.emplace_back(const_cast<char*>(msg_crlf), strlen(msg_crlf), make_deleter([item = std::move(item)]{}));
     }
 
     template <bool WithVersion>
@@ -917,10 +925,9 @@ private:
         _system_stats.local()._cmd_get++;
         if (_parser._keys.size() == 1) {
             return _cache.get(_parser._keys[0]).then([&out] (auto item) -> future<> {
-                scattered_message<char> msg;
-                this_type::append_item<WithVersion>(msg, std::move(item));
-                msg.append_static(msg_end);
-                std::vector<temporary_buffer<char>> bufs = std::move(msg).release().release();
+                std::vector<temporary_buffer<char>> bufs;
+                this_type::serialize<WithVersion>(bufs, std::move(item));
+                append(bufs, msg_end);
                 return out.write(std::span<temporary_buffer<char>>(bufs));
             });
         } else {
@@ -930,12 +937,11 @@ private:
                     _items.emplace_back(std::move(item));
                 });
             }).then([this, &out] () {
-                scattered_message<char> msg;
+                std::vector<temporary_buffer<char>> bufs;
                 for (auto& item : _items) {
-                    append_item<WithVersion>(msg, std::move(item));
+                    serialize<WithVersion>(bufs, std::move(item));
                 }
-                msg.append_static(msg_end);
-                std::vector<temporary_buffer<char>> bufs = std::move(msg).release().release();
+                append(bufs, msg_end);
                 return out.write(std::span<temporary_buffer<char>>(bufs));
             });
         }
