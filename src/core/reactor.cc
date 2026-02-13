@@ -2634,14 +2634,32 @@ void reactor::register_metrics() {
 
 seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::internal::log_buf::inserter_iterator it, const reactor::task_queue& tq) {
     memory::scoped_critical_alloc_section _;
-    std::unordered_map<std::pair<std::string_view, int>, unsigned> infos;
+    std::unordered_map<std::pair<std::string_view, int>, std::pair<unsigned, task*>> infos;
     for (const auto& tp : tq._q) {
-        infos[{ tp->get_resume_point().file_name(), tp->get_resume_point().line() }]++;
+        std::string_view name = tp->get_resume_point().file_name();
+        if (name.empty()) {
+            name = typeid(*tp).name();
+        }
+        auto& [count, task] = infos[{ name, tp->get_resume_point().line() }];
+        ++count;
+        task = tp;
     }
     it = fmt::format_to(it, "Too long queue accumulated for {} ({} tasks)\n", tq._name, tq._q.size());
+    auto dump_task = [](auto it, task& task) {
+        const auto rp = task.get_resume_point();
+        const std::string_view file_name = rp.file_name();
+        return file_name.empty()
+            ? fmt::format_to(it, "{}\n", typeid(task).name())
+            : fmt::format_to(it, "{}:{}:{}\n", file_name, rp.line(), rp.column());
+    };
     for (const auto& ti : infos) {
-        auto [ file_name, line ] = ti.first;
-        it = fmt::format_to(it, " {}: {}:{}\n", ti.second, file_name, line);
+        auto [ count, task ] = ti.second;
+        it = fmt::format_to(it, " {}: ", count);
+        it = dump_task(it, *task);
+        for (auto* t = task->waiting_task(); t; t = t->waiting_task()) {
+            it = fmt::format_to(it, "        ");
+            it = dump_task(it, *t);
+        }
     }
     return it;
 }
