@@ -162,8 +162,8 @@ private:
             }, state._futures);
         }
         template <typename U>
-        void await_suspend(std::coroutine_handle<U> h, std::source_location sl = std::source_location::current()) {
-            h.promise().update_resume_point(sl);
+        void await_suspend(std::coroutine_handle<U> h SEASTAR_COROUTINE_LOC_PARAM) {
+            SEASTAR_COROUTINE_LOC_STORE(h.promise());
             when_ready = h;
             process<0>();
         }

@@ -152,8 +152,8 @@ public:
     }
 
     template<typename T>
-    void await_suspend(std::coroutine_handle<T> h, std::source_location sl = std::source_location::current()) noexcept {
-        h.promise().update_resume_point(sl);
+    void await_suspend(std::coroutine_handle<T> h SEASTAR_COROUTINE_LOC_PARAM) noexcept {
+        SEASTAR_COROUTINE_LOC_STORE(h.promise());
         _when_ready = h;
         _waiting_task = &h.promise();
         resume_or_set_callback();

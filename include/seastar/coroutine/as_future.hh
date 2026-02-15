@@ -43,8 +43,8 @@ public:
     }
 
     template<typename U>
-    void await_suspend(std::coroutine_handle<U> hndl, std::source_location sl = std::source_location::current()) noexcept {
-        hndl.promise().update_resume_point(sl);
+    void await_suspend(std::coroutine_handle<U> hndl SEASTAR_COROUTINE_LOC_PARAM) noexcept {
+        SEASTAR_COROUTINE_LOC_STORE(hndl.promise());
         if (!CheckPreempt || !_future.available()) {
             _future.set_coroutine(hndl.promise());
         } else {

@@ -70,8 +70,8 @@ public:
     }
 
     template<typename T>
-    void await_suspend(std::coroutine_handle<T> hndl, std::source_location sl = std::source_location::current()) noexcept {
-        hndl.promise().update_resume_point(sl);
+    void await_suspend(std::coroutine_handle<T> hndl SEASTAR_COROUTINE_LOC_PARAM) noexcept {
+        SEASTAR_COROUTINE_LOC_STORE(hndl.promise());
         auto& t = hndl.promise();
         t.set_scheduling_group(_switch_to_sg);
         _task = &t;
