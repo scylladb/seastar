@@ -161,7 +161,9 @@ private:
                 return (... && futures.available());
             }, state._futures);
         }
-        void await_suspend(coroutine_handle_t h) {
+        template <typename U>
+        void await_suspend(std::coroutine_handle<U> h SEASTAR_COROUTINE_LOC_PARAM) {
+            SEASTAR_COROUTINE_LOC_STORE(h.promise());
             when_ready = h;
             process<0>();
         }

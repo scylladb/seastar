@@ -56,3 +56,18 @@ using source_location
     = std::source_location;
 
 }
+
+#if defined(__GNUC__) && !defined(__clang__)
+// GCC Workaround: Strip source_location to prevent ICE during RTL expansion.
+// See: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=114675
+#define SEASTAR_COROUTINE_LOC_PARAM
+#define SEASTAR_COROUTINE_LOC_STORE(promise) (void)0
+#else
+// Standard/Clang: Capture source location naturally.
+// Includes the leading comma to mix cleanly into argument lists.
+#define SEASTAR_COROUTINE_LOC_PARAM \
+    , std::source_location sl = std::source_location::current()
+
+#define SEASTAR_COROUTINE_LOC_STORE(promise) \
+    (promise).update_resume_point(sl)
+#endif

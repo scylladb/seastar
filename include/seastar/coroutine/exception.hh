@@ -24,6 +24,7 @@
 #include <seastar/core/future.hh>
 #include <coroutine>
 #include <exception>
+#include <source_location>
 
 namespace seastar {
 
@@ -42,7 +43,8 @@ struct exception_awaiter {
     }
 
     template<typename U>
-    void await_suspend(std::coroutine_handle<U> hndl) noexcept {
+    void await_suspend(std::coroutine_handle<U> hndl SEASTAR_COROUTINE_LOC_PARAM) noexcept {
+      SEASTAR_COROUTINE_LOC_STORE(hndl.promise());
       execute_involving_handle_destruction_in_await_suspend([hndl, eptr = std::move(eptr)] () mutable {
         hndl.promise().set_exception(std::move(eptr));
         hndl.destroy();
