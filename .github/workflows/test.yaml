@@ -33,6 +33,11 @@ on:
         type: string
         default: ''
         required: false
+      test-args:
+        description: 'additional arguments passed to test.py'
+        type: string
+        default: ''
+        required: false
 
 jobs:
   test:
@@ -114,4 +119,4 @@ jobs:
 
       - name: Test
         if: ${{ ! contains(inputs.enables, 'cxx-modules') }}
-        run: ./test.py --mode=${{ inputs.mode }}
+        run: ./test.py --mode=${{ inputs.mode }} ${{ inputs.test-args }}

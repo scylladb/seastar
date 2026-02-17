@@ -17,26 +17,15 @@
 #
 
 #
-# Copyright (C) 2018 Scylladb, Ltd.
+# Copyright (C) 2026 Redpanda Data.
 #
 
-function (seastar_jenkins_arguments test_name var)
-  string (TOLOWER ${CMAKE_BUILD_TYPE} mode)
-  set (output_file "${CMAKE_SOURCE_DIR}/${Seastar_JENKINS}.${mode}.${test_name}_test.boost.xml")
-
-  set (${var}
-    --output_format=XML
-    --log_level=all
-    --report_level=no
-    --log_sink=${output_file}
-    PARENT_SCOPE)
-endfunction ()
-
-# Performance tests.
-add_subdirectory (perf)
-
-# Unit tests.
-add_subdirectory (unit)
-
-# Fuzz tests.
-add_subdirectory (fuzz)
+#
+# sstring fuzzer (only when using custom sstring, not std::string)
+#
+if (Seastar_SSTRING)
+  seastar_add_test (sstring
+    KIND FUZZ
+    SOURCES sstring_fuzz.cc
+    RUN_ARGS -max_len=100)
+endif ()

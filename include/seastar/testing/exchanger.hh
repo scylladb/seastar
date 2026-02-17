@@ -31,8 +31,6 @@ namespace testing {
 
 class exchanger_base {
 protected:
-    exchanger_base();
-    ~exchanger_base();
     std::mutex _mutex;
     std::condition_variable _cv;
     std::exception_ptr _exception;

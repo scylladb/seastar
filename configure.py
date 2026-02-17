@@ -257,7 +257,7 @@ MODES = seastar_cmake.SUPPORTED_MODES if args.mode == 'all' else [args.mode]
 # For convenience.
 tr = seastar_cmake.translate_arg
 
-MODE_TO_CMAKE_BUILD_TYPE = {'release': 'RelWithDebInfo', 'debug': 'Debug', 'dev': 'Dev', 'sanitize': 'Sanitize' }
+MODE_TO_CMAKE_BUILD_TYPE = {'release': 'RelWithDebInfo', 'debug': 'Debug', 'dev': 'Dev', 'sanitize': 'Sanitize', 'fuzz': 'Fuzz'}
 
 
 def get_valid_ingredients():
