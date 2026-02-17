@@ -1046,12 +1046,11 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
     : _smp(std::move(smp))
     , _alien(alien)
     , _cfg(std::move(cfg))
-    , _notify_eventfd(file_desc::eventfd(0, EFD_CLOEXEC))
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _id(id)
     , _cpu_stall_detector(internal::make_cpu_stall_detector())
     , _cpu_sched(nullptr, 0)
-    , _thread_pool(std::make_unique<thread_pool>(seastar::format("syscall-{}", id), _notify_eventfd)) {
+    , _thread_pool(std::make_unique<thread_pool>(seastar::format("syscall-{}", id), _notify)) {
     /*
      * The _backend assignment is here, not on the initialization list as
      * the chosen backend constructor may want to handle signals and thus
@@ -2990,10 +2989,7 @@ reactor::wakeup() {
 
     // We are free to clear it, because we're sending a signal now
     _sleeping.store(false, std::memory_order_relaxed);
-
-    uint64_t one = 1;
-    auto res = ::write(_notify_eventfd.get(), &one, sizeof(one));
-    SEASTAR_ASSERT(res == sizeof(one) && "write(2) failed on _reactor._notify_eventfd");
+    _notify.signal(1);
 }
 
 void reactor::start_aio_eventfd_loop() {
@@ -3770,6 +3766,11 @@ void writeable_eventfd::signal(size_t count) {
     uint64_t c = count;
     auto r = _fd.write(&c, sizeof(c));
     SEASTAR_ASSERT(r == sizeof(c));
+}
+
+std::optional<size_t> writeable_eventfd::consume() {
+    uint64_t c;
+    return _fd.read(&c, sizeof(c));
 }
 
 writeable_eventfd readable_eventfd::write_side() {
