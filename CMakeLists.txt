@@ -228,6 +228,12 @@ set (Seastar_CXX_FLAGS
   STRING
   "Semicolon-separated list of extra compilation flags for Seastar itself.")
 
+set (Seastar_SOURCE_SUBDIR
+  ""
+  CACHE
+  STRING
+  "When non-empty, add -ffile-prefix-map rules so that gdb can resolve Seastar sources. Set to the path of the Seastar source tree relative to the consumer project root (e.g. 'seastar/'). The rules map CMAKE_CURRENT_BINARY_DIR to '.' and paths under it to this subdir, and are appended after Seastar_CXX_FLAGS so they take precedence over any broader -ffile-prefix-map rule.")
+
 option (Seastar_DEMOS
   "Enable demonstration targets."
   ${Seastar_MASTER_PROJECT})
@@ -970,6 +976,25 @@ target_compile_definitions (seastar
 
 if (Seastar_CXX_FLAGS)
   list (APPEND Seastar_PRIVATE_CXX_FLAGS ${Seastar_CXX_FLAGS})
+endif ()
+
+# When the consumer specifies Seastar_SOURCE_SUBDIR, add -ffile-prefix-map
+# rules so that gdb can resolve Seastar sources correctly.
+#
+# Without these rules, a broader -ffile-prefix-map=<project_root>=. (typically
+# passed via Seastar_CXX_FLAGS) maps CMAKE_CURRENT_BINARY_DIR to a relative
+# build path (e.g. ./build/dev/seastar).  GDB then concatenates that with the
+# source-relative DW_AT_name and looks for a non-existent path like
+# ./build/dev/seastar/./seastar/src/core/reactor_backend.cc.
+#
+# Rule 1 maps the build dir itself to ".", fixing DW_AT_comp_dir.
+# Rule 2 maps paths *under* the build dir (generated sources) to the subdir.
+# Both rules must appear AFTER Seastar_CXX_FLAGS because both GCC and clang
+# apply the last matching -ffile-prefix-map rule.
+if (Seastar_SOURCE_SUBDIR)
+  list (APPEND Seastar_PRIVATE_CXX_FLAGS
+    -ffile-prefix-map=${CMAKE_CURRENT_BINARY_DIR}=.
+    -ffile-prefix-map=${CMAKE_CURRENT_BINARY_DIR}/=${Seastar_SOURCE_SUBDIR})
 endif ()
 
 # When using split dwarf --gdb-index is effectively required since
