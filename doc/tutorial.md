@@ -583,6 +583,45 @@ seastar::future<int> exception_propagating() {
 }
 ```
 
+## At exit clauses in coroutines
+
+In seastar continuation-based asynchronous programming, there were `finally()` and `then_wrapped()` methods available to do asynchronous cleanup.
+In coroutines, achiving the same is surprisingly difficult, due to the fact that one cannot `co_await` in a `catch` block.
+This usually resulted in code like this:
+```cpp
+seastar::future<> foo() {
+    std::exception_ptr ex;
+    try {
+        // do things that might throw
+    } catch (...) {
+        ex = std::current_exception();
+    }
+
+    // do cleanup that might co_await
+
+    if (ex) {
+        std::rethrow_exception(ex);
+    }
+}
+```
+
+`coroutine::at_coroutine_exit` is a facility to make this easier.
+It takes a lambda that is scheduled to run right after the coroutine body finishes, regardless of whether it finished normally or exceptionally.
+Example:
+
+```cpp
+seastar::future<> foo() {
+    coroutine::at_coroutine_exit([] {
+        // do cleanup that might co_await
+    });
+
+    // do things that might throw
+}
+```
+
+The lambda passed to `coroutine::at_coroutine_exit` will be run when the coroutine frame is still live, so capturing variables by references is allowed.
+Optionally, the lambda can take a `std::exception_ptr` parameter, which will be passed the exception if the coroutine body threw, or `nullptr` if it finished normally.
+
 ## Concurrency in coroutines
 
 The `co_await` operator allows for simple sequential execution. Multiple coroutines can execute in parallel, but each coroutine has only one outstanding computation at a time.

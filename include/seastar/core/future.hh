@@ -849,6 +849,10 @@ public:
     /// but expands to less code.
     void set_to_current_exception() noexcept;
 
+    std::exception_ptr get_exception() const noexcept {
+        return _state && _state->failed() ? _state->get_exception() : std::exception_ptr();
+    }
+
     /// Returns the task which is waiting for this promise to resolve, or nullptr.
     task* waiting_task() const noexcept { return _task; }
 };
@@ -900,6 +904,10 @@ public:
     /// but expands to less code.
     void set_to_current_exception() noexcept {
         internal::promise_base::set_to_current_exception();
+    }
+
+    std::exception_ptr get_exception() const noexcept {
+        return internal::promise_base::get_exception();
     }
 
     /// Returns the task which is waiting for this promise to resolve, or nullptr.
@@ -1006,6 +1014,10 @@ public:
     }
 
     using internal::promise_base_with_type<T>::set_urgent_state;
+
+    std::exception_ptr get_exception() const noexcept {
+        return internal::promise_base::get_exception();
+    }
 
     template <typename U>
     friend class future;
