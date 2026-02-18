@@ -27,8 +27,8 @@ check_stat_and_exit()
 rollback()
 {
     echo "Binding $NIC($BDF) back to $DRIVER..."
-    $SCRIPTS_DIR/dpdk_nic_bind.py -u $BDF
-    $SCRIPTS_DIR/dpdk_nic_bind.py -b $DRIVER $BDF
+    $DPDK_DEVBIND -u $BDF
+    $DPDK_DEVBIND -b $DRIVER $BDF
 }
 
 check_stat_and_rollback()
@@ -50,7 +50,8 @@ NIC=$1
 shift
 NUM_HUGE_PAGES_PER_NODE=$1
 shift
-SCRIPTS_DIR=`dirname $0`
+SOURCE_DIR=$(readlink -f $(dirname "$0")/..)
+DPDK_DEVBIND=$SOURCE_DIR/dpdk/usertools/dpdk-devbind.py
 
 
 ifconfig $NIC down
@@ -63,9 +64,9 @@ BDF=`ethtool -i $NIC | grep bus-info | cut -d":" -f2- |  tr -d ' '`
 CMD=$@
 
 echo "Binding $NIC($BDF) to uio_pci_generic..."
-$SCRIPTS_DIR/dpdk_nic_bind.py -u $BDF
+$DPDK_DEVBIND -u $BDF
 check_stat_and_exit
-$SCRIPTS_DIR/dpdk_nic_bind.py -b uio_pci_generic $BDF
+$DPDK_DEVBIND -b uio_pci_generic $BDF
 check_stat_and_rollback
 
 echo "Allocating $NUM_HUGE_PAGES_PER_NODE 2MB huge pages on each NUMA Node:"
