@@ -91,6 +91,8 @@ if (Sanitizers_FOUND)
           INTERFACE_LINK_LIBRARIES "${Sanitizers_${COMPONENT}_COMPILE_OPTIONS}")
     endif ()
   endforeach ()
+  target_compile_options(${library} INTERFACE "-fno-sanitize-recover=all")
+  target_link_libraries(${library} INTERFACE "-fno-sanitize-recover=all")
 endif ()
 
 cmake_policy (POP)
