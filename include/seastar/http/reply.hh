@@ -276,6 +276,27 @@ struct reply {
     }
 
     /*!
+     * \brief use an output stream to write the message body without setting Content-Type
+     *
+     * Same as write_body(content_type, body_writer) but does not set the Content-Type header.
+     * Useful when the caller wants to control Content-Type separately or omit it entirely.
+     */
+    void write_body(http::body_writer_type&& body_writer);
+
+    /*!
+     * \brief use an output stream to write the message body without setting Content-Type
+     *
+     * Template wrapper that auto-closes the stream after the writer resolves.
+     */
+    template <typename W>
+    requires std::is_invocable_r_v<future<>, W, output_stream<char>&>
+    void write_body(W&& body_writer) {
+        write_body([body_writer = std::move(body_writer)] (output_stream<char>&& out) mutable -> future<> {
+            return util::write_to_stream_and_close(std::move(out), std::move(body_writer));
+        });
+    }
+
+    /*!
      * \brief Write a string as the reply
      *
      * \param content_type - is used to choose the content type of the body. Use the file extension
@@ -285,6 +306,14 @@ struct reply {
      * with any additional information that is needed to send the message.
      */
     void write_body(const sstring& content_type, sstring content);
+
+    /*!
+     * \brief Write a string as the reply without setting Content-Type
+     *
+     * Same as write_body(content_type, content) but does not set the Content-Type header.
+     * Useful when the caller wants to control Content-Type separately or omit it entirely.
+     */
+    void write_body(sstring content);
 
     // RFC7231 Sec. 4.3.2
     // For HEAD replies collect everything from the handler, but don't write the body itself
