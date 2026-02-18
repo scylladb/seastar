@@ -881,6 +881,185 @@ SEASTAR_TEST_CASE(content_length_limit) {
     });
 }
 
+// Test the set_request_timeout() parameter of the http server.
+// This tests a simple case: The client opens the connection but doesn't send
+// any request. The server should close the connection after the timeout.
+SEASTAR_TEST_CASE(http_server_request_timeout_1) {
+    loopback_connection_factory lcf(1);
+    http_server server("test");
+    // Set a very short request timeout, so the test runs quickly
+    // and reaches this timeout.
+    server.set_request_timeout(std::chrono::milliseconds(100));
+    loopback_socket_impl lsi(lcf);
+    httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+    server._routes.put(GET, "/test", new json_test_handler(json::stream_object("hello")));
+    co_await server.do_accepts(0);
+    // Connect to the server:
+    connected_socket c_socket = co_await lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr()));
+    // Without sending any request, sleep for a while, more than the
+    // configured request_timeout of 100 milliseconds.
+    co_await sleep(std::chrono::milliseconds(500));
+    // Because the server should have closed the connection, an attempt to
+    // write a request now should result in an error. We expect a broken pipe
+    // exception to be thrown by write(), flush() or close().
+    output_stream<char> output(c_socket.output());
+    bool success = false;
+    try {
+        co_await output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\n\r\n"));
+        co_await output.flush();
+        co_await output.close();
+        fmt::print("Didn't get the expected exception\n");
+    } catch (const std::system_error& ex) {
+        fmt::print("caught exception (as expected): {}\n", ex);
+        if (ex.code().value() == EPIPE) {
+            success = true;
+        }
+    } catch (...) {
+        fmt::print("Expected a system_error exception got {}", std::current_exception());
+    }
+    co_await server.stop();
+    BOOST_REQUIRE_EQUAL(success, true);
+}
+
+// A second test for the set_request_timeout() parameter of the http server.
+// In this case, opens the connection and starts to send a request, but never
+// completes it. The server should close the connection after a timeout.
+SEASTAR_TEST_CASE(http_server_request_timeout_2) {
+    loopback_connection_factory lcf(1);
+    http_server server("test");
+    server.set_request_timeout(std::chrono::milliseconds(100));
+    loopback_socket_impl lsi(lcf);
+    httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+    server._routes.put(GET, "/test", new json_test_handler(json::stream_object("hello")));
+    co_await server.do_accepts(0);
+    connected_socket c_socket = co_await lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr()));
+    output_stream<char> output(c_socket.output());
+    // Send incomplete request, and sleep more than the read timeout:
+    co_await output.write(sstring("GET "));
+    co_await output.flush();
+    co_await sleep(std::chrono::milliseconds(500));
+    // Because the server should have closed the connection, an attempt to
+    // write the rest of the request now should result in an error.
+    bool success = false;
+    try {
+        co_await output.write(sstring("/test HTTP/1.1\r\nHost: test\r\n\r\n"));
+        co_await output.flush();
+        co_await output.close();
+        fmt::print("Didn't get the expected exception\n");
+    } catch (const std::system_error& ex) {
+        fmt::print("caught exception (as expected): {}\n", ex);
+        if (ex.code().value() == EPIPE) {
+            success = true;
+        }
+    } catch (...) {
+        fmt::print("Expected a system_error exception got {}", std::current_exception());
+    }
+    co_await server.stop();
+    BOOST_REQUIRE_EQUAL(success, true);
+}
+
+// A third test for the set_request_timeout() parameter of the http server.
+// In this case, the first requests completes normally, the connection is
+// kept alive and then no further request is sent so the server should close
+// the connection after a timeout.
+SEASTAR_TEST_CASE(http_server_request_timeout_3) {
+    loopback_connection_factory lcf(1);
+    http_server server("test");
+    server.set_request_timeout(std::chrono::milliseconds(100));
+    loopback_socket_impl lsi(lcf);
+    httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+    server._routes.put(GET, "/test", new json_test_handler(json::stream_object("hello")));
+    co_await server.do_accepts(0);
+    connected_socket c_socket = co_await lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr()));
+    output_stream<char> output(c_socket.output());
+    input_stream<char> input(c_socket.input());
+    // Send a request and get a response:
+    co_await output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\n\r\n"));
+    co_await output.flush();
+    auto resp = co_await input.read();
+    BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("200 OK"), std::string::npos);
+    // The connection should be kept alive, so we can send a second request:
+    co_await output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\n\r\n"));
+    co_await output.flush();
+    resp = co_await input.read();
+    BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("200 OK"), std::string::npos);
+    // But if we sleep more than the request_timeout, the connection will be
+    // killed and we can't send a third request:
+    co_await sleep(std::chrono::milliseconds(500));
+    bool success = false;
+    try {
+        co_await output.write(sstring("/test HTTP/1.1\r\nHost: test\r\n\r\n"));
+        co_await output.flush();
+        co_await output.close();
+        co_await input.close();
+        fmt::print("Didn't get the expected exception\n");
+    } catch (const std::system_error& ex) {
+        fmt::print("caught exception (as expected): {}\n", ex);
+        if (ex.code().value() == EPIPE) {
+            success = true;
+        }
+    } catch (...) {
+        fmt::print("Expected a system_error exception got {}", std::current_exception());
+    }
+    co_await server.stop();
+    BOOST_REQUIRE_EQUAL(success, true);
+}
+
+// A fourth test for the set_request_timeout() parameter of the http server.
+// We verify that the timeout is really applied the time of a single request
+// and not to something else like the entire connection or the time until the
+// next successful read.
+SEASTAR_TEST_CASE(http_server_request_timeout_4) {
+    loopback_connection_factory lcf(1);
+    http_server server("test");
+    server.set_request_timeout(std::chrono::milliseconds(100));
+    loopback_socket_impl lsi(lcf);
+    httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+    server._routes.put(GET, "/test", new json_test_handler(json::stream_object("hello")));
+    co_await server.do_accepts(0);
+    connected_socket c_socket = co_await lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr()));
+    output_stream<char> output(c_socket.output());
+    input_stream<char> input(c_socket.input());
+    sstring full_request("GET /test HTTP/1.1\r\nHost: test\r\n\r\n");
+    // 1. Verify that if we trickle the request a byte at a time with the
+    //    time passing between each byte lower than the timeout, the request
+    //    still times out when it hasn't been fully received in time.
+    bool success1 = false;
+    try {
+        for (size_t i = 0; i < full_request.size(); i++) {
+            co_await output.write(sstring(&full_request[i], 1));
+            co_await output.flush();
+            co_await sleep(std::chrono::milliseconds(10));
+        }
+        fmt::print("Didn't get the expected exception\n");
+    } catch (const std::system_error& ex) {
+        fmt::print("caught exception (as expected): {}\n", ex);
+        if (ex.code().value() == EPIPE) {
+            success1 = true;
+        }
+    } catch (...) {
+        fmt::print("Expected a system_error exception got {}", std::current_exception());
+    }
+    // 2. On the other hand verify that if we loop sending requests with
+    //    time less than the timeout between each request, we can do this
+    //    for longer than the timeout. In other words the timeout doesn't
+    //    apply to an entire connection, just to a single request.
+    auto new_socket = co_await lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr()));
+    auto new_output = new_socket.output();
+    auto new_input = new_socket.input();
+    for (size_t i = 0; i < 20; i++) { // 20 times 10ms = 200ms > 100ms timeout
+        // each of these requests should succeed
+        co_await new_output.write(full_request);
+        co_await new_output.flush();
+        auto resp = co_await new_input.read();
+        BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("200 OK"), std::string::npos);
+        co_await sleep(std::chrono::milliseconds(10));
+    }
+    co_await new_output.close();
+    co_await server.stop();
+    BOOST_REQUIRE_EQUAL(success1, true);
+}
+
 SEASTAR_TEST_CASE(test_client_unexpected_reply_status) {
     return seastar::async([] {
         class handl : public httpd::handler_base {
