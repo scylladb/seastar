@@ -199,6 +199,27 @@ BOOST_AUTO_TEST_CASE(test_append) {
     BOOST_REQUIRE_EQUAL(sstring("aba").append("1234", 0), "aba");
 }
 
+BOOST_AUTO_TEST_CASE(test_push_back) {
+    {
+        // append in internal storage
+        basic_sstring<char, uint32_t, 15> s("0123456789");
+        s.push_back('a');
+        BOOST_REQUIRE_EQUAL(s, "0123456789a");
+    }
+    {
+        // append causing spilling to external storage
+        basic_sstring<char, uint32_t, 15> s("0123456789abcde");
+        s.push_back('f');
+        BOOST_REQUIRE_EQUAL(s, "0123456789abcdef");
+    }
+    {
+        // append with external storage
+        basic_sstring<char, uint32_t, 15> s("0123456789abcdef");
+        s.push_back('g');
+        BOOST_REQUIRE_EQUAL(s, "0123456789abcdefg");
+    }
+}
+
 BOOST_AUTO_TEST_CASE(test_replace) {
     BOOST_REQUIRE_EQUAL(sstring("abc").replace(1,1, "xyz", 1), "axc");
     BOOST_REQUIRE_EQUAL(sstring("abc").replace(3,2, "xyz", 2), "abcxy");
