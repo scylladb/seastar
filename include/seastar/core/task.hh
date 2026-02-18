@@ -36,6 +36,8 @@ private:
     shared_backtrace _bt;
 #endif
 protected:
+    task(task&&) noexcept = default;
+
     // Task destruction is performed by run_and_dispose() via a concrete type,
     // so no need for a virtual destructor here. Derived classes that implement
     // run_and_dispose() should be declared final to avoid losing concrete type
