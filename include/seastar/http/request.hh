@@ -46,7 +46,7 @@ namespace seastar {
 
 namespace http {
 
-namespace experimental { class connection; }
+class connection;
 
 /**
  * A request received from a client.
@@ -416,7 +416,7 @@ public:
     future<> write_request_headers(output_stream<char>& out) const;
 private:
     void add_query_param(std::string_view param);
-    friend class experimental::connection;
+    friend class connection;
 };
 
 namespace internal {
