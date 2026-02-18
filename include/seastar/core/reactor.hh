@@ -519,7 +519,9 @@ public:
     // FIXME: reuseport currently leads to heavy load imbalance.
     // Until we fix that, just disable it unconditionally.
     bool posix_reuseport_available() const { return false; }
+    bool posix_sock_need_nonblock() const;
 
+    [[deprecated("Internal reactor function, consider using net sockets")]]
     pollable_fd make_pollable_fd(socket_address sa, int proto);
 
     [[deprecated("Internal reactor function, consider using seastar::connect)")]]

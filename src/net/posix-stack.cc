@@ -469,6 +469,7 @@ class posix_socket_impl final : public socket_impl {
     pollable_fd _fd;
     std::pmr::polymorphic_allocator<char>* _allocator;
     bool _reuseaddr = false;
+    const int _sock_flags;
 
     future<> find_port_and_connect(socket_address sa, socket_address local, transport proto = transport::TCP) {
         static thread_local std::default_random_engine random_engine{std::random_device{}()};
@@ -479,7 +480,7 @@ class posix_socket_impl final : public socket_impl {
         }
         resolve_outgoing_address(sa);
         return repeat([this, sa, local, proto, attempts = 0, requested_port = ntoh(local.as_posix_sockaddr_in().sin_port)] () mutable {
-            _fd = engine().make_pollable_fd(sa, int(proto));
+            _fd = file_desc::socket(sa.u.sa.sa_family, _sock_flags, int(proto));
             _fd.get_file_desc().setsockopt(SOL_SOCKET, SO_REUSEADDR, int(_reuseaddr));
             uint16_t port = attempts++ < 5 && requested_port == 0 && proto == transport::TCP ? u(random_engine) * smp::count + this_shard_id() : requested_port;
             local.as_posix_sockaddr_in().sin_port = hton(port);
@@ -504,7 +505,7 @@ class posix_socket_impl final : public socket_impl {
             local = socket_address{unix_domain_addr{std::string{}}};
         }
 
-        _fd = engine().make_pollable_fd(sa, 0);
+        _fd = file_desc::socket(sa.u.sa.sa_family, _sock_flags, 0);
         return internal::posix_connect(_fd, sa, local).then(
             [fd = _fd, allocator = _allocator](){
                 // a problem with 'private' interaction with 'unique_ptr'
@@ -515,7 +516,10 @@ class posix_socket_impl final : public socket_impl {
     }
 
 public:
-    explicit posix_socket_impl(std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _allocator(allocator) {}
+    posix_socket_impl(bool need_nonblock, std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator)
+            : _allocator(allocator)
+            , _sock_flags(SOCK_STREAM | SOCK_CLOEXEC | (need_nonblock ? SOCK_NONBLOCK : 0))
+    {}
 
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
         if (sa.is_af_unix()) {
@@ -903,7 +907,10 @@ void posix_data_sink_impl::on_batch_flush_error() noexcept {
 }
 
 posix_network_stack::posix_network_stack(const program_options::option_group& opts, std::pmr::polymorphic_allocator<char>* allocator)
-        : _reuseport(engine().posix_reuseport_available()), _allocator(allocator) {
+        : _reuseport(engine().posix_reuseport_available())
+        , _sock_need_nonblock(engine().posix_sock_need_nonblock())
+        , _allocator(allocator)
+{
 }
 
 server_socket
@@ -924,7 +931,7 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
 }
 
 ::seastar::socket posix_network_stack::socket() {
-    return ::seastar::socket(std::make_unique<posix_socket_impl>(_allocator));
+    return ::seastar::socket(std::make_unique<posix_socket_impl>(_sock_need_nonblock, _allocator));
 }
 
 posix_ap_network_stack::posix_ap_network_stack(const program_options::option_group& opts, std::pmr::polymorphic_allocator<char>* allocator)
