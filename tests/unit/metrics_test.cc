@@ -413,3 +413,70 @@ SEASTAR_THREAD_TEST_CASE(test_estimated_histogram) {
         BOOST_CHECK_EQUAL(mh.buckets[i].count, 33 + i);
     }
 }
+
+static seastar::sstring get_metric_description(const seastar::sstring& metric_name) {
+    seastar::foreign_ptr<seastar::metrics::impl::values_reference> values = seastar::metrics::impl::get_values();
+    for (auto&& md : (*values->metadata)) {
+        if (md.mf.name == metric_name) {
+            return md.mf.d.str();
+        }
+    }
+    return "";
+}
+
+SEASTAR_THREAD_TEST_CASE(test_override_description_before_metric_added) {
+    using namespace seastar::metrics;
+    namespace sm = seastar::metrics;
+
+    // Set override descriptions before metrics are added
+    std::map<std::string, std::string> override_map;
+    override_map["test_override_gauge"] = "Overridden gauge description";
+    override_map["test_override_counter"] = "Overridden counter description";
+    sm::set_override_descriptions(override_map);
+
+    // Now add the metrics
+    sm::metric_groups app_metrics;
+    app_metrics.add_group("test_override", {
+        sm::make_gauge("gauge", sm::description("Original gauge description"), [] { return 100; }),
+        sm::make_counter("counter", sm::description("Original counter description"), [] { return 200; })
+    });
+
+    // Verify that the descriptions were overridden
+    seastar::sstring gauge_desc = get_metric_description("test_override_gauge");
+    seastar::sstring counter_desc = get_metric_description("test_override_counter");
+
+    BOOST_CHECK_EQUAL(gauge_desc, "Overridden gauge description");
+    BOOST_CHECK_EQUAL(counter_desc, "Overridden counter description");
+}
+
+SEASTAR_THREAD_TEST_CASE(test_override_description_after_metric_added) {
+    using namespace seastar::metrics;
+    namespace sm = seastar::metrics;
+
+    // Add metrics first with original descriptions
+    sm::metric_groups app_metrics;
+    app_metrics.add_group("test_override_after", {
+        sm::make_gauge("gauge", sm::description("Original gauge description"), [] { return 100; }),
+        sm::make_counter("counter", sm::description("Original counter description"), [] { return 200; })
+    });
+
+    // Verify original descriptions are in place
+    seastar::sstring gauge_desc = get_metric_description("test_override_after_gauge");
+    seastar::sstring counter_desc = get_metric_description("test_override_after_counter");
+
+    BOOST_CHECK_EQUAL(gauge_desc, "Original gauge description");
+    BOOST_CHECK_EQUAL(counter_desc, "Original counter description");
+
+    // Now set override descriptions after metrics are already added
+    std::map<std::string, std::string> override_map;
+    override_map["test_override_after_gauge"] = "Overridden gauge description";
+    override_map["test_override_after_counter"] = "Overridden counter description";
+    sm::set_override_descriptions(override_map);
+
+    // Verify that the descriptions were overridden
+    gauge_desc = get_metric_description("test_override_after_gauge");
+    counter_desc = get_metric_description("test_override_after_counter");
+
+    BOOST_CHECK_EQUAL(gauge_desc, "Overridden gauge description");
+    BOOST_CHECK_EQUAL(counter_desc, "Overridden counter description");
+}
