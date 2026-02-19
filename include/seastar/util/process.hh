@@ -71,6 +71,8 @@ class process {
     static future<process> spawn(const std::filesystem::path& pathname);
 public:
     process(create_tag, pid_t pid, file_desc&& cin, file_desc&& cout, file_desc&& cerr);
+    /// Return the process ID of the child process
+    pid_t pid() const { return _pid; }
     /// Return an writable stream which provides input from the child process
     output_stream<char> cin();
     /// Return an writable stream which provides stdout output from the child process
