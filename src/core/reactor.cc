@@ -219,6 +219,14 @@ future<> reactor::update_bandwidth_for_queues(internal::priority_class pc, uint6
     });
 }
 
+future<> reactor::update_bandwidth_for_queues(unsigned group_index, uint64_t bandwidth) {
+    return smp::invoke_on_all([group_index, bandwidth = bandwidth / _num_io_groups] {
+        return parallel_for_each(engine()._io_queues, [group_index, bandwidth] (auto& queue) {
+            return queue.second->update_bandwidth_for_class_group(group_index, bandwidth);
+        });
+    });
+}
+
 void reactor::rename_queues(internal::priority_class pc, sstring new_name) {
     for (auto&& queue : _io_queues) {
         queue.second->rename_priority_class(pc, new_name);
@@ -5130,6 +5138,11 @@ scheduling_group::set_shares(float shares) noexcept {
 
 future<> scheduling_group::update_io_bandwidth(uint64_t bandwidth) const {
     return engine().update_bandwidth_for_queues(internal::priority_class(*this), bandwidth);
+}
+
+future<> scheduling_supergroup::update_io_bandwidth(uint64_t bandwidth) const {
+    SEASTAR_ASSERT(!is_root());
+    return engine().update_bandwidth_for_queues(index(), bandwidth);
 }
 
 void scheduling_supergroup::set_shares(float shares) noexcept {
