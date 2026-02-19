@@ -2390,3 +2390,46 @@ SEASTAR_THREAD_TEST_CASE(test_reply_cookies) {
     BOOST_REQUIRE_EQUAL(lines[1], "Set-Cookie: cookie1=1");
     BOOST_REQUIRE_EQUAL(lines[2], "Set-Cookie: cookie2=2");
 }
+
+SEASTAR_TEST_CASE(test_http_request_formatting) {
+    auto req = http::request::make("PUT", "host", "/test");
+    req.write_body("txt", "body-content");
+
+    // Plain conversion to string
+    auto str = fmt::to_string(req);
+    fmt::print("{}\n", str);
+    std::vector<std::string> parts;
+    boost::split(parts, str, boost::is_any_of(" "));
+    BOOST_REQUIRE_EQUAL(parts.size(), 6);
+    std::sort(parts.begin() + 2, parts.begin() + 5); // headers can come in any order
+    BOOST_REQUIRE_EQUAL(parts[0], "PUT");
+    BOOST_REQUIRE_EQUAL(parts[1], "/test");
+    BOOST_REQUIRE_EQUAL(parts[2], "Content-Length:12");
+    BOOST_REQUIRE_EQUAL(parts[3], "Content-Type:text/plain");
+    BOOST_REQUIRE_EQUAL(parts[4], "Host:host");
+    BOOST_REQUIRE_EQUAL(parts[5], "body-content");
+
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_http_reply_formatting) {
+    auto rep = http::reply();
+    rep.set_status(http::reply::status_type::ok);
+    rep._headers["Server"] = "test_server";
+    rep.write_body("txt", "body-content");
+
+    // Plain conversion to string
+    auto str = fmt::to_string(rep);
+    fmt::print("{}\n", str);
+    std::vector<std::string> parts;
+    boost::split(parts, str, boost::is_any_of(" "));
+    BOOST_REQUIRE_EQUAL(parts.size(), 5);
+    std::sort(parts.begin() + 2, parts.begin() + 4); // headers can come in any order
+    BOOST_REQUIRE_EQUAL(parts[0], "200");
+    BOOST_REQUIRE_EQUAL(parts[1], "OK");
+    BOOST_REQUIRE_EQUAL(parts[2], "Content-Type:text/plain");
+    BOOST_REQUIRE_EQUAL(parts[3], "Server:test_server");
+    BOOST_REQUIRE_EQUAL(parts[4], "body-content");
+
+    return make_ready_future<>();
+}
