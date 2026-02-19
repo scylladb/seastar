@@ -327,11 +327,6 @@ future<> connection::respond() {
     });
 }
 
-future<> connection::write_body() {
-    return _write_buf.write(_resp->_content.data(),
-            _resp->_content.size());
-}
-
 void connection::set_headers(http::reply& resp) {
     resp._headers["Server"] = "Seastar httpd";
     resp._headers["Date"] = _server._date;

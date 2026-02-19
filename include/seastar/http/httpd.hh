@@ -114,8 +114,6 @@ public:
     future<bool> generate_reply(std::unique_ptr<http::request> req);
     void generate_error_reply_and_close(std::unique_ptr<http::request> req, http::reply::status_type status, const sstring& msg);
 
-    future<> write_body();
-
     output_stream<char>& out();
 };
 
