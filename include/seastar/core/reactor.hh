@@ -305,6 +305,7 @@ private:
         void rename(sstring new_name, sstring new_shortname);
     private:
         void register_stats();
+        internal::log_buf::inserter_iterator do_dump(seastar::internal::log_buf::inserter_iterator it) const;
     };
 
     struct task_queue_group final : public sched_entity {
@@ -738,7 +739,6 @@ private:
     friend future<> seastar::destroy_scheduling_group(scheduling_group) noexcept;
     friend future<> seastar::rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
     friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg) noexcept;
-    friend seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::internal::log_buf::inserter_iterator it, const task_queue& tq);
     friend void internal::set_current_task(task* t);
     friend scheduling_supergroup internal::scheduling_supergroup_for(scheduling_group sg) noexcept;
 

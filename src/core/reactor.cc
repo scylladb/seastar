@@ -2630,15 +2630,15 @@ void reactor::register_metrics() {
     });
 }
 
-seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::internal::log_buf::inserter_iterator it, const reactor::task_queue& tq) {
+seastar::internal::log_buf::inserter_iterator reactor::task_queue::do_dump(seastar::internal::log_buf::inserter_iterator it) const {
     memory::scoped_critical_alloc_section _;
     std::unordered_map<const char*, unsigned> infos;
-    for (const auto& tp : tq._q) {
+    for (const auto& tp : _q) {
         const std::type_info& ti = typeid(*tp);
         auto [ it, ins ] = infos.emplace(std::make_pair(ti.name(), 0u));
         it->second++;
     }
-    it = fmt::format_to(it, "Too long queue accumulated for {} ({} tasks)\n", tq._name, tq._q.size());
+    it = fmt::format_to(it, "Too long queue accumulated for {} ({} tasks)\n", _name, _q.size());
     for (auto& ti : infos) {
         it = fmt::format_to(it, " {}: {}\n", ti.second, ti.first);
     }
@@ -2673,7 +2673,7 @@ bool reactor::task_queue::run_tasks() {
                 lowres_clock::update();
 
                 static thread_local logger::rate_limit rate_limit(std::chrono::seconds(10));
-                logger::lambda_log_writer writer([this] (auto it) { return do_dump_task_queue(it, *this); });
+                logger::lambda_log_writer writer([this] (auto it) { return do_dump(it); });
                 seastar_logger.log(log_level::warn, rate_limit, writer);
                 if (r._cfg.abort_on_too_long_task_queue) {
                     auto msg = fmt::format("Too long task queue: {}, max_task_backlog={}", _q.size(), r._cfg.max_task_backlog);
