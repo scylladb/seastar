@@ -136,6 +136,10 @@ void set_metric_family_configs(const std::vector<metric_family_config>& family_c
     impl::get_local_impl()->set_metric_family_configs(family_config);
 }
 
+void set_override_descriptions(const std::map<std::string, std::string>& override_description) {
+    impl::get_local_impl()->set_override_descriptions(override_description);
+}
+
 const std::vector<metric_family_config>& get_metric_family_configs() {
     return impl::get_local_impl()->get_metric_family_configs();
 }
@@ -531,7 +535,7 @@ register_ref impl::add_registration(const metric_id& id, const metric_type& type
         }
     } else {
         _value_map[name].info().type = type.base_type;
-        _value_map[name].info().d = d;
+        _value_map[name].info().d = (_override_description.find(name) != _override_description.end()) ? description(_override_description[name]) : d;
         _value_map[name].info().inherit_type = type.type_name;
         _value_map[name].info().name = id.full_name();
         _value_map[name].info().aggregate_labels = aggregate_labels;
@@ -613,6 +617,31 @@ void impl::set_metric_family_configs(const std::vector<metric_family_config>& fa
             if (fc.name == mf_metadata.mf.name || fc.regex_name.match(mf_metadata.mf.name)) {
                 mf_metadata.mf.aggregate_labels = fc.aggregate_labels;
             }
+        }
+    }
+}
+void impl::set_override_descriptions(const std::map<std::string, std::string>& override_description) {
+    _override_description = override_description;
+    for (auto& [name, description] : _override_description) {
+        if (_value_map.find(name) != _value_map.end()) {
+            _value_map[name].info().d = description;
+        }
+
+    }
+
+    if (!_metadata) {
+        // The metadata structure may not have been built yet,
+        // or it may rebuild right now, in this case just return
+        // and it will be updated the next time, setting the dirty to true
+        // is just in case we are somehow in the middle of rebuilding the
+        // metadata.
+        dirty();
+        return;
+    }
+    for (auto& mf_metadata: *_metadata) {
+        auto it = _override_description.find(mf_metadata.mf.name);
+        if (it != _override_description.end()) {
+            mf_metadata.mf.d = it->second;
         }
     }
 }

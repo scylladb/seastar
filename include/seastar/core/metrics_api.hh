@@ -451,6 +451,7 @@ class impl {
     std::vector<relabel_config> _relabel_configs;
     std::vector<metric_family_config> _metric_family_configs;
     internalized_set _internalized_labels;
+    std::map<std::string, std::string> _override_description;
 public:
     value_map& get_value_map() {
         return _value_map;
@@ -472,7 +473,7 @@ public:
     void set_config(const config& c) {
         _config = c;
     }
-
+    void set_override_descriptions(const std::map<std::string, std::string>& override_description);
     shared_ptr<metric_metadata> metadata();
 
     std::vector<std::deque<metric_function>>& functions();
@@ -609,6 +610,19 @@ const std::vector<relabel_config>& get_relabel_configs();
  * sm::set_metric_family_configs(fc);
  */
 void set_metric_family_configs(const std::vector<metric_family_config>& metrics_config);
+
+/*
+ * \brief Set an override description map for metrics
+ *
+ * Maps metric names to replacement description strings. When a metric name appears in the map,
+ * the provided description replaces the original description specified during metric registration.
+ *
+ * This affects both existing metrics (descriptions are updated immediately) and metrics that
+ * will be added later (the override is applied when they are registered).
+ *
+ * \param override_description Map from metric name to description string
+ */
+void set_override_descriptions(const std::map<std::string, std::string>& override_description);
 
 /*
  * \brief return the current metric_family_config
