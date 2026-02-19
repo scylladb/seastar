@@ -151,7 +151,17 @@ public:
 // and information about the chain of tasks waiting for the current operation to complete.
 class tasktrace {
 public:
-    using entry = std::variant<shared_backtrace, task_entry>;
+    struct entry {
+        std::variant<shared_backtrace, task_entry> backtrace_or_task_entry;
+        std::source_location resume_point;
+
+        bool operator == (const entry &other) const {
+            return backtrace_or_task_entry == other.backtrace_or_task_entry
+                    && resume_point.line() == other.resume_point.line()
+                    && resume_point.column() == other.resume_point.column()
+                    && std::string_view{ resume_point.file_name() } == std::string_view{ other.resume_point.file_name() };
+        }
+    };
     using vector_type = boost::container::static_vector<entry, 16>;
 private:
     simple_backtrace _main;

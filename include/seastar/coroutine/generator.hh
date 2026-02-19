@@ -186,7 +186,8 @@ struct generator_promise_base<Yielded>::yield_awaiter final {
         return false;
     }
     template <typename Promise>
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> producer) noexcept {
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> producer SEASTAR_COROUTINE_LOC_PARAM) noexcept {
+        SEASTAR_COROUTINE_LOC_STORE(producer.promise());
         _promise->_waiting_task = &producer.promise();
         if (seastar::need_preempt()) {
             auto consumer = std::coroutine_handle<seastar::task>::from_address(
@@ -210,9 +211,9 @@ struct generator_promise_base<Yielded>::copy_awaiter final {
         return false;
     }
     template <typename Promise>
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> producer) noexcept {
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> producer SEASTAR_COROUTINE_LOC_PARAM) noexcept {
+        SEASTAR_COROUTINE_LOC_STORE(producer.promise());
         _value_ptr = std::addressof(_value);
-
         auto& current = producer.promise();
         _promise->_waiting_task = &current;
         if (seastar::need_preempt()) {
@@ -245,7 +246,8 @@ public:
     }
 
     template <typename Promise>
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> consumer) noexcept {
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> consumer SEASTAR_COROUTINE_LOC_PARAM) noexcept {
+        SEASTAR_COROUTINE_LOC_STORE(consumer.promise());
         _promise->_consumer = consumer;
         // Check if we need to preempt. If not, directly resume producer.
         // If yes, schedule the producer through the scheduler.
@@ -427,7 +429,9 @@ public:
             return !_gen->_coro || _gen->_coro.done();
         }
 
-        std::coroutine_handle<> await_suspend(std::coroutine_handle<> consumer) noexcept {
+        template <typename Promise>
+        std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> consumer SEASTAR_COROUTINE_LOC_PARAM) noexcept {
+            SEASTAR_COROUTINE_LOC_STORE(consumer.promise());
             auto& promise = _gen->_coro.promise();
             promise._consumer = consumer;
             // Check if we need to preempt. If not, directly resume producer.
@@ -681,7 +685,8 @@ public:
         return !_should_suspend;  // If we shouldn't suspend, we're ready immediately
     }
     template <typename Promise>
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> producer) noexcept {
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> producer SEASTAR_COROUTINE_LOC_PARAM) noexcept {
+        SEASTAR_COROUTINE_LOC_STORE(producer.promise());
         _promise->_waiting_task = &producer.promise();
         if (seastar::need_preempt()) {
             auto consumer = std::coroutine_handle<seastar::task>::from_address(
@@ -712,7 +717,8 @@ public:
     }
 
     template <typename Promise>
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> consumer) noexcept {
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> consumer SEASTAR_COROUTINE_LOC_PARAM) noexcept {
+        SEASTAR_COROUTINE_LOC_STORE(consumer.promise());
         _promise->_consumer = consumer;
         // Check if we need to preempt. If not, directly resume producer.
         // If yes, schedule the producer through the scheduler.
@@ -828,7 +834,9 @@ public:
             return false;
         }
 
-        std::coroutine_handle<> await_suspend(std::coroutine_handle<> consumer) {
+        template <typename Promise>
+        std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> consumer SEASTAR_COROUTINE_LOC_PARAM) noexcept {
+            SEASTAR_COROUTINE_LOC_STORE(consumer.promise());
             // Buffer is empty, need to resume producer to get more elements
             auto& promise = _gen->_coro.promise();
             promise._consumer = consumer;
