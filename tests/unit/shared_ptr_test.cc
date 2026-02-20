@@ -62,7 +62,6 @@ BOOST_AUTO_TEST_CASE(explot_dynamic_cast_use_after_free_problem) {
 
 class C : public enable_shared_from_this<C> {
 public:
-    shared_ptr<C> dup() { return shared_from_this(); }
     shared_ptr<const C> get() const { return shared_from_this(); }
 };
 
