@@ -1689,6 +1689,10 @@ bool reactor::posix_sock_need_nonblock() const {
     return !_backend->do_blocking_io();
 }
 
+bool reactor::have_aio_fdatasync() const {
+    return _cfg.have_aio_fsync && _backend->have_aio_fdatasync();
+}
+
 namespace internal {
 
 future<> posix_connect(pollable_fd pfd, socket_address sa, socket_address local) {
@@ -1820,6 +1824,7 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
         open_flags |= O_CLOEXEC;
         if (bypass_fsync) {
             open_flags &= ~O_DSYNC;
+            options.skip_flush = true;
         }
         struct stat st;
         auto mode = static_cast<mode_t>(options.create_permissions);
@@ -2376,46 +2381,6 @@ reactor::touch_directory(std::string_view name_view, file_permissions permission
     }
 }
 
-future<>
-reactor::fdatasync(int fd) noexcept {
-    ++_fsyncs;
-    if (_cfg.bypass_fsync) {
-        co_return;
-    }
-    if (_cfg.have_aio_fsync) {
-        // Does not go through the I/O queue, but has to be deleted
-        struct fsync_io_desc final : public io_completion {
-            promise<> _pr;
-        public:
-            virtual void complete(size_t res) noexcept override {
-                _pr.set_value();
-                delete this;
-            }
-
-            virtual void set_exception(std::exception_ptr eptr) noexcept override {
-                _pr.set_exception(std::move(eptr));
-                delete this;
-            }
-
-            future<> get_future() {
-                return _pr.get_future();
-            }
-        };
-
-        auto desc = new fsync_io_desc;
-        auto fut = desc->get_future();
-        auto req = internal::io_request::make_fdatasync(fd);
-        _io_sink.submit(desc, std::move(req));
-        co_await std::move(fut);
-        co_return;
-    }
-    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
-            internal::thread_pool_submit_reason::file_operation, [fd] {
-        return wrap_syscall<int>(::fdatasync(fd));
-    });
-    sr.throw_if_error();
-}
-
 // Note: terminate if arm_highres_timer throws
 // `when` should always be valid
 void reactor::enable_timer(steady_clock_type::time_point when) noexcept
@@ -2577,7 +2542,7 @@ void reactor::register_metrics() {
             sm::make_counter("aio_errors", _io_stats.aio_errors, sm::description("Total aio errors")),
             sm::make_histogram("stalls", sm::description("A histogram of reactor stall durations"), [this] {return _stalls_histogram.to_metrics_histogram();}).aggregate({seastar::metrics::shard_label}).set_skip_when_empty(),
             // total_operations value:DERIVE:0:U
-            sm::make_counter("fsyncs", _fsyncs, sm::description("Total number of fsync operations")),
+            sm::make_counter("fsyncs", _io_stats.fsyncs, sm::description("Total number of fsync operations")),
             sm::make_counter("aio_retries", _io_stats.aio_retries, sm::description("Total number of IOCB-s re-submitted via thread-pool")),
             // total_operations value:DERIVE:0:U
             io_fallback_counter("aio_fallback", internal::thread_pool_submit_reason::aio_fallback),

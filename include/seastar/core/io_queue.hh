@@ -234,6 +234,9 @@ public:
     std::chrono::duration<double> get_io_latency_goal() const noexcept;
     std::optional<uint32_t> physical_block_size() const noexcept { return _physical_block_size; }
 
+    // @private -- temporary, to make posix_file_impl work
+    internal::io_sink& sink() noexcept { return _sink; }
+
 private:
     static fair_queue::config make_fair_queue_config(const config& cfg, sstring label);
     void register_stats(sstring name, priority_class_data& pc);

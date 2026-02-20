@@ -198,11 +198,13 @@ public:
         uint64_t fstream_read_bytes_blocked = 0;
         uint64_t fstream_read_aheads_discarded = 0;
         uint64_t fstream_read_ahead_discarded_bytes = 0;
+        uint64_t fsyncs = 0;
 
     private:
         friend class file_data_source_impl;
         friend void io_completion::complete_with(ssize_t);
         friend class io_queue;
+        friend class posix_file_impl;
         static io_stats& local() noexcept;
     };
     /// Scheduling statistics.
@@ -259,7 +261,6 @@ private:
     timer<manual_clock>::set_t _manual_timers;
     timer<manual_clock>::set_t::timer_list_t _expired_manual_timers;
     io_stats _io_stats;
-    uint64_t _fsyncs = 0;
     uint64_t _cxx_exceptions = 0;
     uint64_t _abandoned_failed_futures = 0;
 
@@ -520,6 +521,7 @@ public:
     // Until we fix that, just disable it unconditionally.
     bool posix_reuseport_available() const { return false; }
     bool posix_sock_need_nonblock() const;
+    bool have_aio_fdatasync() const;
 
     [[deprecated("Internal reactor function, consider using net sockets")]]
     pollable_fd make_pollable_fd(socket_address sa, int proto);
@@ -698,6 +700,7 @@ private:
     future<> send_all_part(pollable_fd_state& fd, const void* buffer, size_t size, size_t completed);
 #endif
 
+    [[deprecated("Use file::flush() instead")]]
     future<> fdatasync(int fd) noexcept;
 
     void add_timer(timer<steady_clock_type>*) noexcept;
