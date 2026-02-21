@@ -81,7 +81,13 @@ namespace util {
 // BasicLockable.
 // Async-signal safe.
 // unlock() "synchronizes with" lock().
-class spinlock {
+#ifdef __cpp_lib_hardware_interference_size
+#include <new>
+class alignas(std::hardware_constructive_interference_size) spinlock {
+#else
+// x86-64 cache line size
+class alignas(64) spinlock {
+#endif
     std::atomic<bool> _busy = { false };
 public:
     spinlock() = default;
