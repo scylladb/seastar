@@ -2375,9 +2375,33 @@ reactor::touch_directory(std::string_view name_view, file_permissions permission
         auto mode = static_cast<mode_t>(permissions);
         return wrap_syscall<int>(::mkdir(name.c_str(), mode));
     });
-    if (sr.result == -1 && sr.error != EEXIST) {
-        sr.throw_fs_exception("mkdir failed", fs::path(name));
+
+    if (sr.result != -1) {
+        // Directory created successfully
+        co_return;
     }
+
+    if (sr.error == EEXIST) {
+        // Directory already exists, that's fine
+        co_return;
+    }
+
+    if (sr.error == EPERM || sr.error == EACCES) {
+        // Check if the directory actually exists and has the right permissions
+        try {
+            auto sd = co_await file_stat(name, follow_symlink::yes);
+            if (sd.type == directory_entry_type::directory &&
+                    (sd.mode & static_cast<mode_t>(file_permissions::all_permissions)) == static_cast<mode_t>(permissions)) {
+                co_return;
+            }
+            // Directory exists but has wrong type or permissions - fall through to throw EPERM
+        } catch (...) {
+            // file_stat failed (e.g., ENOENT, EACCES), fall through to throw original EPERM error
+        }
+    }
+
+    // Some other error occurred, report it
+    sr.throw_fs_exception("mkdir failed", fs::path(name));
 }
 
 future<>
