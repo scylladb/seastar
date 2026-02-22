@@ -434,3 +434,21 @@ using request [[deprecated("Use http::request instead")]] = http::request;
 }
 
 }
+
+template <>
+struct fmt::formatter<seastar::http::request> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+    auto format(const seastar::http::request& rq, fmt::format_context& ctx) const {
+        auto out = fmt::format_to(ctx.out(), "{} {}", rq._method, rq._url);
+        for (const auto& h : rq._headers) {
+            out = fmt::format_to(out, " {}:{}", h.first, h.second);
+        }
+        if (!rq.body_writer) {
+            const auto& body = seastar::http::internal::deprecated_content(rq);
+            if (!body.empty()) {
+                out = fmt::format_to(out, " {}", body);
+            }
+        }
+        return out;
+    }
+};

@@ -298,6 +298,7 @@ struct reply {
 private:
     http::body_writer_type _body_writer;
     friend class httpd::routes;
+    friend struct ::fmt::formatter<reply>;
 };
 
 std::ostream& operator<<(std::ostream& os, reply::status_type st);
@@ -311,3 +312,18 @@ using reply [[deprecated("Use http::reply instead")]] = http::reply;
 }
 
 template <> struct fmt::formatter<seastar::http::reply::status_type> : fmt::ostream_formatter {};
+
+template <>
+struct fmt::formatter<seastar::http::reply> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+    auto format(const seastar::http::reply& rp, fmt::format_context& ctx) const {
+        auto out = fmt::format_to(ctx.out(), "{}", rp._status);
+        for (const auto& h : rp._headers) {
+            out = fmt::format_to(out, " {}:{}", h.first, h.second);
+        }
+        if (!rp._body_writer && !rp._content.empty()) {
+            out = fmt::format_to(out, " {}", rp._content);
+        }
+        return out;
+    }
+};
