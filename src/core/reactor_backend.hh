@@ -171,6 +171,7 @@ public:
 class reactor_backend {
 public:
     virtual ~reactor_backend() {};
+    virtual std::string_view get_backend_name() const = 0;
     // The methods below are used to communicate with the kernel.
     // reap_kernel_completions() will complete any previous async
     // work that is ready to consume.
@@ -252,6 +253,7 @@ public:
     explicit reactor_backend_epoll(reactor& r);
     virtual ~reactor_backend_epoll() override;
 
+    virtual std::string_view get_backend_name() const override;
     virtual bool reap_kernel_completions() override;
     virtual bool kernel_submit_work() override;
     virtual bool kernel_events_can_sleep() const override;
@@ -302,6 +304,7 @@ class reactor_backend_aio : public reactor_backend {
 public:
     explicit reactor_backend_aio(reactor& r);
 
+    virtual std::string_view get_backend_name() const override;
     virtual bool reap_kernel_completions() override;
     virtual bool kernel_submit_work() override;
     virtual bool kernel_events_can_sleep() const override;

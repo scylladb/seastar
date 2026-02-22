@@ -1118,6 +1118,10 @@ reactor::~reactor() {
     }
 }
 
+std::string_view reactor::get_backend_name() const {
+    return _backend->get_backend_name();
+}
+
 reactor::sched_stats
 reactor::get_sched_stats() const {
     sched_stats ret;

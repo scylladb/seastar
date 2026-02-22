@@ -499,6 +499,8 @@ public:
         return queue != _io_queues.end() ? queue->second.get() : nullptr;
     }
 
+    std::string_view get_backend_name() const;
+
 private:
     future<> update_bandwidth_for_queues(internal::priority_class pc, uint64_t bandwidth);
     void rename_queues(internal::priority_class pc, sstring new_name);
