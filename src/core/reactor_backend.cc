@@ -530,6 +530,10 @@ reactor_backend_aio::reactor_backend_aio(reactor& r)
     SEASTAR_ASSERT(e == 0);
 }
 
+std::string_view reactor_backend_aio::get_backend_name() const {
+    return "linux-aio";
+}
+
 bool reactor_backend_aio::reap_kernel_completions() {
     bool did_work = await_events(0, nullptr);
     did_work |= _storage_context.reap_completions();
@@ -782,6 +786,10 @@ reactor_backend_epoll::task_quota_timer_thread_fn() {
 }
 
 reactor_backend_epoll::~reactor_backend_epoll() = default;
+
+std::string_view reactor_backend_epoll::get_backend_name() const {
+    return "epoll";
+}
 
 void reactor_backend_epoll::start_tick() {
     _task_quota_timer_thread = std::thread(&reactor_backend_epoll::task_quota_timer_thread_fn, this);
@@ -1444,6 +1452,9 @@ public:
     }
     ~reactor_backend_uring() {
         ::io_uring_queue_exit(&_uring);
+    }
+    virtual std::string_view get_backend_name() const override {
+        return "io_uring";
     }
     virtual bool reap_kernel_completions() override {
         return do_process_kernel_completions();
