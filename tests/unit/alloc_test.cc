@@ -409,6 +409,25 @@ SEASTAR_TEST_CASE(test_diagnostics_allocation) {
     return seastar::make_ready_future();
 }
 
+SEASTAR_TEST_CASE(test_two_allocations_increase_total_bytes_allocated) {
+    auto before = seastar::memory::stats();
+
+    constexpr size_t size1 = 128;
+    constexpr size_t size2 = 256;
+
+    void* volatile p1 = operator new(size1);
+    void* volatile p2 = operator new(size2);
+
+    auto after = seastar::memory::stats();
+
+    BOOST_REQUIRE_EQUAL(after.total_bytes_allocated() - before.total_bytes_allocated(), size1 + size2);
+
+    operator delete(p2);
+    operator delete(p1);
+
+    return seastar::make_ready_future();
+}
+
 #ifdef SEASTAR_HEAPPROF
 
 // small wrapper to disincentivize gcc from unrolling the loop

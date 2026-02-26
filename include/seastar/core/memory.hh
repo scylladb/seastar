@@ -296,6 +296,7 @@ class statistics {
     uint64_t _cross_cpu_frees;
     size_t _total_memory;
     size_t _free_memory;
+    uint64_t _total_bytes_allocated;
     uint64_t _reclaims;
     uint64_t _large_allocs;
     uint64_t _failed_allocs;
@@ -305,11 +306,11 @@ class statistics {
     uint64_t _foreign_cross_frees;
 private:
     statistics(uint64_t mallocs, uint64_t frees, uint64_t cross_cpu_frees,
-            uint64_t total_memory, uint64_t free_memory, uint64_t reclaims,
+            uint64_t total_memory, uint64_t free_memory, uint64_t total_bytes_allocated, uint64_t reclaims,
             uint64_t large_allocs, uint64_t failed_allocs,
             uint64_t foreign_mallocs, uint64_t foreign_frees, uint64_t foreign_cross_frees)
         : _mallocs(mallocs), _frees(frees), _cross_cpu_frees(cross_cpu_frees)
-        , _total_memory(total_memory), _free_memory(free_memory), _reclaims(reclaims)
+        , _total_memory(total_memory), _free_memory(free_memory), _total_bytes_allocated(total_bytes_allocated), _reclaims(reclaims)
         , _large_allocs(large_allocs), _failed_allocs(failed_allocs)
         , _foreign_mallocs(foreign_mallocs), _foreign_frees(foreign_frees)
         , _foreign_cross_frees(foreign_cross_frees) {}
@@ -329,6 +330,8 @@ public:
     size_t allocated_memory() const { return _total_memory - _free_memory; }
     /// Total memory (in bytes)
     size_t total_memory() const { return _total_memory; }
+    /// Total number of bytes allocated since the system was started.
+    uint64_t total_bytes_allocated() const { return _total_bytes_allocated; }
     /// Number of reclaims performed due to low memory
     uint64_t reclaims() const { return _reclaims; }
     /// Number of allocations which violated the large allocation threshold
