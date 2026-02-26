@@ -237,7 +237,7 @@ std::atomic<bool> use_transparent_hugepages = true;
 
 namespace alloc_stats {
 
-enum class types { allocs, frees, cross_cpu_frees, reclaims, large_allocs, failed_allocs,
+enum class types { allocs, frees, cross_cpu_frees, total_bytes_allocated, reclaims, large_allocs, failed_allocs,
     foreign_mallocs, foreign_frees, foreign_cross_frees, enum_size };
 
 using stats_array = std::array<uint64_t, static_cast<std::size_t>(types::enum_size)>;
@@ -1647,6 +1647,7 @@ static inline void* finish_allocation(void* ptr, size_t size) {
     if (__builtin_expect(!ptr, false)) {
         on_allocation_failure(size);
     } else {
+        alloc_stats::increment_local(alloc_stats::types::total_bytes_allocated, size);
 #ifdef SEASTAR_DEBUG_ALLOCATIONS
         std::memset(ptr, debug_allocation_pattern, size);
 #endif
@@ -1946,7 +1947,7 @@ configure(std::vector<resource::memory> m, bool mbind,
 
 statistics stats() {
     return statistics{alloc_stats::get(alloc_stats::types::allocs), alloc_stats::get(alloc_stats::types::frees), alloc_stats::get(alloc_stats::types::cross_cpu_frees),
-        cpu_mem.nr_pages * page_size, cpu_mem.nr_free_pages * page_size, alloc_stats::get(alloc_stats::types::reclaims), alloc_stats::get(alloc_stats::types::large_allocs),
+        cpu_mem.nr_pages * page_size, cpu_mem.nr_free_pages * page_size, alloc_stats::get(alloc_stats::types::total_bytes_allocated), alloc_stats::get(alloc_stats::types::reclaims), alloc_stats::get(alloc_stats::types::large_allocs),
         alloc_stats::get(alloc_stats::types::failed_allocs), alloc_stats::get(alloc_stats::types::foreign_mallocs), alloc_stats::get(alloc_stats::types::foreign_frees),
         alloc_stats::get(alloc_stats::types::foreign_cross_frees)};
 }
@@ -2709,7 +2710,7 @@ void configure_minimal()
 {}
 
 statistics stats() {
-    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0, 0, 0, 0, 0};
+    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0, 0, 0, 0, 0, 0};
 }
 
 size_t free_memory() {
