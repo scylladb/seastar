@@ -134,6 +134,7 @@ class http_server {
     timer<> _date_format_timer { [this] {_date = http_date();} };
     size_t _content_length_limit = std::numeric_limits<size_t>::max();
     bool _content_streaming = false;
+    bool _skip_default_headers = false;
     gate _task_gate;
     std::optional<net::keepalive_params> _keepalive_params;
 public:
@@ -183,6 +184,13 @@ public:
     bool get_content_streaming() const;
 
     void set_content_streaming(bool b);
+
+    /// When set to true, the server will not add default "Server" and "Date" headers to responses.
+    /// This allows the application to fully control these headers.
+    bool get_skip_default_headers() const;
+
+    /// Set whether to skip adding default "Server" and "Date" headers to responses.
+    void set_skip_default_headers(bool b);
 
     future<> listen(socket_address addr, server_credentials_ptr credentials);
     future<> listen(socket_address addr, listen_options lo, server_credentials_ptr credentials);

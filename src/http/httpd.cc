@@ -333,8 +333,10 @@ future<> connection::write_body() {
 }
 
 void connection::set_headers(http::reply& resp) {
-    resp._headers["Server"] = "Seastar httpd";
-    resp._headers["Date"] = _server._date;
+    if (!_server._skip_default_headers) {
+        resp._headers["Server"] = "Seastar httpd";
+        resp._headers["Date"] = _server._date;
+    }
 }
 
 future<bool> connection::generate_reply(std::unique_ptr<http::request> req) {
@@ -376,6 +378,14 @@ bool http_server::get_content_streaming() const {
 
 void http_server::set_content_streaming(bool b) {
     _content_streaming = b;
+}
+
+bool http_server::get_skip_default_headers() const {
+    return _skip_default_headers;
+}
+
+void http_server::set_skip_default_headers(bool b) {
+    _skip_default_headers = b;
 }
 
 future<> http_server::listen(socket_address addr, listen_options lo,
