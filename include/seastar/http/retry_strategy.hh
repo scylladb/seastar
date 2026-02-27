@@ -10,9 +10,7 @@
 #include <seastar/core/future.hh>
 #include <seastar/http/reply.hh>
 
-namespace seastar {
-
-namespace http::experimental {
+namespace seastar::http {
 
 class retry_strategy {
 public:
@@ -35,6 +33,5 @@ class no_retry_strategy final : public retry_strategy {
 public:
     future<bool> should_retry(std::exception_ptr error, unsigned attempted_retries) const override;
 };
-} // namespace http::experimental
 
-} // namespace seastar
+} // namespace seastar::http
