@@ -1308,10 +1308,6 @@ detect_io_uring() {
 }
 
 class reactor_backend_uring final : public reactor_backend {
-    // s_queue_len is more or less arbitrary. Too low and we'll be
-    // issuing too small batches, too high and we require too much locked
-    // memory, but otherwise it doesn't matter.
-    static constexpr unsigned s_queue_len = 200;
     reactor& _r;
     ::io_uring _uring;
     bool _did_work_while_getting_sqe = false;
@@ -1521,8 +1517,8 @@ private:
 
     // Returns true if completions were processed
     bool do_process_kernel_completions_step() {
-        struct ::io_uring_cqe* buf[s_queue_len];
-        auto n = ::io_uring_peek_batch_cqe(&_uring, buf, s_queue_len);
+        struct ::io_uring_cqe* buf[uring::QUEUE_LEN];
+        auto n = ::io_uring_peek_batch_cqe(&_uring, buf, uring::QUEUE_LEN);
         do_process_ready_kernel_completions(buf, n);
         ::io_uring_cq_advance(&_uring, n);
         return n != 0;
@@ -1547,7 +1543,7 @@ public:
     explicit reactor_backend_uring(reactor& r)
             : reactor_backend(uses_blocking_io::yes, supports_aio_fdatasync::yes)
             , _r(r)
-            , _uring(try_create_uring(s_queue_len, true).value())
+            , _uring(try_create_uring(uring::QUEUE_LEN, true).value())
             , _hrtimer_timerfd(make_timerfd())
             , _preempt_io_context(_r, _r._task_quota_timer, _hrtimer_timerfd)
             , _hrtimer_completion(_r, _hrtimer_timerfd)
