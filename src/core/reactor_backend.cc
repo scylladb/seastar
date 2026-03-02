@@ -1289,6 +1289,78 @@ detect_io_uring() {
     return bool(ring_opt);
 }
 
+static
+void
+prepare_sqe(io_uring_sqe* sqe, const internal::io_request& req, io_completion* completion) {
+    using o = internal::io_request::operation;
+    switch (req.opcode()) {
+        case o::read: {
+            const auto& op = req.as<io_request::operation::read>();
+            ::io_uring_prep_read(sqe, op.fd, op.addr, op.size, op.pos);
+            break;
+        }
+        case o::write: {
+            const auto& op = req.as<io_request::operation::write>();
+            ::io_uring_prep_write(sqe, op.fd, op.addr, op.size, op.pos);
+            break;
+        }
+        case o::readv: {
+            const auto& op = req.as<io_request::operation::readv>();
+            ::io_uring_prep_readv(sqe, op.fd, op.iovec, op.iov_len, op.pos);
+            break;
+        }
+        case o::writev: {
+            const auto& op = req.as<io_request::operation::writev>();
+            ::io_uring_prep_writev(sqe, op.fd, op.iovec, op.iov_len, op.pos);
+            break;
+        }
+        case o::fdatasync: {
+            const auto& op = req.as<io_request::operation::fdatasync>();
+            ::io_uring_prep_fsync(sqe, op.fd, IORING_FSYNC_DATASYNC);
+            break;
+        }
+        case o::recv: {
+            const auto& op = req.as<io_request::operation::recv>();
+            ::io_uring_prep_recv(sqe, op.fd, op.addr, op.size, op.flags);
+            break;
+        }
+        case o::recvmsg: {
+            const auto& op = req.as<io_request::operation::recvmsg>();
+            ::io_uring_prep_recvmsg(sqe, op.fd, op.msghdr, op.flags);
+            break;
+        }
+        case o::send: {
+            const auto& op = req.as<io_request::operation::send>();
+            ::io_uring_prep_send(sqe, op.fd, op.addr, op.size, op.flags);
+            break;
+        }
+        case o::sendmsg: {
+            const auto& op = req.as<io_request::operation::sendmsg>();
+            ::io_uring_prep_sendmsg(sqe, op.fd, op.msghdr, op.flags);
+            break;
+        }
+        case o::accept: {
+            const auto& op = req.as<io_request::operation::accept>();
+            ::io_uring_prep_accept(sqe, op.fd, op.sockaddr, op.socklen_ptr, op.flags);
+            break;
+        }
+        case o::connect: {
+            const auto& op = req.as<io_request::operation::connect>();
+            ::io_uring_prep_connect(sqe, op.fd, op.sockaddr, op.socklen);
+            break;
+        }
+        case o::poll_add:
+        case o::poll_remove:
+        case o::cancel:
+            // The reactor does not generate these types of I/O requests yet, so
+            // this path is unreachable. As more features of io_uring are exploited,
+            // we'll utilize more of these opcodes.
+            seastar_logger.error("Invalid operation for iocb: {}", req.opname());
+            abort();
+    }
+    ::io_uring_sqe_set_data(sqe, completion);
+}
+
 // Base class for uring backends not to duplicate common logic.
 class reactor_backend_uring_base : public reactor_backend {
 protected:
@@ -1409,75 +1481,7 @@ protected:
     }
 
     void submit_io_request(const internal::io_request& req, io_completion* completion) {
-        auto sqe = get_sqe();
-        using o = internal::io_request::operation;
-        switch (req.opcode()) {
-            case o::read: {
-                const auto& op = req.as<io_request::operation::read>();
-                ::io_uring_prep_read(sqe, op.fd, op.addr, op.size, op.pos);
-                break;
-            }
-            case o::write: {
-                const auto& op = req.as<io_request::operation::write>();
-                ::io_uring_prep_write(sqe, op.fd, op.addr, op.size, op.pos);
-                break;
-            }
-            case o::readv: {
-                const auto& op = req.as<io_request::operation::readv>();
-                ::io_uring_prep_readv(sqe, op.fd, op.iovec, op.iov_len, op.pos);
-                break;
-            }
-            case o::writev: {
-                const auto& op = req.as<io_request::operation::writev>();
-                ::io_uring_prep_writev(sqe, op.fd, op.iovec, op.iov_len, op.pos);
-                break;
-            }
-            case o::fdatasync: {
-                const auto& op = req.as<io_request::operation::fdatasync>();
-                ::io_uring_prep_fsync(sqe, op.fd, IORING_FSYNC_DATASYNC);
-                break;
-            }
-            case o::recv: {
-                const auto& op = req.as<io_request::operation::recv>();
-                ::io_uring_prep_recv(sqe, op.fd, op.addr, op.size, op.flags);
-                break;
-            }
-            case o::recvmsg: {
-                const auto& op = req.as<io_request::operation::recvmsg>();
-                ::io_uring_prep_recvmsg(sqe, op.fd, op.msghdr, op.flags);
-                break;
-            }
-            case o::send: {
-                const auto& op = req.as<io_request::operation::send>();
-                ::io_uring_prep_send(sqe, op.fd, op.addr, op.size, op.flags);
-                break;
-            }
-            case o::sendmsg: {
-                const auto& op = req.as<io_request::operation::sendmsg>();
-                ::io_uring_prep_sendmsg(sqe, op.fd, op.msghdr, op.flags);
-                break;
-            }
-            case o::accept: {
-                const auto& op = req.as<io_request::operation::accept>();
-                ::io_uring_prep_accept(sqe, op.fd, op.sockaddr, op.socklen_ptr, op.flags);
-                break;
-            }
-            case o::connect: {
-                const auto& op = req.as<io_request::operation::connect>();
-                ::io_uring_prep_connect(sqe, op.fd, op.sockaddr, op.socklen);
-                break;
-            }
-            case o::poll_add:
-            case o::poll_remove:
-            case o::cancel:
-                // The reactor does not generate these types of I/O requests yet, so
-                // this path is unreachable. As more features of io_uring are exploited,
-                // we'll utilize more of these opcodes.
-                seastar_logger.error("Invalid operation for iocb: {}", req.opname());
-                abort();
-        }
-        ::io_uring_sqe_set_data(sqe, completion);
-
+        prepare_sqe(get_sqe(), req, completion);
         _has_pending_submissions = true;
     }
 
