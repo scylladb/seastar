@@ -370,6 +370,7 @@ public:
 };
 
 class reactor_backend_uring;
+class reactor_backend_asymmetric_uring;
 
 class reactor_backend_selector {
     std::string _name;
