@@ -386,6 +386,19 @@ public:
     }
 };
 
+#ifdef SEASTAR_HAVE_URING
+
+namespace uring {
+
+// QUEUE_LEN is more or less arbitrary. Too low and we'll be
+// issuing too small batches, too high and we require too much locked
+// memory, but otherwise it doesn't matter.
+inline constexpr unsigned QUEUE_LEN = 200;
+
+} // namespace uring
+
+#endif // SEASTAR_HAVE_URING
+
 }
 
 
