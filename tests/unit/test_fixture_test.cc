@@ -22,6 +22,7 @@
 
 #include <boost/test/execution_monitor.hpp>
 
+#include <seastar/core/sleep.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/test_fixture.hh>
 
@@ -65,6 +66,8 @@ struct SyncTestFixture {
     }
 };
 
+using namespace std::chrono_literals;
+
 SEASTAR_FIXTURE_TEST_CASE(test_single_test_fixture_void_ret, SyncTestFixture) {
     BOOST_REQUIRE(inited);
     return make_ready_future<>();
@@ -72,6 +75,29 @@ SEASTAR_FIXTURE_TEST_CASE(test_single_test_fixture_void_ret, SyncTestFixture) {
 
 SEASTAR_FIXTURE_THREAD_TEST_CASE(test_single_thread_test_fixture_void_ret, SyncTestFixture) {
     BOOST_REQUIRE(inited);
+    seastar::sleep(1ms).get();
+}
+
+struct ThreadTestFixture {
+    bool inited = false;
+    bool destroyed = false;
+
+    ~ThreadTestFixture() {
+        BOOST_REQUIRE(destroyed);
+    }
+    void setup() {
+        seastar::sleep(1ms).get();
+        inited = true;
+    }
+    void teardown() {
+        seastar::sleep(1ms).get();
+        destroyed = true;
+    }
+};
+
+SEASTAR_FIXTURE_THREAD_TEST_CASE(test_single_thread_test_fixture_thread_fixt, ThreadTestFixture) {
+    BOOST_REQUIRE(inited);
+    seastar::sleep(1ms).get();
 }
 
 // having these thread local subtly verifies that the fixture

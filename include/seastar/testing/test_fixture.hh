@@ -29,6 +29,7 @@
 #include <seastar/util/defer.hh>
 #include <seastar/testing/seastar_test.hh>
 #include <seastar/testing/test_runner.hh>
+#include <seastar/util/defer.hh>
 
 namespace seastar::testing {
 namespace detail {
@@ -176,9 +177,17 @@ inline boost::unit_test::decorator::fixture_t async_func_fixture(F1 setup, F2 te
             namespace td =  seastar::testing::detail;               \
             using type = name ## _fxt;                              \
             type t;                                                 \
-            td::do_fixture_test(                                    \
-                std::mem_fn(&type::run_test_case), t, #F            \
-                ).get();                                            \
+            td::conditional_invoke_setup(t).get();                  \
+            auto def = defer([&t]() noexcept {                      \
+                try {                                               \
+                    td::conditional_invoke_teardown(t).get();       \
+                } catch (...) {                                     \
+                    td::warn_teardown_exception(#name               \
+                        , std::current_exception()                  \
+                    );                                              \
+                }                                                   \
+            });                                                     \
+            t.run_test_case();                                      \
         });                                                         \
     }                                                               \
     void name ## _fxt::run_test_case() const
