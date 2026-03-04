@@ -814,8 +814,8 @@ add_library (seastar
 
 # Shared library soname  
 set_target_properties(seastar PROPERTIES
-  VERSION ${PROJECT_VERSION}.${Seastar_API_LEVEL}.${Seastar_RELEASE_DATE}
-  SOVERSION ${PROJECT_VERSION})
+  VERSION ${Seastar_RELEASE_DATE}.${PROJECT_VERSION}.${Seastar_API_LEVEL}
+  SOVERSION ${Seastar_RELEASE_DATE})
 
 if (Seastar_MODULE)
   target_sources(seastar
@@ -1231,8 +1231,8 @@ if (Seastar_INSTALL OR Seastar_TESTING)
     src/testing/test_runner.cc)
 
   set_target_properties(seastar_testing PROPERTIES
-    VERSION ${PROJECT_VERSION}.${Seastar_API_LEVEL}.${Seastar_RELEASE_DATE}
-    SOVERSION ${PROJECT_VERSION})
+    VERSION ${Seastar_RELEASE_DATE}.${PROJECT_VERSION}.${Seastar_API_LEVEL}
+    SOVERSION ${Seastar_RELEASE_DATE})
 
   add_library (Seastar::seastar_testing ALIAS seastar_testing)
 
@@ -1254,8 +1254,8 @@ if (Seastar_INSTALL OR Seastar_TESTING)
     tests/perf/perf_tests.cc
     tests/perf/linux_perf_event.cc)
   set_target_properties(seastar_perf_testing PROPERTIES
-    VERSION ${PROJECT_VERSION}.${Seastar_API_LEVEL}.${Seaster_RELEASE_DATE}
-    SOVERSION ${PROJECT_VERSION})
+    VERSION ${Seastar_RELEASE_DATE}.${PROJECT_VERSION}.${Seastar_API_LEVEL}
+    SOVERSION ${Seastar_RELEASE_DATE})
   add_library (Seastar::seastar_perf_testing ALIAS seastar_perf_testing)
   target_compile_definitions (seastar_perf_testing
     PRIVATE ${Seastar_PRIVATE_COMPILE_DEFINITIONS})
