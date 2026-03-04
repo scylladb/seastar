@@ -56,8 +56,9 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
             _buffer = {};
 
             // https://datatracker.ietf.org/doc/html/rfc6455#section-5.1
-            // We must close the connection if data isn't masked.
-            if ((!_header->masked) ||
+            // Validate mask bit: server requires masked, client requires unmasked.
+            if ((_require_mask && !_header->masked) ||
+                (!_require_mask && _header->masked) ||
                 // RSVX must be 0
                 (_header->rsv1 | _header->rsv2 | _header->rsv3) ||
                 // Opcode must be known.
@@ -87,7 +88,9 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
                 _payload_length = consume_be<uint64_t>(input);
             }
 
-            _masking_key = consume_be<uint32_t>(input);
+            if (_header->masked) {
+                _masking_key = consume_be<uint32_t>(input);
+            }
             _buffer = {};
             _state = parsing_state::payload;
         } else {
@@ -124,7 +127,9 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
                           _result.get_write() + _consumed_payload_length);
                 data.trim_front(consumed_bytes);
             }
-            remove_mask(_result, _payload_length);
+            if (_header->masked) {
+                remove_mask(_result, _payload_length);
+            }
             _consumed_payload_length = 0;
             _state = parsing_state::flags_and_payload_data;
             return websocket_parser::stop(std::move(data));
