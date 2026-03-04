@@ -70,14 +70,14 @@ option (Seastar_DEPRECATED_OSTREAM_FORMATTERS
   ON)
 
 set (Seastar_RELEASE_DATE
-  20221127
+  20250526
   CACHE
   STRING
   "Last release date")
 
 set_property (CACHE Seastar_RELEASE_DATE
   PROPERTY
-  STRINGS 20221127)
+  STRINGS 20250526)
 
 set (Seastar_API_LEVEL
   "9"
@@ -816,10 +816,6 @@ add_library (seastar
 set_target_properties(seastar PROPERTIES
   VERSION ${PROJECT_VERSION}.${Seastar_API_LEVEL}.${Seastar_RELEASE_DATE}
   SOVERSION ${PROJECT_VERSION})
-
-# We disable _FORTIFY_SOURCE because it generates false positives with longjmp() (src/core/thread.cc)
-set_source_files_properties(src/core/thread.cc
-  PROPERTIES COMPILE_FLAGS -U_FORTIFY_SOURCE)
 
 if (Seastar_MODULE)
   target_sources(seastar
