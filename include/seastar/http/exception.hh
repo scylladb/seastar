@@ -22,7 +22,6 @@
 #pragma once
 
 #include <seastar/util/log.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/http/reply.hh>
 #include <seastar/json/json_elements.hh>
 
@@ -30,7 +29,6 @@ namespace seastar {
 
 namespace httpd {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /**
  * The base_exception is a base for all http exception.
@@ -122,7 +120,12 @@ public:
     }
 };
 
-class json_exception : public json::json_base {
+class response_parsing_exception : public server_error_exception {
+public:
+    explicit response_parsing_exception(const std::string& msg) : server_error_exception(msg) {}
+};
+
+class [[deprecated("Use base_exception or any of its inheritants instead")]] json_exception : public json::json_base {
 public:
     json::json_element<std::string> _msg;
     json::json_element<int> _code;
@@ -158,12 +161,10 @@ public:
     {}
 };
 
-SEASTAR_MODULE_EXPORT_END
 }
 
 }
 
-SEASTAR_MODULE_EXPORT
 template <>
 struct fmt::formatter<seastar::httpd::base_exception> {
     constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }

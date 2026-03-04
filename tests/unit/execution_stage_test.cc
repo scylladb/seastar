@@ -334,3 +334,13 @@ SEASTAR_THREAD_TEST_CASE(test_inheriting_concrete_execution_stage_reference_para
     a_struct obj;
     es(seastar::ref(obj), &obj).get();
 }
+
+SEASTAR_THREAD_TEST_CASE(test_execution_stage_rename) {
+    auto do_nothing = []{};
+    auto stage = seastar::make_execution_stage("test", do_nothing);
+    BOOST_REQUIRE_EQUAL(stage.name(), "test");
+
+    // Default behaviour - should not change the name
+    stage.update_name_and_metric_group();
+    BOOST_REQUIRE_EQUAL(stage.name(), "test");
+}

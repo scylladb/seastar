@@ -23,16 +23,12 @@
 
 /// \file
 /// \brief Contains a seastar::checked_ptr class implementation.
-#ifndef SEASTAR_MODULE
 #include <exception>
 #include <memory>
-#include <seastar/util/modules.hh>
-#endif
 
 /// \namespace seastar
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// The exception thrown by a default_null_deref_action.
 class checked_ptr_is_null_exception : public std::exception {};
@@ -48,7 +44,6 @@ struct default_null_deref_action {
         throw checked_ptr_is_null_exception();
     }
 };
-SEASTAR_MODULE_EXPORT_END
 
 /// \cond internal
 /// \namespace seastar::internal
@@ -95,7 +90,6 @@ inline T* checked_ptr_do_get(T* ptr) noexcept {
 ///
 /// \tparam NullDerefAction a functor that is invoked when a user tries to dereference a not engaged pointer.
 ///
-SEASTAR_MODULE_EXPORT
 template<typename Ptr, typename NullDerefAction = default_null_deref_action>
 requires std::is_default_constructible_v<NullDerefAction> && requires (NullDerefAction action) {
     NullDerefAction();
@@ -188,7 +182,6 @@ public:
 
 namespace std {
 /// std::hash specialization for seastar::checked_ptr class
-SEASTAR_MODULE_EXPORT
 template<typename T>
 struct hash<seastar::checked_ptr<T>> {
     /// Get the hash value for the given seastar::checked_ptr object.

@@ -19,9 +19,6 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <memory>
 #include <algorithm>
@@ -36,13 +33,10 @@ module;
 #include <unordered_map>
 #include <vector>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/sstring.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/circular_buffer.hh>
-#include <seastar/core/distributed.hh>
+#include <seastar/core/sharded.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/metrics.hh>
@@ -53,7 +47,6 @@ module seastar;
 #include <seastar/util/short_streams.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/string_utils.hh>
-#endif
 
 
 using namespace std::chrono_literals;
@@ -98,57 +91,39 @@ future<> connection::do_response_loop() {
 }
 
 future<> connection::start_response() {
-    if (_resp->_body_writer) {
-        return _resp->write_reply_to_connection(*this).then_wrapped([this] (auto f) {
-            if (f.failed()) {
-                // In case of an error during the write close the connection
-                _server._respond_errors++;
-                _done = true;
-                _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
-                _replies.push(std::unique_ptr<http::reply>());
-                f.ignore_ready_future();
-                return make_ready_future<>();
-            }
-            return _write_buf.write("0\r\n\r\n", 5);
-        }).then_wrapped([this ] (auto f) {
-            if (f.failed()) {
-                // We could not write the closing sequence
-                // Something is probably wrong with the connection,
-                // we should close it, so the client will disconnect
-                _done = true;
-                _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
-                _replies.push(std::unique_ptr<http::reply>());
-                f.ignore_ready_future();
-                return make_ready_future<>();
-            } else {
-                return _write_buf.flush();
-            }
-        }).then_wrapped([this] (auto f) {
-            if (f.failed()) {
-                // flush failed. just close the connection
-                _done = true;
-                _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
-                _replies.push(std::unique_ptr<http::reply>());
-                f.ignore_ready_future();
-            }
-            _resp.reset();
+    return _resp->write_reply(out()).then_wrapped([this] (auto f) {
+        if (f.failed()) {
+            // In case of an error during the write close the connection
+            _server._respond_errors++;
+            _done = true;
+            _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
+            _replies.push(std::unique_ptr<http::reply>());
+            f.ignore_ready_future();
+        }
+        return make_ready_future<>();
+    }).then_wrapped([this ] (auto f) {
+        if (f.failed()) {
+            // We could not write the closing sequence
+            // Something is probably wrong with the connection,
+            // we should close it, so the client will disconnect
+            _done = true;
+            _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
+            _replies.push(std::unique_ptr<http::reply>());
+            f.ignore_ready_future();
             return make_ready_future<>();
-        });
-    }
-    set_headers(*_resp);
-    _resp->_headers["Content-Length"] = to_sstring(
-            _resp->_content.size());
-    return _write_buf.write(_resp->_response_line.data(),
-            _resp->_response_line.size()).then([this] {
-        return _resp->write_reply_headers(*this);
-    }).then([this] {
-        return _write_buf.write("\r\n", 2);
-    }).then([this] {
-        return write_body();
-    }).then([this] {
-        return _write_buf.flush();
-    }).then([this] {
+        } else {
+            return _write_buf.flush();
+        }
+    }).then_wrapped([this] (auto f) {
+        if (f.failed()) {
+            // flush failed. just close the connection
+            _done = true;
+            _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
+            _replies.push(std::unique_ptr<http::reply>());
+            f.ignore_ready_future();
+        }
         _resp.reset();
+        return make_ready_future<>();
     });
 }
 
@@ -195,9 +170,21 @@ set_request_content(std::unique_ptr<http::request> req, input_stream<char>* cont
     } else {
         // Read the entire content into the request content string
         return util::read_entire_stream_contiguous(*content_stream).then([req = std::move(req)] (sstring content) mutable {
-            req->content = std::move(content);
+            http::internal::deprecated_content(*req) = std::move(content);
             return make_ready_future<std::unique_ptr<http::request>>(std::move(req));
         });
+    }
+}
+
+static void set_header_connection(http::reply& resp, bool keep_alive) {
+    if (keep_alive) {
+        if (resp._version == "1.0") {
+            resp.add_header("Connection", "Keep-Alive");
+        }
+    } else {
+        if (resp._version == "1.1") {
+            resp.add_header("Connection", "close");
+        }
     }
 }
 
@@ -206,6 +193,7 @@ void connection::generate_error_reply_and_close(std::unique_ptr<http::request> r
     // TODO: Handle HTTP/2.0 when it releases
     resp->set_version(req->_version);
     resp->set_status(status, msg);
+    set_header_connection(*resp, false);
     resp->done();
     _done = true;
     _replies.push(std::move(resp));
@@ -354,12 +342,13 @@ future<bool> connection::generate_reply(std::unique_ptr<http::request> req) {
     resp->set_version(req->_version);
     set_headers(*resp);
     bool keep_alive = req->should_keep_alive();
-    if (keep_alive && req->_version == "1.0") {
-        resp->_headers["Connection"] = "Keep-Alive";
-    }
+    set_header_connection(*resp, keep_alive);
 
     sstring url = req->parse_query_param();
     sstring version = req->_version;
+    if (req->_method == "HEAD") {
+        resp->skip_body();
+    }
     return _server._routes.handle(url, std::move(req), std::move(resp)).
     // Caller guarantees enough room
     then([this, keep_alive , version = std::move(version)](std::unique_ptr<http::reply> rep) {
@@ -389,7 +378,7 @@ void http_server::set_content_streaming(bool b) {
     _content_streaming = b;
 }
 
-future<> http_server::listen(socket_address addr, listen_options lo, 
+future<> http_server::listen(socket_address addr, listen_options lo,
             server_credentials_ptr listener_credentials) {
     if (listener_credentials) {
         _listeners.push_back(seastar::tls::listen(listener_credentials, addr, lo));
@@ -444,6 +433,10 @@ future<> http_server::do_accepts(int which){
 
 future<> http_server::do_accept_one(int which, bool tls) {
     return _listeners[which].accept().then([this, tls] (accept_result ar) mutable {
+        if (_keepalive_params) {
+            ar.connection.set_keepalive(true);
+            ar.connection.set_keepalive_parameters(_keepalive_params.value());
+        }
         auto local_address = ar.connection.local_address();
         auto conn = std::make_unique<connection>(*this, std::move(ar.connection),
                 std::move(ar.remote_address), std::move(local_address), tls);
@@ -531,7 +524,7 @@ future<> http_server_control::listen(socket_address addr, listen_options lo, htt
     return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, listen_options, http_server::server_credentials_ptr)>(&http_server::listen, addr, lo, credentials);
 }
 
-distributed<http_server>& http_server_control::server() {
+sharded<http_server>& http_server_control::server() {
     return *_server_dist;
 }
 

@@ -35,6 +35,7 @@
 #include <seastar/core/rwlock.hh>
 #include <seastar/core/shared_mutex.hh>
 #include <seastar/util/alloc_failure_injector.hh>
+#include <seastar/util/log.hh>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -173,6 +174,26 @@ SEASTAR_THREAD_TEST_CASE(test_rwlock_hold_abort) {
 
         BOOST_REQUIRE_THROW(f.get(), semaphore_aborted);
     }
+}
+
+SEASTAR_THREAD_TEST_CASE(test_rwlock_hold) {
+    rwlock l;
+
+    auto rl = l.hold_read_lock().get();
+
+    auto opt_rl = l.try_hold_read_lock();
+    BOOST_REQUIRE(opt_rl.has_value());
+    BOOST_REQUIRE(!l.try_hold_write_lock());
+
+    rl.return_all();
+    BOOST_REQUIRE(!l.try_hold_write_lock());
+
+    opt_rl->return_all();
+    auto opt_wl = l.try_hold_write_lock();
+    BOOST_REQUIRE(opt_wl.has_value());
+
+    BOOST_REQUIRE(!l.try_hold_read_lock());
+    BOOST_REQUIRE(!l.try_hold_write_lock());
 }
 
 SEASTAR_THREAD_TEST_CASE(test_failed_with_lock) {

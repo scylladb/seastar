@@ -24,6 +24,7 @@
 #include <random>
 
 #include <seastar/core/seastar.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/exceptions.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/tmp_file.hh>
@@ -47,7 +48,7 @@ generate_tmp_name(const fs::path& path_template) {
         parent = path_template;
         filename = default_tmp_name_template;
         pos = filename.find("XX");
-        assert(pos != std::string::npos);
+        SEASTAR_ASSERT(pos != std::string::npos);
     }
     auto end = filename.size();
     static constexpr char charset[] = "0123456789abcdef";
@@ -82,13 +83,13 @@ tmp_file::tmp_file(tmp_file&& x) noexcept
 }
 
 tmp_file::~tmp_file() {
-    assert(!has_path());
-    assert(!is_open());
+    SEASTAR_ASSERT(!has_path());
+    SEASTAR_ASSERT(!is_open());
 }
 
 future<> tmp_file::open(fs::path path_template, open_flags oflags, file_open_options options) noexcept {
-    assert(!has_path());
-    assert(!is_open());
+    SEASTAR_ASSERT(!has_path());
+    SEASTAR_ASSERT(!is_open());
     oflags |= open_flags::create | open_flags::exclusive;
     fs::path path;
     try {
@@ -132,11 +133,11 @@ make_tmp_file(fs::path path_template, open_flags oflags, file_open_options optio
 }
 
 tmp_dir::~tmp_dir() {
-    assert(!has_path());
+    SEASTAR_ASSERT(!has_path());
 }
 
 future<> tmp_dir::create(fs::path path_template, file_permissions create_permissions) noexcept {
-    assert(!has_path());
+    SEASTAR_ASSERT(!has_path());
     fs::path path;
     try {
         path = generate_tmp_name(std::move(path_template));

@@ -23,6 +23,7 @@ import platform
 import shlex
 import psutil
 import mmap
+import datetime
 
 dry_run_mode = False
 def perftune_print(log_msg, *args, **kwargs):
@@ -333,6 +334,16 @@ def auto_detect_irq_mask(cpu_mask, cores_per_irq_core):
         return run_hwloc_calc(['--restrict', cpu_mask] + hwloc_args)
 
 
+def check_sysfs_numa_topology_is_valid():
+    # Verify that the sysfs entry exists correctly, same as the checks
+    # performed by hwloc code (check_sysfs_cpu_path() on topology-linux.c)
+    if os.path.isdir("/sys/devices/system/cpu"):
+        if os.path.exists("/sys/devices/system/cpu/cpu0/topology/package_cpus") or os.path.exists("/sys/devices/system/cpu/cpu0/topology/core_cpus"):
+            return True
+        if os.path.exists("/sys/devices/system/cpu/cpu0/topology/core_siblings") or os.path.exists("/sys/devices/system/cpu/cpu0/topology/thread_siblings"):
+            return True
+    return False
+
 ################################################################################
 class PerfTunerBase(metaclass=abc.ABCMeta):
     def __init__(self, args):
@@ -346,13 +357,21 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         elif args.irq_cpu_mask:
             self.irqs_cpu_mask = args.irq_cpu_mask
         else:
+            if not check_sysfs_numa_topology_is_valid():
+                raise PerfTunerBase.InvalidNUMATopologyException("NUMA topology information is corrupted")
             self.irqs_cpu_mask = auto_detect_irq_mask(self.cpu_mask, self.cores_per_irq_core)
 
         self.__is_aws_i3_nonmetal_instance = None
+        self.__metadata_token_value = None
+        self.__metadata_token_time = None
 
 #### Public methods ##########################
     class CPUMaskIsZeroException(Exception):
         """Thrown if CPU mask turns out to be zero"""
+        pass
+
+    class InvalidNUMATopologyException(Exception):
+        """Thrown if NUMA Topology is invalid"""
         pass
 
     class SupportedModes(enum.IntEnum):
@@ -549,13 +568,49 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         pass
 
 #### Private methods ############################
+    @property
+    def __ec2_metadata_base_url(self):
+        return "http://169.254.169.254/latest/"
+
+    @property
+    def __metadata_token(self):
+        """
+        Refresh IMDSv2 session token if it necessary, and return current token
+        :return: current session token
+        """
+        token_ttl = 21600
+        update_token = False
+        if not self.__metadata_token_value:
+            update_token = True
+        else:
+            time_diff = datetime.datetime.now() - self.__metadata_token_time
+            time_diff_sec = int(time_diff.total_seconds())
+            if time_diff_sec >= token_ttl - 120:
+                update_token = True
+        if update_token:
+            self.__metadata_token_time = datetime.datetime.now()
+            req = urllib.request.Request(self.__ec2_metadata_base_url + "api/token", headers={"X-aws-ec2-metadata-token-ttl-seconds": token_ttl}, method="PUT")
+            with urllib.request.urlopen(req, timeout=0.1) as res:
+                self.__metadata_token_value = res.read().decode()
+        return self.__metadata_token_value
+
+    def __get_instance_metadata(self, path):
+        """
+        Get a parameter from EC2 Metadata server
+        :param path: metadata path to access for
+        :return: received metadata as a string
+        """
+        req = urllib.request.Request(self.__ec2_metadata_base_url + 'meta-data/' + path, headers={"X-aws-ec2-metadata-token": self.__metadata_token})
+        with urllib.request.urlopen(req, timeout=0.1) as res:
+            return res.read().decode()
+
     def __check_host_type(self):
         """
         Check if we are running on the AWS i3 nonmetal instance.
         If yes, set self.__is_aws_i3_nonmetal_instance to True, and to False otherwise.
         """
         try:
-            aws_instance_type = urllib.request.urlopen("http://169.254.169.254/latest/meta-data/instance-type", timeout=0.1).read().decode()
+            aws_instance_type = self.__get_instance_metadata('instance-type')
             if re.match(r'^i3\.((?!metal)\w)+$', aws_instance_type):
                 self.__is_aws_i3_nonmetal_instance = True
             else:
@@ -577,9 +632,9 @@ class NetPerfTuner(PerfTunerBase):
 
         self.nics=args.nics
 
-        self.__nic_is_bond_iface = NetPerfTuner.__get_bond_ifaces()
-        self.__nic_is_vlan_iface = NetPerfTuner.__get_vlan_ifaces()
-        self.__slaves = self.__learn_slaves()
+        self.__nic_is_bond_iface_dict = NetPerfTuner.__get_bond_ifaces()
+        self.__nic_is_vlan_iface_dict = NetPerfTuner.__get_vlan_ifaces()
+        self.__slaves_dict = self.__learn_slaves()
 
         # check that self.nics contain a HW device or a supported composite interface
         self.__check_nics()
@@ -594,12 +649,18 @@ class NetPerfTuner(PerfTunerBase):
         Tune the networking server configuration.
         """
         for nic in self.nics:
-            if self.nic_is_hw_iface(nic):
-                perftune_print("Setting a physical interface {}...".format(nic))
-                self.__setup_one_hw_iface(nic)
-            else:
-                perftune_print(f"Setting a {nic} {'bond' if self.nic_is_bond_iface(nic) else 'VLAN'} interface...")
-                self.__setup_composite_iface(nic)
+            if self.__nic_is_tunable(nic):
+                perftune_print("Setting a tunable interface {}...".format(nic))
+                self.__setup_one_tunable_iface(nic)
+
+            if self.__nic_has_slaves(nic):
+                nic_type = "virtual"
+                if self.__nic_is_bond_iface(nic):
+                    nic_type = "bond"
+                elif self.__nic_is_vlan_iface(nic):
+                    nic_type = "VLAN"
+                perftune_print(f"Setting a {nic} {nic_type} interface...")
+                self.__setup_virtual_iface(nic)
 
         # Increase the socket listen() backlog
         fwriteln_and_log('/proc/sys/net/core/somaxconn', '4096')
@@ -608,39 +669,7 @@ class NetPerfTuner(PerfTunerBase):
         # did not receive an acknowledgment from connecting client.
         fwriteln_and_log('/proc/sys/net/ipv4/tcp_max_syn_backlog', '4096')
 
-        self.tune_tcp_mem()
-
-    def tune_tcp_mem(self):
-        page_size = mmap.PAGESIZE
-        total_mem = psutil.virtual_memory().total
-        # We only tune for physical memory since tcp_mem is virtualized
-        def to_pages(bytes):
-            return math.ceil(bytes / page_size)
-        max = total_mem * self.args.tcp_mem_fraction
-        fwriteln_and_log('/proc/sys/net/ipv4/tcp_mem', f"{to_pages(max / 2)} {to_pages(max * 2/3)} {to_pages(max)}")
-
-    def nic_is_bond_iface(self, nic):
-        return self.__nic_is_bond_iface.get(nic, False)
-
-    def nic_is_vlan_iface(self, nic):
-        return self.__nic_is_vlan_iface.get(nic, False)
-
-    def nic_is_composite_iface(self, nic):
-        return self.nic_is_bond_iface(nic) or self.nic_is_vlan_iface(nic)
-
-    def nic_exists(self, nic):
-        return self.__iface_exists(nic)
-
-    def nic_is_hw_iface(self, nic):
-        return self.__dev_is_hw_iface(nic)
-
-    def slaves(self, nic):
-        """
-        Returns an iterator for all slaves of the nic.
-        If agrs.nic is not a composite interface an attempt to use the returned iterator
-        will immediately raise a StopIteration exception - use nic_is_composite_iface() check to avoid this.
-        """
-        return iter(self.__slaves[nic])
+        self.__tune_tcp_mem()
 
 #### Protected methods ##########################
     def _get_irqs(self):
@@ -651,6 +680,38 @@ class NetPerfTuner(PerfTunerBase):
         return itertools.chain.from_iterable(self.__nic2irqs.values())
 
 #### Private methods ############################
+    def __tune_tcp_mem(self):
+        page_size = mmap.PAGESIZE
+        total_mem = psutil.virtual_memory().total
+        # We only tune for physical memory since tcp_mem is virtualized
+        def to_pages(bytes):
+            return math.ceil(bytes / page_size)
+        max = total_mem * self.args.tcp_mem_fraction
+        fwriteln_and_log('/proc/sys/net/ipv4/tcp_mem', f"{to_pages(max / 2)} {to_pages(max * 2/3)} {to_pages(max)}")
+
+    def __nic_is_bond_iface(self, nic):
+        return self.__nic_is_bond_iface_dict.get(nic, False)
+
+    def __nic_is_vlan_iface(self, nic):
+        return self.__nic_is_vlan_iface_dict.get(nic, False)
+
+    def __nic_has_slaves(self, nic):
+        return nic in self.__slaves_dict and len(self.__slaves_dict[nic]) > 0
+
+    def __nic_exists(self, nic):
+        return self.__iface_exists(nic)
+
+    def __nic_is_tunable(self, nic):
+        return self.__dev_is_tunalbe_iface(nic)
+
+    def __slaves(self, nic):
+        """
+        Returns an iterator for all slaves of the nic.
+        If agrs.nic is not a composite interface an attempt to use the returned iterator
+        will immediately raise a StopIteration exception - use __nic_has_slaves(nic) check to avoid this.
+        """
+        return iter(self.__slaves_dict[nic])
+
     def __get_irqs_info(self):
         self.__irqs2procline = get_irqs2procline_map()
         self.__nic2irqs = self.__learn_irqs()
@@ -664,16 +725,16 @@ class NetPerfTuner(PerfTunerBase):
         Checks that self.nics are supported interfaces
         """
         for nic in self.nics:
-            if not self.nic_exists(nic):
+            if not self.__nic_exists(nic):
                 raise Exception("Device {} does not exist".format(nic))
-            if not self.nic_is_hw_iface(nic) and not self.nic_is_composite_iface(nic):
+            if not self.__nic_is_tunable(nic) and not self.__nic_has_slaves(nic):
                 raise Exception("Not supported virtual device {}".format(nic))
 
     def __get_irqs_one(self, iface):
         """
         Returns the list of IRQ numbers for the given interface.
         """
-        return self.__nic2irqs[iface]
+        return self.__nic2irqs.get(iface, [])
 
     def __setup_rfs(self, iface):
         rps_limits = glob.glob("/sys/class/net/{}/queues/*/rps_flow_cnt".format(iface))
@@ -749,7 +810,7 @@ class NetPerfTuner(PerfTunerBase):
             return False
         return os.path.exists("/sys/class/net/{}".format(iface))
 
-    def __dev_is_hw_iface(self, iface):
+    def __dev_is_tunalbe_iface(self, iface):
         return os.path.exists("/sys/class/net/{}/device".format(iface))
 
     @staticmethod
@@ -777,14 +838,13 @@ class NetPerfTuner(PerfTunerBase):
         :param nic: An interface to search slaves for
         """
         slaves_list = set()
-        top_slaves_list = set()
 
-        if self.nic_is_bond_iface(nic):
+        if self.__nic_is_bond_iface(nic):
             top_slaves_list = set(itertools.chain.from_iterable(
                 [line.split() for line in open("/sys/class/net/{}/bonding/slaves".format(nic), 'r').readlines()]))
-        elif self.nic_is_vlan_iface(nic):
-            # VLAN interfaces have a symbolic link 'lower_<parent_interface_name>' under
-            # /sys/class/net/<VLAN interface name>.
+        else:
+            # Some virtual interfaces (e.g. VLANs) have a symbolic link 'lower_<parent_interface_name>' under
+            # /sys/class/net/<interface name> representing a lower level dependent interface.
             #
             # For example:
             #
@@ -793,15 +853,18 @@ class NetPerfTuner(PerfTunerBase):
             top_slaves_list = set([pathlib.PurePath(pathlib.Path(f).resolve()).name
                                    for f in glob.glob(f"/sys/class/net/{nic}/lower_*")])
 
-        # Slaves can be themselves bond or VLAN devices: let's descend (DFS) all the way down to get physical devices.
-        # Bond slaves can't be VLAN interfaces but VLAN interface parent device can be a bond interface.
-        # Bond slaves can also be bonds.
-        # For simplicity let's not discriminate.
+        # Slaves can themselves have slaves of their own: let's descend (DFS) all the way down to get physical devices.
+        # We don't want to include not-tunable interfaces in the resulting slaves list.
+        # We do want to check if any (tunable or not) slave has slaves of their own that might be tunable.
         for s in top_slaves_list:
-            if self.nic_is_composite_iface(s):
-                slaves_list |= self.__learn_slaves_one(s)
-            else:
+            # Avoid cycles - should not happen but just in case
+            if s in slaves_list:
+                continue
+
+            if self.__nic_is_tunable(s):
                 slaves_list.add(s)
+
+            slaves_list |= self.__learn_slaves_one(s)
 
         return slaves_list
 
@@ -871,6 +934,30 @@ class NetPerfTuner(PerfTunerBase):
 
         return sys.maxsize
 
+    def __mana_irq_to_queue_idx(self, irq):
+        """
+        Return the HW queue index for a given IRQ for Microsoft Azure Network Adapter (MANA) NICs in order to sort the
+        IRQs' list by this index.
+
+        MANA NICs have the IRQ which name looks like this:
+             mana_hwc@...
+             mana_q<index>@...
+
+        We don't care much about 'mana_hwc' IRQs since they are a slow path event IRQs.
+        mana_q<index> IRQs are the fast path queues IRQs.
+        Therefore, we will order HWC IRQs to always be the last in the sorted IRQs' list.
+
+        :param irq: IRQ number
+        :return: HW queue index for MANA NICs and sys.maxsize for all other NICs
+        """
+        mana_fp_irq_re = re.compile(r"\s+mana_q(\d+)")
+
+        m = mana_fp_irq_re.search(self.__irqs2procline[irq])
+        if m:
+            return int(m.group(1))
+
+        return sys.maxsize
+
     def __virtio_irq_to_queue_idx(self, irq):
         """
         Return the HW queue index for a given IRQ for VIRTIO in order to sort the IRQs' list by this index.
@@ -930,6 +1017,7 @@ class NetPerfTuner(PerfTunerBase):
                       or for mlx5
                       mlx5_comp<queue idx>@<bla-bla>
           - VIRTIO: virtioN-[input|output].D
+          - MANA: mana_q<queue idx>@<bla-bla>
 
         So, we will try to filter the etries in /proc/interrupts for IRQs we've got from get_all_irqs_one()
         according to the patterns above.
@@ -944,7 +1032,7 @@ class NetPerfTuner(PerfTunerBase):
         """
         # filter 'all_irqs' to only reference valid keys from 'irqs2procline' and avoid an IndexError on the 'irqs' search below
         all_irqs = set(learn_all_irqs_one("/sys/class/net/{}/device".format(iface), self.__irqs2procline, iface)).intersection(self.__irqs2procline.keys())
-        fp_irqs_re = re.compile(r"-TxRx-|-fp-|-Tx-Rx-|mlx4-\d+@|mlx5_comp\d+@|virtio\d+-(input|output)")
+        fp_irqs_re = re.compile(r"-TxRx-|-fp-|-Tx-Rx-|mlx4-\d+@|mlx5_comp\d+@|virtio\d+-(input|output)|mana_q\d+@")
         irqs = sorted(list(filter(lambda irq : fp_irqs_re.search(self.__irqs2procline[irq]), all_irqs)))
         if irqs:
             irqs.sort(key=self.__get_irq_to_queue_idx_functor(iface))
@@ -978,6 +1066,8 @@ class NetPerfTuner(PerfTunerBase):
             irq_to_idx_func = self.__mlx_irq_to_queue_idx
         elif driver_name.startswith("virtio"):
             irq_to_idx_func = self.__virtio_irq_to_queue_idx
+        elif driver_name.startswith("mana"):
+            irq_to_idx_func = self.__mana_irq_to_queue_idx
 
         return irq_to_idx_func
 
@@ -1012,8 +1102,9 @@ class NetPerfTuner(PerfTunerBase):
         """
         nic_irq_dict={}
         for nic in self.nics:
-            if self.nic_is_composite_iface(nic):
-                for slave in filter(self.__dev_is_hw_iface, self.slaves(nic)):
+            if self.__nic_has_slaves(nic):
+                # Slaves should not include not-tunable interfaces but just in case let's filter them out for safety
+                for slave in filter(self.__dev_is_tunalbe_iface, self.__slaves(nic)):
                     nic_irq_dict[slave] = self.__learn_irqs_one(slave)
             else:
                 nic_irq_dict[nic] = self.__learn_irqs_one(nic)
@@ -1062,7 +1153,7 @@ class NetPerfTuner(PerfTunerBase):
 
         return False
 
-    def __setup_one_hw_iface(self, iface):
+    def __setup_one_tunable_iface(self, iface):
         # Set Rx channels count to a number of IRQ CPUs unless an explicit count is given
         if self.args.num_rx_queues is not None:
             num_rx_channels = self.args.num_rx_queues
@@ -1108,15 +1199,15 @@ class NetPerfTuner(PerfTunerBase):
         self.__setup_rps(iface, self.cpu_mask)
         self.__setup_xps(iface)
 
-    def __setup_composite_iface(self, nic):
+    def __setup_virtual_iface(self, nic):
         """
         Set up the interface which is a bond or a VLAN interface
         :param nic: name of a composite interface to set up
         """
-        for slave in self.slaves(nic):
-            if self.__dev_is_hw_iface(slave):
+        for slave in self.__slaves(nic):
+            if self.__dev_is_tunalbe_iface(slave):
                 perftune_print("Setting up {}...".format(slave))
-                self.__setup_one_hw_iface(slave)
+                self.__setup_one_tunable_iface(slave)
             else:
                 perftune_print("Skipping {} (not a physical slave device?)".format(slave))
 
@@ -1615,7 +1706,7 @@ Modes description:
 
  If there isn't any mode given script will use a default mode:
     - If number of CPU cores is greater than 16, allocate a single IRQ CPU core for each 16 CPU cores in 'cpu_mask'.
-      IRQ cores are going to be allocated evenly on available NUMA nodes according to 'cpu_mask' value.  
+      IRQ cores are going to be allocated evenly on available NUMA nodes according to 'cpu_mask' value.
     - If number of physical CPU cores per Rx HW queue is greater than 4 and less than 16 - use the 'sq-split' mode.
     - Otherwise, if number of hyper-threads per Rx HW queue is greater than 4 - use the 'sq' mode.
     - Otherwise use the 'mq' mode.
@@ -1845,6 +1936,10 @@ except PerfTunerBase.CPUMaskIsZeroException as e:
         perftune_print("0x0")
     else:
         sys.exit("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e))
+except PerfTunerBase.InvalidNUMATopologyException as e:
+    print("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e), file=sys.stderr)
+    # set special exit code to handle InvalidNUMATopologyException from the caller script
+    sys.exit(3)
 except Exception as e:
     sys.exit("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e))
 

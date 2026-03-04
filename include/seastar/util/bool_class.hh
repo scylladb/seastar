@@ -88,6 +88,10 @@ public:
     /// Equal-to and not-equal-to operators.
     friend bool operator==(bool_class x, bool_class y) noexcept = default;
 
+#if __cpp_lib_three_way_comparison
+    auto operator<=>(const bool_class& other) const noexcept = default;
+#endif
+
     /// Prints bool_class value to an output stream.
     friend std::ostream& operator<<(std::ostream& os, bool_class v) {
         return os << (v._value ? "true" : "false");

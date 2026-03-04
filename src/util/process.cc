@@ -20,24 +20,13 @@
  * Copyright (C) 2022 Kefu Chai ( tchaikov@gmail.com )
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#include <cassert>
-#include <csignal>
-#include <cstdint>
-#include <filesystem>
-#include <memory>
-#include <vector>
-#include <utility>
-module seastar;
-#else
 #include <seastar/core/fstream.hh>
 #include <seastar/core/internal/buffer_allocator.hh>
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/polymorphic_temporary_buffer.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/util/process.hh>
-#endif
+#include <seastar/util/assert.hh>
 
 namespace seastar::experimental {
 
@@ -78,18 +67,31 @@ public:
     static auto from_fd(file_desc&& fd) {
         return std::make_unique<pipe_data_sink_impl>(std::move(fd));
     }
-    using data_sink_impl::put;
-    future<> put(temporary_buffer<char> buf) override {
+private:
+    future<> do_put(temporary_buffer<char> buf) {
         size_t buf_size = buf.size();
         auto req = internal::io_request::make_write(_fd.get(), 0, buf.get(), buf_size, false);
-        return _io_queue.submit_io_write(internal::priority_class(internal::maybe_priority_class_ref()), buf_size, std::move(req), nullptr).then(
+        return _io_queue.submit_io_write(buf_size, std::move(req), nullptr).then(
             [this, buf = std::move(buf), buf_size] (size_t written) mutable {
                 if (written < buf_size) {
                     buf.trim_front(written);
-                    return put(std::move(buf));
+                    return do_put(std::move(buf));
                 }
                 return make_ready_future();
             });
+    }
+
+public:
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        return data_sink_impl::fallback_put(bufs, [this] (temporary_buffer<char>&& buf) {
+            return do_put(std::move(buf));
+        });
+    }
+#else
+    using data_sink_impl::put;
+    future<> put(temporary_buffer<char> buf) override {
+        return do_put(std::move(buf));
     }
     future<> put(net::packet data) override {
         return do_with(data.release(), [this] (std::vector<temporary_buffer<char>>& bufs) {
@@ -98,6 +100,7 @@ public:
             });
         });
     }
+#endif
     future<> close() override {
         _fd.close();
         return make_ready_future();
@@ -119,7 +122,7 @@ future<process::wait_status> process::wait() {
         if (WIFEXITED(wstatus)) {
             return wait_exited{WEXITSTATUS(wstatus)};
         } else {
-            assert(WIFSIGNALED(wstatus));
+            SEASTAR_ASSERT(WIFSIGNALED(wstatus));
             return wait_signaled{WTERMSIG(wstatus)};
         }
     });
@@ -135,7 +138,7 @@ void process::kill() {
 
 future<process> process::spawn(const std::filesystem::path& pathname,
                                spawn_parameters params) {
-    assert(!params.argv.empty());
+    SEASTAR_ASSERT(!params.argv.empty());
     return engine().spawn(pathname.native(), std::move(params.argv), std::move(params.env)).then_unpack(
             [] (pid_t pid, file_desc stdin_pipe, file_desc stdout_pipe, file_desc stderr_pipe) {
         return make_ready_future<process>(create_tag{}, pid, std::move(stdin_pipe), std::move(stdout_pipe), std::move(stderr_pipe));

@@ -32,6 +32,7 @@
 #include <seastar/core/print.hh>
 #include <seastar/core/scheduling_specific.hh>
 #include <seastar/core/smp.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/util/later.hh>
@@ -304,9 +305,6 @@ SEASTAR_THREAD_TEST_CASE(sg_rename_callback) {
     };
 
     scheduling_group_key_config key_conf = make_scheduling_group_key_config<value>();
-    key_conf.rename = [] (void* ptr) {
-        reinterpret_cast<value*>(ptr)->rename();
-    };
 
     std::vector<scheduling_group_key> keys;
     for (size_t i = 0; i < 3; ++i) {
@@ -347,10 +345,75 @@ SEASTAR_THREAD_TEST_CASE(sg_rename_callback) {
     }).get();
 }
 
+SEASTAR_THREAD_TEST_CASE(sg_create_and_key_create_in_parallel) {
+    std::vector<scheduling_group> sgs;
+    scheduling_group_key_config key1_conf = make_scheduling_group_key_config<int>();
+
+    when_all_succeed(
+        create_scheduling_group(format("sg1").c_str(), 100),
+        scheduling_group_key_create(key1_conf),
+        create_scheduling_group(format("sg2").c_str(), 100),
+        scheduling_group_key_create(key1_conf),
+        create_scheduling_group(format("sg3").c_str(), 100),
+        scheduling_group_key_create(key1_conf),
+        create_scheduling_group(format("sg4").c_str(), 100),
+        scheduling_group_key_create(key1_conf)
+    ).then_unpack([&sgs] (
+            scheduling_group sg1, scheduling_group_key k1, scheduling_group sg2, scheduling_group_key k2,
+            scheduling_group sg3, scheduling_group_key k3, scheduling_group sg4, scheduling_group_key k4) {
+        sgs.push_back(sg1);
+        sgs.push_back(sg2);
+        sgs.push_back(sg3);
+        sgs.push_back(sg4);
+    }).get();
+
+    for (scheduling_group sg : sgs) {
+        destroy_scheduling_group(sg).get();
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(sg_rename_recreate_with_the_same_name) {
+    auto do_nothing = [] {};
+    inheriting_concrete_execution_stage<void> stage{"my_stage", do_nothing};
+
+    std::vector<scheduling_group> sgs;
+    sgs.push_back(create_scheduling_group("foo", 100).get());
+    with_scheduling_group(sgs[0], [&] { return stage(); }).get();
+
+    rename_scheduling_group(sgs[0], "bar").get();
+
+    BOOST_CHECK_NO_THROW({
+        sgs.push_back(create_scheduling_group("foo", 100).get());
+        with_scheduling_group(sgs[1], [&] { return stage(); }).get();
+    });
+
+    for (scheduling_group sg : sgs) {
+        destroy_scheduling_group(sg).get();
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(sg_key_constructor_exception_when_creating_new_key) {
+    scheduling_group_key_config key_conf = make_scheduling_group_key_config<int>();
+    scheduling_group_key_create(key_conf).get();
+
+    struct thrower {
+        thrower() {
+            throw std::runtime_error("constructor failed");
+        }
+        ~thrower() {
+            // Shouldn't get here because the constructor shouldn't succeed
+            SEASTAR_ASSERT(false);
+        }
+    };
+    scheduling_group_key_config thrower_conf = make_scheduling_group_key_config<thrower>();
+    BOOST_REQUIRE_THROW(scheduling_group_key_create(thrower_conf).get(), std::runtime_error);
+}
+
 SEASTAR_THREAD_TEST_CASE(sg_create_with_destroy_tasks) {
     struct nada{};
 
-    engine().at_destroy([] {}); // nothing really
+    // at_destroy() functionality is deprecated, but test until removed.
+    internal::at_destroy([] {}); // nothing really
 
     scheduling_group_key_config sg_conf = make_scheduling_group_key_config<nada>();
     scheduling_group_key_create(sg_conf).get();

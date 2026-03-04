@@ -21,17 +21,13 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <cstdint>
 #include <vector>
-#include <seastar/util/modules.hh>
 #include <optional>
-#endif
 
 namespace seastar {
 namespace metrics {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /*!
  * \brief Histogram bucket type
@@ -101,7 +97,6 @@ struct histogram {
     std::optional<native_histogram_info> native_histogram;
 };
 
-SEASTAR_MODULE_EXPORT_END
 
 }
 

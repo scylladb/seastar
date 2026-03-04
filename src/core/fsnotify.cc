@@ -19,24 +19,10 @@
  * Copyright 2020 ScyllaDB Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-
-module;
-
-#include <cerrno>
-#include <cstdint>
-#include <stdexcept>
-#include <vector>
-#include <sys/inotify.h>
-
-module seastar;
-
-#else
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/fsnotify.hh>
-#endif
 
 namespace seastar::experimental {
 
@@ -93,7 +79,7 @@ future<std::vector<fsnotifier::event>> fsnotifier::impl::wait() {
         while (p < e) {
             auto ev = reinterpret_cast<const ::inotify_event*>(p);
             if (ev->wd == me->_close_dummy && me->_close_dummy != -1) {
-                me->_fd.close();                
+                me->_fd.close();
             } else {
                 events.emplace_back(event {
                     ev->wd, flags(ev->mask), ev->cookie,
@@ -108,12 +94,12 @@ future<std::vector<fsnotifier::event>> fsnotifier::impl::wait() {
 }
 
 void fsnotifier::impl::shutdown() {
-    // reactor does not yet have 
+    // reactor does not yet have
     // any means of "shutting down" a non-socket read,
     // so we work around this by creating a watch for something ubiquitous,
     // then removing the watch while adding a mark.
     // This will cause any event waiter to wake up, but ignore the event for our
-    // dummy. 
+    // dummy.
     (void)create_watch("/", flags::delete_self).then([me = shared_from_this()](watch_token t) {
         me->_close_dummy = t;
         me->remove_watch(t);

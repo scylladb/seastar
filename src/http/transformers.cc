@@ -19,21 +19,14 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <boost/algorithm/string/replace.hpp>
 #include <list>
 #include <memory>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/do_with.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/http/transformers.hh>
-#endif
 
 namespace seastar {
 
@@ -163,6 +156,13 @@ public:
         }
     }
 
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        return data_sink_impl::fallback_put(bufs, [this] (temporary_buffer<char>&& buf) {
+            return do_put(std::move(buf));
+        });
+    }
+#else
     virtual future<> put(net::packet data)  override {
         return make_ready_future<>();
     }
@@ -170,6 +170,12 @@ public:
     using data_sink_impl::put;
 
     virtual future<> put(temporary_buffer<char> buf) override {
+        return do_put(std::move(buf));
+    }
+#endif
+
+private:
+    future<> do_put(temporary_buffer<char> buf) {
         if (buf.empty()) {
             return make_ready_future<>();
         }

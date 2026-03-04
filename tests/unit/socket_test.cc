@@ -24,8 +24,13 @@
 #include <seastar/core/app-template.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/memory.hh>
+#include <seastar/core/byteorder.hh>
+#include <seastar/core/alien.hh>
+#include <seastar/core/smp.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/later.hh>
+#include <seastar/util/defer.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/core/abort_source.hh>
@@ -37,6 +42,7 @@
 
 #include <optional>
 #include <tuple>
+#include <future>
 
 using namespace seastar;
 
@@ -101,7 +107,7 @@ SEASTAR_TEST_CASE(socket_skip_test) {
                 // expected
                 return;
             }
-            assert(!"Skipping data from socket is likely stuck");
+            SEASTAR_ASSERT(!"Skipping data from socket is likely stuck");
         });
 
         accept_result accepted = ss.accept().get();
@@ -263,6 +269,34 @@ SEASTAR_TEST_CASE(socket_connect_abort_test) {
     });
 }
 
+// Check that server_socket::accept() is abortable by server_socket::abort_accept()
+SEASTAR_THREAD_TEST_CASE(socket_accept_abort_test) {
+    ipv4_addr addr("127.0.0.1", 3174);
+    server_socket ss = seastar::listen(addr, listen_options{ .reuse_address = true });
+    bool too_late = false;
+    auto f = async([&] {
+        try {
+            ss.accept().get();
+            BOOST_FAIL("Accept didn't resolve into exception");
+        } catch (const std::system_error& e) {
+            BOOST_REQUIRE(!too_late);
+            BOOST_REQUIRE_EQUAL(e.code(), std::error_code(ECONNABORTED, std::system_category()));
+        }
+    });
+
+    auto abort = sleep(std::chrono::milliseconds(500)).then([&ss] {
+        fmt::print("Abort accept\n");
+        ss.abort_accept();
+    });
+
+    auto check = sleep(std::chrono::seconds(2)).then([&too_late] {
+        fmt::print("Accept must have been aborted already\n");
+        too_late = true;
+    });
+
+    when_all(std::move(f), std::move(abort), std::move(check)).get();
+}
+
 SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
 
     // Test that setting the send and recv buffer sizes on the listening
@@ -336,3 +370,207 @@ SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
     BOOST_CHECK_LT(recv_default, 20'000'000);
 }
 
+static
+void
+test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protocol) {
+    auto& alien = engine().alien();
+    listen_options lo;
+    lo.reuse_address = true;
+    lo.lba = server_socket::load_balancing_algorithm::port;
+    lo.proxy_protocol = proxy_protocol;
+
+    struct client_results {
+        int attempts = 0;
+        int bad_socket = 0;
+        int bad_bind = 0;
+        int bad_connect = 0;
+        int bad_proxy_send = 0;
+        int bad_recv = 0;
+        int bad_shard = 0;
+        int good = 0;
+    };
+
+    struct shard_number_server {
+        server_socket ss;
+        future<> runner;
+        shard_number_server(socket_address addr, listen_options lo)
+                : ss(seastar::listen(addr, lo))
+                , runner(run()) {
+        }
+        future<> run() {
+            try {
+                while (true) {
+                    auto [cs, _] = co_await ss.accept();
+                    auto out = cs.output();
+                    auto in = cs.input();
+                    unsigned shard_id = this_shard_id();
+                    char buf[4];
+                    write_be<unsigned>(buf, shard_id);
+                    co_await out.write(buf, sizeof(buf));
+                    co_await out.close();
+                    co_await in.close();
+                }
+            } catch (...) {
+                // expected on abort_accept
+            }
+        }
+        future<> stop() {
+            ss.abort_accept();
+            return std::move(runner);
+        }
+    };
+    auto server = sharded<shard_number_server>();
+    server.start(listen_addr, lo).get();
+    auto smp_count = smp::count;
+    promise<> client_done;
+    auto client = std::async(std::launch::async, [&] {
+        auto r = client_results{};
+        for (unsigned i = 0; i < 100u; ++i) {
+            ++r.attempts;
+            uint16_t port = 20000 + i;
+            unsigned expected_shard = port % smp_count;
+            auto client_addr = listen_addr;
+            switch (client_addr.family()) {
+            case AF_INET: {
+                auto& sa_in = client_addr.as_posix_sockaddr_in();
+                sa_in.sin_port = htons(port);
+                break;
+            }
+            case AF_INET6: {
+                auto& sa_in6 = client_addr.as_posix_sockaddr_in6();
+                sa_in6.sin6_port = htons(port);
+                break;
+            }
+            default:
+                std::abort();
+            }
+            int conn = ::socket(client_addr.family(), SOCK_STREAM, IPPROTO_TCP);
+            if (conn == -1) {
+                ++r.bad_socket;
+                continue;
+            }
+            // set REUSEADDR to avoid port exhaustion in case of test failures
+            int opt = 1;
+            ::setsockopt(conn, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+            auto do_close = defer([conn] () noexcept { ::close(conn); });
+            if (!proxy_protocol) {
+                int bind_result = ::bind(conn, &client_addr.as_posix_sockaddr(), client_addr.length());
+                if (bind_result == -1) {
+                    ++r.bad_bind; // port may be busy;
+                    continue;
+                }
+            }
+            int conn_result = ::connect(conn, &listen_addr.as_posix_sockaddr(), listen_addr.length());
+            if (conn_result == -1) {
+                ++r.bad_connect;
+                continue;
+            }
+            if (proxy_protocol) {
+                // send a minimal PROXY protocol v2 header with correct source port
+                char buf[16 + 36] = {
+                    0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49, 0x54, 0x0a, // signature
+                };
+                buf[12] = 0x21;                   // version and command (PROXY)
+                buf[13] = (listen_addr.family() == AF_INET) ? 0x11 : 0x21; // family and protocol
+                uint16_t xlen = (listen_addr.family() == AF_INET) ? 12 : 36;
+                write_be<uint16_t>(buf + 14, xlen); // length
+                if (listen_addr.family() == AF_INET) {
+                    buf[16] = 127;
+                    buf[17] = 0;
+                    buf[18] = 0;
+                    buf[19] = 1;
+                    buf[20] = 127;
+                    buf[21] = 0;
+                    buf[22] = 0;
+                    buf[23] = 1;
+                    write_be<uint16_t>(buf + 24, client_addr.port()); // source port
+                    write_be<uint16_t>(buf + 26, listen_addr.port()); // destination port
+                } else {
+                    buf[31] = 1;
+                    buf[47] = 1;
+                    write_be<uint16_t>(buf + 48, client_addr.port()); // source port
+                    write_be<uint16_t>(buf + 50, listen_addr.port()); // destination port
+                }
+                auto proxy_send_result = ::send(conn, buf, 16 + xlen, 0);
+                if (proxy_send_result != 16 + xlen) {
+                    ++r.bad_proxy_send;
+                    continue;
+                }
+            }
+            char buf[4];
+            auto recv_result = ::recv(conn, buf, sizeof(buf), 0);
+            if (recv_result != 4) {
+                ++r.bad_recv;
+                continue;
+            }
+            auto actual_shard = read_be<unsigned>(buf);
+            if (actual_shard != expected_shard) {
+                ++r.bad_shard;
+                continue;
+            }
+            ++r.good;
+        }
+        alien::submit_to(alien, 0, [&] { client_done.set_value(); return make_ready_future<>(); });
+        return r;
+    });
+    client_done.get_future().get();
+    server.stop().get();
+    auto results = client.get();
+    BOOST_REQUIRE_EQUAL(results.attempts, 100);
+    BOOST_REQUIRE_EQUAL(results.bad_socket, 0);
+    // We can have bad binds due to other connection using the ports.
+    // 20 should be plenty of margin.
+    BOOST_REQUIRE_LE(results.bad_bind, 20);
+    BOOST_REQUIRE_EQUAL(results.bad_connect, 0);
+    BOOST_REQUIRE_EQUAL(results.bad_proxy_send, 0);
+    BOOST_REQUIRE_EQUAL(results.bad_recv, 0);
+    BOOST_REQUIRE_EQUAL(results.bad_shard, 0);
+}
+
+SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv4_test) {
+    test_load_balancing_algorithm_port(ipv4_addr("127.0.0.1", 11001), false);
+}
+
+SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv6_test) {
+    test_load_balancing_algorithm_port(ipv6_addr("::1", 11001), false);
+}
+
+SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv4_proxy_test) {
+    test_load_balancing_algorithm_port(ipv4_addr("127.0.0.1", 11001), true);
+}
+
+SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv6_proxy_test) {
+    test_load_balancing_algorithm_port(ipv6_addr("::1", 11001), true);
+}
+
+SEASTAR_THREAD_TEST_CASE(inet_local_remote_address_sanity) {
+    auto addr = make_ipv4_address(11003);
+    auto ls = listen(addr);
+    auto ar_f = ls.accept();
+
+    std::optional<connected_socket> cs = connect(addr).get();
+    auto ar = ar_f.get();
+    auto ss = std::move(ar.connection);
+
+    BOOST_CHECK_EQUAL(cs->local_address(), ss.remote_address());
+    BOOST_CHECK_EQUAL(cs->remote_address(), ss.local_address());
+
+    // Now disconnect the server socket on the kernel level
+    // For that -- write some data into client, then close the client. When
+    // it happens, kernel forces connection reset and server socket will
+    // get into unconnected state
+    auto sout = ss.output();
+    sout.write("data").get();
+    sout.flush().get();
+    sout.close().get();
+    // Sockets are batch-flushed, so we need to give it a time to get
+    // flush-polled and also let kernel transfer the data into client
+    // socket
+    seastar::sleep(std::chrono::milliseconds(500)).get();
+    // Close the socket. Closing in/out streams won't work, it will shutdown
+    // the socket and shutting down doesn't send RST-s
+    cs.reset();
+
+    ss.wait_input_shutdown().get();
+    BOOST_CHECK(ss.remote_address().is_unspecified());
+}

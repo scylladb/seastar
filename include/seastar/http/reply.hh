@@ -31,20 +31,17 @@
 //
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <unordered_map>
-#endif
+#include <string_view>
 #include <seastar/core/sstring.hh>
 #include <seastar/http/mime_types.hh>
+#include <seastar/http/types.hh>
 #include <seastar/core/iostream.hh>
-#include <seastar/util/noncopyable_function.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/util/string_utils.hh>
 #include <seastar/util/iostream.hh>
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 namespace httpd {
 
@@ -78,13 +75,14 @@ struct reply {
         see_other = 303, //!< see_other
         not_modified = 304, //!< not_modified
         use_proxy = 305, //!< use_proxy
-        temporary_redirect = 307, //!< temporary_redirect 
+        temporary_redirect = 307, //!< temporary_redirect
+        permanent_redirect = 308, //!< permanent_redirect
         bad_request = 400, //!< bad_request
         unauthorized = 401, //!< unauthorized
         payment_required = 402, //!< payment_required
         forbidden = 403, //!< forbidden
         not_found = 404, //!< not_found
-        method_not_allowed = 405, //!< method_not_allowed 
+        method_not_allowed = 405, //!< method_not_allowed
         not_acceptable = 406, //!< not_acceptable
         request_timeout = 408, //!< request_timeout
         conflict = 409, //!< conflict
@@ -104,7 +102,7 @@ struct reply {
         bad_gateway = 502, //!< bad_gateway
         service_unavailable = 503,  //!< service_unavailable
         gateway_timeout = 504, //!< gateway_timeout
-        http_version_not_supported = 505, //!< http_version_not_supported 
+        http_version_not_supported = 505, //!< http_version_not_supported
         insufficient_storage = 507, //!< insufficient_storage
         bandwidth_limit_exceeded = 509, //!< bandwidth_limit_exceeded
         network_read_timeout = 598, //!< network_read_timeout
@@ -148,12 +146,16 @@ struct reply {
      */
     std::unordered_map<sstring, sstring, seastar::internal::case_insensitive_hash, seastar::internal::case_insensitive_cmp> _headers;
 
+    std::unordered_map<sstring, sstring> _cookies;
+
     sstring _version;
     /**
      * The content to be sent in the reply.
      */
     sstring _content;
     size_t content_length = 0; // valid when received via client connection
+    size_t left_content_length = std::numeric_limits<size_t>::max();
+    bool _skip_body = false;
 
     sstring _response_line;
     std::unordered_map<sstring, sstring> trailing_headers;
@@ -195,21 +197,36 @@ struct reply {
     }
 
     /**
-     * Set the content type mime type.
-     * Used when the mime type is known.
-     * For most cases, use the set_content_type
+     * Set the content type. The content_type string can be one of:
+     * 1. A MIME (RFC 2045) Content-Type - looking like "type/subtype", e.g.,
+     *   "text/html"
+     * 2. If a "/" is missing in the given string, we look it up in a list of
+     *    common file extensions listed in the http::mime_types map. For
+     *    example "html" will be mapped to "text/html".
      */
-    reply& set_mime_type(const sstring& mime) {
-        _headers["Content-Type"] = mime;
+    reply& set_content_type(std::string_view content_type) {
+        if (content_type.find('/') == std::string_view::npos) {
+            content_type = http::mime_types::extension_to_type(content_type);
+        }
+        _headers["Content-Type"] = sstring(content_type);
         return *this;
     }
 
+    [[deprecated("Use set_content_type(std::string_view) instead")]]
+    reply& set_content_type() {
+        return set_content_type("html");
+    }
+
+    [[deprecated("Use set_content_type(std::string_view) instead")]]
+    reply& set_mime_type(const sstring& mime) {
+        return set_content_type(mime);
+    }
+
     /**
-     * Set the content type mime type according to the file extension
-     * that would have been used if it was a file: e.g. html, txt, json etc'
+     * Set the cookie with the given name and value.
      */
-    reply& set_content_type(const sstring& content_type = "html") {
-        set_mime_type(http::mime_types::extension_to_type(content_type));
+    reply& set_cookie(const sstring& name, const sstring& value) {
+        _cookies[name] = value;
         return *this;
     }
 
@@ -242,7 +259,7 @@ struct reply {
      *
      */
 
-    void write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer);
+    void write_body(const sstring& content_type, http::body_writer_type&& body_writer);
 
     /*!
      * \brief use and output stream to write the message body
@@ -269,13 +286,18 @@ struct reply {
      */
     void write_body(const sstring& content_type, sstring content);
 
-private:
-    future<> write_reply_to_connection(httpd::connection& con);
-    future<> write_reply_headers(httpd::connection& connection);
+    // RFC7231 Sec. 4.3.2
+    // For HEAD replies collect everything from the handler, but don't write the body itself
+    void skip_body() noexcept {
+        _skip_body = true;
+    }
 
-    noncopyable_function<future<>(output_stream<char>&&)> _body_writer;
+    future<> write_reply(output_stream<char>& out);
+    future<> write_reply_headers(output_stream<char>& out);
+
+private:
+    http::body_writer_type _body_writer;
     friend class httpd::routes;
-    friend class httpd::connection;
 };
 
 std::ostream& operator<<(std::ostream& os, reply::status_type st);
@@ -286,9 +308,6 @@ namespace httpd {
 using reply [[deprecated("Use http::reply instead")]] = http::reply;
 }
 
-SEASTAR_MODULE_EXPORT_END
 }
 
-#if FMT_VERSION >= 90000
 template <> struct fmt::formatter<seastar::http::reply::status_type> : fmt::ostream_formatter {};
-#endif

@@ -89,7 +89,7 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_pred) {
     }
     // should not affect outcome.
     cv.signal();
-    
+
     try {
         cv.wait(100ms, [&] { return ready; }).get();
         BOOST_FAIL("should not reach");

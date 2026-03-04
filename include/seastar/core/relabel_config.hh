@@ -21,15 +21,11 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <regex>
-#endif
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 namespace metrics {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /*!
  * \brief a wrapper class around regex with the original expr
@@ -132,7 +128,6 @@ struct metric_family_config {
     std::vector<std::string> aggregate_labels;
 };
 
-SEASTAR_MODULE_EXPORT_END
 
 }
 }

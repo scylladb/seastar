@@ -52,13 +52,13 @@ using namespace std::chrono_literals;
 class server {
     seastar::server_socket _ss;
     seastar::connected_socket _cs;
-    seastar::input_stream<char> _in;
-    seastar::output_stream<char> _out;
+    std::optional<seastar::input_stream<char>> _in;
+    std::optional<seastar::output_stream<char>> _out;
     sstring _req;
 
     future<> run_serve_loop() {
         while (true) {
-            temporary_buffer<char> buf = co_await _in.read();
+            temporary_buffer<char> buf = co_await _in->read();
             if (buf.empty()) {
                 co_return;
             }
@@ -66,8 +66,8 @@ class server {
             _req += sstring(buf.get(), buf.size());
             if (_req.ends_with("\r\n\r\n")) {
                 sstring r200("HTTP/1.1 200 OK\r\nHost: test\r\n\r\n");
-                co_await _out.write(r200);
-                co_await _out.flush();
+                co_await _out->write(r200);
+                co_await _out->flush();
                 _req = "";
             }
         }
@@ -78,10 +78,10 @@ public:
     future<> serve() {
         return _ss.accept().then([this] (seastar::accept_result ar) {
             _cs = std::move(ar.connection);
-            _in = _cs.input();
-            _out = _cs.output();
+            _in.emplace(_cs.input());
+            _out.emplace(_cs.output());
             return run_serve_loop().finally([this] {
-                return when_all(_in.close(), _out.close()).discard_result();
+                return when_all(_in->close(), _out->close()).discard_result();
             });
         });
     }

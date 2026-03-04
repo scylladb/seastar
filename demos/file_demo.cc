@@ -35,19 +35,23 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/core/sleep.hh>
 #include <seastar/core/io_intent.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/tmp_file.hh>
 
 using namespace seastar;
+namespace bpo = boost::program_options;
+using namespace std::chrono_literals;
 
 constexpr size_t aligned_size = 4096;
 
 future<> verify_data_file(file& f, temporary_buffer<char>& rbuf, const temporary_buffer<char>& wbuf) {
     return f.dma_read(0, rbuf.get_write(), aligned_size).then([&rbuf, &wbuf] (size_t count) {
-        assert(count == aligned_size);
+        SEASTAR_ASSERT(count == aligned_size);
         fmt::print("    verifying {} bytes\n", count);
-        assert(!memcmp(rbuf.get(), wbuf.get(), aligned_size));
+        SEASTAR_ASSERT(!memcmp(rbuf.get(), wbuf.get(), aligned_size));
     });
 }
 
@@ -55,7 +59,7 @@ future<file> open_data_file(sstring meta_filename, temporary_buffer<char>& rbuf)
     fmt::print("    retrieving data filename from {}\n", meta_filename);
     return with_file(open_file_dma(meta_filename, open_flags::ro), [&rbuf] (file& f) {
         return f.dma_read(0, rbuf.get_write(), aligned_size).then([&rbuf] (size_t count) {
-            assert(count == aligned_size);
+            SEASTAR_ASSERT(count == aligned_size);
             auto data_filename = sstring(rbuf.get());
             fmt::print("    opening {}\n", data_filename);
             return open_file_dma(data_filename, open_flags::ro);
@@ -77,7 +81,7 @@ future<> demo_with_file() {
             auto count = with_file(open_file_dma(filename, open_flags::rw | open_flags::create), [&wbuf] (file& f) {
                 return f.dma_write(0, wbuf.get(), aligned_size);
             }).get();
-            assert(count == aligned_size);
+            SEASTAR_ASSERT(count == aligned_size);
         };
 
         // print the data_filename into the write buffer
@@ -144,17 +148,17 @@ future<> demo_with_file_close_on_failure() {
         // `make_file_output_stream` returns an error. Otherwise, in the error-free path,
         // the opened file is moved to `file_output_stream` that in-turn closes it
         // when the stream is closed.
-        output_stream<char> o = make_output_stream(meta_filename).get();
+        output_stream<char> meta_out = make_output_stream(meta_filename).get();
 
-        write_to_stream(o, wbuf).get();
+        write_to_stream(meta_out, wbuf).get();
 
         // now write some random data into data_filename
         fmt::print("  writing random data into {}\n", data_filename);
         std::generate(wbuf.get_write(), wbuf.get_write() + aligned_size, [&dist, &rnd] { return dist(rnd); });
 
-        o = make_output_stream(data_filename).get();
+        output_stream<char> data_out = make_output_stream(data_filename).get();
 
-        write_to_stream(o, wbuf).get();
+        write_to_stream(data_out, wbuf).get();
 
         // verify the data via meta_filename
         fmt::print("  verifying data...\n");
@@ -168,9 +172,9 @@ future<> demo_with_file_close_on_failure() {
 
 static constexpr size_t half_aligned_size = aligned_size / 2;
 
-future<> demo_with_io_intent() {
+future<> demo_with_io_intent(std::chrono::duration<double> d) {
     fmt::print("\nDemonstrating demo_with_io_intent():\n");
-    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+    return tmp_dir::do_with_thread([=] (tmp_dir& t) {
         sstring filename = (t.get_path() / "testfile.tmp").native();
         auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get();
 
@@ -191,6 +195,10 @@ future<> demo_with_io_intent() {
         auto f1 = f.dma_write(0, wbuf_n.get(), half_aligned_size);
         auto f2 = f.dma_write(half_aligned_size, wbuf_n.get() + half_aligned_size, half_aligned_size, &intent);
 
+        if (d >= std::chrono::duration<double>::zero()) {
+            sleep(std::chrono::duration_cast<std::chrono::microseconds>(d)).get();
+        }
+
         fmt::print("  cancel the 2nd overwriting\n");
         intent.cancel();
 
@@ -198,39 +206,45 @@ future<> demo_with_io_intent() {
         f1.get();
 
         bool cancelled = false;
+        size_t nwritten = 0;
         try {
-            f2.get();
+            nwritten = f2.get();
             // The file::dma_write doesn't preemt, but if it
             // suddenly will, the 2nd write will pass before
             // the intent would be cancelled
-            fmt::print("    2nd write won the race with cancellation\n");
+            fmt::print("    2nd write won the race with cancellation, written: {}\n", nwritten);
         } catch (cancelled_error& ex) {
             cancelled = true;
         }
 
-        fmt::print("  verifying data...\n");
+        fmt::print("  cancel: {}, verifying data...\n", cancelled);
         auto rbuf = allocate_aligned_buffer<unsigned char>(aligned_size, aligned_size);
         f.dma_read(0, rbuf.get(), aligned_size).get();
 
         // First part of the buffer must coincide with the overwritten data
-        assert(!memcmp(rbuf.get(), wbuf_n.get(), half_aligned_size));
+        SEASTAR_ASSERT(!memcmp(rbuf.get(), wbuf_n.get(), half_aligned_size));
 
         if (cancelled) {
             // Second part -- with the old data ...
-            assert(!memcmp(rbuf.get() + half_aligned_size, wbuf.get() + half_aligned_size, half_aligned_size));
+            SEASTAR_ASSERT(!memcmp(rbuf.get() + half_aligned_size, wbuf.get() + half_aligned_size, half_aligned_size));
         } else {
             // ... or with new if the cancellation didn't happen
-            assert(!memcmp(rbuf.get() + half_aligned_size, wbuf.get() + half_aligned_size, half_aligned_size));
+            SEASTAR_ASSERT(!memcmp(rbuf.get() + half_aligned_size, wbuf_n.get() + half_aligned_size, nwritten));
         }
     });
 }
 
 int main(int ac, char** av) {
     app_template app;
-    return app.run(ac, av, [] {
-        return demo_with_file().then([] {
-            return demo_with_file_close_on_failure().then([] {
-                return demo_with_io_intent();
+    app.add_options()
+            ("wait", bpo::value<std::int64_t>()->default_value(-1), "wait milliseconds before cancelling the IO intent, not sleep by default")
+    ;
+    return app.run(ac, av, [&] {
+        auto&& config = app.configuration();
+        auto duration = std::chrono::duration<double>(config["wait"].as<std::int64_t>() * 1ms);
+        return demo_with_file().then([=] {
+            return demo_with_file_close_on_failure().then([=] {
+                return demo_with_io_intent(duration);
             });
         });
     });

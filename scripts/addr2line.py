@@ -25,6 +25,7 @@ import sys
 import subprocess
 from enum import Enum
 from functools import cache
+import time
 from typing import Any, Optional, TypeVar, Union, cast
 
 # special binary path/module indicating that the address is from the kernel
@@ -54,7 +55,9 @@ class Addr2Line:
     dummy_pattern = re.compile(
         r"(.*0x0000000000000000: \?\? \?\?:0\n)"  # addr2line pattern
         r"|"
-        r"(.*0x0: \?\? at .*\n)"  # llvm-addr2line pattern
+        r"(\?\? at \?\?:0\n)"  # llvm-addr2line pattern for LLVM 18 and newer
+        r"|"
+        r"(,\n)"  # llvm-addr2line pattern for LLVM 17 and older
     )
 
     def __init__(
@@ -62,7 +65,7 @@ class Addr2Line:
         parent: 'BacktraceResolver',
         binary: str,
         concise: bool = False,
-        cmd_path: str = "addr2line",
+        cmd_path: str = "llvm-addr2line",
     ):
         self._parent = parent
         self._binary = binary
@@ -97,7 +100,7 @@ class Addr2Line:
         # will just exit.  We need to be robust against that.  We
         # can't just wait on self._addr2line since there is no
         # guarantee on what timeout is sufficient.
-        self._input.write('\n')
+        self._input.write(',\n')
         self._input.flush()
         res = self._output.readline()
         self._missing = res == ''
@@ -129,9 +132,9 @@ class Addr2Line:
     def __call__(self, address: str):
         if self._missing:
             return " ".join([self._binary, address, '\n'])
-        # We print a dummy 0x0 address after the address we are interested in
+        # We trigger a dummy "invalid" address printout after the address we are interested in
         # which we can look for in _read_address
-        inputline = address + '\n0x0\n'
+        inputline = address + '\n,\n'
         self._parent.debug('Add2Line sending input to stdin:', inputline)
         self._input.write(inputline)
         self._input.flush()
@@ -239,6 +242,12 @@ class BacktraceResolver:
             token = fr"(?:{path}\+)?{addr}"
             full_addr_match = fr"(?:(?P<path>{path})\s*\+\s*)?(?P<addr>{addr})"
             ignore_addr_match = fr"(?:(?P<path>{path})\s*\+\s*)?(?:{addr})"
+
+            self.asan_ignore_re = re.compile(f"^=.*$", flags=re.IGNORECASE)
+            self.separator_re = re.compile(r'^\W*-+\W*$')
+
+            # All of the below except for separator_re must only match lines containing 0x in them
+            # as we use that as a quick first filter
             self.oneline_re = re.compile(
                 fr"^((?:.*(?:(?:at|backtrace):?|:))?(?:\s+))?({token}(?:\s+{token})*)(?:\).*|\s*)$",
                 flags=re.IGNORECASE,
@@ -253,9 +262,7 @@ class BacktraceResolver:
                 fr"^(?:.*\s+)\({full_addr_match}\)(\s+\(BuildId: [0-9a-fA-F]+\))?$",
                 flags=re.IGNORECASE,
             )
-            self.asan_ignore_re = re.compile(f"^=.*$", flags=re.IGNORECASE)
             self.generic_re = re.compile(fr"^(?:.*\s+){full_addr_match}\s*$", flags=re.IGNORECASE)
-            self.separator_re = re.compile(r'^\W*-+\W*$')
 
         def split_addresses(self, addrstring: str, default_path: Optional[str] = None):
             addresses: list[dict[str, Any]] = []
@@ -266,7 +273,13 @@ class BacktraceResolver:
                 addresses.append({'path': m.group(1) or default_path, 'addr': m.group(2)})
             return addresses
 
-        def __call__(self, line: str):
+        def __call__(self, line: str) -> dict[str, Any] | None:
+
+            # quick up front check to eliminate a line from contention, which is at least
+            # 30x faster than just diving into the regex matching (for one test file)
+            if not ("0x" in line or "0X" in line or self.separator_re.match(line)):
+                # no addresses in this line, so it is not a backtrace line
+                return None
 
             def get_prefix(s: Optional[str]):
                 if s is not None:
@@ -341,8 +354,11 @@ class BacktraceResolver:
         concise: bool = False,
         cmd_path: str = 'addr2line',
         debug: bool = False,
+        timing: bool = False,
     ):
         self._debug = debug
+        self._timing = timing
+        self._total_resolve_time = 0.0
         self._executable = executable
         self._kallsyms = kallsyms
         self._current_backtrace: list[tuple[str, str]] = []
@@ -368,6 +384,19 @@ class BacktraceResolver:
         if self._debug:
             print('DEBUG >>', *args, file=sys.stderr)
 
+    def timing_now(self):
+        return time.perf_counter() if self._timing else 0.0
+
+    def timing_print_from_start(self, start: float, *args: Any):
+        self.timing_print(self.timing_now() - start, *args)
+
+    def timing_print(self, duration: float, *args: Any):
+        if self._timing:
+            print(f"TIMING >> {duration:.4f} seconds : ", *args, file=sys.stderr)
+
+    def print_resolve_time(self):
+        self.timing_print(self._total_resolve_time, 'resolve time (addr2line subprocess time)')
+
     def _get_resolver_for_module(self, module: str):
         if not module in self._known_modules:
             if module == KERNEL_MODULE:
@@ -392,7 +421,10 @@ class BacktraceResolver:
             module = self._executable
         if verbose is None:
             verbose = self._verbose
-        resolved_address = self._get_resolver_for_module(module)(address)
+        resolver = self._get_resolver_for_module(module)
+        resolve_start = self.timing_now()
+        resolved_address = resolver(address)
+        self._total_resolve_time += self.timing_now() - resolve_start
         if verbose:
             resolved_address = '{{{}}} {}: {}'.format(module, address, resolved_address)
         return resolved_address

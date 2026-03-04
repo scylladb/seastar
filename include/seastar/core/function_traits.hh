@@ -22,21 +22,22 @@
 #pragma once
 
 #include <tuple>
+#include <functional>
 
 namespace seastar {
 
 template<typename T>
 struct function_traits;
- 
+
 template<typename Ret, typename... Args>
 struct function_traits<Ret(Args...)>
 {
     using return_type = Ret;
     using args_as_tuple = std::tuple<Args...>;
     using signature = Ret (Args...);
- 
+
     static constexpr std::size_t arity = sizeof...(Args);
- 
+
     template <std::size_t N>
     struct arg
     {
@@ -57,12 +58,28 @@ template <typename T, typename Ret, typename... Args>
 struct function_traits<Ret(T::*)(Args...) const> : public function_traits<Ret(Args...)>
 {};
 
+template<typename Ret, typename... Args>
+struct function_traits<Ret(*)(Args...) noexcept> : public function_traits<Ret(Args...)>
+{};
+
+template <typename T, typename Ret, typename... Args>
+struct function_traits<Ret(T::*)(Args...) noexcept> : public function_traits<Ret(Args...)>
+{};
+
+template <typename T, typename Ret, typename... Args>
+struct function_traits<Ret(T::*)(Args...) const noexcept> : public function_traits<Ret(Args...)>
+{};
+
 template <typename T>
 struct function_traits : public function_traits<decltype(&T::operator())>
 {};
 
 template<typename T>
 struct function_traits<T&> : public function_traits<std::remove_reference_t<T>>
+{};
+
+template<typename T>
+struct function_traits<std::reference_wrapper<T>> : public function_traits<T>
 {};
 
 }

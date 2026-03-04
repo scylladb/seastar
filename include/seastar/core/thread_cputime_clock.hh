@@ -21,11 +21,9 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <chrono>
 #include <time.h>
-#include <cassert>
-#endif
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -41,7 +39,7 @@ public:
 
         struct timespec tp;
         [[gnu::unused]] auto ret = clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tp);
-        assert(ret == 0);
+        SEASTAR_ASSERT(ret == 0);
         return time_point(tp.tv_nsec * 1ns + tp.tv_sec * 1s);
     }
 };

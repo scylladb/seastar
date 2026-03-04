@@ -22,8 +22,8 @@
 #pragma once
 
 #include <seastar/core/aligned_buffer.hh>
+#include <seastar/util/assert.hh>
 #include <memory>
-#include <assert.h>
 
 namespace seastar {
 
@@ -47,7 +47,7 @@ make_struct_with_vla(E S::*last, size_t nr) {
     auto fake = reinterpret_cast<S*>(0);
     size_t offset = reinterpret_cast<uintptr_t>(&(fake->*last));
     size_t element_size = sizeof((fake->*last)[0]);
-    assert(offset == sizeof(S));
+    SEASTAR_ASSERT(offset == sizeof(S));
     auto p = std::unique_ptr<char, free_deleter>(
             reinterpret_cast<char*>(::malloc(offset + element_size * nr)));
     auto s = std::unique_ptr<S, free_deleter>(new (p.get()) S());

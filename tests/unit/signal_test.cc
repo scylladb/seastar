@@ -45,4 +45,4 @@ SEASTAR_TEST_CASE(test_sighup) {
             BOOST_REQUIRE_EQUAL(signaled, true);
         });
     });
-} 
+}

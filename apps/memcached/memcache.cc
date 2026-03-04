@@ -35,14 +35,15 @@
 #include <seastar/core/stream.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/core/units.hh>
-#include <seastar/core/distributed.hh>
-#include <seastar/core/vector-data-sink.hh>
+#include <seastar/core/sharded.hh>
 #include <seastar/core/bitops.hh>
 #include <seastar/core/slab.hh>
 #include <seastar/core/align.hh>
 #include <seastar/core/print.hh>
 #include <seastar/net/api.hh>
-#include <seastar/net/packet-data-source.hh>
+#include <seastar/util/memory-data-source.hh>
+#include <seastar/util/memory-data-sink.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/log.hh>
 #include "ascii.hh"
@@ -55,6 +56,9 @@
 
 using namespace seastar;
 using namespace net;
+
+using jagged_array_of_buffers = std::vector<std::vector<seastar::temporary_buffer<char>>>;
+namespace seastar { void append_buffers(jagged_array_of_buffers& vb, std::span<seastar::temporary_buffer<char>> bufs); }
 
 namespace memcache {
 
@@ -162,8 +166,8 @@ public:
         , _key_size(key.key().size())
         , _ascii_prefix_size(ascii_prefix.size())
     {
-        assert(_key_size <= std::numeric_limits<uint8_t>::max());
-        assert(_ascii_prefix_size <= std::numeric_limits<uint8_t>::max());
+        SEASTAR_ASSERT(_key_size <= std::numeric_limits<uint8_t>::max());
+        SEASTAR_ASSERT(_ascii_prefix_size <= std::numeric_limits<uint8_t>::max());
         // storing key
         memcpy(_data, key.key().c_str(), _key_size);
         // storing ascii_prefix
@@ -255,7 +259,7 @@ public:
     }
 
     friend inline void intrusive_ptr_add_ref(item* it) {
-        assert(it->_ref_count >= 0);
+        SEASTAR_ASSERT(it->_ref_count >= 0);
         ++it->_ref_count;
         if (it->_ref_count == 2) {
             slab->lock_item(it);
@@ -269,7 +273,7 @@ public:
         } else if (it->_ref_count == 0) {
             slab->free(it);
         }
-        assert(it->_ref_count >= 0);
+        SEASTAR_ASSERT(it->_ref_count >= 0);
     }
 
     friend struct item_key_cmp;
@@ -469,7 +473,7 @@ private:
         intrusive_ptr_add_ref(new_item);
 
         auto insert_result = _cache.insert(*new_item);
-        assert(insert_result.second);
+        SEASTAR_ASSERT(insert_result.second);
         if (insertion.expiry.ever_expires() && _alive.insert(*new_item)) {
             _timer.rearm(new_item->get_timeout());
         }
@@ -733,14 +737,14 @@ public:
 
 class sharded_cache {
 private:
-    distributed<cache>& _peers;
+    sharded<cache>& _peers;
 
     inline
     unsigned get_cpu(const item_key& key) {
         return std::hash<item_key>()(key) % smp::count;
     }
 public:
-    sharded_cache(distributed<cache>& peers) : _peers(peers) {}
+    sharded_cache(sharded<cache>& peers) : _peers(peers) {}
 
     future<> flush_all() {
         return _peers.invoke_on_all(&cache::flush_all);
@@ -866,7 +870,7 @@ class ascii_protocol {
 private:
     using this_type = ascii_protocol;
     sharded_cache& _cache;
-    distributed<system_stats>& _system_stats;
+    sharded<system_stats>& _system_stats;
     memcache_ascii_parser _parser;
     item_key _item_key;
     item_insertion_data _insertion;
@@ -887,25 +891,33 @@ private:
     static constexpr const char *msg_out_of_memory = "SERVER_ERROR Out of memory allocating new item\r\n";
     static constexpr const char *msg_error_non_numeric_value = "CLIENT_ERROR cannot increment or decrement non-numeric value\r\n";
 private:
+    static void append(std::vector<temporary_buffer<char>>& bufs, const char* buf, size_t size) {
+        if (size) {
+            bufs.emplace_back(const_cast<char*>(buf), size, deleter());
+        }
+    }
+
+    static void append(std::vector<temporary_buffer<char>>& bufs, const char* s) { append(bufs, s, strlen(s)); }
+    static void append(std::vector<temporary_buffer<char>>& bufs, const std::string_view& s) { append(bufs, s.data(), s.size()); }
+
     template <bool WithVersion>
-    static void append_item(scattered_message<char>& msg, item_ptr item) {
+    static void serialize(std::vector<temporary_buffer<char>>& bufs, item_ptr item) {
         if (!item) {
             return;
         }
 
-        msg.append_static("VALUE ");
-        msg.append_static(item->key());
-        msg.append_static(item->ascii_prefix());
+        append(bufs, "VALUE ");
+        append(bufs, item->key());
+        append(bufs, item->ascii_prefix());
 
         if (WithVersion) {
-             msg.append_static(" ");
-             msg.append(to_sstring(item->version()));
+            append(bufs, " ");
+            bufs.emplace_back(temporary_buffer<char>::copy_of(to_sstring(item->version())));
         }
 
-        msg.append_static(msg_crlf);
-        msg.append_static(item->value());
-        msg.append_static(msg_crlf);
-        msg.on_delete([item = std::move(item)] {});
+        append(bufs, msg_crlf);
+        append(bufs, item->value());
+        bufs.emplace_back(const_cast<char*>(msg_crlf), strlen(msg_crlf), make_deleter([item = std::move(item)]{}));
     }
 
     template <bool WithVersion>
@@ -913,10 +925,10 @@ private:
         _system_stats.local()._cmd_get++;
         if (_parser._keys.size() == 1) {
             return _cache.get(_parser._keys[0]).then([&out] (auto item) -> future<> {
-                scattered_message<char> msg;
-                this_type::append_item<WithVersion>(msg, std::move(item));
-                msg.append_static(msg_end);
-                return out.write(std::move(msg));
+                std::vector<temporary_buffer<char>> bufs;
+                this_type::serialize<WithVersion>(bufs, std::move(item));
+                append(bufs, msg_end);
+                return out.write(std::span<temporary_buffer<char>>(bufs));
             });
         } else {
             _items.clear();
@@ -925,12 +937,12 @@ private:
                     _items.emplace_back(std::move(item));
                 });
             }).then([this, &out] () {
-                scattered_message<char> msg;
+                std::vector<temporary_buffer<char>> bufs;
                 for (auto& item : _items) {
-                    append_item<WithVersion>(msg, std::move(item));
+                    serialize<WithVersion>(bufs, std::move(item));
                 }
-                msg.append_static(msg_end);
-                return out.write(std::move(msg));
+                append(bufs, msg_end);
+                return out.write(std::span<temporary_buffer<char>>(bufs));
             });
         }
     }
@@ -1027,7 +1039,7 @@ private:
         });
     }
 public:
-    ascii_protocol(sharded_cache& cache, distributed<system_stats>& system_stats)
+    ascii_protocol(sharded_cache& cache, sharded<system_stats>& system_stats)
         : _cache(cache)
         , _system_stats(system_stats)
     {}
@@ -1225,7 +1237,7 @@ public:
 private:
     std::optional<future<>> _task;
     sharded_cache& _cache;
-    distributed<system_stats>& _system_stats;
+    sharded<system_stats>& _system_stats;
     udp_channel _chan;
     uint16_t _port;
     size_t _max_datagram_size = default_max_datagram_size;
@@ -1246,8 +1258,8 @@ private:
         ipv4_addr _src;
         uint16_t _request_id;
         input_stream<char> _in;
+        jagged_array_of_buffers _out_bufs;
         output_stream<char> _out;
-        std::vector<packet> _out_bufs;
         ascii_protocol _proto;
 
         static output_stream_options make_opts() noexcept {
@@ -1256,30 +1268,31 @@ private:
             return opts;
         }
 
-        connection(ipv4_addr src, uint16_t request_id, input_stream<char>&& in, size_t out_size,
-                sharded_cache& c, distributed<system_stats>& system_stats)
+        connection(ipv4_addr src, input_stream<char>&& in, size_t out_size,
+                sharded_cache& c, sharded<system_stats>& system_stats)
             : _src(src)
-            , _request_id(request_id)
             , _in(std::move(in))
-            , _out(output_stream<char>(data_sink(std::make_unique<vector_data_sink>(_out_bufs)), out_size, make_opts()))
+            , _out(output_stream<char>(data_sink(std::make_unique<util::basic_memory_data_sink<jagged_array_of_buffers>>(_out_bufs)), out_size, make_opts()))
             , _proto(c, system_stats)
         {}
 
         future<> respond(udp_channel& chan) {
             int i = 0;
-            return do_for_each(_out_bufs.begin(), _out_bufs.end(), [this, i, &chan] (packet& p) mutable {
-                header* out_hdr = p.prepend_header<header>(0);
+            return do_for_each(_out_bufs.begin(), _out_bufs.end(), [this, i, &chan] (std::vector<temporary_buffer<char>>& bufs) mutable {
+                header* out_hdr = reinterpret_cast<header*>(bufs.front().get_write());
                 out_hdr->_request_id = _request_id;
                 out_hdr->_sequence_number = i++;
                 out_hdr->_n = _out_bufs.size();
                 *out_hdr = hton(*out_hdr);
-                return chan.send(_src, std::move(p));
+                return chan.send(_src, bufs);
             });
         }
     };
 
 public:
-    udp_server(sharded_cache& c, distributed<system_stats>& system_stats, uint16_t port = 11211)
+    static constexpr size_t header_size = sizeof(header);
+
+    udp_server(sharded_cache& c, sharded<system_stats>& system_stats, uint16_t port = 11211)
          : _cache(c)
          , _system_stats(system_stats)
          , _port(port)
@@ -1289,36 +1302,47 @@ public:
         _max_datagram_size = max_datagram_size;
     }
 
+private:
+    input_stream<char> as_input_stream(std::span<temporary_buffer<char>> bufs) {
+        if (bufs.size() == 1) {
+            return util::as_input_stream(std::move(bufs[0]));
+        }
+
+        std::vector<temporary_buffer<char>> stable_bufs;
+        stable_bufs.reserve(bufs.size());
+        std::ranges::move(bufs, std::back_inserter(stable_bufs));
+        return util::as_input_stream(std::move(stable_bufs));
+    }
+
+public:
     void start() {
         _chan = make_bound_datagram_channel({_port});
         // Run in the background.
         _task = keep_doing([this] {
             return _chan.receive().then([this](datagram dgram) {
-                packet& p = dgram.get_data();
-                if (p.len() < sizeof(header)) {
-                    // dropping invalid packet
-                    return make_ready_future<>();
-                }
+                input_stream<char> in = as_input_stream(dgram.get_buffers());
+                auto conn = make_lw_shared<connection>(dgram.get_src(), std::move(in),
+                      _max_datagram_size - sizeof(header), _cache, _system_stats);
+                return conn->_in.read_exactly(sizeof(header)).then([this, conn] (auto h) mutable {
+                    if (h.size() < sizeof(header)) {
+                        // dropping invalid packet
+                        return make_ready_future<>();
+                    }
+                    header hdr = ntoh(*reinterpret_cast<const header*>(h.get()));
+                    conn->_request_id = hdr._request_id;
 
-                header hdr = ntoh(*p.get_header<header>());
-                p.trim_front(sizeof(hdr));
+                    if (hdr._n != 1 || hdr._sequence_number != 0) {
+                        return conn->_out.write("CLIENT_ERROR only single-datagram requests supported\r\n").then([this, conn] {
+                            return conn->_out.flush().then([this, conn] {
+                                return conn->respond(_chan).then([conn] {});
+                            });
+                        });
+                    }
 
-                auto request_id = hdr._request_id;
-                auto in = as_input_stream(std::move(p));
-                auto conn = make_lw_shared<connection>(dgram.get_src(), request_id, std::move(in),
-                    _max_datagram_size - sizeof(header), _cache, _system_stats);
-
-                if (hdr._n != 1 || hdr._sequence_number != 0) {
-                    return conn->_out.write("CLIENT_ERROR only single-datagram requests supported\r\n").then([this, conn] {
+                    return conn->_proto.handle(conn->_in, conn->_out).then([this, conn]() mutable {
                         return conn->_out.flush().then([this, conn] {
                             return conn->respond(_chan).then([conn] {});
                         });
-                    });
-                }
-
-                return conn->_proto.handle(conn->_in, conn->_out).then([this, conn]() mutable {
-                    return conn->_out.flush().then([this, conn] {
-                        return conn->respond(_chan).then([conn] {});
                     });
                 });
             });
@@ -1339,7 +1363,7 @@ private:
     std::optional<future<>> _task;
     lw_shared_ptr<seastar::server_socket> _listener;
     sharded_cache& _cache;
-    distributed<system_stats>& _system_stats;
+    sharded<system_stats>& _system_stats;
     uint16_t _port;
     struct connection {
         connected_socket _socket;
@@ -1347,8 +1371,8 @@ private:
         input_stream<char> _in;
         output_stream<char> _out;
         ascii_protocol _proto;
-        distributed<system_stats>& _system_stats;
-        connection(connected_socket&& socket, socket_address addr, sharded_cache& c, distributed<system_stats>& system_stats)
+        sharded<system_stats>& _system_stats;
+        connection(connected_socket&& socket, socket_address addr, sharded_cache& c, sharded<system_stats>& system_stats)
             : _socket(std::move(socket))
             , _addr(addr)
             , _in(_socket.input())
@@ -1364,7 +1388,7 @@ private:
         }
     };
 public:
-    tcp_server(sharded_cache& cache, distributed<system_stats>& system_stats, uint16_t port = 11211)
+    tcp_server(sharded_cache& cache, sharded<system_stats>& system_stats, uint16_t port = 11211)
         : _cache(cache)
         , _system_stats(system_stats)
         , _port(port)
@@ -1429,12 +1453,22 @@ public:
 
 } /* namespace memcache */
 
+namespace seastar {
+void append_buffers(jagged_array_of_buffers& vb, std::span<temporary_buffer<char>> bufs) {
+    std::vector<temporary_buffer<char>> stable;
+    stable.reserve(bufs.size() + 1);
+    stable.emplace_back(memcache::udp_server::header_size);
+    std::ranges::move(bufs, std::back_inserter(stable));
+    vb.emplace_back(std::move(stable));
+}
+}
+
 int main(int ac, char** av) {
-    distributed<memcache::cache> cache_peers;
+    sharded<memcache::cache> cache_peers;
     memcache::sharded_cache cache(cache_peers);
-    distributed<memcache::system_stats> system_stats;
-    distributed<memcache::udp_server> udp_server;
-    distributed<memcache::tcp_server> tcp_server;
+    sharded<memcache::system_stats> system_stats;
+    sharded<memcache::udp_server> udp_server;
+    sharded<memcache::tcp_server> tcp_server;
     memcache::stats_printer stats(cache);
 
     namespace bpo = boost::program_options;
@@ -1453,10 +1487,10 @@ int main(int ac, char** av) {
         ;
 
     return app.run_deprecated(ac, av, [&] {
-        engine().at_exit([&] { return tcp_server.stop(); });
-        engine().at_exit([&] { return udp_server.stop(); });
-        engine().at_exit([&] { return cache_peers.stop(); });
-        engine().at_exit([&] { return system_stats.stop(); });
+        internal::at_exit([&] { return tcp_server.stop(); });
+        internal::at_exit([&] { return udp_server.stop(); });
+        internal::at_exit([&] { return cache_peers.stop(); });
+        internal::at_exit([&] { return system_stats.stop(); });
 
         auto&& config = app.configuration();
         uint16_t port = config["port"].as<uint16_t>();

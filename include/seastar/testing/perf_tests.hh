@@ -26,13 +26,19 @@
 
 #include <fmt/format.h>
 
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/testing/linux_perf_event.hh>
+#include <seastar/util/noncopyable_function.hh>
 
 using namespace seastar;
 
 namespace perf_tests {
+
+// The type of the pre-run hook. See PERF_PRE_RUN_HOOK.
+using pre_run_hook = noncopyable_function<void(const sstring& test_group, const sstring& test_case)>;
+
 namespace internal {
 
 struct config;
@@ -117,15 +123,13 @@ class performance_test {
 
     uint64_t _single_run_iterations = 0;
     std::atomic<uint64_t> _max_single_run_iterations;
-protected:
-    linux_perf_event _instructions_retired_counter = linux_perf_event::user_instructions_retired();
-    linux_perf_event _cpu_cycles_retired_counter = linux_perf_event::user_cpu_cycles_retired();
 private:
     void do_run(const config&);
 public:
     struct run_result {
         clock_type::duration duration;
         perf_stats stats;
+        uint64_t start_stop_count = 0;
     };
 protected:
     [[gnu::always_inline]] [[gnu::hot]]
@@ -141,6 +145,13 @@ protected:
     virtual void set_up() = 0;
     virtual void tear_down() noexcept = 0;
     virtual future<run_result> do_single_run() = 0;
+
+    // execute the pre-run hooks
+    void run_hooks();
+
+    // start/stop timing for a single run - called by do_single_run()
+    void start_run();
+    run_result stop_run();
 public:
     performance_test(const std::string& test_case, const std::string& test_group)
         : _test_case(test_case)
@@ -158,103 +169,21 @@ public:
     static void register_test(std::unique_ptr<performance_test>);
 };
 
-// Helper for measuring time.
-// Each microbenchmark can either use the default behaviour which measures
-// only the start and stop time of the whole run or manually invoke
-// start_measuring_time() and stop_measuring_time() in order to measure
-// only parts of each iteration.
-class time_measurement {
-    clock_type::time_point _run_start_time;
-    clock_type::time_point _start_time;
-    clock_type::duration _total_time;
-
-    perf_stats _start_stats;
-    perf_stats _total_stats;
-
-    linux_perf_event* _instructions_retired_counter = nullptr;
-    linux_perf_event* _cpu_cycles_retired_counter = nullptr;
-
-public:
-    [[gnu::always_inline]] [[gnu::hot]]
-    void start_run(linux_perf_event* instructions_retired_counter = nullptr, linux_perf_event* cpu_cycles_retired_counter = nullptr) {
-        _instructions_retired_counter = instructions_retired_counter;
-        _cpu_cycles_retired_counter = cpu_cycles_retired_counter;
-        _total_time = { };
-        _total_stats = {};
-        auto t = clock_type::now();
-        _run_start_time = t;
-        _start_time = t;
-        _start_stats = perf_stats::snapshot(_instructions_retired_counter, _cpu_cycles_retired_counter);
-    }
-
-    [[gnu::always_inline]] [[gnu::hot]]
-    performance_test::run_result stop_run() {
-        auto t = clock_type::now();
-        performance_test::run_result ret;
-        if (_start_time == _run_start_time) {
-            ret.duration = t - _start_time;
-            auto stats = perf_stats::snapshot(_instructions_retired_counter, _cpu_cycles_retired_counter);
-            ret.stats = stats - _start_stats;
-        } else {
-            ret.duration = _total_time;
-            ret.stats = _total_stats;
-        }
-        _instructions_retired_counter = nullptr;
-        _cpu_cycles_retired_counter = nullptr;
-        return ret;
-    }
-
-    [[gnu::always_inline]] [[gnu::hot]]
-    void start_iteration() {
-        _start_time = clock_type::now();
-        _start_stats = perf_stats::snapshot(_instructions_retired_counter, _cpu_cycles_retired_counter);
-    }
-
-    [[gnu::always_inline]] [[gnu::hot]]
-    void stop_iteration() {
-        auto t = clock_type::now();
-        _total_time += t - _start_time;
-        perf_stats stats;
-        stats = perf_stats::snapshot(_instructions_retired_counter, _cpu_cycles_retired_counter);
-        _total_stats += stats - _start_stats;
-    }
-};
-
-extern time_measurement measure_time;
-
-namespace {
-
-template<bool Condition, typename TrueFn, typename FalseFn>
-struct do_if_constexpr_ : FalseFn {
-    do_if_constexpr_(TrueFn, FalseFn false_fn) : FalseFn(std::move(false_fn)) { }
-    decltype(auto) operator()() const {
-        // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=64095
-        return FalseFn::operator()(0);
-    }
-};
-template<typename TrueFn, typename FalseFn>
-struct do_if_constexpr_<true, TrueFn, FalseFn> : TrueFn {
-    do_if_constexpr_(TrueFn true_fn, FalseFn) : TrueFn(std::move(true_fn)) { }
-    decltype(auto) operator()() const { return TrueFn::operator()(0); }
-};
-
-template<bool Condition, typename TrueFn, typename FalseFn>
-do_if_constexpr_<Condition, TrueFn, FalseFn> if_constexpr_(TrueFn&& true_fn, FalseFn&& false_fn)
-{
-    return do_if_constexpr_<Condition, TrueFn, FalseFn>(std::forward<TrueFn>(true_fn),
-                                                        std::forward<FalseFn>(false_fn));
-}
-
-}
+// Functions for time measurement iteration control - implementation in perf_tests.cc
+void time_measurement_start_iteration();
+void time_measurement_stop_iteration();
 
 template<typename Test>
 class concrete_performance_test final : public performance_test {
     std::optional<Test> _test;
+
+    using test_ret_type = decltype(_test->run());
+    // true iff the test method returns future<...>
+    static constexpr bool is_async_test = is_future<test_ret_type>::value;
+    // true iff the test returns the number of iterations run, otherwise it returns
+    // void and we consider each invocation to be 1 iteration
+    static constexpr bool is_iteration_returning = !(std::is_same_v<test_ret_type, future<>> || std::is_void_v<test_ret_type>);
 private:
-    template<typename... Args>
-    auto run_test(Args&&...) {
-        return _test->run();
-    }
 
 protected:
     virtual void set_up() override {
@@ -267,51 +196,36 @@ protected:
 
     [[gnu::hot]]
     virtual future<run_result> do_single_run() override {
-        // Redundant 'this->'s courtesy of https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61636
-        _instructions_retired_counter.enable();
-        _cpu_cycles_retired_counter.enable();
-        return if_constexpr_<is_future<decltype(_test->run())>::value>([&] (auto&&...) {
-            measure_time.start_run(&_instructions_retired_counter);
-            return do_until([this] { return this->stop_iteration(); }, [this] {
-                return if_constexpr_<std::is_same_v<decltype(_test->run()), future<>>>([&] (auto&&...) {
-                    this->next_iteration(1);
-                    return _test->run();
-                }, [&] (auto&&... dependency) {
-                    // We need `dependency` to make sure the compiler won't be able to instantiate anything
-                    // (and notice that the code does not compile) if this part of if_constexpr_ is not active.
-                    return run_test(dependency...).then([&] (size_t n) {
-                        this->next_iteration(n);
-                    });
-                })();
-            }).then([] {
-                return measure_time.stop_run();
-            }).finally([this] {
-                _instructions_retired_counter.disable();
-                _cpu_cycles_retired_counter.disable();
-            });
-        }, [&] (auto&&...) {
-            measure_time.start_run(&_instructions_retired_counter, &_cpu_cycles_retired_counter);
-            while (!stop_iteration()) {
-                if_constexpr_<std::is_void_v<decltype(_test->run())>>([&] (auto&&...) {
-                    (void)_test->run();
-                    this->next_iteration(1);
-                }, [&] (auto&&... dependency) {
-                    // We need `dependency` to make sure the compiler won't be able to instantiate anything
-                    // (and notice that the code does not compile) if this part of if_constexpr_ is not active.
-                    this->next_iteration(run_test(dependency...));
-                })();
+        run_hooks();
+        start_run();
+        while (!stop_iteration()) {
+            if constexpr (is_async_test) {
+                if constexpr (is_iteration_returning) {
+                    auto f = _test->run();
+                    next_iteration(f.available() ? std::move(f).get() : co_await std::move(f));
+                } else {
+                    auto f = _test->run();
+                    // The available() check is functionally redundant, but is significantly faster
+                    // than invoking the co_await machinery on a future-returning function.
+                    if (!f.available()) {
+                        co_await std::move(f);
+                    }
+                    next_iteration(1);
+                }
+            } else {
+                if constexpr (is_iteration_returning) {
+                    next_iteration(_test->run());
+                } else {
+                    _test->run();
+                    next_iteration(1);
+                }
             }
-            auto ret = measure_time.stop_run();
-            _instructions_retired_counter.disable();
-            _cpu_cycles_retired_counter.disable();
-            return make_ready_future<run_result>(std::move(ret));
-        })();
+        }
+        co_return stop_run();
     }
 public:
     using performance_test::performance_test;
 };
-
-void register_test(std::unique_ptr<performance_test>);
 
 template<typename Test>
 struct test_registrar {
@@ -321,18 +235,22 @@ struct test_registrar {
     }
 };
 
+
+// internal hook registration function
+int register_pre_run_hook(pre_run_hook hook);
+
 }
 
 [[gnu::always_inline]]
 inline void start_measuring_time()
 {
-    internal::measure_time.start_iteration();
+    internal::time_measurement_start_iteration();
 }
 
 [[gnu::always_inline]]
 inline void stop_measuring_time()
 {
-    internal::measure_time.stop_iteration();
+    internal::time_measurement_stop_iteration();
 }
 
 
@@ -388,3 +306,19 @@ void do_not_optimize(const T& v)
     static ::perf_tests::internal::test_registrar<test_##test_group##_##test_case> \
     test_##test_group##_##test_case##_registrar(#test_group, #test_case); \
     future<size_t> test_##test_group##_##test_case::run()
+
+
+#define CONCAT_IMPL(a, b) a##b
+#define CONCAT(a, b) CONCAT_IMPL(a, b)
+
+// Installs a pre-run hook.
+//
+// Register a function to be called before each test run. These are called before
+// all runs include the "dry run" used to estimate the number of iterations, if
+// that is used.
+//
+// Multiple hooks may be registered, they will be called in order of registration.
+//
+// Hooks cannot be deregistered.
+#define PERF_PRE_RUN_HOOK(hook) \
+    static int CONCAT(hook_registrar_, __COUNTER__) = ::perf_tests::internal::register_pre_run_hook(hook);

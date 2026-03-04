@@ -25,10 +25,11 @@
 #include <boost/test/unit_test.hpp>
 
 #include <seastar/util/std-compat.hh>
+#include <source_location>
 
 using namespace seastar;
 
-static void test_source_location_callee(const char* ref_file, const char* ref_func, int ref_line, compat::source_location loc = compat::source_location::current()) {
+static void test_source_location_callee(const char* ref_file, const char* ref_func, int ref_line, std::source_location loc = std::source_location::current()) {
     BOOST_REQUIRE_EQUAL(loc.file_name(), ref_file);
     BOOST_REQUIRE_EQUAL(loc.line(), ref_line);
     BOOST_REQUIRE(std::string(loc.function_name()).find(ref_func) != std::string::npos);

@@ -19,40 +19,65 @@
  * Copyright (C) 2022 Scylladb, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
-#include <cassert>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/http/request.hh>
 #include <seastar/http/url.hh>
 #include <seastar/http/common.hh>
-#endif
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 namespace http {
 
+namespace internal {
+// NOTE: Remove this once `query_parameters` is removed
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    const std::unordered_map<sstring, sstring>& deprecated_query_parameters(const request& r) noexcept {
+        return r.query_parameters;
+    }
+    std::unordered_map<sstring, sstring>& deprecated_query_parameters(request& r) noexcept {
+        return r.query_parameters;
+    }
+#pragma GCC diagnostic pop
+}
+
 sstring request::format_url() const {
     sstring query = "";
-    sstring delim = "?";
-    for (const auto& p : query_parameters) {
-        query += delim + internal::url_encode(p.first);
-        if (!p.second.empty()) {
-            query += "=" + internal::url_encode(p.second);
+    if (!_query_params.empty()) {
+        sstring delim = "&";
+        for (const auto& [key, values] : _query_params) {
+            auto key_component = delim + internal::url_encode(key) + "=";
+            if (values.empty()) {
+                query += key_component;
+            } else {
+                for (const auto& val : values) {
+                    query += key_component + internal::url_encode(val);
+                }
+            }
         }
-        delim = "&";
+        if (!query.empty()) {
+            query[0] = '?';
+        }
+    } else {
+        sstring delim = "?";
+        for (const auto& p : internal::deprecated_query_parameters(*this)) {
+            query += delim + internal::url_encode(p.first);
+            if (!p.second.empty()) {
+                query += "=" + internal::url_encode(p.second);
+            }
+            delim = "&";
+        }
     }
+
     return _url + query;
 }
 
 sstring request::request_line() const {
-    assert(!_version.empty());
+    SEASTAR_ASSERT(!_version.empty());
     return _method + " " + format_url() + " HTTP/" + _version + "\r\n";
 }
 
@@ -65,24 +90,28 @@ future<> request::write_request_headers(output_stream<char>& out) const {
 
 void request::add_query_param(std::string_view param) {
     size_t split = param.find('=');
-
+    auto& deprecated_query_parameters = http::internal::deprecated_query_parameters(*this);
     if (split >= param.length() - 1) {
         sstring key;
         if (http::internal::url_decode(param.substr(0,split) , key)) {
-            query_parameters[key] = "";
+            _query_params[key].push_back("");
+            deprecated_query_parameters[key] = "";
         }
     } else {
         sstring key;
         sstring value;
         if (http::internal::url_decode(param.substr(0,split), key)
                 && http::internal::url_decode(param.substr(split + 1), value)) {
-            query_parameters[key] = std::move(value);
+            deprecated_query_parameters[key] = value;
+            _query_params[key].push_back(std::move(value));
         }
     }
 
 }
 
 sstring request::parse_query_param() {
+    http::internal::deprecated_query_parameters(*this).clear();
+    _query_params.clear();
     size_t pos = _url.find('?');
     if (pos == sstring::npos) {
         return _url;
@@ -101,19 +130,25 @@ sstring request::parse_query_param() {
 void request::write_body(const sstring& content_type, sstring content) {
     set_content_type(content_type);
     content_length = content.size();
-    this->content = std::move(content);
+    _headers["Content-Length"] = to_sstring(content_length);
+    internal::deprecated_content(*this) = std::move(content);
 }
 
-void request::write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer) {
+void request::write_body(const sstring& content_type, body_writer_type&& body_writer) {
     set_content_type(content_type);
     _headers["Transfer-Encoding"] = "chunked";
     this->body_writer = std::move(body_writer);
 }
 
-void request::write_body(const sstring& content_type, size_t len, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer) {
+void request::write_body(const sstring& content_type, size_t len, body_writer_type&& body_writer) {
     set_content_type(content_type);
     content_length = len;
-    this->body_writer = std::move(body_writer);
+    _headers["Content-Length"] = to_sstring(content_length);
+    if (len > 0) {
+        // At the time of this writing, connection::write_body()
+        // assumes that `body_writer` is unset if `content_length` is 0.
+        this->body_writer = std::move(body_writer);
+    }
 }
 
 void request::set_expects_continue() {
@@ -122,6 +157,7 @@ void request::set_expects_continue() {
 
 request request::make(sstring method, sstring host, sstring path) {
     request rq;
+    rq._version = "1.1";
     rq._method = std::move(method);
     rq._url = std::move(path);
     rq._headers["Host"] = std::move(host);

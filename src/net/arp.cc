@@ -19,15 +19,7 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#include <cstdint>
-#include <optional>
-#include <utility>
-module seastar;
-#else
 #include <seastar/net/arp.hh>
-#endif
 
 namespace seastar {
 

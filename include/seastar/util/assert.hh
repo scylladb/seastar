@@ -16,19 +16,21 @@
  * under the License.
  */
 /*
- * Copyright (C) 2020 ScyllaDB
+ * Copyright (C) 2025 Redpanda Data.
  */
+
 #pragma once
 
-#include <concepts>
+namespace seastar::internal {
+[[noreturn]] void assert_fail(const char *msg, const char *file, int line,
+                              const char *func);
+}
 
-#if defined(__cpp_concepts) && __cpp_concepts >= 201907 && \
-    defined(__cpp_lib_concepts) && __cpp_lib_concepts >= 201907
-    // good
-#else
-#error the language support and/or library support for concepts is missing
-#endif
-
-// provided for backward compatibility
-#define SEASTAR_CONCEPT(x...) x
-#define SEASTAR_NO_CONCEPT(x...)
+/// Like assert(), but independent of NDEBUG. Active in all build modes.
+#define SEASTAR_ASSERT(x)                                             \
+    do {                                                              \
+        if (!(x)) [[unlikely]] {                                      \
+            seastar::internal::assert_fail(#x, __FILE__, __LINE__,    \
+                                           __PRETTY_FUNCTION__);      \
+        }                                                             \
+    } while (0)

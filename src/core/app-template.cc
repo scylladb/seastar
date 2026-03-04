@@ -19,9 +19,6 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <fstream>
 #include <cstdlib>
@@ -31,9 +28,6 @@ module;
 #include <boost/program_options.hpp>
 #include <boost/make_shared.hpp>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/app-template.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/alien.hh>
@@ -44,7 +38,6 @@ module seastar;
 #include <seastar/util/log-cli.hh>
 #include <seastar/net/native-stack.hh>
 #include "program_options.hh"
-#endif
 
 namespace seastar {
 
@@ -166,7 +159,7 @@ int
 app_template::run(int ac, char ** av, std::function<future<int> ()>&& func) noexcept {
     return run_deprecated(ac, av, [func = std::move(func)] () mutable {
         auto func_done = make_lw_shared<promise<>>();
-        engine().at_exit([func_done] { return func_done->get_future(); });
+        internal::at_exit([func_done] { return func_done->get_future(); });
         // No need to wait for this future.
         // func's returned exit_code is communicated via engine().exit()
         (void)futurize_invoke(func).finally([func_done] {
@@ -188,9 +181,6 @@ app_template::run(int ac, char ** av, std::function<future<> ()>&& func) noexcep
 
 int
 app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) noexcept {
-#ifdef SEASTAR_DEBUG
-    fmt::print(std::cerr, "WARNING: debug mode. Not for benchmarking or production\n");
-#endif
     boost::program_options::options_description all_opts;
     all_opts.add(_app_opts);
     all_opts.add(_seastar_opts);

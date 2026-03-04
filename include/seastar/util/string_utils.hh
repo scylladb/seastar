@@ -30,22 +30,31 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <cstring>
 #include <stdio.h>
-#endif
 
-#include <seastar/util/modules.hh>
 #include <seastar/core/sstring.hh>
 
 namespace seastar {
 
 namespace internal {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 //
 // Collection of utilities for working with strings .
 //
+
+struct string_view_hash {
+    using is_transparent = void;
+    size_t operator()(const char *txt) const {
+        return std::hash<std::string_view>{}(txt);
+    }
+    size_t operator()(std::string_view txt) const {
+        return std::hash<std::string_view>{}(txt);
+    }
+    size_t operator()(const sstring &txt) const {
+        return std::hash<sstring>()(txt);
+    }
+};
 
 struct case_insensitive_cmp {
     bool operator()(const sstring& s1, const sstring& s2) const {
@@ -61,7 +70,6 @@ struct case_insensitive_hash {
     }
 };
 
-SEASTAR_MODULE_EXPORT_END
 
 }
 

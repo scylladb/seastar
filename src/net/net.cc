@@ -20,18 +20,12 @@
  *
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <boost/asio/ip/address_v4.hpp>
 #include <boost/algorithm/string.hpp>
 #include <map>
 #include <utility>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/net/net.hh>
 #include <seastar/net/toeplitz.hh>
 #include <seastar/core/internal/poll.hh>
@@ -39,7 +33,7 @@ module seastar;
 #include <seastar/core/metrics.hh>
 #include <seastar/core/print.hh>
 #include <seastar/net/inet_address.hh>
-#endif
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -57,17 +51,17 @@ ipv4_addr::ipv4_addr(const std::string &addr) {
     std::vector<std::string> items;
     boost::split(items, addr, boost::is_any_of(":"));
     if (items.size() == 1) {
-        ip = boost::asio::ip::address_v4::from_string(addr).to_ulong();
+        ip = boost::asio::ip::make_address_v4(addr).to_uint();
         port = 0;
     } else if (items.size() == 2) {
-        ip = boost::asio::ip::address_v4::from_string(items[0]).to_ulong();
+        ip = boost::asio::ip::make_address_v4(items[0]).to_uint();
         port = std::stoul(items[1]);
     } else {
         throw std::invalid_argument("invalid format: " + addr);
     }
 }
 
-ipv4_addr::ipv4_addr(const std::string &addr, uint16_t port_) : ip(boost::asio::ip::address_v4::from_string(addr).to_ulong()), port(port_) {}
+ipv4_addr::ipv4_addr(const std::string &addr, uint16_t port_) : ip(boost::asio::ip::make_address_v4(addr).to_uint()), port(port_) {}
 
 ipv4_addr::ipv4_addr(const net::inet_address& a, uint16_t port)
     : ipv4_addr(::in_addr(a), port)
@@ -201,7 +195,7 @@ qp::~qp() {
 }
 
 void qp::configure_proxies(const std::map<unsigned, float>& cpu_weights) {
-    assert(!cpu_weights.empty());
+    SEASTAR_ASSERT(!cpu_weights.empty());
     if ((cpu_weights.size() == 1 && cpu_weights.begin()->first == this_shard_id())) {
         // special case queue sending to self only, to avoid requiring a hash value
         return;
@@ -244,9 +238,9 @@ device::receive(std::function<future<> (packet)> next_packet) {
 }
 
 void device::set_local_queue(std::unique_ptr<qp> dev) {
-    assert(!_queues[this_shard_id()]);
+    SEASTAR_ASSERT(!_queues[this_shard_id()]);
     _queues[this_shard_id()] = dev.get();
-    engine().at_destroy([dev = std::move(dev)] {});
+    internal::at_destroy([dev = std::move(dev)] {});
 }
 
 
@@ -295,7 +289,7 @@ interface::register_l3(eth_protocol_num proto_num,
         std::function<future<> (packet p, ethernet_address from)> next,
         std::function<bool (forward_hash&, packet& p, size_t)> forward) {
     auto i = _proto_map.emplace(std::piecewise_construct, std::make_tuple(uint16_t(proto_num)), std::forward_as_tuple(std::move(forward)));
-    assert(i.second);
+    SEASTAR_ASSERT(i.second);
     l3_rx_stream& l3_rx = i.first->second;
     return l3_rx.packet_stream.listen(std::move(next)).done();
 }

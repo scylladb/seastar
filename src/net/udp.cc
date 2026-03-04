@@ -19,21 +19,9 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#include <cstdint>
-#include <utility>
-#include <cstring>
-#include <exception>
-#include <system_error>
-#include <optional>
-#include <memory>
-module seastar;
-#else
 #include <seastar/net/ip.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/net/inet_address.hh>
-#endif
 
 namespace seastar {
 
@@ -52,15 +40,16 @@ class native_datagram : public datagram_impl {
 private:
     ipv4_addr _src;
     ipv4_addr _dst;
-    packet _p;
+    std::vector<temporary_buffer<char>> _bufs;
 public:
-    native_datagram(ipv4_address src, ipv4_address dst, packet p)
-            : _p(std::move(p)) {
+    native_datagram(ipv4_address src, ipv4_address dst, packet _p)
+    {
         udp_hdr* hdr = _p.get_header<udp_hdr>();
         auto h = ntoh(*hdr);
         _p.trim_front(sizeof(*hdr));
         _src = to_ipv4_addr(src, h.src_port);
         _dst = to_ipv4_addr(dst, h.dst_port);
+        _bufs = _p.release();
     }
 
     virtual socket_address get_src() override {
@@ -75,8 +64,8 @@ public:
         return _dst.port;
     }
 
-    virtual packet& get_data() override {
-        return _p;
+    virtual std::span<temporary_buffer<char>> get_buffers() override {
+        return _bufs;
     }
 };
 
@@ -111,10 +100,12 @@ public:
     }
 
     virtual future<> send(const socket_address& dst, const char* msg) override {
-        return send(dst, packet::from_static_data(msg, strlen(msg)));
+        temporary_buffer<char> buf(const_cast<char *>(msg), strlen(msg), deleter());
+        return send(dst, std::span(&buf, 1));
     }
 
-    virtual future<> send(const socket_address& dst, packet p) override {
+    virtual future<> send(const socket_address& dst, std::span<temporary_buffer<char>> bufs) override {
+        auto p = net::packet(bufs);
         auto len = p.len();
         return _state->wait_for_send_buffer(len).then([this, dst, p = std::move(p), len] () mutable {
             p = packet(std::move(p), make_deleter([s = _state, len] { s->complete_send(len); }));
@@ -212,7 +203,7 @@ void ipv4_udp::send(uint16_t src_port, ipv4_addr dst, packet &&p)
 }
 
 uint16_t ipv4_udp::next_port(uint16_t port) {
-    return (port + 1) == 0 ? min_anonymous_port : port + 1;
+    return (port == std::numeric_limits<decltype(port)>::max()) ? min_anonymous_port : port + 1;
 }
 
 udp_channel

@@ -19,16 +19,9 @@
  * Copyright (C) 2021 ScyllaDB
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#include <utility>
-#include <vector>
-module seastar;
-#else
 #include <seastar/core/future.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/core/temporary_buffer.hh>
-#endif
 
 namespace seastar {
 
@@ -56,7 +49,7 @@ future<sstring> read_entire_stream_contiguous(input_stream<char>& inp) {
         for (auto&& buf : bufs) {
             total_size += buf.size();
         }
-        sstring ret(sstring::initialized_later(), total_size);
+        auto ret = uninitialized_string(total_size);
         size_t pos = 0;
         for (auto&& buf : bufs) {
             std::copy(buf.begin(), buf.end(), ret.data() + pos);

@@ -19,8 +19,6 @@
  * Copyright 2021 ScyllaDB
  */
 
-#include <exception>
-
 #include <ranges>
 
 #include <seastar/testing/test_case.hh>
@@ -30,12 +28,9 @@
 #include <seastar/util/closeable.hh>
 #include <seastar/core/loop.hh>
 
-using namespace seastar;
+#include "expected_exception.hh"
 
-class expected_exception : public std::runtime_error {
-public:
-    expected_exception() : runtime_error("expected") {}
-};
+using namespace seastar;
 
 SEASTAR_TEST_CASE(deferred_close_test) {
   return do_with(gate(), 0, 42, [] (gate& g, int& count, int& expected) {

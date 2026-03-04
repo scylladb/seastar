@@ -24,9 +24,6 @@
 /*
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <ucontext.h>
 #ifndef SEASTAR_ASAN_ENABLED
@@ -38,13 +35,10 @@ module;
 #include <utility>
 #include <boost/intrusive/list.hpp>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/thread.hh>
 #include <seastar/core/posix.hh>
-#include <seastar/core/reactor.hh>
-#endif
+#include <seastar/core/internal/current_task.hh>
+#include <seastar/util/assert.hh>
 
 /// \cond internal
 
@@ -196,7 +190,7 @@ thread_context::thread_context(thread_attributes attr, noncopyable_function<void
 thread_context::~thread_context() {
 #ifdef SEASTAR_THREAD_STACK_GUARDS
     auto mp_result = mprotect(_stack.get(), getpagesize(), PROT_READ | PROT_WRITE);
-    assert(mp_result == 0);
+    SEASTAR_ASSERT(mp_result == 0);
 #endif
     _all_threads.erase(_all_threads.iterator_to(*this));
 }
@@ -255,7 +249,7 @@ thread_context::setup(size_t stack_size) {
 
 void
 thread_context::switch_in() {
-    local_engine->_current_task = nullptr; // thread_wake_task is on the stack and will be invalid when we resume
+    internal::set_current_task(nullptr); // thread_wake_task is on the stack and will be invalid when we resume
     _context.switch_in();
 }
 
@@ -343,26 +337,10 @@ void init() {
     g_current_context = &g_unthreaded_context;
 }
 
-scheduling_group
-sched_group(const thread_context* thread) {
-    return thread->group();
-}
-
 }
 
 void thread::yield() {
     thread_impl::get()->yield();
-}
-
-bool thread::should_yield() {
-    return thread_impl::get()->should_yield();
-}
-
-void thread::maybe_yield() {
-    auto tctx = thread_impl::get();
-    if (tctx->should_yield()) {
-        tctx->yield();
-    }
 }
 
 }

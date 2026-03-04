@@ -159,6 +159,10 @@ public:
         _rovers.release(tokens);
     }
 
+    void refund(T tokens) noexcept {
+        fetch_add(_rovers.head, tokens);
+    }
+
     void replenish(typename Clock::time_point now) noexcept {
         auto ts = _replenished.load(std::memory_order_relaxed);
 

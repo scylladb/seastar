@@ -21,12 +21,10 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <boost/program_options.hpp>
 
 #include <algorithm>
 #include <unordered_map>
-#endif
 
 #include <seastar/util/log.hh>
 #include <seastar/util/program-options.hh>

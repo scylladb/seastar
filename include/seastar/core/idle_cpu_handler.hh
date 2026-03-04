@@ -21,16 +21,12 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <seastar/util/noncopyable_function.hh>
-#include <seastar/util/modules.hh>
-#endif
 
 /// \file
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// Indicates the outcome of a user callback installed to take advantage of
 /// idle CPU cycles.
@@ -61,6 +57,5 @@ using idle_cpu_handler = noncopyable_function<idle_cpu_handler_result(work_waiti
 /// otherwise. This function should be used by a handler to return early if a task appears.
 void set_idle_cpu_handler(idle_cpu_handler&& handler);
 
-SEASTAR_MODULE_EXPORT_END
 
 }

@@ -45,7 +45,7 @@ parser.add_argument('--create-cc', dest='create_cc', action='store_true', defaul
 config = parser.parse_args()
 
 
-valid_vars = {'string': 'sstring', 'int': 'int', 'double': 'double',
+valid_vars = {'string': 'sstring', 'int': 'int', 'integer': 'int', 'double': 'double',
              'float': 'float', 'long': 'long', 'boolean': 'bool', 'char': 'char',
              'datetime': 'json::date_time'}
 
@@ -97,9 +97,14 @@ def valid_type(param):
     trace_err("Type [", param, "] not defined")
     return param
 
+# Map from json list types to the C++ implementing type
+LIST_TO_IMPL = {"array": "json_list", "chunked_array": "json_chunked_list"}
 
-def type_change(param, member):
-    if param == "array":
+def is_array_type(type: str):
+    return type in LIST_TO_IMPL
+
+def type_change(param: str, member):
+    if is_array_type(param):
         if "items" not in member:
             trace_err("array without item declaration in ", param)
             return ""
@@ -111,7 +116,8 @@ def type_change(param, member):
         else:
             trace_err("array items with no type or ref declaration ", param)
             return ""
-        return "json_list< " + valid_type(t) + " >"
+        return LIST_TO_IMPL[param] + "< " + valid_type(t) + " >"
+
     return "json_element< " + valid_type(param) + " >"
 
 
@@ -273,7 +279,7 @@ def generate_code_from_enum(nickname, type_name, enums):
     name_list = ',\n'.join(f'"{enum}"' for enum in enums)
     parse_func = Template('''\
     $type_name str2$type_name(const sstring& str) {
-        static const sstring arr[] = {
+        static const std::string_view arr[] = {
             $name_list
         };
         int i;
@@ -371,7 +377,7 @@ def is_model_valid(name, model):
     properties = getitem(model[name], "properties", name)
     for var in properties:
         type = getitem(properties[var], "type", name + ":" + var)
-        if type == "array":
+        if is_array_type(type):
             items = getitem(properties[var], "items", name + ":" + var)
             try:
                 type = getitem(items, "type", name + ":" + var + ":items")
@@ -481,14 +487,17 @@ def create_enum_wrapper(model_name, name, values):
     bool operator<=(const $wrapper& c) const {
         return static_cast<pos_type>(v) <= static_cast<pos_type>(c.v);
     }
+    std::make_signed_t<pos_type> operator-(const $wrapper& c) const {
+        return static_cast<pos_type>(v) - static_cast<pos_type>(c.v);
+    }
     static $wrapper begin() {
         return $wrapper($enum_name::$value);
     }
     static $wrapper end() {
         return $wrapper($enum_name::NUM_ITEMS);
     }
-    static boost::integer_range<$wrapper> all_items() {
-        return boost::irange(begin(), end());
+    static auto /* iota_view */ all_items() {
+        return std::ranges::iota_view<$wrapper, $wrapper>(begin(), end());
     }
     $enum_name v;""").substitute(enum_name=enum_name,
                                  wrapper=wrapper,
@@ -537,7 +546,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                         '<seastar/json/json_elements.hh>',
                         '<seastar/http/json_path.hh>'])
 
-    add_include(hfile, ['<iostream>', '<boost/range/irange.hpp>'])
+    add_include(hfile, ['<iostream>', '<ranges>'])
     open_namespace(hfile, "seastar")
     open_namespace(hfile, "httpd")
     open_namespace(hfile, api_name)
@@ -554,6 +563,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
             fprintln(hfile, "struct ", model_name, " : public json::json_base {")
             member_init = ''
             member_assignment = ''
+            member_move_assignment = ''
             member_copy = ''
             for member_name in model["properties"]:
                 member = model["properties"][member_name]
@@ -567,6 +577,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                     fprintln(hfile, f"    {config.jsonns}::{type_name} {member_name};\n")
                 member_init += f'add(&{member_name}, "{member_name}");\n'
                 member_assignment += f'{member_name} = e.{member_name};\n'
+                member_move_assignment += f'{member_name} = std::move(e.{member_name});\n'
                 member_copy += f'e.{member_name} = {member_name} ;\n'
 
             functions = Template('''
@@ -580,6 +591,10 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
         register_params();
         $member_assignment
     }
+    $model_name($model_name&& e) {
+        register_params();
+        $member_move_assignment
+    }
     template<class T>
     $model_name& operator=(const T& e) {
         $member_assignment
@@ -589,6 +604,10 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
         $member_assignment
         return *this;
     }
+    $model_name& operator=($model_name&& e) {
+        $member_move_assignment
+        return *this;
+    }
     template<class T>
     $model_name& update(T& e) {
         $member_copy
@@ -596,6 +615,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
     }''').substitute(model_name=model_name,
                      member_init=indent(member_init),
                      member_assignment=indent(member_assignment),
+                     member_move_assignment=indent(member_move_assignment),
                      member_copy=indent(member_copy))
             fprintln(hfile, functions.lstrip('\n'))
             fprintln(hfile, "};\n\n")
@@ -674,9 +694,8 @@ def parse_file(param, combined):
         if (combined):
             fprintln(combined, '#include "', base_file_name, ".cc", '"')
         create_h_file(data, hfile_name, api_name, init_method, base_api)
-    except:
-        type, value, tb = sys.exc_info()
-        print("Error while parsing JSON file '" + param + "' error ", value.message)
+    except Exception as e:
+        print("Error while parsing JSON file '" + param + "' error " + str(e))
         sys.exit(-1)
 
 if "indir" in config and config.indir != '':

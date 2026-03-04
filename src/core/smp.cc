@@ -18,9 +18,6 @@
 /*
  * Copyright 2019 ScyllaDB
  */
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <boost/range/algorithm/find_if.hpp>
 #include <atomic>
@@ -30,10 +27,8 @@ module;
 #include <unistd.h>
 #include <fcntl.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/smp.hh>
+#include <seastar/core/alien.hh>
 #include <seastar/core/resource.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/semaphore.hh>
@@ -42,7 +37,6 @@ module seastar;
 #include <seastar/core/posix.hh>
 #include <seastar/core/align.hh>
 #include "prefault.hh"
-#endif
 
 namespace seastar {
 
@@ -146,8 +140,8 @@ future<> destroy_smp_service_group(smp_service_group ssg) noexcept {
 
 void init_default_smp_service_group(shard_id cpu) {
     // default_smp_service_group == smp_service_group(0) -> we assume service groups are empty
-    // at this point. If they are not, it is quite possibly because we are running repeated 
-    // reactors in the program. Probably a test (see #2148). 
+    // at this point. If they are not, it is quite possibly because we are running repeated
+    // reactors in the program. Probably a test (see #2148).
     // This would be fine, we just create extra junk here, _but_ it is quite possible
     // that we actually run with different cpu count (see smp_options::smp), in which case
     // the `get_smp_service_groups_semaphore` below can cause us to return uninitialized memory.
@@ -175,7 +169,7 @@ void
 smp::setup_prefaulter(const seastar::resource::resources& res, seastar::memory::internal::numa_layout layout) {
     // Stack guards mprotect() random pages, so the prefaulter will hard-fault.
 #ifndef SEASTAR_THREAD_STACK_GUARDS
-    _prefaulter = std::make_unique<internal::memory_prefaulter>(res, std::move(layout));
+    _prefaulter = std::make_unique<internal::memory_prefaulter>(_alien, res, std::move(layout));
 #endif
 }
 
@@ -199,7 +193,7 @@ get_huge_page_size() {
     return std::nullopt;
 }
 
-internal::memory_prefaulter::memory_prefaulter(const resource::resources& res, memory::internal::numa_layout layout) {
+internal::memory_prefaulter::memory_prefaulter(alien::instance& alien, const resource::resources& res, memory::internal::numa_layout layout) {
     for (auto& range : layout.ranges) {
         _layout_by_node_id[range.numa_node_id].push_back(std::move(range));
     }
@@ -218,17 +212,28 @@ internal::memory_prefaulter::memory_prefaulter(const resource::resources& res, m
             }
             a.set(cpuset);
         }
-        _worker_threads.emplace_back(a, [this, &ranges, page_size, huge_page_size_opt] {
+        _worker_threads.emplace_back(a, [this, &alien, &ranges, page_size, huge_page_size_opt] {
+            ++_active_threads;
             work(ranges, page_size, huge_page_size_opt);
+            if (!--_active_threads) {
+                run_on(alien, 0, [this] () noexcept { join_threads(); });
+            }
         });
     }
 }
 
-internal::memory_prefaulter::~memory_prefaulter() {
-    _stop_request.store(true, std::memory_order_relaxed);
+void
+internal::memory_prefaulter::join_threads() noexcept {
     for (auto& t : _worker_threads) {
         t.join();
     }
+    _worker_threads.clear();
+    _layout_by_node_id.clear();
+}
+
+internal::memory_prefaulter::~memory_prefaulter() {
+    _stop_request.store(true, std::memory_order_relaxed);
+    join_threads();
 }
 
 void

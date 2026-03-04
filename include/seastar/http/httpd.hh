@@ -21,24 +21,19 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <limits>
 #include <cctype>
 #include <vector>
 #include <boost/intrusive/list.hpp>
-#endif
 #include <seastar/http/request_parser.hh>
 #include <seastar/http/request.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/app-template.hh>
-#include <seastar/core/circular_buffer.hh>
-#include <seastar/core/distributed.hh>
+#include <seastar/core/sharded.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/http/routes.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/core/shared_ptr.hh>
@@ -46,20 +41,16 @@
 namespace seastar {
 
 namespace http {
-SEASTAR_MODULE_EXPORT
 struct reply;
 }
 
 namespace httpd {
 
-SEASTAR_MODULE_EXPORT
 class http_server;
-SEASTAR_MODULE_EXPORT
 class http_stats;
 
 using namespace std::chrono_literals;
 
-SEASTAR_MODULE_EXPORT_BEGIN
 class http_stats {
     metrics::metric_groups _metric_groups;
 public:
@@ -76,7 +67,6 @@ class connection : public boost::intrusive::list_base_hook<> {
     static constexpr size_t limit = 4096;
     using tmp_buf = temporary_buffer<char>;
     http_request_parser _parser;
-    std::unique_ptr<http::request> _req;
     std::unique_ptr<http::reply> _resp;
     // null element marks eof
     queue<std::unique_ptr<http::reply>> _replies { 10 };
@@ -84,7 +74,7 @@ class connection : public boost::intrusive::list_base_hook<> {
     const bool _tls;
 public:
     [[deprecated("use connection(http_server&, connected_socket&&, bool tls)")]]
-    connection(http_server& server, connected_socket&& fd, socket_address, bool tls) 
+    connection(http_server& server, connected_socket&& fd, socket_address, bool tls)
             : connection(server, std::move(fd), tls) {}
     connection(http_server& server, connected_socket&& fd, bool tls)
             : _server(server)
@@ -103,7 +93,7 @@ public:
             , _read_buf(_fd.input())
             , _write_buf(_fd.output())
             , _client_addr(std::move(client_addr))
-            , _server_addr(std::move(server_addr)) 
+            , _server_addr(std::move(server_addr))
             , _tls(tls) {
         on_new_connection();
     }
@@ -145,6 +135,7 @@ class http_server {
     size_t _content_length_limit = std::numeric_limits<size_t>::max();
     bool _content_streaming = false;
     gate _task_gate;
+    std::optional<net::keepalive_params> _keepalive_params;
 public:
     routes _routes;
     using connection = seastar::httpd::connection;
@@ -160,7 +151,7 @@ public:
      *
      * Use case example using seastar threads for clarity:
 
-        distributed<http_server> server; // typical server
+        sharded<http_server> server; // typical server
 
         seastar::shared_ptr<seastar::tls::credentials_builder> creds = seastar::make_shared<seastar::tls::credentials_builder>();
         sstring ms_cert = "MyCertificate.crt";
@@ -180,6 +171,10 @@ public:
      */
     [[deprecated("use listen(socket_address addr, server_credentials_ptr credentials)")]]
     void set_tls_credentials(server_credentials_ptr credentials);
+
+    void set_keepalive_parameters(std::optional<net::keepalive_params> params) {
+        _keepalive_params = std::move(params);
+    }
 
     size_t get_content_length_limit() const;
 
@@ -234,11 +229,11 @@ public:
  *              });
  */
 class http_server_control {
-    std::unique_ptr<distributed<http_server>> _server_dist;
+    std::unique_ptr<sharded<http_server>> _server_dist;
 private:
     static sstring generate_server_name();
 public:
-    http_server_control() : _server_dist(new distributed<http_server>) {
+    http_server_control() : _server_dist(new sharded<http_server>) {
     }
 
     future<> start(const sstring& name = generate_server_name());
@@ -248,9 +243,8 @@ public:
     future<> listen(socket_address addr, http_server::server_credentials_ptr credentials);
     future<> listen(socket_address addr, listen_options lo);
     future<> listen(socket_address addr, listen_options lo, http_server::server_credentials_ptr credentials);
-    distributed<http_server>& server();
+    sharded<http_server>& server();
 };
-SEASTAR_MODULE_EXPORT_END
 }
 
 }

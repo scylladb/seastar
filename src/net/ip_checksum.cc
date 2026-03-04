@@ -19,18 +19,10 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
-
 #include <arpa/inet.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/net/ip_checksum.hh>
 #include <seastar/net/net.hh>
-#endif
 
 namespace seastar {
 

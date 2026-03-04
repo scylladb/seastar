@@ -29,21 +29,47 @@ set (Seastar_UNIT_TEST_SMP
   STRING
   "Run unit tests with this many cores.")
 
+# Check if the compiler supports -fsanitize=fuzzer (compile and link)
+include (CheckCXXSourceCompiles)
+include (CMakePushCheckState)
+cmake_push_check_state ()
+set (CMAKE_REQUIRED_FLAGS "-fsanitize=fuzzer")
+set (CMAKE_REQUIRED_LINK_OPTIONS "-fsanitize=fuzzer")
+check_cxx_source_compiles ("
+extern \"C\" int LLVMFuzzerTestOneInput(const char*, long) { return 0; }
+" Seastar_FUZZER_SUPPORTED)
+cmake_pop_check_state ()
+
+if (Seastar_FUZZER_SUPPORTED)
+  # Logical target for all fuzz tests.
+  add_custom_target (fuzz_tests)
+
+  # Maximum time in seconds for each fuzz test when run via ctest.
+  # Default to 1 minute in Fuzz mode, 1 second otherwise.
+  if (CMAKE_BUILD_TYPE STREQUAL "Fuzz")
+    set (default_fuzz_time 60)
+  else ()
+    set (default_fuzz_time 1)
+  endif ()
+  set (Seastar_FUZZ_MAX_TIME ${default_fuzz_time} CACHE STRING "Maximum time in seconds for fuzz tests")
+endif ()
+
 #
 # Define a new unit test with the given name.
 #
 # seastar_add_test (name
-#   [KIND {SEASTAR,BOOST,CUSTOM}]
+#   [KIND {SEASTAR,BOOST,CUSTOM,FUZZ}]
 #   [SOURCES source1 source2 ... sourcen]
 #   [WORKING_DIRECTORY dir]
 #   [LIBRARIES library1 library2 ... libraryn]
 #   [RUN_ARGS arg1 arg2 ... argn])
 #
-# There are three kinds of test we support (the KIND parameter):
+# There are four kinds of test we support (the KIND parameter):
 #
 # - SEASTAR: Unit tests which use macros like `SEASTAR_TEST_CASE`
 # - BOOST: Unit tests which use macros like `BOOST_AUTO_TEST_CASE`
 # - CUSTOM: Custom tests which need to be specified
+# - FUZZ: Fuzz tests using libFuzzer (requires compiler support)
 #
 # SEASTAR and BOOST tests will have their output saved for interpretation by the Jenkins continuous integration service
 # if this is configured for the build.
@@ -51,7 +77,7 @@ set (Seastar_UNIT_TEST_SMP
 # KIND can be omitted, in which case it is assumed to be SEASTAR.
 #
 # If SOURCES is provided, then the test files are first compiled into an executable which has the same name as the test
-# but with a suffix ("_test").
+# but with a suffix ("_test", or "_fuzz" for FUZZ tests).
 #
 # WORKING_DIRECTORY can be optionally provided to choose where the test is executed.
 #
@@ -59,13 +85,14 @@ set (Seastar_UNIT_TEST_SMP
 #
 # RUN_ARGS are optional additional arguments to pass to the executable. For SEASTAR tests, these come after `--`. For
 # CUSTOM tests with no SOURCES, this parameter can be used to specify the executable name as well as its arguments since
-# no executable is compiled.
+# no executable is compiled. For FUZZ tests, these are passed directly to libFuzzer (e.g., -max_len=100).
 #
 function (seastar_add_test name)
   set (test_kinds
     SEASTAR
     BOOST
-    CUSTOM)
+    CUSTOM
+    FUZZ)
 
   cmake_parse_arguments (parsed_args
     ""
@@ -77,6 +104,12 @@ function (seastar_add_test name)
     set (parsed_args_KIND SEASTAR)
   elseif (NOT (parsed_args_KIND IN_LIST test_kinds))
     message (FATAL_ERROR "Invalid test kind. KIND must be one of ${test_kinds}")
+  endif ()
+
+  # FUZZ tests require compiler support
+  if (parsed_args_KIND STREQUAL "FUZZ" AND NOT Seastar_FUZZER_SUPPORTED)
+    message (STATUS "Skipping fuzz test ${name}: compiler does not support -fsanitize=fuzzer")
+    return ()
   endif ()
 
   if (parsed_args_SOURCES)
@@ -109,33 +142,57 @@ function (seastar_add_test name)
       if (NOT (Seastar_JENKINS STREQUAL ""))
         list (APPEND args ${jenkins_args})
       endif ()
+    elseif (parsed_args_KIND STREQUAL "FUZZ")
+      list (APPEND libraries seastar_private)
+      # Fuzz tests get -max_total_time automatically
+      list (APPEND args -max_total_time=${Seastar_FUZZ_MAX_TIME})
     endif ()
 
     list (APPEND args ${parsed_args_RUN_ARGS})
 
-    set (executable_target test_unit_${name})
+    # Set up target name and output name based on test kind
+    if (parsed_args_KIND STREQUAL "FUZZ")
+      set (executable_target fuzz_${name})
+      set (output_name ${name}_fuzz)
+      set (test_group fuzz_tests)
+      set (test_name_prefix Seastar.fuzz)
+    else ()
+      set (executable_target test_unit_${name})
+      set (output_name ${name}_test)
+      set (test_group unit_tests)
+      set (test_name_prefix Seastar.unit)
+    endif ()
+
     add_executable (${executable_target} ${parsed_args_SOURCES})
 
     target_link_libraries (${executable_target}
       PRIVATE ${libraries})
 
-    target_compile_definitions (${executable_target}
-      PRIVATE
-        SEASTAR_TESTING_MAIN
-        SEASTAR_TESTING_WITH_NETWORKING=$<BOOL:${Seastar_ENABLE_TESTS_ACCESSING_INTERNET}>)
-
-    if ((Seastar_STACK_GUARDS STREQUAL "ON") OR
-        ((Seastar_STACK_GUARDS STREQUAL "DEFAULT") AND
-         (CMAKE_BUILD_TYPE IN_LIST Seastar_STACK_GUARD_MODES)))
+    # FUZZ tests use libFuzzer which provides its own main
+    if (parsed_args_KIND STREQUAL "FUZZ")
+      target_compile_options (${executable_target}
+        PRIVATE -fsanitize=fuzzer)
+      target_link_options (${executable_target}
+        PRIVATE -fsanitize=fuzzer)
+    else ()
       target_compile_definitions (${executable_target}
         PRIVATE
-          SEASTAR_THREAD_STACK_GUARDS)
-    endif ()
+          SEASTAR_TESTING_MAIN
+          SEASTAR_TESTING_WITH_NETWORKING=$<BOOL:${Seastar_ENABLE_TESTS_ACCESSING_INTERNET}>)
 
-    if (Seastar_HEAP_PROFILING)
-      target_compile_definitions (${executable_target}
-        PRIVATE
-          SEASTAR_HEAPPROF)
+      if ((Seastar_STACK_GUARDS STREQUAL "ON") OR
+          ((Seastar_STACK_GUARDS STREQUAL "DEFAULT") AND
+           (CMAKE_BUILD_TYPE IN_LIST Seastar_STACK_GUARD_MODES)))
+        target_compile_definitions (${executable_target}
+          PRIVATE
+            SEASTAR_THREAD_STACK_GUARDS)
+      endif ()
+
+      if (Seastar_HEAP_PROFILING)
+        target_compile_definitions (${executable_target}
+          PRIVATE
+            SEASTAR_HEAPPROF)
+      endif ()
     endif ()
 
     target_include_directories (${executable_target}
@@ -145,15 +202,17 @@ function (seastar_add_test name)
 
     set_target_properties (${executable_target}
       PROPERTIES
-        OUTPUT_NAME ${name}_test)
+        OUTPUT_NAME ${output_name})
 
-    add_dependencies (unit_tests ${executable_target})
+    add_dependencies (${test_group} ${executable_target})
     set (forwarded_args COMMAND ${CMAKE_COMMAND} -E env "${Seastar_TEST_ENVIRONMENT}" $<TARGET_FILE:${executable_target}> ${args})
   else ()
     if (NOT (parsed_args_KIND STREQUAL "CUSTOM"))
       message (FATAL_ERROR "SOURCES are required for ${parsed_args_KIND} tests")
     endif ()
 
+    set (executable_target test_unit_${name})
+    set (test_name_prefix Seastar.unit)
     set (forwarded_args COMMAND ${CMAKE_COMMAND} -E env "${Seastar_TEST_ENVIRONMENT}" ${parsed_args_RUN_ARGS})
   endif ()
 
@@ -161,7 +220,7 @@ function (seastar_add_test name)
   # We expect `forwarded_args` to be populated correctly at this point.
   #
 
-  set (target test_unit_${name}_run)
+  set (target ${executable_target}_run)
 
   if (parsed_args_WORKING_DIRECTORY)
     list (APPEND forwarded_args WORKING_DIRECTORY ${parsed_args_WORKING_DIRECTORY})
@@ -176,10 +235,10 @@ function (seastar_add_test name)
     USES_TERMINAL)
 
   add_test (
-    NAME Seastar.unit.${name}
+    NAME ${test_name_prefix}.${name}
     COMMAND ${CMAKE_COMMAND} --build ${Seastar_BINARY_DIR} --target ${target})
 
-  set_tests_properties (Seastar.unit.${name}
+  set_tests_properties (${test_name_prefix}.${name}
     PROPERTIES
       TIMEOUT ${Seastar_TEST_TIMEOUT})
 endfunction ()
@@ -255,6 +314,9 @@ seastar_add_app_test (alien
 seastar_add_test (checked_ptr
   SOURCES checked_ptr_test.cc)
 
+seastar_add_test (temporary_buffer
+  SOURCES temporary_buffer_test.cc)
+
 seastar_add_test (chunked_fifo
   KIND BOOST
   SOURCES chunked_fifo_test.cc)
@@ -282,6 +344,9 @@ seastar_add_test (content_source
 seastar_add_test (coroutines
   SOURCES coroutines_test.cc)
 
+seastar_add_test (generator
+  SOURCES generator_test.cc)
+
 seastar_add_test (defer
   KIND BOOST
   SOURCES defer_test.cc)
@@ -290,7 +355,7 @@ seastar_add_test (deleter
   KIND BOOST
   SOURCES deleter_test.cc)
 
-seastar_add_app_test (directory
+seastar_add_test (directory
   SOURCES directory_test.cc)
 
 seastar_add_test (distributed
@@ -318,7 +383,9 @@ seastar_add_test (file_io
   SOURCES file_io_test.cc)
 
 seastar_add_test (file_utils
-  SOURCES file_utils_test.cc)
+  SOURCES
+    file_utils_test.cc
+    expected_exception.hh)
 
 seastar_add_test (foreign_ptr
   SOURCES foreign_ptr_test.cc)
@@ -332,7 +399,9 @@ seastar_add_test (fstream
     mock_file.hh)
 
 seastar_add_test (futures
-  SOURCES futures_test.cc)
+  SOURCES
+    futures_test.cc
+    expected_exception.hh)
 
 seastar_add_test (sharded
   SOURCES sharded_test.cc)
@@ -340,7 +409,8 @@ seastar_add_test (sharded
 seastar_add_test (httpd
   SOURCES
     httpd_test.cc
-    loopback_socket.hh)
+    loopback_socket.hh
+    memory-data-sink.hh)
 
 seastar_add_test (websocket
   SOURCES websocket_test.cc)
@@ -352,7 +422,9 @@ seastar_add_test (network_interface
   SOURCES network_interface_test.cc)
 
 seastar_add_test (json_formatter
-  SOURCES json_formatter_test.cc)
+  SOURCES
+    json_formatter_test.cc
+    memory-data-sink.hh)
 
 seastar_add_test (libc_wrapper
   SOURCES libc_wrapper_test.cc)
@@ -375,7 +447,9 @@ seastar_add_test (noncopyable_function
   SOURCES noncopyable_function_test.cc)
 
 seastar_add_test (output_stream
-  SOURCES output_stream_test.cc)
+  SOURCES
+    output_stream_test.cc
+    memory-data-sink.hh)
 
 seastar_add_test (packet
   KIND BOOST
@@ -384,6 +458,9 @@ seastar_add_test (packet
 seastar_add_test (program_options
   KIND BOOST
   SOURCES program_options_test.cc)
+
+seastar_add_test (proxy_protocol
+  SOURCES proxy_protocol_test.cc)
 
 seastar_add_test (queue
   SOURCES queue_test.cc)
@@ -397,7 +474,9 @@ seastar_add_test (rpc
     rpc_test.cc)
 
 seastar_add_test (semaphore
-  SOURCES semaphore_test.cc)
+  SOURCES
+    semaphore_test.cc
+    expected_exception.hh)
 
 seastar_add_test (shared_ptr
   KIND BOOST
@@ -410,10 +489,9 @@ seastar_add_test (simple_stream
   KIND BOOST
   SOURCES simple_stream_test.cc)
 
-# TODO: Disabled for now. See GH-520.
-# seastar_add_test (slab
-#   SOURCES slab_test.cc
-#   NO_SEASTAR_TESTING_LIBRARY)
+seastar_add_test (slab
+  KIND BOOST
+  SOURCES slab_test.cc)
 
 seastar_add_app_test (smp
   SOURCES smp_test.cc)
@@ -426,6 +504,10 @@ seastar_add_test (socket
   SOURCES socket_test.cc
   # https://github.com/scylladb/seastar/issues/2302
   RUN_ARGS --reactor-backend linux-aio)
+
+seastar_add_test (epoll
+  SOURCES epoll_test.cc
+  RUN_ARGS --reactor-backend epoll)
 
 seastar_add_test (sstring
   KIND BOOST
@@ -444,10 +526,10 @@ seastar_add_test (thread
 seastar_add_test (scheduling_group
   SOURCES scheduling_group_test.cc)
 
-seastar_add_app_test (thread_context_switch
-  SOURCES thread_context_switch_test.cc)
+seastar_add_test (scheduling_group_nesting
+  SOURCES scheduling_group_nesting_test.cc)
 
-seastar_add_app_test (timer
+seastar_add_test (timer
   SOURCES timer_test.cc)
 
 seastar_add_test (uname
@@ -460,6 +542,9 @@ seastar_add_test (source_location
 
 seastar_add_test (shared_token_bucket
   SOURCES shared_token_bucket_test.cc)
+
+seastar_add_test (prometheus_text
+  SOURCES prometheus_text_test.cc)
 
 seastar_add_test (prometheus_http
   SOURCES
@@ -535,6 +620,7 @@ function(seastar_add_certgen name)
   set(CERT_PRIVKEY ${CERT_NAME}.key)
   set(CERT_REQ ${CERT_NAME}.csr)
   set(CERT_CERT ${CERT_NAME}.crt)
+  set(CERT_CERT_DER ${CERT_NAME}.crt.der)
 
   set(CERT_CAPRIVKEY ca${CERT_NAME}.key)
   set(CERT_CAROOT ca${CERT_NAME}.pem)
@@ -568,15 +654,21 @@ function(seastar_add_certgen name)
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   )
 
-  
+
   add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CERT}"
     COMMAND ${OPENSSL} x509 -req -in ${CERT_REQ} -CA ${CERT_CAROOT} -CAkey ${CERT_CAPRIVKEY} -CAcreateserial -out ${CERT_CERT} -days ${CERT_DAYS} -extensions req_ext -extfile ${CERT_NAME}.cfg
     DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${CERT_REQ}"  "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CAROOT}" "${CMAKE_CURRENT_BINARY_DIR}/${CERT_NAME}.cfg"
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   )
 
-  add_custom_target(${name}
+  add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CERT_DER}"
+    COMMAND ${OPENSSL} x509 -in ${CERT_CERT} -out ${CERT_CERT_DER} -outform der
     DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CERT}"
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+  )
+
+  add_custom_target(${name}
+    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CERT_DER}"
   )
 endfunction()
 
@@ -732,13 +824,18 @@ seastar_add_test (exception_logging
   SOURCES exception_logging_test.cc)
 
 seastar_add_test (closeable
-  SOURCES closeable_test.cc)
+  SOURCES
+    closeable_test.cc
+    expected_exception.hh)
 
 seastar_add_test (pipe
   SOURCES pipe_test.cc)
 
 seastar_add_test (spawn
   SOURCES spawn_test.cc)
+
+seastar_add_test (variant_utils
+  SOURCES variant_utils_test.cc)
 
 seastar_generate_swagger (
   TARGET rest_api_httpd_swagger
@@ -788,3 +885,11 @@ add_test (
 set_tests_properties (Seastar.unit.prometheus
   PROPERTIES
     TIMEOUT ${Seastar_TEST_TIMEOUT})
+
+seastar_add_test (gate
+  SOURCES
+    gate_test.cc)
+
+seastar_add_test (test_fixture
+  SOURCES
+    test_fixture_test.cc)

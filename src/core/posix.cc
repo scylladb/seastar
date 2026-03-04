@@ -19,12 +19,8 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <memory>
-#include <cassert>
 #include <set>
 #include <vector>
 #include <functional>
@@ -34,13 +30,10 @@ module;
 #include <sys/mman.h>
 #include <sys/inotify.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/posix.hh>
 #include <seastar/core/align.hh>
 #include <seastar/util/critical_alloc_section.hh>
-#endif
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -150,11 +143,11 @@ posix_thread::posix_thread(posix_thread&& x)
 }
 
 posix_thread::~posix_thread() {
-    assert(!_valid);
+    SEASTAR_ASSERT(!_valid);
 }
 
 void posix_thread::join() {
-    assert(_valid);
+    SEASTAR_ASSERT(_valid);
     pthread_join(_pthread, NULL);
     _valid = false;
 }
@@ -162,7 +155,7 @@ void posix_thread::join() {
 std::set<unsigned> get_current_cpuset() {
     cpu_set_t cs;
     auto r = pthread_getaffinity_np(pthread_self(), sizeof(cs), &cs);
-    assert(r == 0);
+    SEASTAR_ASSERT(r == 0);
     std::set<unsigned> ret;
     unsigned nr = CPU_COUNT(&cs);
     for (int cpu = 0; cpu < CPU_SETSIZE && ret.size() < nr; cpu++) {

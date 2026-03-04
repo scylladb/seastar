@@ -20,6 +20,7 @@
 #ifdef SEASTAR_HAVE_DPDK
 
 #include <bitset>
+#include <optional>
 #include <rte_config.h>
 #include <rte_ethdev.h>
 #include <rte_version.h>

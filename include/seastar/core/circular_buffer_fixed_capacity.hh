@@ -28,14 +28,14 @@
 // Similar to libstdc++'s std::deque, except that it uses a single level
 // store, and so is more efficient for simple stored items.
 
-#ifndef SEASTAR_MODULE
+#include <algorithm>
 #include <type_traits>
 #include <cstddef>
 #include <iterator>
 #include <utility>
 #include <memory>
-#include <seastar/util/modules.hh>
-#endif
+
+#include <seastar/core/bitops.hh>
 
 /// \file
 
@@ -48,7 +48,6 @@ namespace seastar {
 ///
 /// \tparam T type of objects stored in the container; must be noexcept move enabled
 /// \tparam Capacity maximum number of objects that can be stored in the container; must be a power of 2
-SEASTAR_MODULE_EXPORT
 template <typename T, size_t Capacity>
 class circular_buffer_fixed_capacity {
     size_t _begin = 0;
@@ -372,6 +371,14 @@ circular_buffer_fixed_capacity<T, Capacity>::clear() {
         obj.~T();
     }
     _begin = _end = 0;
+}
+
+// Return a circular_buffer power-of-2 capacity
+// For fitting an array of T entries in Capacity bytes.
+template <typename T, size_t Capacity>
+requires (sizeof(T) <= Capacity)
+constexpr inline size_t calc_circular_buffer_capacity() {
+    return 1 << (log2ceil(Capacity) - log2ceil(sizeof(T)));
 }
 
 }

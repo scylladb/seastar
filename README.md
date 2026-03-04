@@ -35,7 +35,7 @@ then compile:
 $ ninja -C build/release
 ```
 
-In case there are compilation issues, especially like ```g++: internal compiler error: Killed (program cc1plus)``` 
+In case there are compilation issues, especially like ```g++: internal compiler error: Killed (program cc1plus)```
 try giving more memory to gcc, either by limiting the amount of threads ( -j1 ) and/or allowing at least 4g ram to your
 machine.
 
@@ -94,7 +94,7 @@ find_package (Seastar REQUIRED)
 
 add_executable (my_app
   my_app.cc)
-  
+
 target_link_libraries (my_app
   Seastar::seastar)
 ```

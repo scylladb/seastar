@@ -20,10 +20,7 @@
  */
 
 #pragma once
-#ifndef SEASTAR_MODULE
 #include <atomic>
-#include <seastar/util/modules.hh>
-#endif
 
 namespace seastar {
 
@@ -66,7 +63,6 @@ monitor_need_preempt() noexcept {
 
 }
 
-SEASTAR_MODULE_EXPORT
 inline bool need_preempt() noexcept {
 #ifndef SEASTAR_DEBUG
     return internal::monitor_need_preempt();

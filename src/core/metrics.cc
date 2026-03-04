@@ -19,26 +19,21 @@
  * Copyright (C) 2016 ScyllaDB.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <memory>
 #include <regex>
 #include <random>
+#include <variant>
 #include <boost/range/algorithm.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/range/algorithm_ext/erase.hpp>
+#include <fmt/ranges.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/metrics.hh>
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/relabel_config.hh>
 #include <seastar/core/reactor.hh>
-#endif
 
 namespace seastar {
 extern seastar::logger seastar_logger;
@@ -145,7 +140,7 @@ const std::vector<metric_family_config>& get_metric_family_configs() {
     return impl::get_local_impl()->get_metric_family_configs();
 }
 
-static bool apply_relabeling(const relabel_config& rc, impl::metric_info& info) {
+bool impl::impl::apply_relabeling(const relabel_config& rc, metric_info& info) {
     std::stringstream s;
     bool first = true;
     for (auto&& l: rc.source_labels) {
@@ -181,14 +176,18 @@ static bool apply_relabeling(const relabel_config& rc, impl::metric_info& info) 
         }
         case relabel_config::relabel_action::drop_label: {
             if (info.id.labels().find(rc.target_label) != info.id.labels().end()) {
-                info.id.labels().erase(rc.target_label);
+                auto new_labels = info.id.labels();
+                new_labels.erase(rc.target_label);
+                info.id.update_labels(internalize_labels(std::move(new_labels)));
             }
             return true;
         };
         case relabel_config::relabel_action::replace: {
             if (!rc.target_label.empty()) {
                 std::string fmt_s = match.format(rc.replacement);
-                info.id.labels()[rc.target_label] = fmt_s;
+                auto new_labels = info.id.labels();
+                new_labels[rc.target_label] = fmt_s;
+                info.id.update_labels(internalize_labels(std::move(new_labels)));
             }
             return true;
         }
@@ -214,26 +213,67 @@ static std::string get_unique_id() {
 label shard_label("shard");
 namespace impl {
 
+namespace {
+/*
+ * true if a label value needs escaping under prometheus rules, invalid characters in
+ * prometheus are also invalid in scollectd
+ */
+inline bool label_needs_escaping(std::string_view value) {
+    // newline, " and \ need to be escaped
+    static constexpr std::string_view disallowed = "\n\"\\";
+    return value.find_first_of(disallowed) != std::string_view::npos;
+}
+
+/*
+ * Sanitizes the label value as per the line format rules
+ * > label_value can be any sequence of UTF-8 characters, but the backslash (\), double-quote ("), and
+ * > line feed (\n) characters have to be escaped as \\, \", and \n, respectively.
+ */
+inline sstring escape_label_value(sstring label_value) {
+    if (!label_needs_escaping(label_value)) {
+        return label_value;
+    }
+    std::string escaped;
+    escaped.reserve(label_value.size() + 1); // some extra space
+    for (char c : label_value) {
+        switch (c) {
+            case '\\': escaped += R"(\\)"; break;
+            case '\"': escaped += R"(\")"; break;
+            case '\n': escaped += R"(\n)"; break;
+            default:   escaped += c;
+        }
+    }
+    return escaped;
+}
+
+}
+
+escaped_string::escaped_string(sstring v) : _value(escape_label_value(std::move(v))) {}
+
+escaped_string& escaped_string::operator=(const sstring& v) {
+    _value = escape_label_value(v);
+    return *this;
+}
+
 registered_metric::registered_metric(metric_id id, metric_function f, bool enabled, skip_when_empty skip) :
-        _f(f), _impl(get_local_impl()) {
+        _f(f) {
     _info.enabled = enabled;
     _info.should_skip_when_empty = skip;
     _info.id = id;
-    _info.original_labels = id.labels();
+    _info.original_labels = id.internalized_labels();
 }
 
-metric_value metric_value::operator+(const metric_value& c) {
-    metric_value res(*this);
+metric_value& metric_value::operator+=(const metric_value& c) {
     switch (_type) {
     case data_type::HISTOGRAM:
     case data_type::SUMMARY:
-        std::get<histogram>(res.u) += std::get<histogram>(c.u);
+        std::get<histogram>(u) += std::get<histogram>(c.u);
         break;
     default:
-        std::get<double>(res.u) += std::get<double>(c.u);
+        std::get<double>(u) += std::get<double>(c.u);
         break;
     }
-    return res;
+    return *this;
 }
 
 void metric_value::ulong_conversion_error(double d) {
@@ -294,19 +334,38 @@ std::unique_ptr<metric_groups_def> create_metric_groups() {
     return  std::make_unique<metric_groups_impl>();
 }
 
+metric_groups_impl::metric_groups_impl() {}
+
 metric_groups_impl::~metric_groups_impl() {
     for (const auto& i : _registration) {
-        unregister_metric(i);
+        unregister_metric(i->info().id);
     }
 }
 
+internalized_labels_ref impl::internalize_labels(labels_type labels) {
+    auto it = _internalized_labels.find(labels);
+    if (it == _internalized_labels.end()) {
+        it = _internalized_labels.emplace(labels).first;
+    }
+    return it->labels_ref();
+}
+
 metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const metric_definition& md)  {
+    // We could just do this in the constructor but some metric groups (like the
+    // smp queue ones) are actually constructed on a different shard originally
+    // than where the actual metrics are added.
+    // Hence, the shared_ptr owning shard check would fail so we do it only here.
+    if (_impl == nullptr) {
+        _impl = get_local_impl();
+    }
 
-    metric_id id(name, md._impl->name, md._impl->labels);
+    auto internalized_labels = get_local_impl()->internalize_labels(md._impl->labels);
 
-    get_local_impl()->add_registration(id, md._impl->type, md._impl->f, md._impl->d, md._impl->enabled, md._impl->_skip_when_empty, md._impl->aggregate_labels);
+    metric_id id(name, md._impl->name, internalized_labels);
 
-    _registration.push_back(id);
+    auto reg = get_local_impl()->add_registration(id, md._impl->type, md._impl->f, md._impl->d, md._impl->enabled, md._impl->_skip_when_empty, md._impl->aggregate_labels);
+
+    _registration.push_back(std::move(reg));
     return *this;
 }
 
@@ -391,8 +450,18 @@ foreign_ptr<values_reference> get_values() {
 }
 
 
-instance_id_type shard() {
-    return to_sstring(this_shard_id());
+escaped_string shard() {
+    return escaped_string{to_sstring(this_shard_id())};
+}
+
+void impl::gc_internalized_labels() {
+    for (auto it = _internalized_labels.begin(); it != _internalized_labels.end();) {
+        if (!it->has_users()) {
+            it = _internalized_labels.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void impl::update_metrics_if_needed() {
@@ -411,14 +480,14 @@ void impl::update_metrics_if_needed() {
             _current_metrics[i].clear();
             for (auto&& m : mf.second) {
                 if (m.second && m.second->is_enabled()) {
-                    metrics.emplace_back(m.second->info());
+                    metrics.emplace_back(m.second->info().id, m.second->info().should_skip_when_empty);
                     _current_metrics[i].emplace_back(m.second->get_function());
                 }
             }
             if (!metrics.empty()) {
                 // If nothing was added, no need to add the metric_family
                 // and no need to progress
-                mt.emplace_back(metric_family_metadata{mf.second.info(), std::move(metrics)});
+                mt.emplace_back(mf.second.info(), std::move(metrics));
                 i++;
             }
         }
@@ -426,6 +495,8 @@ void impl::update_metrics_if_needed() {
         _current_metrics.resize(i);
         _metadata = mt_ref;
         _dirty = false;
+
+        gc_internalized_labels();
     }
 }
 
@@ -439,7 +510,7 @@ std::vector<std::deque<metric_function>>& impl::functions() {
     return _current_metrics;
 }
 
-void impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels) {
+register_ref impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels) {
     auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled, skip);
     for (auto&& rl : _relabel_configs) {
         apply_relabeling(rl, rm->info());
@@ -449,12 +520,12 @@ void impl::add_registration(const metric_id& id, const metric_type& type, metric
     if (_value_map.find(name) != _value_map.end()) {
         auto& metric = _value_map[name];
         if (metric.find(rm->info().id.labels()) != metric.end()) {
-            throw double_registration("registering metrics twice for metrics: " + name);
+            throw double_registration(fmt::format("registering metrics twice for metrics: {} with labels {}", name, rm->info().id.labels()));
         }
         if (metric.info().type != type.base_type) {
             throw std::runtime_error("registering metrics " + name + " registered with different type.");
         }
-        metric[rm->info().id.labels()] = rm;
+        metric[rm->info().id.internalized_labels()] = rm;
         for (auto&& i : rm->info().id.labels()) {
             _labels.insert(i.first);
         }
@@ -465,9 +536,11 @@ void impl::add_registration(const metric_id& id, const metric_type& type, metric
         _value_map[name].info().name = id.full_name();
         _value_map[name].info().aggregate_labels = aggregate_labels;
         impl::update_aggregate(_value_map[name].info());
-        _value_map[name][rm->info().id.labels()] = rm;
+        _value_map[name][rm->info().id.internalized_labels()] = rm;
     }
     dirty();
+
+    return rm;
 }
 
 future<metric_relabeling_result> impl::set_relabel_configs(const std::vector<relabel_config>& relabel_configs) {
@@ -476,14 +549,13 @@ future<metric_relabeling_result> impl::set_relabel_configs(const std::vector<rel
     for (auto&& family : _value_map) {
         std::vector<shared_ptr<registered_metric>> rms;
         for (auto&& metric = family.second.begin(); metric != family.second.end();) {
-            metric->second->info().id.labels().clear();
-            metric->second->info().id.labels() = metric->second->info().original_labels;
+            metric->second->info().id.update_labels(metric->second->info().original_labels);
             for (auto rl : _relabel_configs) {
                 if (apply_relabeling(rl, metric->second->info())) {
                     dirty();
                 }
             }
-            if (metric->first != metric->second->info().id.labels()) {
+            if (metric->first.labels() != metric->second->info().id.labels()) {
                 // If a metric labels were changed, we should remove it from the map, and place it back again
                 rms.push_back(metric->second);
                 family.second.erase(metric++);
@@ -493,7 +565,7 @@ future<metric_relabeling_result> impl::set_relabel_configs(const std::vector<rel
             }
         }
         for (auto rm : rms) {
-            labels_type lb = rm->info().id.labels();
+            auto ilb = rm->info().id.internalized_labels();
             if (family.second.find(rm->info().id.labels()) != family.second.end()) {
                 /*
                  You can not have a two metrics with the same name and label, there is a problem with the configuration.
@@ -504,12 +576,14 @@ future<metric_relabeling_result> impl::set_relabel_configs(const std::vector<rel
                 */
                 seastar_logger.error("Metrics: After relabeling, registering metrics twice for metrics : {}", family.first);
                 auto id = get_unique_id();
-                lb["err"] = id;
+                auto new_labels = *ilb;
+                new_labels["err"] = id;
+                ilb = internalize_labels(new_labels);
                 conflicts.metrics_relabeled_due_to_collision++;
-                rm->info().id.labels()["err"] = id;
+                rm->info().id.update_labels(ilb);
             }
 
-            family.second[lb] = rm;
+            family.second[ilb] = rm;
         }
     }
     return make_ready_future<metric_relabeling_result>(conflicts);

@@ -20,6 +20,8 @@
  * Copyright (C) 2021 ScyllaDB
  */
 
+#include <chrono>
+#include <ratio>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/testing/random.hh>
@@ -31,9 +33,14 @@
 #include <seastar/core/file.hh>
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/io_intent.hh>
+#include <seastar/core/disk_params.hh>
 #include <seastar/core/internal/io_request.hh>
 #include <seastar/core/internal/io_sink.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/internal/iovec_utils.hh>
+#include <seastar/util/defer.hh>
+#include <seastar/util/later.hh>
+#include <seastar/util/integrated-length.hh>
 
 using namespace seastar;
 
@@ -75,8 +82,8 @@ struct io_queue_for_tests {
     io_queue queue;
     timer<> kicker;
 
-    io_queue_for_tests()
-        : group(std::make_shared<io_group>(io_queue::config{0}, 1))
+    io_queue_for_tests(const io_queue::config& cfg = io_queue::config{0})
+        : group(std::make_shared<io_group>(cfg, 1))
         , sink()
         , queue(group, sink)
         , kicker([this] { kick(); })
@@ -92,6 +99,26 @@ struct io_queue_for_tests {
 
     future<size_t> queue_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
         return queue.queue_request(pc, dnl, std::move(req), intent, std::move(iovs));
+    }
+
+    size_t max_request_length(int dnl_idx) const noexcept {
+        return group->max_request_length(dnl_idx);
+    }
+
+    constexpr size_t request_length_limit() const noexcept {
+        return io_group::request_length_limit;
+    }
+
+    void find_or_create_class(internal::priority_class pc) {
+        queue.find_or_create_class(pc);
+    }
+
+    fair_queue& get_fair_queue() {
+        return queue._streams[0].fq;
+    }
+
+    bool is_class_registered(internal::priority_class pc) const noexcept {
+        return queue._priority_classes.size() > pc.id() && (queue._priority_classes[pc.id()] != nullptr);
     }
 };
 
@@ -236,9 +263,16 @@ static constexpr int nr_requests = 24;
 SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
     fake_file file;
 
+    auto sg0 = create_scheduling_group("a", 100).get();
+    auto sg1 = create_scheduling_group("b", 100).get();
+    auto stop = defer([&] () noexcept {
+        destroy_scheduling_group(sg0).get();
+        destroy_scheduling_group(sg1).get();
+    });
+
     io_queue_for_tests tio;
-    auto pc0 = internal::priority_class(create_scheduling_group("a", 100).get());
-    auto pc1 = internal::priority_class(create_scheduling_group("b", 100).get());
+    auto pc0 = internal::priority_class(sg0);
+    auto pc1 = internal::priority_class(sg1);
 
     size_t idx = 0;
     int val = 100;
@@ -412,7 +446,7 @@ SEASTAR_TEST_CASE(test_request_iovec_split) {
     };
 
     auto check_buffer = [&large_buffer] (size_t len, char value) {
-        assert(len < sizeof(large_buffer));
+        SEASTAR_ASSERT(len < sizeof(large_buffer));
         bool fill_match = true;
         bool train_match = true;
         for (unsigned i = 0; i < sizeof(large_buffer); i++) {
@@ -463,12 +497,12 @@ SEASTAR_TEST_CASE(test_request_iovec_split) {
             ::iovec iov;
             iov.iov_base = reinterpret_cast<void*>(large_buffer + total);
             iov.iov_len = dice(reng);
-            assert(iov.iov_len != 0);
+            SEASTAR_ASSERT(iov.iov_len != 0);
             total += iov.iov_len;
             vecs.push_back(std::move(iov));
         }
 
-        assert(total > 0);
+        SEASTAR_ASSERT(total > 0);
         clear_buffer();
         bump_buffer(vecs);
         check_buffer(total, 1);
@@ -508,4 +542,215 @@ SEASTAR_TEST_CASE(test_request_iovec_split) {
     seastar_logger.info("{} iters ({} no-splits, {} no-tails)", iter, no_splits, no_tails);
 
     return make_ready_future<>();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_tb_params) {
+    internal::disk_config_params disk_config(1);
+    internal::disk_params d;
+    size_t iops_req_size = 512;
+    size_t bw_req_size = 128 << 10; // 128k
+
+    // Test multipl datapoints starting at 1GB/s for read/write bandwidth
+    // and 15k req/s for read/write IOPS
+    for (uint64_t i = 1; i < 65; ++i) {
+        d.read_bytes_rate = i << 30;  // iGB/s
+        d.write_bytes_rate = i << 30;
+        d.read_req_rate = i * 15000;
+        d.write_req_rate = i * 15000;
+
+        auto io_config = disk_config.generate_config(d, 0, 1);
+        io_config.mountpoint = std::to_string(i);
+
+        io_queue_for_tests tio(io_config);
+
+        auto cost_read_512 = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::read_idx, iops_req_size));
+        auto cost_write_512 = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::write_idx, iops_req_size));
+
+        auto cost_read_128k = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::read_idx, bw_req_size));
+        auto cost_write_128k = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::write_idx, bw_req_size));
+        seastar_logger.info("{} read req/s, {} write req/s, {} read bytes/s, {} write bytes/s",
+                            d.read_req_rate, d.write_req_rate, d.read_bytes_rate, d.write_bytes_rate);
+
+        seastar_logger.info("Read 512 cost: {}, Write 512 cost: {}", cost_read_512, cost_write_512);
+        seastar_logger.info("Read 128k cost: {}, Write 128k cost: {}", cost_read_128k, cost_write_128k);
+
+        const auto& fg = internal::get_throttler(tio.queue, internal::io_direction_and_length::write_idx);
+        const auto& tb = fg.token_bucket();
+        double rate = tb.rate();
+
+        auto fg_rate = std::chrono::duration<double, io_throttler::rate_resolution>(std::chrono::seconds(1)).count();
+        double iops_read = rate / cost_read_512 * fg_rate;
+        double iops_write = rate / cost_write_512 * fg_rate;
+        double bandwidth_read = rate / cost_read_128k * 131072 * fg_rate;
+        double bandwidth_write = rate / cost_write_128k * 131072 * fg_rate;
+        seastar_logger.info("IOPS read: {}, IOPS write: {}, Bandwidth read: {}, Bandwidth write: {}",
+                            iops_read, iops_write, bandwidth_read, bandwidth_write);
+
+        float error_margin = 0.05f; // 5% error margin
+        BOOST_CHECK((d.read_req_rate - iops_read) / d.read_req_rate < error_margin);
+        BOOST_CHECK((d.write_req_rate - iops_write) / d.write_req_rate < error_margin);
+        BOOST_CHECK((d.read_bytes_rate - bandwidth_read) / d.read_bytes_rate < error_margin);
+        BOOST_CHECK((d.write_bytes_rate - bandwidth_write) / d.write_bytes_rate < error_margin);
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(test_unconfigured_io_queue) {
+    io_queue_for_tests tio;
+
+    BOOST_CHECK_EQUAL(tio.max_request_length(internal::io_direction_and_length::read_idx), tio.request_length_limit());
+    BOOST_CHECK_EQUAL(tio.max_request_length(internal::io_direction_and_length::write_idx), tio.request_length_limit());
+
+    for (uint64_t reqsize = 512; reqsize < 128 << 10; reqsize <<= 1) {
+        auto cost_read = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::read_idx, reqsize));
+        auto cost_write = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::write_idx, reqsize));
+
+        BOOST_CHECK_EQUAL(cost_read, 0);
+        BOOST_CHECK_EQUAL(cost_write, 0);
+    }
+}
+
+namespace seastar::testing {
+class fair_queue_test {
+    fair_queue& _fq;
+public:
+    fair_queue_test(fair_queue& fq) noexcept : _fq(fq) {}
+
+    unsigned nr_children_for(std::optional<unsigned> index) {
+        return index.has_value() ? _fq._priority_groups[*index]->_nr_children : _fq._root._nr_children;
+    }
+
+    bool is_root_group(unsigned index) {
+        return _fq._priority_groups[index]->_parent == &_fq._root;
+    }
+
+    std::optional<unsigned> get_parent_index(internal::priority_class pc) {
+        auto& pe = reinterpret_cast<fair_queue::priority_entry&>(*_fq._priority_classes[pc.id()]);
+        if (pe._parent == &_fq._root) {
+            return {};
+        }
+
+        unsigned i = 0;
+        for (auto& pg : _fq._priority_groups) {
+            if (pe._parent == pg.get()) {
+                break;
+            }
+            i++;
+        }
+        return i;
+    }
+};
+}
+
+SEASTAR_THREAD_TEST_CASE(test_nested_priority_classes_basic_linkage) {
+    io_queue_for_tests tio;
+
+    auto ssg1 = create_scheduling_supergroup(100).get();
+    auto ssg2 = create_scheduling_supergroup(200).get();
+    auto sg0 = create_scheduling_group("a", 300).get();
+    auto sg1 = create_scheduling_group("b", "b", 400, ssg1).get();
+    auto sg2 = create_scheduling_group("c", "c", 500, ssg2).get();
+    auto stop = defer([&] () noexcept {
+        destroy_scheduling_group(sg0).get();
+        destroy_scheduling_group(sg1).get();
+        destroy_scheduling_group(sg2).get();
+    });
+
+    tio.find_or_create_class(internal::priority_class(sg0));
+    tio.find_or_create_class(internal::priority_class(sg1));
+    tio.find_or_create_class(internal::priority_class(sg2));
+
+    seastar::testing::fair_queue_test fq(tio.get_fair_queue());
+
+    BOOST_CHECK_EQUAL(fq.nr_children_for({}), 3);
+    BOOST_CHECK_EQUAL(fq.nr_children_for(0), 1);
+    BOOST_CHECK_EQUAL(fq.nr_children_for(1), 1);
+
+    BOOST_CHECK(fq.is_root_group(0));
+    BOOST_CHECK(fq.is_root_group(1));
+
+    BOOST_CHECK(!fq.get_parent_index(internal::priority_class(sg0)));
+    BOOST_CHECK(fq.get_parent_index(internal::priority_class(sg1)) == 0);
+    BOOST_CHECK(fq.get_parent_index(internal::priority_class(sg2)) == 1);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_destroy_priority_class_with_requests) {
+    io_queue_for_tests tio;
+
+    auto sg = create_scheduling_group("a", 100).get();
+    auto pc = internal::priority_class(sg);
+
+    auto fx = tio.queue_request(pc,
+        internal::io_direction_and_length(internal::io_direction_and_length::read_idx, 0),
+        internal::io_request::make_write(0, 0, nullptr, 1, false),
+        nullptr, {});
+
+    // Push this request through to make io-queue instantiate the priority class
+    tio.queue.poll_io_queue();
+    tio.sink.drain([] (const internal::io_request& rq, io_completion* desc) -> bool {
+        desc->complete_with(1);
+        return true;
+    });
+    BOOST_REQUIRE_EQUAL(fx.get(), 1);
+
+    BOOST_REQUIRE(tio.is_class_registered(pc));
+    tio.queue.destroy_priority_class(internal::priority_class(sg));
+    destroy_scheduling_group(sg).get();
+    BOOST_REQUIRE(!tio.is_class_registered(pc));
+}
+
+SEASTAR_THREAD_TEST_CASE(test_gauge_integrator_test) {
+    util::integrated_length<unsigned short, std::chrono::steady_clock> gi;
+    auto seed = std::random_device{}();
+    std::default_random_engine reng(seed);
+    std::uniform_int_distribution<> qlen(0, 250);
+    std::uniform_int_distribution<> dur(100, 1000);
+    auto now = std::chrono::steady_clock::now();
+    auto prev_value = gi.integral();
+
+    auto accumulate = [&] (std::function<unsigned short()> v) {
+        std::chrono::microseconds total_duration(0);
+        for (int i = 0; i < 13425; i++) {
+            auto d = std::chrono::microseconds(dur(reng));
+            total_duration += d;
+            now += d;
+            gi = v();
+            gi.checkpoint(now);
+        }
+        return std::chrono::duration_cast<std::chrono::seconds>(total_duration);
+    };
+
+    // step one -- check static value
+    for (int m = 0; m < 10; m++) {
+        auto value = qlen(reng);
+        auto seconds = accumulate([value] { return value; });
+        auto iv = gi.integral();
+        auto delta = iv - prev_value;
+        prev_value = iv;
+        fmt::print("value={:<6d} integral={:<10d} duration={:<4d} result={:<6d}\n",
+            value, delta, seconds.count(), delta / seconds.count()
+        );
+        BOOST_REQUIRE_GE(delta / seconds.count(), (unsigned short)(value * 0.9));
+        BOOST_REQUIRE_LE(delta / seconds.count(), (unsigned short)(value * 1.9));
+    }
+
+    // step two -- check disperse values
+    for (int m = 0; m < 16; m++) {
+        auto min_v = std::numeric_limits<unsigned short>::max();
+        auto max_v = std::numeric_limits<unsigned short>::min();
+        auto seconds = accumulate([&] {
+                auto v = qlen(reng);
+                min_v = std::min<unsigned short>(v, min_v);
+                max_v = std::max<unsigned short>(v, max_v);
+                return v;
+        });
+        auto iv = gi.integral();
+        auto delta = iv - prev_value;
+        prev_value = iv;
+        fmt::print("value=[{:d},{:d}] integral={:<10d} duration={:<4d} result={:<6d}\n",
+            min_v, max_v, delta, seconds.count(), delta / seconds.count()
+        );
+        BOOST_REQUIRE_GE(delta / seconds.count(), min_v);
+        BOOST_REQUIRE_LE(delta / seconds.count(), max_v);
+    }
+    fmt::print("done\n");
 }

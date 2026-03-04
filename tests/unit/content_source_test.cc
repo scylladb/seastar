@@ -47,6 +47,7 @@ public:
 
 SEASTAR_TEST_CASE(test_incomplete_content) {
     return seastar::async([] {
+      {
         auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("asdfghjkl;"))));
         auto content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(inp, 20)));
 
@@ -56,21 +57,25 @@ SEASTAR_TEST_CASE(test_incomplete_content) {
         BOOST_REQUIRE(temporary_buffer<char>() == content2);
         BOOST_REQUIRE(content_strm.eof());
         BOOST_REQUIRE(inp.eof());
+      }
 
-        inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("4\r\n132"))));
+      {
+        auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("4\r\n132"))));
         std::unordered_map<sstring, sstring> tmp, tmp2;
-        content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, tmp, tmp2)));
+        auto content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, tmp, tmp2)));
 
-        content1 = content_strm.read().get();
+        auto content1 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>("132", 3) == content1);
-        content2 = content_strm.read().get();
+        auto content2 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>() == content2);
         BOOST_REQUIRE(content_strm.eof());
+      }
     });
 }
 
 SEASTAR_TEST_CASE(test_complete_content) {
     return seastar::async([] {
+      {
         auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("asdfghjkl;1234567890"))));
         auto content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(inp, 20)));
 
@@ -79,21 +84,25 @@ SEASTAR_TEST_CASE(test_complete_content) {
         auto content2 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>() == content2);
         BOOST_REQUIRE(content_strm.eof());
+      }
 
-        inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("4\r\n1324\r\n0\r\n\r\n"))));
+      {
+        auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("4\r\n1324\r\n0\r\n\r\n"))));
         std::unordered_map<sstring, sstring> tmp, tmp2;
-        content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, tmp, tmp2)));
+        auto content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, tmp, tmp2)));
 
-        content1 = content_strm.read().get();
+        auto content1 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>("1324", 4) == content1);
-        content2 = content_strm.read().get();
+        auto content2 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>() == content2);
         BOOST_REQUIRE(content_strm.eof());
+      }
     });
 }
 
 SEASTAR_TEST_CASE(test_more_than_requests_content) {
     return seastar::async([] {
+      {
         auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("asdfghjkl;1234567890xyz"))));
         auto content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(inp, 20)));
 
@@ -104,18 +113,21 @@ SEASTAR_TEST_CASE(test_more_than_requests_content) {
         BOOST_REQUIRE(content_strm.eof());
         auto content3 = inp.read().get();
         BOOST_REQUIRE(temporary_buffer<char>("xyz", 3) == content3);
+      }
 
-        inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("4\r\n1324\r\n0\r\n\r\nxyz"))));
+      {
+        auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("4\r\n1324\r\n0\r\n\r\nxyz"))));
         std::unordered_map<sstring, sstring> tmp, tmp2;
-        content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, tmp, tmp2)));
+        auto content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, tmp, tmp2)));
 
-        content1 = content_strm.read().get();
+        auto content1 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>("1324", 4) == content1);
-        content2 = content_strm.read().get();
+        auto content2 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>() == content2);
         BOOST_REQUIRE(content_strm.eof());
-        content3 = inp.read().get();
+        auto content3 = inp.read().get();
         BOOST_REQUIRE(temporary_buffer<char>("xyz", 3) == content3);
+      }
     });
 }
 

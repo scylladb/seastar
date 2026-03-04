@@ -18,12 +18,8 @@
 /*
  * Copyright 2019 ScyllaDB
  */
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <atomic>
-#include <cassert>
 #include <chrono>
 #include <filesystem>
 #include <thread>
@@ -36,14 +32,12 @@ module;
 #include <sys/resource.h>
 #include <boost/container/small_vector.hpp>
 #include <fmt/core.h>
+#include <seastar/util/assert.hh>
 
 #ifdef SEASTAR_HAVE_URING
 #include <liburing.h>
 #endif
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include "core/reactor_backend.hh"
 #include "core/thread_pool.hh"
 #include "core/syscall_result.hh"
@@ -55,7 +49,6 @@ module seastar;
 #include <seastar/core/smp.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/read_first_line.hh>
-#endif
 
 namespace seastar {
 
@@ -113,7 +106,7 @@ void prepare_iocb(const io_request& req, io_completion* desc, iocb& iocb) {
 
 aio_storage_context::iocb_pool::iocb_pool() {
     for (unsigned i = 0; i != max_aio; ++i) {
-        _free_iocbs.push(&_iocb_pool[i]);
+        _free_iocbs.push(&_all_iocbs[i]);
     }
 }
 
@@ -123,7 +116,7 @@ aio_storage_context::aio_storage_context(reactor& r)
     static_assert(max_aio >= reactor::max_queues * reactor::max_queues,
                   "Mismatch between maximum allowed io and what the IO queues can produce");
     internal::setup_aio_context(max_aio, &_io_context);
-    _r.at_exit([this] { return stop(); });
+    _r.do_at_exit([this] { return stop(); });
 }
 
 aio_storage_context::~aio_storage_context() {
@@ -197,8 +190,6 @@ aio_storage_context::handle_aio_error(linux_abi::iocb* iocb, int ec) {
     }
 }
 
-extern bool aio_nowait_supported;
-
 bool
 aio_storage_context::submit_work() {
     bool did_work = false;
@@ -266,7 +257,8 @@ void aio_storage_context::schedule_retry() {
         }
         return false;
     }, [this] {
-        return _r._thread_pool->submit<syscall_result<int>>([this] () mutable {
+        return _r._thread_pool->submit<syscall_result<int>>(
+                internal::thread_pool_submit_reason::aio_fallback, [this] () mutable {
             auto r = io_submit(_io_context, _aio_retries.size(), _aio_retries.data());
             return wrap_syscall<int>(r);
         }).then_wrapped([this] (future<syscall_result<int>> f) {
@@ -302,11 +294,12 @@ bool aio_storage_context::reap_completions(bool allow_retry)
     if (n == -1 && errno == EINTR) {
         n = 0;
     }
-    assert(n >= 0);
+    SEASTAR_ASSERT(n >= 0);
     for (size_t i = 0; i < size_t(n); ++i) {
         auto iocb = get_iocb(_ev_buffer[i]);
         if (_ev_buffer[i].res == -EAGAIN && allow_retry) {
             set_nowait(*iocb, false);
+            _r._io_stats.aio_retries++;
             _pending_aio_retry.push_back(iocb);
             continue;
         }
@@ -339,7 +332,7 @@ aio_general_context::~aio_general_context() {
 }
 
 void aio_general_context::queue(linux_abi::iocb* iocb) {
-    assert(last < end);
+    SEASTAR_ASSERT(last < end);
     *last++ = iocb;
 }
 
@@ -360,7 +353,7 @@ size_t aio_general_context::flush() {
             // allow retrying for 1 second
             retry_until = clock::now() + 1s;
         } else {
-            assert(clock::now() < retry_until);
+            SEASTAR_ASSERT(clock::now() < retry_until);
         }
     }
     auto nr = last - iocbs.get();
@@ -461,7 +454,7 @@ void preempt_io_context::reset_preemption_monitor() {
 bool preempt_io_context::service_preempting_io() {
     linux_abi::io_event a[2];
     auto r = io_getevents(_context.io_context, 0, 2, a, 0);
-    assert(r != -1);
+    SEASTAR_ASSERT(r != -1);
     bool did_work = r > 0;
     for (unsigned i = 0; i != unsigned(r); ++i) {
         auto desc = get_user_data<kernel_completion>(a[i]);
@@ -500,7 +493,7 @@ bool reactor_backend_aio::await_events(int timeout, const sigset_t* active_sigma
         if (r == -1 && errno == EINTR) {
             return true;
         }
-        assert(r != -1);
+        SEASTAR_ASSERT(r != -1);
         for (unsigned i = 0; i != unsigned(r); ++i) {
             did_work = true;
             auto& event = batch[i];
@@ -534,7 +527,11 @@ reactor_backend_aio::reactor_backend_aio(reactor& r)
 
     sigset_t mask = make_sigset_mask(hrtimer_signal());
     auto e = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
-    assert(e == 0);
+    SEASTAR_ASSERT(e == 0);
+}
+
+std::string_view reactor_backend_aio::get_backend_name() const {
+    return "linux-aio";
 }
 
 bool reactor_backend_aio::reap_kernel_completions() {
@@ -657,10 +654,6 @@ future<> reactor_backend_aio::connect(pollable_fd_state& fd, socket_address& sa)
     return _r.do_connect(fd, sa);
 }
 
-void reactor_backend_aio::shutdown(pollable_fd_state& fd, int how) {
-    fd.fd.shutdown(how);
-}
-
 future<size_t>
 reactor_backend_aio::read(pollable_fd_state& fd, void* buffer, size_t len) {
     return _r.do_read(fd, buffer, len);
@@ -676,14 +669,16 @@ reactor_backend_aio::read_some(pollable_fd_state& fd, internal::buffer_allocator
     return _r.do_read_some(fd, ba);
 }
 
+#if SEASTAR_API_LEVEL < 9
 future<size_t>
 reactor_backend_aio::send(pollable_fd_state& fd, const void* buffer, size_t len) {
     return _r.do_send(fd, buffer, len);
 }
+#endif
 
 future<size_t>
-reactor_backend_aio::sendmsg(pollable_fd_state& fd, net::packet& p) {
-    return _r.do_sendmsg(fd, p);
+reactor_backend_aio::sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) {
+    return _r.do_sendmsg(fd, iovs, len);
 }
 
 future<temporary_buffer<char>>
@@ -763,7 +758,7 @@ reactor_backend_epoll::task_quota_timer_thread_fn() {
         _r.request_preemption();
     }
 
-    while (!_r._dying.load(std::memory_order_relaxed)) {
+    while (!_dying.load(std::memory_order_relaxed)) {
         // Wait for either the task quota timer, or the high resolution timer, or both,
         // to expire.
         struct pollfd pfds[2] = {};
@@ -772,7 +767,7 @@ reactor_backend_epoll::task_quota_timer_thread_fn() {
         pfds[1].fd = _steady_clock_timer_timer_thread.get();
         pfds[1].events = POLL_IN;
         int r = poll(pfds, 2, -1);
-        assert(r != -1);
+        SEASTAR_ASSERT(r != -1);
 
         uint64_t events;
         if (pfds[0].revents & POLL_IN) {
@@ -792,6 +787,10 @@ reactor_backend_epoll::task_quota_timer_thread_fn() {
 
 reactor_backend_epoll::~reactor_backend_epoll() = default;
 
+std::string_view reactor_backend_epoll::get_backend_name() const {
+    return "epoll";
+}
+
 void reactor_backend_epoll::start_tick() {
     _task_quota_timer_thread = std::thread(&reactor_backend_epoll::task_quota_timer_thread_fn, this);
 
@@ -804,7 +803,7 @@ void reactor_backend_epoll::start_tick() {
 }
 
 void reactor_backend_epoll::stop_tick() {
-    _r._dying.store(true, std::memory_order_relaxed);
+    _dying.store(true, std::memory_order_relaxed);
     _r._task_quota_timer.timerfd_settime(0, seastar::posix::to_relative_itimerspec(1ns, 1ms)); // Make the timer fire soon
     _task_quota_timer_thread.join();
 }
@@ -852,7 +851,7 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
     if (nr == -1 && errno == EINTR) {
         return false; // gdb can cause this
     }
-    assert(nr != -1);
+    SEASTAR_ASSERT(nr != -1);
     for (int i = 0; i < nr; ++i) {
         auto& evt = eevt[i];
         auto pfd = reinterpret_cast<pollable_fd_state*>(evt.data.ptr);
@@ -875,7 +874,7 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
             evt.events = pfd->events_requested;
         }
         auto events = evt.events & (EPOLLIN | EPOLLOUT | EPOLLRDHUP);
-        auto events_to_remove = has_error ? pfd->events_requested : events & ~pfd->events_requested;
+        auto events_to_remove = events & ~pfd->events_requested;
         complete_epoll_event(*pfd, events, EPOLLRDHUP);
         if (pfd->events_rw) {
             // accept() signals normal completions via EPOLLIN, but errors (due to shutdown())
@@ -893,6 +892,13 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
             evt.events = pfd->events_epoll;
             auto op = evt.events ? EPOLL_CTL_MOD : EPOLL_CTL_DEL;
             ::epoll_ctl(_epollfd.get(), op, pfd->fd.get(), &evt);
+        } else if (has_error) {
+            // In the error case, all requested events are cleared (as we handle
+            // all requested events on error), so unconditionally delete the fd
+            // from epoll, which avoids edge conditions where we otherwise might
+            // get stuck spinning.
+            pfd->events_epoll = 0;
+            ::epoll_ctl(_epollfd.get(), EPOLL_CTL_DEL, pfd->fd.get(), nullptr);
         }
     }
     return nr;
@@ -1004,7 +1010,7 @@ future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd, int eve
         eevt.events = pfd.events_epoll;
         eevt.data.ptr = &pfd;
         int r = ::epoll_ctl(_epollfd.get(), ctl, pfd.fd.get(), &eevt);
-        assert(r == 0);
+        SEASTAR_ASSERT(r == 0);
         _need_epoll_events = true;
     }
 
@@ -1045,10 +1051,6 @@ future<> reactor_backend_epoll::connect(pollable_fd_state& fd, socket_address& s
     return _r.do_connect(fd, sa);
 }
 
-void reactor_backend_epoll::shutdown(pollable_fd_state& fd, int how) {
-    fd.fd.shutdown(how);
-}
-
 future<size_t>
 reactor_backend_epoll::read(pollable_fd_state& fd, void* buffer, size_t len) {
     return _r.do_read(fd, buffer, len);
@@ -1064,14 +1066,16 @@ reactor_backend_epoll::read_some(pollable_fd_state& fd, internal::buffer_allocat
     return _r.do_read_some(fd, ba);
 }
 
+#if SEASTAR_API_LEVEL < 9
 future<size_t>
 reactor_backend_epoll::send(pollable_fd_state& fd, const void* buffer, size_t len) {
     return _r.do_send(fd, buffer, len);
 }
+#endif
 
 future<size_t>
-reactor_backend_epoll::sendmsg(pollable_fd_state& fd, net::packet& p) {
-    return _r.do_sendmsg(fd, p);
+reactor_backend_epoll::sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) {
+    return _r.do_sendmsg(fd, iovs, len);
 }
 
 future<temporary_buffer<char>>
@@ -1244,7 +1248,7 @@ class reactor_backend_uring final : public reactor_backend {
             // Note: for hrtimer_completion we can have spurious wakeups,
             // since we wait for this using both _preempt_io_context and the
             // ring. So don't assert that we read anything.
-            assert(!ret || *ret == 8);
+            SEASTAR_ASSERT(!ret || *ret == 8);
             _armed = false;
         }
         void maybe_rearm(reactor_backend_uring& be) {
@@ -1449,6 +1453,9 @@ public:
     ~reactor_backend_uring() {
         ::io_uring_queue_exit(&_uring);
     }
+    virtual std::string_view get_backend_name() const override {
+        return "io_uring";
+    }
     virtual bool reap_kernel_completions() override {
         return do_process_kernel_completions();
     }
@@ -1596,9 +1603,6 @@ public:
         auto req = internal::io_request::make_connect(fd.fd.get(), desc->posix_sockaddr(), desc->socklen());
         return submit_request(std::move(desc), std::move(req));
     }
-    virtual void shutdown(pollable_fd_state& fd, int how) override {
-        fd.fd.shutdown(how);
-    }
     virtual future<size_t> read(pollable_fd_state& fd, void* buffer, size_t len) override {
         return _r.do_read(fd, buffer, len);
     }
@@ -1703,23 +1707,15 @@ public:
             return submit_request(std::move(desc), std::move(req));
         });
     }
-    virtual future<size_t> sendmsg(pollable_fd_state& fd, net::packet& p) final {
+    virtual future<size_t> sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) final {
         if (fd.take_speculation(EPOLLOUT)) {
-            static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
-                sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
-                offsetof(iovec, iov_len) == offsetof(net::fragment, size) &&
-                sizeof(iovec::iov_len) == sizeof(net::fragment::size) &&
-                alignof(iovec) == alignof(net::fragment) &&
-                sizeof(iovec) == sizeof(net::fragment)
-                , "net::fragment and iovec should be equivalent");
-
             ::msghdr mh = {};
-            mh.msg_iov = reinterpret_cast<iovec*>(p.fragment_array());
-            mh.msg_iovlen = std::min<size_t>(p.nr_frags(), IOV_MAX);
+            mh.msg_iov = iovs.data();
+            mh.msg_iovlen = std::min<size_t>(iovs.size(), IOV_MAX);
             try {
                 auto r = fd.fd.sendmsg(&mh, MSG_NOSIGNAL | MSG_DONTWAIT);
                 if (r) {
-                    if (size_t(*r) == p.len()) {
+                    if (size_t(*r) == len) {
                         fd.speculate_epoll(EPOLLOUT);
                     }
                     return make_ready_future<size_t>(*r);
@@ -1734,10 +1730,10 @@ public:
             const size_t _to_write;
             promise<size_t> _result;
         public:
-            write_completion(pollable_fd_state& fd, net::packet& p)
-                : _fd(fd), _to_write(p.len()) {
-                _mh.msg_iov = reinterpret_cast<iovec*>(p.fragment_array());
-                _mh.msg_iovlen = std::min<size_t>(p.nr_frags(), IOV_MAX);
+            write_completion(pollable_fd_state& fd, std::span<iovec> iovs, size_t len)
+                : _fd(fd), _to_write(len) {
+                _mh.msg_iov = iovs.data();
+                _mh.msg_iovlen = std::min<size_t>(iovs.size(), IOV_MAX);
             }
             void complete(size_t bytes) noexcept final {
                 if (bytes == _to_write) {
@@ -1757,10 +1753,12 @@ public:
                 return _result.get_future();
             }
         };
-        auto desc = std::make_unique<write_completion>(fd, p);
+        auto desc = std::make_unique<write_completion>(fd, iovs, len);
         auto req = internal::io_request::make_sendmsg(fd.fd.get(), desc->msghdr(), MSG_NOSIGNAL);
         return submit_request(std::move(desc), std::move(req));
     }
+
+#if SEASTAR_API_LEVEL < 9
     virtual future<size_t> send(pollable_fd_state& fd, const void* buffer, size_t len) override {
         if (fd.take_speculation(EPOLLOUT)) {
             try {
@@ -1801,6 +1799,7 @@ public:
         auto req = internal::io_request::make_send(fd.fd.get(), buffer, len, MSG_NOSIGNAL);
         return submit_request(std::move(desc), std::move(req));
     }
+#endif
 
     virtual future<temporary_buffer<char>> recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) override {
         if (fd.take_speculation(POLLIN)) {

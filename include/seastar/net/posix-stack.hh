@@ -20,9 +20,7 @@
  */
 
 #pragma once
-#ifndef SEASTAR_MODULE
 #include <unordered_set>
-#endif
 #include <seastar/core/sharded.hh>
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/net/stack.hh>
@@ -33,6 +31,22 @@
 #include <unordered_set>
 
 namespace seastar {
+
+namespace internal {
+
+// Holder of iovec-s for vectorized IO syscalls
+// Gets populated from temporary_buffers, providing deleter object
+// that controls the lifetime of the buffers it points to
+struct wrapped_iovecs {
+    std::vector<iovec> v;
+    std::pair<size_t, deleter> populate(std::span<temporary_buffer<char>> bufs);
+
+    wrapped_iovecs() = default;
+    wrapped_iovecs(const wrapped_iovecs&) = delete;
+    wrapped_iovecs(wrapped_iovecs&&) = delete;
+};
+
+}
 
 namespace net {
 
@@ -84,6 +98,8 @@ public:
 
         handle(const handle&) = delete;
         handle(handle&&) = default;
+        handle& operator=(const handle&) = delete;
+        handle& operator=(handle&&) = default;
         ~handle() {
             if (!_lb) {
                 return;
@@ -125,15 +141,28 @@ public:
 
 class posix_data_sink_impl : public data_sink_impl {
     pollable_fd _fd;
-    packet _p;
+#if SEASTAR_API_LEVEL >= 9
+    internal::wrapped_iovecs _vecs;
+#else
+    packet _p{net::packet::make_null_packet()};
+#endif
 public:
     explicit posix_data_sink_impl(pollable_fd fd) : _fd(std::move(fd)) {}
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>>) override;
+#else
     using data_sink_impl::put;
     future<> put(packet p) override;
     future<> put(temporary_buffer<char> buf) override;
+#endif
     future<> close() override;
     bool can_batch_flushes() const noexcept override { return true; }
     void on_batch_flush_error() noexcept override;
+};
+
+struct proxy_data {
+    socket_address remote_address;
+    socket_address local_address;
 };
 
 class posix_ap_server_socket_impl : public server_socket_impl {
@@ -142,7 +171,8 @@ class posix_ap_server_socket_impl : public server_socket_impl {
         pollable_fd fd;
         socket_address addr;
         conntrack::handle connection_tracking_handle;
-        connection(pollable_fd xfd, socket_address xaddr, conntrack::handle cth) : fd(std::move(xfd)), addr(xaddr), connection_tracking_handle(std::move(cth)) {}
+        std::optional<proxy_data> proxy_protocol_header_opt;
+        connection(pollable_fd xfd, socket_address xaddr, conntrack::handle cth, std::optional<proxy_data> addr_data_opt) : fd(std::move(xfd)), addr(xaddr), connection_tracking_handle(std::move(cth)), proxy_protocol_header_opt(std::move(addr_data_opt)) {}
     };
     using port_map_t = std::unordered_set<protocol_and_socket_address>;
     using sockets_map_t = std::unordered_map<protocol_and_socket_address, promise<accept_result>>;
@@ -161,7 +191,7 @@ public:
     socket_address local_address() const override {
         return _sa;
     }
-    static void move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, std::pmr::polymorphic_allocator<char>* allocator);
+    static void move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, std::optional<proxy_data> addr_data_opt, std::pmr::polymorphic_allocator<char>* allocator);
 
     template <typename T>
     friend class std::hash;
@@ -174,11 +204,13 @@ class posix_server_socket_impl : public server_socket_impl {
     conntrack _conntrack;
     server_socket::load_balancing_algorithm _lba;
     shard_id _fixed_cpu;
+    bool _proxy_protocol;
     std::pmr::polymorphic_allocator<char>* _allocator;
 public:
     explicit posix_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
         server_socket::load_balancing_algorithm lba, shard_id fixed_cpu,
-        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _lba(lba), _fixed_cpu(fixed_cpu), _allocator(allocator) {}
+        bool proxy_protocol,
+        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _lba(lba), _fixed_cpu(fixed_cpu), _proxy_protocol(proxy_protocol), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
@@ -198,9 +230,9 @@ public:
 };
 
 class posix_network_stack : public network_stack {
-private:
-    const bool _reuseport;
 protected:
+    const bool _reuseport;
+    const bool _sock_need_nonblock;
     std::pmr::polymorphic_allocator<char>* _allocator;
 public:
     explicit posix_network_stack(const program_options::option_group& opts, std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator);
@@ -215,11 +247,11 @@ public:
     virtual bool has_per_core_namespace() override { return _reuseport; };
     bool supports_ipv6() const override;
     std::vector<network_interface> network_interfaces() override;
+    virtual statistics stats(unsigned scheduling_group_id) override;
+    virtual void clear_stats(unsigned scheduling_group_id) override;
 };
 
 class posix_ap_network_stack : public posix_network_stack {
-private:
-    const bool _reuseport;
 public:
     posix_ap_network_stack(const program_options::option_group& opts, std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator);
     virtual server_socket listen(socket_address sa, listen_options opts) override;

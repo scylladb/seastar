@@ -21,13 +21,9 @@
 
 #pragma once
 
-#include "modules.hh"
-#ifndef SEASTAR_MODULE
 #include <concepts>
 #include <type_traits>
 #include <utility>
-#endif
-#include <seastar/util/modules.hh>
 
 
 #ifdef SEASTAR_DEFERRED_ACTION_REQUIRE_NOEXCEPT
@@ -39,7 +35,7 @@
 template <typename Func>
 concept deferrable_action = requires (Func func) {
     { func() } SEASTAR_DEFERRED_ACTION_NOEXCEPT -> std::same_as<void>;
-};
+} && std::is_nothrow_move_constructible_v<Func>;
 
 namespace seastar {
 
@@ -49,7 +45,6 @@ class [[nodiscard]] deferred_action {
     Func _func;
     bool _cancelled = false;
 public:
-    static_assert(std::is_nothrow_move_constructible_v<Func>, "Func(Func&&) must be noexcept");
     deferred_action(Func&& func) noexcept : _func(std::move(func)) {}
     deferred_action(deferred_action&& o) noexcept : _func(std::move(o._func)), _cancelled(o._cancelled) {
         o._cancelled = true;
@@ -66,7 +61,6 @@ public:
     void cancel() { _cancelled = true; }
 };
 
-SEASTAR_MODULE_EXPORT
 template <typename Func>
 requires deferrable_action<Func>
 inline

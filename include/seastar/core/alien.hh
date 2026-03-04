@@ -22,26 +22,22 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <atomic>
 #include <concepts>
 #include <future>
 #include <memory>
 #include <type_traits>
 #include <boost/lockfree/queue.hpp>
-#endif
 
 #include <seastar/core/future.hh>
 #include <seastar/core/cacheline.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/metrics_registration.hh>
-#include <seastar/util/modules.hh>
 
 /// \file
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT
 class reactor;
 
 /// \brief Integration with non-seastar applications.
@@ -115,7 +111,6 @@ struct qs_deleter {
 /// system, there is just one instance, but for in-process clustering testing
 /// there may be more than one. Function such as run_on() direct messages to
 /// and (instance, shard) tuple.
-SEASTAR_MODULE_EXPORT
 class instance {
     using qs = std::unique_ptr<message_queue[], internal::qs_deleter>;
 public:
@@ -143,28 +138,10 @@ extern instance* default_instance;
 ///          message queue managed by the shard executing the alien thread which is
 ///          interested to the return value. Please use \c submit_to() instead, if
 ///          \c func throws.
-SEASTAR_MODULE_EXPORT
 template <typename Func>
 requires std::is_nothrow_invocable_r_v<void, Func>
 void run_on(instance& instance, unsigned shard, Func func) {
     instance._qs[shard].submit(std::move(func));
-}
-
-/// Runs a function on a remote shard from an alien thread where engine() is not available.
-///
-/// \param shard designates the shard to run the function on
-/// \param func a callable to run on shard \c t.  If \c func is a temporary object,
-///          its lifetime will be extended by moving it.  If \c func is a reference,
-///          the caller must guarantee that it will survive the call.
-/// \note the func must not throw and should return \c void. as we cannot identify the
-///          alien thread, hence we are not able to post the fulfilled promise to the
-///          message queue managed by the shard executing the alien thread which is
-///          interested to the return value. Please use \c submit_to() instead, if
-///          \c func throws.
-template <typename Func>
-[[deprecated("Use run_on(instance&, unsigned shard, Func) instead")]]
-void run_on(unsigned shard, Func func) {
-    run_on(*internal::default_instance, shard, std::move(func));
 }
 
 namespace internal {
@@ -199,7 +176,6 @@ template <typename Func> using return_type_t = typename return_type_of<Func>::ty
 ///          the caller must guarantee that it will survive the call.
 /// \return whatever \c func returns, as a \c std::future<>
 /// \note the caller must keep the returned future alive until \c func returns
-SEASTAR_MODULE_EXPORT
 template<std::invocable Func, typename T = internal::return_type_t<Func>>
 std::future<T> submit_to(instance& instance, unsigned shard, Func func) {
     std::promise<T> pr;
@@ -215,20 +191,6 @@ std::future<T> submit_to(instance& instance, unsigned shard, Func func) {
         });
     });
     return fut;
-}
-
-/// Runs a function on a remote shard from an alien thread where engine() is not available.
-///
-/// \param shard designates the shard to run the function on
-/// \param func a callable to run on \c shard.  If \c func is a temporary object,
-///          its lifetime will be extended by moving it.  If \c func is a reference,
-///          the caller must guarantee that it will survive the call.
-/// \return whatever \c func returns, as a \c std::future<>
-/// \note the caller must keep the returned future alive until \c func returns
-template<typename Func, typename T = internal::return_type_t<Func>>
-[[deprecated("Use submit_to(instance&, unsigned shard, Func) instead.")]]
-std::future<T> submit_to(unsigned shard, Func func) {
-    return submit_to(*internal::default_instance, shard, std::move(func));
 }
 
 }

@@ -25,6 +25,7 @@
 
 #include <seastar/testing/seastar_test.hh>
 #include <seastar/core/file.hh>
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -42,7 +43,7 @@ private:
             _verify_length(length);
         }
         BOOST_CHECK(_allowed_read_requests);
-        assert(_allowed_read_requests);
+        SEASTAR_ASSERT(_allowed_read_requests);
         _allowed_read_requests--;
         return length;
     }
@@ -82,6 +83,9 @@ public:
         return make_ready_future<>();
     }
     virtual future<struct stat> stat() noexcept override {
+        return make_exception_future<struct stat>(std::bad_function_call());
+    }
+    virtual future<struct stat> statat(std::string_view name, int flags) noexcept override {
         return make_exception_future<struct stat>(std::bad_function_call());
     }
     virtual future<> truncate(uint64_t) noexcept override {

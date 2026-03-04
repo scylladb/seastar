@@ -21,14 +21,11 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <boost/program_options.hpp>
 #include <optional>
 #include <stack>
-#endif
 
 #include <seastar/util/program-options.hh>
-#include <seastar/util/modules.hh>
 
 namespace bpo = boost::program_options;
 

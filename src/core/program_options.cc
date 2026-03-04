@@ -19,23 +19,14 @@
  * Copyright (C) 2021 Cloudius Systems, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#include <cstdlib>
-#include <string>
-#include <stdexcept>
-#include <boost/program_options.hpp>
 #include <boost/type.hpp>
-#include <fmt/format.h>
-module seastar;
-#else
+
 #include "core/program_options.hh"
 
 #include <seastar/util/log-cli.hh>
 #include <seastar/util/memory_diagnostics.hh>
 #include <seastar/core/reactor_config.hh>
 #include <seastar/core/resource.hh>
-#endif
 
 namespace seastar::program_options {
 

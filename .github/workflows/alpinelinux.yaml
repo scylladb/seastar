@@ -1,0 +1,65 @@
+name: Alpine Linux
+
+on:
+  pull_request:
+  workflow_dispatch:  # Allows manual triggering
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    container:
+      image: alpine:latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install build dependencies
+      run: |
+        apk update
+        apk add --no-cache   \
+          boost-dev          \
+          bsd-compat-headers \
+          c-ares-dev         \
+          cmake              \
+          crypto++-dev       \
+          gcc                \
+          g++                \
+          fmt-dev            \
+          gnutls-dev         \
+          hwloc-dev          \
+          libpciaccess-dev   \
+          libucontext-dev    \
+          libunwind-dev      \
+          liburing-dev       \
+          lksctp-tools-dev   \
+          lz4-dev            \
+          numactl-dev        \
+          openssl            \
+          openssl-dev        \
+          protobuf-dev       \
+          py3-yaml           \
+          ragel              \
+          samurai            \
+          util-linux-dev     \
+          valgrind-dev       \
+          xfsprogs-dev       \
+          yaml-cpp-dev
+
+    - name: Configure build
+      run: |
+        cmake -B build -G Ninja            \
+         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+         -DSeastar_DOCS=OFF
+
+    - name: Build Seastar
+      run: |
+        cmake --build build
+
+    - name: Run unit tests
+      run: |
+        ctest --test-dir build --output-on-failure -j2

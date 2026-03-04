@@ -20,7 +20,6 @@
  */
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <netinet/ip.h>
@@ -29,13 +28,11 @@
 #include <functional>
 #include <iosfwd>
 #include <fmt/ostream.h>
-#endif
 #include <seastar/net/byteorder.hh>
 #include <seastar/net/unix_address.hh>
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 namespace net {
 class inet_address;
@@ -69,7 +66,7 @@ public:
     /** creates an uninitialized socket_address. this can be written into, or used as
      *  "unspecified" for such addresses as bind(addr) or local address in socket::connect
      *  (i.e. system picks)
-     */ 
+     */
     socket_address() noexcept;
 
     ::sockaddr& as_posix_sockaddr() noexcept { return u.sa; }
@@ -161,7 +158,6 @@ std::ostream& operator<<(std::ostream&, const ipv6_addr&);
 inline bool operator==(const ipv4_addr &lhs, const ipv4_addr& rhs) noexcept {
     return lhs.ip == rhs.ip && lhs.port == rhs.port;
 }
-SEASTAR_MODULE_EXPORT_END
 }
 
 namespace std {
@@ -191,8 +187,6 @@ struct hash<seastar::transport> {
 
 }
 
-#if FMT_VERSION >= 90000
 template <> struct fmt::formatter<seastar::socket_address> : fmt::ostream_formatter {};
 template <> struct fmt::formatter<seastar::ipv4_addr> : fmt::ostream_formatter {};
 template <> struct fmt::formatter<seastar::ipv6_addr> : fmt::ostream_formatter {};
-#endif

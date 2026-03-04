@@ -23,7 +23,6 @@
 #pragma once
 
 #include <seastar/core/sharded.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/condition-variable.hh>
 #include <seastar/core/signal.hh>
 

@@ -69,8 +69,8 @@ public:
     }
 
     /// This method should be called if maybe_sample returned true for particular
-    /// allocation. It returns true if a sample should be taken and handles 
-    /// resetting the sample interval countdown.    
+    /// allocation. It returns true if a sample should be taken and handles
+    /// resetting the sample interval countdown.
     bool definitely_sample(size_t alloc_size) {
         // this will hold if maybe_sample returned false for this allocation
         if (interval_to_next_sample_ >= 0) {

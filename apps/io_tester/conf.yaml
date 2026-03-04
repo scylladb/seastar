@@ -1,6 +1,6 @@
 - name: big_writes
   shards: all
-  type: seqwrite
+  type: overwrite
   shard_info:
     parallelism: 10
     reqsize: 256kB

@@ -33,20 +33,23 @@ on:
         type: string
         default: ''
         required: false
+      test-args:
+        description: 'additional arguments passed to test.py'
+        type: string
+        default: ''
+        required: false
 
 jobs:
   test:
     timeout-minutes: 40
-    runs-on: ubuntu-latest
-    container: fedora:40
+    runs-on: ubuntu-24.04
     steps:
-      - name: Install Git
-        run: |
-          sudo dnf -y install git
-
       - uses: actions/checkout@v4
         with:
           submodules: "${{ contains(inputs.enables, 'dpdk') }}"
+
+      - run: |
+          sudo apt-get update
 
       - name: Install build dependencies
         run: |
@@ -55,17 +58,22 @@ jobs:
       - name: Install clang++
         if: ${{ inputs.compiler == 'clang++' }}
         run: |
-          sudo dnf -y install clang
+          sudo apt-get -y install clang-20
 
       - name: Install clang-scan-deps
         if: ${{ contains(inputs.enables, 'cxx-modules') }}
         run: |
-          sudo dnf -y install clang-tools-extra
+          sudo apt-get -y install clang-tools-20
+
+      - name: Install g++
+        if: ${{ inputs.compiler == 'g++' }}
+        run: |
+          sudo apt-get -y install gcc-14 g++-14
 
       - name: Install ccache
         if: ${{ inputs.enable-ccache }}
         run: |
-          sudo dnf -y install ccache
+          sudo apt-get -y install ccache
 
       - name: Setup ccache
         if: ${{ inputs.enable-ccache }}
@@ -76,16 +84,18 @@ jobs:
       - name: Configure
         run: |
           if [ ${{ inputs.compiler }} = "clang++" ]; then
-            CC=clang
+            CC=clang-20
+            CPP=clang++-20
           else
-            CC=gcc
+            CC=gcc-14
+            CPP=g++-14
           fi
           if ${{ inputs.enable-ccache }}; then
-            MAYBE_CCACHE_OPT="--ccache"
+            MAYBE_CCACHE_OPT="--compiler-cache=ccache"
           fi
           ./configure.py                          \
             --c++-standard ${{ inputs.standard }} \
-            --compiler ${{ inputs.compiler }}     \
+            --compiler $CPP                       \
             --c-compiler $CC                      \
             --mode ${{ inputs.mode }}             \
             $MAYBE_CCACHE_OPT                     \
@@ -99,10 +109,14 @@ jobs:
         if: ${{ inputs.mode == 'dev' && inputs.compiler == 'clang++' }}
         run: cmake --build build/${{ inputs.mode }} --target checkheaders
 
+      - name: Check Include Style
+        if: ${{ inputs.mode == 'dev' && inputs.compiler == 'clang++' }}
+        run: cmake --build build/${{ inputs.mode }} --target check-include-style
+
       - name: Build with C++20 modules
         if: ${{ contains(inputs.enables, 'cxx-modules') }}
         run: cmake --build build/${{ inputs.mode }} --target hello_cxx_module
 
       - name: Test
         if: ${{ ! contains(inputs.enables, 'cxx-modules') }}
-        run: ./test.py --mode=${{ inputs.mode }}
+        run: ./test.py --mode=${{ inputs.mode }} ${{ inputs.test-args }}

@@ -19,11 +19,16 @@
  * Copyright (C) 2014-2015 Cloudius Systems, Ltd.
  */
 
+#include <filesystem>
+
 #include <seastar/testing/random.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/test_runner.hh>
 
+#include <seastar/core/reactor.hh>
+#include <seastar/core/smp.hh>
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/condition-variable.hh>
@@ -33,11 +38,14 @@
 #include <seastar/core/stall_sampler.hh>
 #include <seastar/core/aligned_buffer.hh>
 #include <seastar/core/io_intent.hh>
+#include <seastar/core/sleep.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/tmp_file.hh>
 #include <seastar/util/alloc_failure_injector.hh>
 #include <seastar/util/closeable.hh>
 #include <seastar/util/internal/magic.hh>
 #include <seastar/util/internal/iovec_utils.hh>
+#include <seastar/util/later.hh>
 
 #include <boost/range/adaptor/transformed.hpp>
 #include <iostream>
@@ -47,8 +55,10 @@
 using namespace seastar;
 namespace fs = std::filesystem;
 
+constexpr open_flags default_create_open_flags = open_flags::rw | open_flags::create;
+
 SEASTAR_TEST_CASE(open_flags_test) {
-    open_flags flags = open_flags::rw | open_flags::create  | open_flags::exclusive;
+    open_flags flags = default_create_open_flags | open_flags::exclusive;
     BOOST_REQUIRE(std::underlying_type_t<open_flags>(flags) ==
                   (std::underlying_type_t<open_flags>(open_flags::rw) |
                    std::underlying_type_t<open_flags>(open_flags::create) |
@@ -71,7 +81,7 @@ SEASTAR_TEST_CASE(access_flags_test) {
 SEASTAR_TEST_CASE(file_exists_test) {
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         sstring filename = (t.get_path() / "testfile.tmp").native();
-        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get();
+        auto f = open_file_dma(filename, default_create_open_flags).get();
         f.close().get();
         auto exists = file_exists(filename).get();
         BOOST_REQUIRE(exists);
@@ -84,7 +94,7 @@ SEASTAR_TEST_CASE(file_exists_test) {
 SEASTAR_TEST_CASE(handle_bad_alloc_test) {
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         sstring filename = (t.get_path() / "testfile.tmp").native();
-        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get();
+        auto f = open_file_dma(filename, default_create_open_flags).get();
         f.close().get();
         bool exists = false;
         memory::with_allocation_failures([&] {
@@ -97,10 +107,49 @@ SEASTAR_TEST_CASE(handle_bad_alloc_test) {
 SEASTAR_TEST_CASE(file_access_test) {
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         sstring filename = (t.get_path() / "testfile.tmp").native();
-        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get();
+        auto f = open_file_dma(filename, default_create_open_flags).get();
         f.close().get();
         auto is_accessible = file_accessible(filename, access_flags::read | access_flags::write).get();
         BOOST_REQUIRE(is_accessible);
+    });
+}
+
+// Test that a file handle can be transferred to another shard, and
+// that a file obtained from the handle is the same one, as it was
+// when the file was opened.
+SEASTAR_TEST_CASE(file_ro_dup_test) {
+    if (seastar::smp::count < 2) {
+        fmt::print("This test needs at least 2 shards to run\n");
+        return make_ready_future<>();
+    }
+    return tmp_dir::do_with([] (tmp_dir& t) -> future<> {
+        struct file_open_info {
+            seastar::file_handle handle;
+            struct stat st;
+        };
+        auto fi = co_await smp::submit_to(0, [&t] () -> future<file_open_info> {
+            sstring filename = (t.get_path() / "testfile.tmp").native();
+            auto f = co_await open_file_dma(filename, open_flags::ro | open_flags::create);
+            auto st = co_await f.stat();
+            auto fh = f.dup();
+            co_await f.close();
+            co_return file_open_info{ std::move(fh), st };
+        });
+        co_await smp::submit_to(1, [fi = std::move(fi)] () mutable -> future<> {
+            auto f = std::move(fi.handle).to_file();
+            auto st = co_await f.stat();
+            BOOST_REQUIRE_EQUAL(st.st_dev, fi.st.st_dev);
+            BOOST_REQUIRE_EQUAL(st.st_ino, fi.st.st_ino);
+        });
+    });
+}
+
+// Test that non-read-only files do not generate file-handle, but throw
+SEASTAR_TEST_CASE(file_rw_dup_test) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get();
+        BOOST_REQUIRE_THROW(f.dup(), std::runtime_error);
     });
 }
 
@@ -116,7 +165,7 @@ SEASTAR_TEST_CASE(test1) {
   return tmp_dir::do_with([] (tmp_dir& t) {
     static constexpr auto max = 10000;
     sstring filename = (t.get_path() / "testfile.tmp").native();
-    return open_file_dma(filename, open_flags::rw | open_flags::create).then([filename] (file f) {
+    return open_file_dma(filename, default_create_open_flags).then([filename] (file f) {
         auto ft = new file_test{std::move(f)};
         for (size_t i = 0; i < max; ++i) {
             // Don't wait for future, use semaphore to signal when done instead.
@@ -163,7 +212,7 @@ SEASTAR_TEST_CASE(parallel_write_fsync) {
             auto written = uint64_t(0);
             auto fsynced_at = uint64_t(0);
 
-            file f = open_file_dma(fname, open_flags::rw | open_flags::create | open_flags::truncate).get();
+            file f = open_file_dma(fname, default_create_open_flags | open_flags::truncate).get();
             auto close_f = deferred_close(f);
             // Avoid filesystem problems with size-extending operations
             f.truncate(sz).get();
@@ -230,7 +279,7 @@ SEASTAR_TEST_CASE(test_iov_max) {
     while (left) {
         auto written = f.dma_write(position, iovecs).get();
         iovecs.erase(iovecs.begin(), iovecs.begin() + written / buffer_size);
-        assert(written % buffer_size == 0);
+        SEASTAR_ASSERT(written % buffer_size == 0);
         position += written;
         left -= written;
     }
@@ -249,7 +298,7 @@ SEASTAR_TEST_CASE(test_iov_max) {
     while (left) {
         auto read = f.dma_read(position, iovecs).get();
         iovecs.erase(iovecs.begin(), iovecs.begin() + read / buffer_size);
-        assert(read % buffer_size == 0);
+        SEASTAR_ASSERT(read % buffer_size == 0);
         position += read;
         left -= read;
     }
@@ -499,6 +548,51 @@ SEASTAR_TEST_CASE(test_file_stat_method) {
   });
 }
 
+SEASTAR_TEST_CASE(test_dir_statat_method) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        auto oflags = open_flags::rw | open_flags::create;
+        auto path = t.get_path();
+        const char* filename = "testfile.tmp";
+
+        // Create file in tmp dir
+        auto orig_umask = umask(0);
+
+        auto f = open_file_dma((path / filename).native(), oflags).get();
+        auto close_f = deferred_close(f);
+        size_t buffer_size = 4096;
+        auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), buffer_size);
+        memset(buf.get_write(), 0, buf.size());
+        auto written = f.dma_write(0, buf.get(), buf.size()).get();
+        BOOST_REQUIRE_EQUAL(written, buffer_size);
+        close_f.close_now();
+
+        // Open dir and get the file stat using statat
+        auto dir = open_directory(path.native()).get();
+        auto close_dir = deferred_close(dir);
+
+        auto file_st = dir.statat(filename).get();
+        BOOST_REQUIRE_EQUAL(file_st.st_size, buffer_size);
+
+        const char* linkname = "test_link.tmp";
+        auto rc = ::symlink((path / filename).c_str(), (path / linkname).c_str());
+        BOOST_REQUIRE_EQUAL(rc, 0);
+
+        auto link_st = dir.statat(linkname, AT_SYMLINK_NOFOLLOW).get();
+        BOOST_REQUIRE_NE(link_st.st_ino, file_st.st_ino);
+
+        // Default flags are expected to follow symlinks
+        auto st = dir.statat(linkname).get();
+        BOOST_REQUIRE_EQUAL(st.st_ino, file_st.st_ino);
+
+        // Test non-existing file resolving into exception
+        BOOST_REQUIRE_EXCEPTION(dir.statat("no-such-file").get(), std::system_error, [] (auto& ex) {
+            return ex.code() == std::error_code(ENOENT, std::system_category());
+        });
+
+        umask(orig_umask);
+    });
+}
+
 SEASTAR_TEST_CASE(test_file_write_lifetime_method) {
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         auto oflags = open_flags::rw | open_flags::create;
@@ -604,6 +698,9 @@ public:
         abort();
     }
     virtual future<struct stat> stat(void) override {
+        abort();
+    }
+    virtual future<struct stat> statat(std::string_view, int) override {
         abort();
     }
     virtual future<> truncate(uint64_t length) override {
@@ -726,10 +823,6 @@ SEASTAR_TEST_CASE(test_with_file_close_on_failure) {
     });
 }
 
-namespace seastar {
-    extern bool aio_nowait_supported;
-}
-
 SEASTAR_TEST_CASE(test_nowait_flag_correctness) {
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         auto oflags = open_flags::rw | open_flags::create;
@@ -737,7 +830,7 @@ SEASTAR_TEST_CASE(test_nowait_flag_correctness) {
         auto is_tmpfs = [&] (sstring filename) {
             struct ::statfs buf;
             int fd = ::open(filename.c_str(), static_cast<int>(open_flags::ro));
-            assert(fd != -1);
+            SEASTAR_ASSERT(fd != -1);
             auto r = ::fstatfs(fd, &buf);
             if (r == -1) {
                 return false;
@@ -745,7 +838,7 @@ SEASTAR_TEST_CASE(test_nowait_flag_correctness) {
             return buf.f_type == internal::fs_magic::tmpfs;
         };
 
-        if (!seastar::aio_nowait_supported) {
+        if (!seastar::reactor::test::linux_aio_nowait()) {
             BOOST_TEST_WARN(0, "Skipping this test because RWF_NOWAIT is not supported by the system");
             return;
         }
@@ -946,4 +1039,227 @@ SEASTAR_TEST_CASE(test_oversized_io_works) {
 
         BOOST_REQUIRE((size_t)std::count_if(buf.get(), buf.get() + buf_size, [](auto x) { return x == 'a'; }) == buf_size);
     });
+}
+
+SEASTAR_TEST_CASE(test_file_system_space) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        const auto& name = t.get_path().native();
+        auto st = engine().statvfs(name).get();
+        auto si = file_system_space(name).get();
+
+        BOOST_REQUIRE_EQUAL(st.f_blocks * st.f_frsize, si.capacity);
+        BOOST_REQUIRE_LE(si.free, si.capacity);
+        BOOST_REQUIRE_LE(si.available, si.capacity);
+        BOOST_REQUIRE_LE(si.available, si.free);
+    });
+}
+
+#include "../src/core/file-impl.hh"
+
+namespace seastar::testing {
+class append_challenged_posix_file_test {
+    const unsigned _max_appends;
+    const bool _fsync_is_exclusive;
+    file_desc _fd;
+    shared_ptr<append_challenged_posix_file_impl> _file;
+    static constexpr size_t _block_size = 1024;
+    uint64_t _pos = 0;
+    unsigned _appends = 0;
+    unsigned _writes = 0;
+    unsigned _flushes = 0;
+    using opcode = append_challenged_posix_file_impl::opcode;
+
+    struct req {
+        unsigned& counter;
+        uint64_t pos;
+        promise<> complete;
+        req(unsigned& c, uint64_t p = 0) noexcept : counter(c), pos(p), complete() {
+            counter++;
+        }
+    };
+
+    std::deque<req> _queue;
+
+public:
+    append_challenged_posix_file_test(tmp_dir& t, unsigned append_concurrency, bool fsync_is_exclusive)
+        : _max_appends(append_concurrency)
+        , _fsync_is_exclusive(fsync_is_exclusive)
+        , _fd(file_desc::open((t.get_path() / "testfile.tmp").native(), O_RDWR | O_CREAT | O_TRUNC, 0600))
+        , _file(seastar::testing::make_append_challenged_posix_file(_fd, _max_appends, _fsync_is_exclusive, {}))
+    {
+    }
+
+    future<> flush() {
+        return _file->enqueue(opcode::flush, 0, 0, [this] {
+            if (_fsync_is_exclusive) {
+                BOOST_CHECK_EQUAL(_writes, 0);
+            }
+            _queue.emplace_back(_flushes);
+            return _queue.back().complete.get_future();
+        });
+    }
+
+    future<> write_one() {
+        auto pos = _pos;
+        _pos += _block_size;
+        return _file->enqueue(opcode::write, pos, _block_size, [this, pos] {
+            uint64_t fsize = _fd.size();
+            if (pos + _block_size > fsize) {
+                _appends++;
+                BOOST_CHECK_LE(_appends, _max_appends);
+            }
+            if (_fsync_is_exclusive) {
+                BOOST_CHECK_EQUAL(_flushes, 0);
+            }
+            _queue.emplace_back(_writes, pos);
+            return _queue.back().complete.get_future();
+        });
+    }
+
+    bool complete_one() {
+        if (!_queue.empty()) {
+            auto r = std::move(_queue.front());
+            _queue.pop_front();
+            r.counter--;
+            r.complete.set_value();
+            return true;
+        }
+
+        return false;
+    }
+
+    future<> close() {
+        BOOST_CHECK_EQUAL(_appends, _max_appends);
+        return _file->close();
+    }
+};
+}
+
+static void test_append_challenged_posix_file_concurrency(tmp_dir& t, unsigned c) {
+    seastar::testing::append_challenged_posix_file_test test(t, c, false);
+
+    std::deque<future<>> futs;
+    for (unsigned i = 0; i < 64; i++) {
+        futs.push_back(test.write_one());
+    }
+
+    while (!futs.empty()) {
+        while (!test.complete_one()) {
+            yield().get();
+        }
+        futs.front().get();
+        futs.pop_front();
+    }
+    test.close().get();
+}
+
+static void test_append_challenged_posix_file_flush(tmp_dir& t) {
+    seastar::testing::append_challenged_posix_file_test test(t, 1, true);
+
+    std::deque<future<>> futs;
+    for (unsigned i = 0; i < 4; i++) {
+        futs.push_back(test.write_one());
+    }
+    futs.push_back(test.flush());
+    for (unsigned i = 0; i < 4; i++) {
+        futs.push_back(test.write_one());
+    }
+
+    while (!futs.empty()) {
+        while (!test.complete_one()) {
+            yield().get();
+        }
+        futs.front().get();
+        futs.pop_front();
+    }
+    test.close().get();
+}
+
+SEASTAR_TEST_CASE(test_append_challenged_posix_file_impl) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        test_append_challenged_posix_file_concurrency(t, 0);
+        test_append_challenged_posix_file_concurrency(t, 1);
+        test_append_challenged_posix_file_flush(t);
+    });
+}
+
+// Helper class for test_posix_file_impl.
+// Copies data from external buffer in it read() operation, but
+// doesn't provide more than a single block at one, to force the
+// do_dma_read_bulk() issue several reads
+class test_posix_file_impl : public posix_file_impl {
+    const temporary_buffer<char>& _data;
+public:
+    static constexpr size_t block_size = 512;
+    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* i) noexcept override { abort(); }
+    virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* i) noexcept override { abort(); }
+    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* i) noexcept override { abort(); }
+    virtual std::unique_ptr<seastar::file_handle_impl> dup() override { abort(); }
+
+    virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, io_intent* i) noexcept override {
+        fmt::print("  IO {}:{}\n", pos, len);
+
+        if (pos >= _data.size()) {
+            return make_ready_future<size_t>(0);
+        }
+
+        BOOST_REQUIRE(!(pos & (block_size - 1)));
+        BOOST_REQUIRE(!(len & (block_size - 1)));
+        BOOST_REQUIRE(!((uintptr_t)(buffer) & (block_size - 1)));
+
+        size_t avail = std::min(_data.size() - pos, size_t(block_size));
+        size_t rlen = std::min(len, avail);
+        std::memcpy(buffer, _data.get() + pos, rlen);
+        return make_ready_future<size_t>(rlen);
+    }
+
+    test_posix_file_impl(const temporary_buffer<char>& d)
+        : posix_file_impl(0, {}, nullptr, 0, block_size, block_size, block_size, block_size, true)
+        , _data(d)
+    {}
+};
+
+// Test that posix file bulk reading code works
+// Prepares a lengthy buffer and a file reading from it, then
+// runs a test with various (aligned and (!) not) offsets and
+// lengths, checking that the returned buffer for sanity and
+// to contain the bytes that it claims to contain
+SEASTAR_THREAD_TEST_CASE(test_posix_file_dma_read_bulk) {
+    static constexpr size_t data_size = 5 * test_posix_file_impl::block_size + 123;
+    temporary_buffer<char> data(data_size);
+    auto random_engine = testing::local_random_engine;
+    auto dist = std::uniform_int_distribution<char>();
+    std::ranges::generate(data.get_write(), data.end(), [&] { return dist(random_engine); });
+    auto f = std::make_unique<test_posix_file_impl>(data);
+
+    auto read_and_validate = [&] (size_t offset, size_t length) {
+        fmt::print("Check {}:{}\n", offset, length);
+        auto buf = f->dma_read_bulk(offset, length, nullptr).get();
+        fmt::print(" read returned {} bytes\n", buf.size());
+        if (offset >= data.size()) {
+            // read past EOF --> empty buffer
+            BOOST_REQUIRE_EQUAL(buf.size(), 0);
+        } else {
+            size_t avail = std::min(data.size() - offset, length);
+            // must have read at least what's available
+            BOOST_REQUIRE_GE(buf.size(), avail);
+            // no read past EOF
+            BOOST_REQUIRE_LE(offset + buf.size(), data.size());
+            BOOST_REQUIRE(std::memcmp(buf.get(), data.get() + offset, buf.size()) == 0);
+        }
+    };
+
+    for (size_t offset : {size_t(0), test_posix_file_impl::block_size, 3 * test_posix_file_impl::block_size, data_size - test_posix_file_impl::block_size, data_size}) {
+        for (size_t len : { test_posix_file_impl::block_size, test_posix_file_impl::block_size * 3 }) {
+            for (ssize_t mis_off : { 0, -41, 87 }) {
+                for (ssize_t mis_len : { 0, -63, 25 }) {
+                    if (ssize_t(offset) + mis_off < 0) {
+                        continue;
+                    }
+
+                    read_and_validate(offset + mis_off, len + mis_len);
+                }
+            }
+        }
+    }
 }

@@ -52,34 +52,48 @@
 // entirely. By calling the callback with old version of dl_phdr_info from
 // our dl_iterate_phdr we can effectively make libgcc callback thread safe.
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <link.h>
 #include <dlfcn.h>
-#include <assert.h>
 #include <vector>
 #include <cstddef>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/exception_hacks.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/util/backtrace.hh>
-#endif
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 using dl_iterate_fn = int (*) (int (*callback) (struct dl_phdr_info *info, size_t size, void *data), void *data);
 
 [[gnu::no_sanitize_address]]
 static dl_iterate_fn dl_iterate_phdr_org() {
-    static dl_iterate_fn org = [] {
-        auto org = (dl_iterate_fn)dlsym (RTLD_NEXT, "dl_iterate_phdr");
-        assert(org);
-        return org;
-    }();
+    // #2670 - Do the check and resolve manually, to avoid
+    // init order fiasco iff we're called before dl_init of this
+    // module.
+    // During initialization, ASan verifies it's the first DSO in the library list
+    // by calling dl_iterate_phdr(3). This is necessary for ASan to properly
+    // intercept memory operations.
+    //
+    // However, Seastar also provides the dl_iterate_phdr symbol, and its
+    // implementation depends on a static local variable `dl_iterate_fn`. This
+    // creates a circular dependency:
+    //
+    // 1. ASan loads first (as required)
+    // 2. ASan calls dl_iterate_phdr
+    // 3. The linker resolves this to Seastar's implementation
+    // 4. But Seastar's shared library hasn't been fully initialized via dl_init()
+    // 5. The function local static variable `dl_iterate_fn` that Seastar's implementation requires
+    //    isn't initialized to _be_ initialized - i.e. the lambda it required to run for init
+    //    is not in fact runnable.
+    // 6. This results in a segmentation fault
+    //
+    // So, we need to manually handle this initialization sequence to ensure both ASan
+    // and Seastar can properly initialize without conflicts.
+    static dl_iterate_fn org = nullptr;
+    if (org == nullptr) {
+        org = (dl_iterate_fn)dlsym (RTLD_NEXT, "dl_iterate_phdr");
+    }
     return org;
 }
 
@@ -110,16 +124,16 @@ void internal::increase_thrown_exceptions_counter() noexcept {
 #ifndef NO_EXCEPTION_INTERCEPT
 seastar::logger exception_logger("exception");
 
-void log_exception_trace() noexcept {
+void log_exception_trace(seastar::log_level level) noexcept {
     static thread_local bool nested = false;
-    if (!nested && exception_logger.is_enabled(log_level::trace)) {
+    if (!nested && exception_logger.is_enabled(level)) {
         nested = true;
-        exception_logger.trace("Throw exception at:\n{}", current_backtrace());
+        exception_logger.log(level, "Throw exception at:\n{}", current_backtrace());
         nested = false;
     }
 }
 #else
-void log_exception_trace() noexcept {}
+void log_exception_trace(seastar::log_level) noexcept {}
 #endif
 
 }
@@ -147,7 +161,10 @@ int dl_iterate_phdr(int (*callback) (struct dl_phdr_info *info, size_t size, voi
     return r;
 }
 
-#ifndef NO_EXCEPTION_INTERCEPT
+// We disable interception of _Unwind_RaiseException when ASAN is enabled
+// since it can produce a large number of stack-related false positives when
+// it is enabled and exceptions are thrown.
+#if !defined(NO_EXCEPTION_INTERCEPT) && !defined(SEASTAR_ASAN_ENABLED)
 extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
@@ -160,7 +177,7 @@ int _Unwind_RaiseException(struct ::_Unwind_Exception *h) {
     }
     if (seastar::local_engine) {
         seastar::internal::increase_thrown_exceptions_counter();
-        seastar::log_exception_trace();
+        seastar::log_exception_trace(seastar::log_level::debug);
     }
     return org(h);
 }

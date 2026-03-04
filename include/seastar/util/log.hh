@@ -23,65 +23,26 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/log-impl.hh>
+#include <seastar/util/log-level.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
 
-#ifndef SEASTAR_MODULE
 #include <concepts>
+#include <source_location>
 #include <unordered_map>
 #include <exception>
 #include <iosfwd>
 #include <atomic>
 #include <mutex>
 #include <type_traits>
-#include <boost/lexical_cast.hpp>
 #include <fmt/core.h>
 #include <fmt/format.h>
-#endif
 
 /// \addtogroup logging
 /// @{
 
-namespace seastar {
-
-SEASTAR_MODULE_EXPORT_BEGIN
-
-/// \brief log level used with \see {logger}
-/// used with the logger.do_log method.
-/// Levels are in increasing order. That is if you want to see debug(3) logs you
-/// will also see error(0), warn(1), info(2).
-///
-enum class log_level {
-    error,
-    warn,
-    info,
-    debug,
-    trace,
-};
-
-std::ostream& operator<<(std::ostream& out, log_level level);
-std::istream& operator>>(std::istream& in, log_level& level);
-
-SEASTAR_MODULE_EXPORT_END
-}
-
-template <>
-struct fmt::formatter<seastar::log_level> {
-    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
-    auto format(seastar::log_level level, fmt::format_context& ctx) const -> decltype(ctx.out());
-};
-
-// Boost doesn't auto-deduce the existence of the streaming operators for some reason
-
-namespace boost {
-template<>
-seastar::log_level lexical_cast(const std::string& source);
-
-}
 
 namespace seastar {
-SEASTAR_MODULE_EXPORT_BEGIN
 class logger;
 class logger_registry;
 
@@ -134,11 +95,9 @@ public:
     struct format_info {
         /// implicitly construct format_info from a constant format string
         /// \param fmt - {fmt} style format string
-        template<
-            typename S,
-            std::enable_if_t<std::is_convertible_v<const S&, std::string_view>, int> = 0>
+        template <std::convertible_to<std::string_view> S>
         FMT_CONSTEVAL inline format_info(const S& format,
-                           compat::source_location loc = compat::source_location::current()) noexcept
+                           std::source_location loc = std::source_location::current()) noexcept
             : format(format)
             , loc(loc)
         {}
@@ -147,7 +106,7 @@ public:
         /// this constructor is used by other printers which print to logger
         /// \param s a format_string
         inline format_info(fmt::format_string<Args...> s,
-                           compat::source_location loc = compat::source_location::current()) noexcept
+                           std::source_location loc = std::source_location::current()) noexcept
             : format(s)
             , loc(loc)
         {}
@@ -157,7 +116,7 @@ public:
         using runtime_format_string_t = fmt::basic_runtime<char>;
 #endif
         inline format_info(runtime_format_string_t s,
-                           compat::source_location loc = compat::source_location::current()) noexcept
+                           std::source_location loc = std::source_location::current()) noexcept
             : format(s)
             , loc(loc)
         {}
@@ -166,7 +125,7 @@ public:
             : format_info("")
         {}
         fmt::format_string<Args...> format;
-        compat::source_location loc;
+        std::source_location loc;
     };
 #ifdef __cpp_lib_type_identity
     template <typename T>
@@ -183,23 +142,23 @@ public:
     struct format_info {
         /// implicitly construct format_info from a const char* format string.
         /// \param fmt - {fmt} style format string
-        format_info(const char* format, compat::source_location loc = compat::source_location::current()) noexcept
+        format_info(const char* format, std::source_location loc = std::source_location::current()) noexcept
             : format(format)
             , loc(loc)
         {}
         /// implicitly construct format_info from a std::string_view format string.
         /// \param fmt - {fmt} style format string_view
-        format_info(std::string_view format, compat::source_location loc = compat::source_location::current()) noexcept
+        format_info(std::string_view format, std::source_location loc = std::source_location::current()) noexcept
             : format(format)
             , loc(loc)
         {}
         /// implicitly construct format_info with no format string.
-        format_info(compat::source_location loc = compat::source_location::current()) noexcept
+        format_info(std::source_location loc = std::source_location::current()) noexcept
             : format()
             , loc(loc)
         {}
         std::string_view format;
-        compat::source_location loc;
+        std::source_location loc;
     };
     // to reduce the number of #ifdefs, let's be compatible with the templated
     // format_info
@@ -213,7 +172,7 @@ private:
     void do_log(log_level level, log_writer& writer);
     void failed_to_log(std::exception_ptr ex,
                        fmt::string_view fmt,
-                       compat::source_location loc) noexcept;
+                       std::source_location loc) noexcept;
 
     class silencer {
     public:
@@ -459,10 +418,6 @@ public:
     /// Also output to ostream. default is true
     static void set_ostream_enabled(bool enabled) noexcept;
 
-    /// Also output to stdout. default is true
-    [[deprecated("Use set_ostream_enabled instead")]]
-    static void set_stdout_enabled(bool enabled) noexcept;
-
     /// Also output to syslog. default is false
     ///
     /// NOTE: syslog() can block, which will stall the reactor thread.
@@ -548,10 +503,6 @@ enum class logger_timestamp_style {
 /// \brief Output stream to use for logging.
 enum class logger_ostream_type {
     none,
-#ifdef SEASTAR_LOGGER_TYPE_STDOUT
-    stdout __attribute__ ((deprecated ("use cout instead"))) = 1,
-    stderr __attribute__ ((deprecated ("use cerr instead"))) = 2,
-#endif
     cout = 1,
     cerr = 2,
 };
@@ -570,7 +521,6 @@ struct logging_settings final {
 ///
 void apply_logging_settings(const logging_settings&);
 
-SEASTAR_MODULE_EXPORT_END
 
 /// \cond internal
 
@@ -596,10 +546,8 @@ std::ostream& operator<<(std::ostream&, const std::exception&);
 std::ostream& operator<<(std::ostream&, const std::system_error&);
 }
 
-#if FMT_VERSION >= 90000
 template <> struct fmt::formatter<std::exception_ptr> : fmt::ostream_formatter {};
 template <> struct fmt::formatter<std::exception> : fmt::ostream_formatter {};
 template <> struct fmt::formatter<std::system_error> : fmt::ostream_formatter {};
-#endif
 
 /// @}

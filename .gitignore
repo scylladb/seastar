@@ -2,7 +2,7 @@
 .cproject
 .project
 .settings
-build
+build*
 build.ninja
 cscope.*
 __pycache__/
@@ -11,5 +11,4 @@ tags
 .idea/
 .vscode/
 compile_commands.json
-.clangd
 .cache

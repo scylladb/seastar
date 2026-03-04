@@ -251,12 +251,6 @@ static socket_address autobind() {
     return addr;
 }
 
-static string to_string(net::packet p) {
-    p.linearize();
-    const auto& f = p.frag(0);
-    return std::string(f.base, f.size);
-}
-
 SEASTAR_THREAD_TEST_CASE(unixdomain_datagram_autobind) {
     auto chan1 = make_unbound_datagram_channel(AF_UNIX);
     auto chan2 = make_bound_datagram_channel(autobind());
@@ -264,7 +258,10 @@ SEASTAR_THREAD_TEST_CASE(unixdomain_datagram_autobind) {
     chan1.send(chan2.local_address(), "hello").get();
     net::datagram dgram = chan2.receive().get();
 
-    string received = to_string(std::move(dgram.get_data()));
+    auto bufs = dgram.get_buffers();
+    // POSIX impementation uses single buffer
+    BOOST_REQUIRE_EQUAL(bufs.size(), 1);
+    string received = internal::to_sstring<sstring>(bufs[0]);
     BOOST_REQUIRE_EQUAL(received, "hello");
 }
 
@@ -287,7 +284,10 @@ SEASTAR_THREAD_TEST_CASE(unixdomain_datagram_named_bound) {
     sender.send(socket_address{unix_domain_addr{socket_path}}, "hihi").get();
 
     net::udp_datagram dgram = named_receiver.receive().get();
-    string received = to_string(std::move(dgram.get_data()));
+    auto bufs = dgram.get_buffers();
+    // POSIX impementation uses single buffer
+    BOOST_REQUIRE_EQUAL(bufs.size(), 1);
+    string received = internal::to_sstring<sstring>(bufs[0]);
     BOOST_REQUIRE_EQUAL(received, "hihi");
 
     // Try to be nice and remove the temporary directory.

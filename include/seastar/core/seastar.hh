@@ -53,18 +53,14 @@
 #include <seastar/core/posix.hh>
 #include <seastar/util/bool_class.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
 #include "./internal/api-level.hh"
-#ifndef SEASTAR_MODULE
 #include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string_view>
-#endif
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 // iostream.hh
 template <class CharType> class input_stream;
@@ -359,9 +355,24 @@ using follow_symlink = bool_class<follow_symlink_tag>;
 /// with follow_symlink::yes, or for the link itself, with follow_symlink::no.
 future<stat_data> file_stat(std::string_view name, follow_symlink fs = follow_symlink::yes) noexcept;
 
+/// Return stat information about a file in a directory.
+///
+/// \param directory a open directory
+/// \param name name of the file to return its stat information
+/// \param fs a follow_symlink flag to follow symbolic links.
+///
+/// \return stat_data of the file identified by name.
+///
+/// If the pathname given in \c name is relative, then it is interpreted relative to the open \c directory.
+/// If pathname given in \c name is absolute, then \c directory is ignored.
+///
+/// If name identifies a symbolic link then stat_data is returned either for the target of the link,
+/// with follow_symlink::yes, or for the link itself, with follow_symlink::no.
+future<stat_data> file_stat(file& directory, std::string_view name, follow_symlink fs = follow_symlink::yes) noexcept;
+
 /// Wrapper around getgrnam_r.
 /// If the provided group name does not exist in the group database, this call will return an empty optional.
-/// If the provided group name exists in the group database, the optional returned will contain the struct group_details information. 
+/// If the provided group name exists in the group database, the optional returned will contain the struct group_details information.
 /// When an unexpected error is thrown by the getgrnam_r libc call, this function throws std::system_error with std::error_code.
 /// \param groupname name of the group
 ///
@@ -445,6 +456,11 @@ future<uint64_t> fs_avail(std::string_view name) noexcept;
 future<uint64_t> fs_free(std::string_view name) noexcept;
 /// @}
 
+/// Return filesystem-wide space_info where a file is located.
+///
+/// \param name name of the file in the filesystem to inspect
+future<std::filesystem::space_info> file_system_space(std::string_view name) noexcept;
+
 namespace experimental {
 /// \defgroup interprocess-module Interprocess Communication
 ///
@@ -482,6 +498,5 @@ future<process> spawn_process(const std::filesystem::path& pathname);
 /// @}
 }
 
-SEASTAR_MODULE_EXPORT_END
 
 }

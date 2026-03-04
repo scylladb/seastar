@@ -13,11 +13,8 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <bitset>
 #include <limits>
-#include <seastar/util/modules.hh>
-#endif
 
 namespace seastar {
 
@@ -122,7 +119,6 @@ inline size_t get_last_set(const std::bitset<N>& bitset) noexcept
     return ulong_bits - 1 - count_leading_zeros(bitset.to_ulong());
 }
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 template<size_t N>
 class set_iterator
@@ -140,10 +136,16 @@ private:
     }
 public:
     using iterator_category = std::input_iterator_tag;
+    using iterator_concept = std::input_iterator_tag;
     using value_type = int;
     using difference_type = std::ptrdiff_t;
     using pointer = int*;
     using reference = int&;
+
+    set_iterator() noexcept
+        : _bitset()
+        , _index(0) {
+    }
 
     set_iterator(std::bitset<N> bitset, int offset = 0) noexcept
         : _bitset(bitset)
@@ -212,7 +214,6 @@ inline set_range<N> for_each_set(std::bitset<N> bitset, int offset = 0) noexcept
     return set_range<N>(bitset, offset);
 }
 
-SEASTAR_MODULE_EXPORT_END
 
 }
 

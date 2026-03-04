@@ -21,15 +21,13 @@
 
 #pragma once
 
-#include <seastar/util/modules.hh>
 #include <seastar/util/used_size.hh>
 
-#ifndef SEASTAR_MODULE
 #include <concepts>
 #include <utility>
 #include <type_traits>
 #include <functional>
-#endif
+#include <array>
 
 namespace seastar {
 
@@ -66,9 +64,17 @@ private:
         // that, and complains. Silence it.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wuninitialized"
+        // A bytewise loop doesn't optimize to a wordwise loop since
+        // the compiler can't guess if there is overlap or not. Help
+        // it out by using a temporary, which the compiler knows cannot
+        // overlap.
+        std::array<char, N> tmp;
         // Avoid including <algorithm> just for this
-        for (unsigned i = 0; i != N; ++i) {
-            to->_storage.direct[i] = from->_storage.direct[i];
+        for (size_t i = 0; i != N; ++i) {
+            tmp[i] = from->_storage.direct[i];
+        }
+        for (size_t i = 0; i != N; ++i) {
+            to->_storage.direct[i] = tmp[i];
         }
 #pragma GCC diagnostic pop
     }
@@ -102,7 +108,6 @@ struct is_nothrow_if_object<> {
 
 /// A clone of \c std::function, but only invokes the move constructor
 /// of the contained function.
-SEASTAR_MODULE_EXPORT
 template <typename Ret, typename... Args, bool Noexcept>
 class noncopyable_function<Ret (Args...) noexcept(Noexcept)> : private internal::noncopyable_function_base {
     using call_type = Ret (*)(const noncopyable_function* func, Args...);

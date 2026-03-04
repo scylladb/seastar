@@ -19,9 +19,6 @@
  * Copyright 2017 Marek Waszkiewicz ( marek.waszkiewicz77@gmail.com )
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <boost/algorithm/cxx11/all_of.hpp>
 #include <boost/algorithm/cxx11/none_of.hpp>
@@ -33,12 +30,8 @@ module;
 #include <unordered_map>
 #include <string>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/net/config.hh>
 #include <seastar/core/print.hh>
-#endif
 
 using namespace boost::algorithm;
 

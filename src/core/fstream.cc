@@ -19,22 +19,16 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 #include <malloc.h>
 #include <string.h>
-#include <cassert>
 #include <ratio>
 #include <optional>
 #include <utility>
+#include <seastar/util/assert.hh>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/fstream.hh>
 #include <seastar/core/align.hh>
 #include <seastar/core/circular_buffer.hh>
@@ -42,7 +36,6 @@ module seastar;
 #include <seastar/core/reactor.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/io_intent.hh>
-#endif
 
 namespace seastar {
 
@@ -72,11 +65,6 @@ static inline T select_buffer_size(T configured_value, T maximum_value) noexcept
     }
 }
 
-template <typename Options>
-inline internal::maybe_priority_class_ref get_io_priority(const Options& opts) {
-    return internal::maybe_priority_class_ref{};
-}
-
 class file_data_source_impl : public data_source_impl {
     struct issued_read {
         uint64_t _pos;
@@ -87,7 +75,7 @@ class file_data_source_impl : public data_source_impl {
             : _pos(pos), _size(size), _ready(std::move(f)) { }
     };
 
-    reactor& _reactor = engine();
+    reactor::io_stats& _stats = reactor::io_stats::local();
     file _file;
     file_input_stream_options _options;
     uint64_t _pos;
@@ -220,7 +208,7 @@ public:
     virtual ~file_data_source_impl() override {
         // If the data source hasn't been closed, we risk having reads in progress
         // that will try to access freed memory.
-        assert(_reads_in_progress == 0);
+        SEASTAR_ASSERT(_reads_in_progress == 0);
     }
     virtual future<temporary_buffer<char>> get() override {
         if (!_read_buffers.empty() && !_read_buffers.front()._ready.available()) {
@@ -230,11 +218,11 @@ public:
         auto ret = std::move(_read_buffers.front());
         _read_buffers.pop_front();
         update_history_consumed(ret._size);
-        _reactor._io_stats.fstream_reads += 1;
-        _reactor._io_stats.fstream_read_bytes += ret._size;
+        _stats.fstream_reads += 1;
+        _stats.fstream_read_bytes += ret._size;
         if (!ret._ready.available()) {
-            _reactor._io_stats.fstream_reads_blocked += 1;
-            _reactor._io_stats.fstream_read_bytes_blocked += ret._size;
+            _stats.fstream_reads_blocked += 1;
+            _stats.fstream_read_bytes_blocked += ret._size;
         }
         return std::move(ret._ready);
     }
@@ -242,7 +230,7 @@ public:
         uint64_t dropped = 0;
         while (n) {
             if (_read_buffers.empty()) {
-                assert(n <= _remain);
+                SEASTAR_ASSERT(n <= _remain);
                 _pos += n;
                 _remain -= n;
                 break;
@@ -260,8 +248,8 @@ public:
                 ignore_read_future(std::move(front._ready));
                 n -= front._size;
                 dropped += front._size;
-                _reactor._io_stats.fstream_read_aheads_discarded += 1;
-                _reactor._io_stats.fstream_read_ahead_discarded_bytes += front._size;
+                _stats.fstream_read_aheads_discarded += 1;
+                _stats.fstream_read_ahead_discarded_bytes += front._size;
                 _read_buffers.pop_front();
             }
         }
@@ -277,8 +265,8 @@ public:
         return _done->get_future().then([this] {
             uint64_t dropped = 0;
             for (auto&& c : _read_buffers) {
-                _reactor._io_stats.fstream_read_aheads_discarded += 1;
-                _reactor._io_stats.fstream_read_ahead_discarded_bytes += c._size;
+                _stats.fstream_read_aheads_discarded += 1;
+                _stats.fstream_read_ahead_discarded_bytes += c._size;
                 dropped += c._size;
                 ignore_read_future(std::move(c._ready));
             }
@@ -310,7 +298,7 @@ private:
             auto len = end - start;
             auto actual_size = std::min(end - _pos, _remain);
             _read_buffers.emplace_back(_pos, actual_size, futurize_invoke([&] {
-                    return _file.dma_read_bulk_impl(start, len, get_io_priority(_options), &_intent);
+                    return _file.dma_read_bulk_impl(start, len, &_intent);
             }).then_wrapped(
                     [this, start, pos = _pos, remain = _remain] (future<temporary_buffer<uint8_t>> ret) {
                 --_reads_in_progress;
@@ -342,17 +330,17 @@ private:
     }
 };
 
-class file_data_source : public data_source {
-public:
-    file_data_source(file f, uint64_t offset, uint64_t len, file_input_stream_options options)
-        : data_source(std::make_unique<file_data_source_impl>(
-                std::move(f), offset, len, options)) {}
-};
+data_source make_file_data_source(file f, uint64_t offset, uint64_t len, file_input_stream_options opt) {
+    return data_source(std::make_unique<file_data_source_impl>(std::move(f), offset, len, std::move(opt)));
+}
 
+data_source make_file_data_source(file f, file_input_stream_options opt) {
+    return make_file_data_source(std::move(f), 0, std::numeric_limits<uint64_t>::max(), std::move(opt));
+}
 
 input_stream<char> make_file_input_stream(
         file f, uint64_t offset, uint64_t len, file_input_stream_options options) {
-    return input_stream<char>(file_data_source(std::move(f), offset, len, std::move(options)));
+    return input_stream<char>(make_file_data_source(std::move(f), offset, len, std::move(options)));
 }
 
 input_stream<char> make_file_input_stream(
@@ -377,14 +365,28 @@ public:
     file_data_sink_impl(file f, file_output_stream_options options)
             : _file(std::move(f)), _options(options) {
         _options.buffer_size = select_buffer_size<unsigned>(_options.buffer_size, _file.disk_write_max_length());
-        _write_behind_sem.ensure_space_for_waiters(1); // So that wait() doesn't throw
+	if (_options.write_behind) {
+            _write_behind_sem.ensure_space_for_waiters(1); // So that wait() doesn't throw
+	}
     }
-    future<> put(net::packet data) override { abort(); }
     virtual temporary_buffer<char> allocate_buffer(size_t size) override {
         return temporary_buffer<char>::aligned(_file.memory_dma_alignment(), size);
     }
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        return data_sink_impl::fallback_put(bufs, [this] (temporary_buffer<char>&& buf) {
+            return do_put(std::move(buf));
+        });
+    }
+#else
     using data_sink_impl::put;
+    future<> put(net::packet data) override { abort(); }
     virtual future<> put(temporary_buffer<char> buf) override {
+        return do_put(std::move(buf));
+    }
+#endif
+private:
+    future<> do_put(temporary_buffer<char> buf) {
         uint64_t pos = _pos;
         _pos += buf.size();
         if (!_options.write_behind) {
@@ -423,13 +425,13 @@ public:
             return make_ready_future<>();
         });
     }
-private:
+
     future<> do_put(uint64_t pos, temporary_buffer<char> buf) noexcept {
       try {
         // put() must usually be of chunks multiple of file::dma_alignment.
         // Only the last part can have an unaligned length. If put() was
         // called again with an unaligned pos, we have a bug in the caller.
-        assert(!(pos & (_file.disk_write_dma_alignment() - 1)));
+        SEASTAR_ASSERT(!(pos & (_file.disk_write_dma_alignment() - 1)));
         bool truncate = false;
         auto p = static_cast<const char*>(buf.get());
         size_t buf_size = buf.size();
@@ -446,7 +448,7 @@ private:
             truncate = true;
         }
 
-        return _file.dma_write_impl(pos, reinterpret_cast<const uint8_t*>(p), buf_size, get_io_priority(_options), nullptr).then(
+        return _file.dma_write_impl(pos, reinterpret_cast<const uint8_t*>(p), buf_size, nullptr).then(
                 [this, pos, buf = std::move(buf), truncate, buf_size] (size_t size) mutable {
             // short write handling
             if (size < buf_size) {

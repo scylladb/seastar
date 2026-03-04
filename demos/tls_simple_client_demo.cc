@@ -88,7 +88,7 @@ int main(int ac, char** av) {
         }
         return f.then([=]() {
             return net::dns::get_host_by_name(addr).then([=](net::hostent e) {
-                ipv4_addr ia(e.addr_list.front(), port);
+                ipv4_addr ia(e.addr_entries.front().addr, port);
 
                 tls::tls_options options;
                 if (check) {

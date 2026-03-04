@@ -24,14 +24,12 @@
 #include <seastar/core/shared_ptr_debug_helper.hh>
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/util/indirect.hh>
-#include <seastar/util/modules.hh>
-#ifndef SEASTAR_MODULE
 #include <boost/intrusive/parent_from_member.hpp>
 #include <fmt/core.h>
+#include <concepts>
 #include <ostream>
 #include <type_traits>
 #include <utility>
-#endif
 
 #if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ >= 12)
 // to silence the false alarm from GCC 12, see
@@ -60,7 +58,6 @@ namespace seastar {
 // and lw_enable_shared_from_this<>().
 //
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 #ifndef SEASTAR_DEBUG_SHARED_PTR
 using shared_ptr_counter_type = long;
@@ -108,7 +105,6 @@ struct lw_shared_ptr_counter_base {
     shared_ptr_counter_type _count = 0;
 };
 
-SEASTAR_MODULE_EXPORT_END
 
 namespace internal {
 
@@ -143,7 +139,6 @@ struct lw_shared_ptr_accessors_no_esft;
 
 
 // CRTP from this to enable shared_from_this:
-SEASTAR_MODULE_EXPORT
 template <typename T>
 class enable_lw_shared_from_this : private lw_shared_ptr_counter_base {
     using ctor = T;
@@ -263,7 +258,6 @@ struct lw_shared_ptr_accessors<T, void_t<decltype(lw_shared_ptr_deleter<T>{})>> 
 
 }
 
-SEASTAR_MODULE_EXPORT_BEGIN
 template <typename T>
 class lw_shared_ptr {
     template <typename U>
@@ -447,7 +441,6 @@ inline
 lw_shared_ptr<T> make_lw_shared(T& a) {
     return lw_shared_ptr<T>::make(a);
 }
-SEASTAR_MODULE_EXPORT_END
 
 template <typename T>
 inline
@@ -463,7 +456,6 @@ enable_lw_shared_from_this<T>::shared_from_this() const noexcept {
     return lw_shared_ptr<const T>(const_cast<enable_lw_shared_from_this*>(this));
 }
 
-SEASTAR_MODULE_EXPORT
 template <typename T>
 inline
 std::ostream& operator<<(std::ostream& out, const lw_shared_ptr<T>& p) {
@@ -488,7 +480,6 @@ struct shared_ptr_count_for : shared_ptr_count_base {
     shared_ptr_count_for(A&&... a) : data(std::forward<A>(a)...) {}
 };
 
-SEASTAR_MODULE_EXPORT_BEGIN
 template <typename T>
 class enable_shared_from_this : private shared_ptr_count_base {
 public:
@@ -539,7 +530,7 @@ public:
         x._b = nullptr;
         x._p = nullptr;
     }
-    template <typename U, typename = std::enable_if_t<std::is_base_of_v<T, U>>>
+    template <std::derived_from<T> U>
     shared_ptr(const shared_ptr<U>& x) noexcept
             : _b(x._b)
             , _p(x._p) {
@@ -547,7 +538,7 @@ public:
             ++_b->count;
         }
     }
-    template <typename U, typename = std::enable_if_t<std::is_base_of_v<T, U>>>
+    template <std::derived_from<T> U>
     shared_ptr(shared_ptr<U>&& x) noexcept
             : _b(x._b)
             , _p(x._p) {
@@ -581,7 +572,7 @@ public:
     shared_ptr& operator=(std::nullptr_t) noexcept {
         return *this = shared_ptr();
     }
-    template <typename U, typename = std::enable_if_t<std::is_base_of_v<T, U>>>
+    template <std::derived_from<T> U>
     shared_ptr& operator=(const shared_ptr<U>& x) noexcept {
         if (*this != x) {
             this->~shared_ptr();
@@ -589,7 +580,7 @@ public:
         }
         return *this;
     }
-    template <typename U, typename = std::enable_if_t<std::is_base_of_v<T, U>>>
+    template <std::derived_from<T> U>
     shared_ptr& operator=(shared_ptr<U>&& x) noexcept {
         if (*this != x) {
             this->~shared_ptr();
@@ -647,7 +638,6 @@ public:
     template <typename U>
     friend class shared_ptr;
 };
-SEASTAR_MODULE_EXPORT_END
 
 template <typename U, bool esft>
 struct shared_ptr_make_helper;
@@ -669,7 +659,6 @@ struct shared_ptr_make_helper<T, true> {
     }
 };
 
-SEASTAR_MODULE_EXPORT_BEGIN
 template <typename T, typename... A>
 inline
 shared_ptr<T>
@@ -707,7 +696,6 @@ shared_ptr<T>
 const_pointer_cast(const shared_ptr<U>& p) {
     return shared_ptr<T>(p._b, const_cast<T*>(p._p));
 }
-SEASTAR_MODULE_EXPORT_END
 
 template <typename T>
 inline
@@ -726,7 +714,6 @@ enable_shared_from_this<T>::shared_from_this() const noexcept {
     return shared_ptr<const T>(unconst);
 }
 
-SEASTAR_MODULE_EXPORT_BEGIN
 template <typename T, typename U>
 inline
 bool
@@ -896,12 +883,10 @@ using shared_ptr_equal_by_value = indirect_equal_to<shared_ptr<T>>;
 template<typename T>
 using shared_ptr_value_hash = indirect_hash<shared_ptr<T>>;
 
-SEASTAR_MODULE_EXPORT_END
 }
 
 namespace std {
 
-SEASTAR_MODULE_EXPORT
 template <typename T>
 struct hash<seastar::lw_shared_ptr<T>> : private hash<T*> {
     size_t operator()(const seastar::lw_shared_ptr<T>& p) const {
@@ -909,7 +894,6 @@ struct hash<seastar::lw_shared_ptr<T>> : private hash<T*> {
     }
 };
 
-SEASTAR_MODULE_EXPORT
 template <typename T>
 struct hash<seastar::shared_ptr<T>> : private hash<T*> {
     size_t operator()(const seastar::shared_ptr<T>& p) const {
@@ -919,7 +903,6 @@ struct hash<seastar::shared_ptr<T>> : private hash<T*> {
 
 }
 
-SEASTAR_MODULE_EXPORT
 namespace fmt {
 
 template<typename T>
@@ -957,11 +940,9 @@ struct formatter<seastar::lw_shared_ptr<T>> {
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT
 template<typename T>
 struct is_smart_ptr<shared_ptr<T>> : std::true_type {};
 
-SEASTAR_MODULE_EXPORT
 template<typename T>
 struct is_smart_ptr<lw_shared_ptr<T>> : std::true_type {};
 

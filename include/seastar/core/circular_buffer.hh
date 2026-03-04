@@ -23,12 +23,9 @@
 
 #include <seastar/core/transfer.hh>
 #include <seastar/core/bitops.hh>
-#include <seastar/util/modules.hh>
-#ifndef SEASTAR_MODULE
 #include <concepts>
 #include <memory>
 #include <algorithm>
-#endif
 
 namespace seastar {
 
@@ -58,7 +55,6 @@ namespace seastar {
 ///     * pop_back() will invalidate end().
 ///
 /// reserve() may also invalidate all iterators and references.
-SEASTAR_MODULE_EXPORT
 template <typename T, typename Alloc = std::allocator<T>>
 class circular_buffer {
     struct impl : Alloc {

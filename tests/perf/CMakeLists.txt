@@ -80,6 +80,10 @@ seastar_add_test (smp_submit_to
   SOURCES smp_submit_to_perf.cc
   NO_SEASTAR_PERF_TESTING_LIBRARY)
 
+seastar_add_test (thread_context_switch
+  SOURCES thread_context_switch_test.cc
+  NO_SEASTAR_PERF_TESTING_LIBRARY)
+
 seastar_add_test (coroutine
   SOURCES coroutine_perf.cc)
 
@@ -92,3 +96,9 @@ seastar_add_test (container
 seastar_add_test (http_client
   SOURCES http_client_perf.cc linux_perf_event.cc
   NO_SEASTAR_PERF_TESTING_LIBRARY)
+
+seastar_add_test (perf_tests
+  SOURCES perf_tests_perf.cc)
+
+seastar_add_test (metrics
+  SOURCES metrics_perf.cc)

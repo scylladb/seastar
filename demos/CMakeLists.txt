@@ -62,8 +62,8 @@ endif ()
 seastar_add_demo (hello-world
   SOURCES hello-world.cc)
 
-seastar_add_demo (websocket
-  SOURCES websocket_demo.cc)
+seastar_add_demo (websocket_server
+  SOURCES websocket_server_demo.cc)
 
 seastar_add_demo (echo
   SOURCES echo_demo.cc)
@@ -130,5 +130,9 @@ if (Seastar_MODULE)
       hello-cxx-module.cc)
   target_link_libraries (hello_cxx_module
     PRIVATE
-      seastar-module)
+      seastar)
+  set_target_properties (hello_cxx_module
+    PROPERTIES
+      CXX_STANDARD ${CMAKE_CXX_STANDARD}
+      CXX_EXTENSIONS ON)
 endif ()

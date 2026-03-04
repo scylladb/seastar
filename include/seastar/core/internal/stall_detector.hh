@@ -22,7 +22,6 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <signal.h>
 #include <atomic>
 #include <limits>
@@ -30,16 +29,15 @@
 #include <functional>
 #include <memory>
 #include <linux/perf_event.h>
-#endif
 #include <seastar/core/posix.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/scheduling.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 
 class reactor;
 class thread_cputime_clock;
+class backtrace_buffer;
 
 namespace internal {
 
@@ -55,7 +53,6 @@ struct cpu_stall_detector_config {
 class cpu_stall_detector {
 protected:
     std::atomic<uint64_t> _last_tasks_processed_seen{};
-    unsigned _stall_detector_reports_per_minute;
     std::atomic<uint64_t> _stall_detector_missed_ticks = { 0 };
     unsigned _reported = 0;
     unsigned _total_reported = 0;
@@ -74,7 +71,7 @@ protected:
     virtual bool is_spurious_signal() {
         return false;
     }
-    virtual void maybe_report_kernel_trace() {}
+    virtual void maybe_report_kernel_trace(backtrace_buffer& buf) {}
 private:
     void maybe_report();
     virtual void arm_timer() = 0;
@@ -167,6 +164,8 @@ private:
             return _head != _tail;
         }
     };
+
+    virtual void maybe_report_kernel_trace(backtrace_buffer& buf) override;
 public:
     static std::unique_ptr<cpu_stall_detector_linux_perf_event> try_make(cpu_stall_detector_config cfg = {});
     explicit cpu_stall_detector_linux_perf_event(file_desc fd, cpu_stall_detector_config cfg = {});
@@ -174,7 +173,6 @@ public:
     virtual void arm_timer() override;
     virtual void start_sleep() override;
     virtual bool is_spurious_signal() override;
-    virtual void maybe_report_kernel_trace() override;
 };
 
 std::unique_ptr<cpu_stall_detector> make_cpu_stall_detector(cpu_stall_detector_config cfg = {});

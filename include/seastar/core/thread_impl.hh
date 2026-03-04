@@ -70,8 +70,6 @@ inline bool should_yield() {
     }
 }
 
-scheduling_group sched_group(const thread_context*);
-
 void yield();
 void switch_in(thread_context* to);
 void switch_out(thread_context* from);

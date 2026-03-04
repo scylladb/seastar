@@ -25,6 +25,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/semaphore.hh>
+#include <seastar/util/assert.hh>
 #include <iostream>
 
 using namespace seastar;
@@ -53,7 +54,7 @@ int main(int ac, char** av) {
 
             // Discard asynchronously, siganl when done.
             (void)ft->f.stat().then([ft] (struct stat st) mutable {
-                assert(S_ISBLK(st.st_mode));
+                SEASTAR_ASSERT(S_ISBLK(st.st_mode));
                 auto offset = 0;
                 auto length = max * 4096;
                 return ft->f.discard(offset, length).then([ft] () mutable {

@@ -19,9 +19,6 @@
  * Copyright (C) 2016 ScyllaDB.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <algorithm>
 #include <ostream>
@@ -29,16 +26,12 @@ module;
 #include <boost/functional/hash.hpp>
 #include <fmt/ostream.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/net/inet_address.hh>
 #include <seastar/net/socket_defs.hh>
 #include <seastar/net/dns.hh>
 #include <seastar/net/ip.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/print.hh>
-#endif
 
 static_assert(std::is_nothrow_default_constructible_v<seastar::net::ipv4_address>);
 static_assert(std::is_nothrow_copy_constructible_v<seastar::net::ipv4_address>);
@@ -70,7 +63,7 @@ seastar::net::inet_address::inet_address(::in6_addr i, uint32_t scope) noexcept
                 : _in_family(family::INET6), _in6(i), _scope(scope) {
 }
 
-std::optional<seastar::net::inet_address> 
+std::optional<seastar::net::inet_address>
 seastar::net::inet_address::parse_numerical(const sstring& addr) {
     inet_address in;
     if (::inet_pton(AF_INET, addr.c_str(), &in._in)) {
@@ -107,7 +100,7 @@ seastar::net::inet_address::parse_numerical(const sstring& addr) {
 
 seastar::net::inet_address::inet_address(const sstring& addr)
                 : inet_address([&addr] {
-    auto res = parse_numerical(addr);                        
+    auto res = parse_numerical(addr);
     if (res) {
         return std::move(*res);
     }

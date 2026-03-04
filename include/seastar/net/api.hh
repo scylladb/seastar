@@ -21,13 +21,11 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <chrono>
 #include <memory>
 #include <vector>
 #include <cstring>
 #include <sys/types.h>
-#endif
 
 #include <seastar/core/future.hh>
 #include <seastar/net/byteorder.hh>
@@ -39,7 +37,6 @@
 #include <seastar/core/iostream.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/program-options.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 
@@ -95,7 +92,7 @@ public:
     virtual socket_address get_src() = 0;
     virtual socket_address get_dst() = 0;
     virtual uint16_t get_dst_port() = 0;
-    virtual packet& get_data() = 0;
+    virtual std::span<temporary_buffer<char>> get_buffers() = 0;
 };
 
 using udp_datagram_impl = datagram_impl;
@@ -103,12 +100,24 @@ using udp_datagram_impl = datagram_impl;
 class datagram final {
 private:
     std::unique_ptr<datagram_impl> _impl;
+    // The get_data() below will need to tell
+    //  - _p wasn't initialized from get_buffers() span
+    //  - _p was initialized, but was then release()-d by caller
+    // from each other. thus std::optional
+    std::optional<net::packet> _p;
 public:
     datagram(std::unique_ptr<datagram_impl>&& impl) noexcept : _impl(std::move(impl)) {};
     socket_address get_src() { return _impl->get_src(); }
     socket_address get_dst() { return _impl->get_dst(); }
     uint16_t get_dst_port() { return _impl->get_dst_port(); }
-    packet& get_data() { return _impl->get_data(); }
+    [[deprecated("Use get_buf() instead")]]
+    packet& get_data() {
+        if (!_p) {
+            _p.emplace(_impl->get_buffers());
+        }
+        return _p.value();
+    }
+    std::span<temporary_buffer<char>> get_buffers() { return _impl->get_buffers(); }
 };
 
 using udp_datagram = datagram;
@@ -128,7 +137,20 @@ public:
 
     future<datagram> receive();
     future<> send(const socket_address& dst, const char* msg);
+    [[deprecated("Use send(std::span<temporary_buffer<char>>) overload")]]
     future<> send(const socket_address& dst, packet p);
+    /**
+     * \brief Send a datagram composed of multiple buffers to the specified destination.
+     *
+     * The temporary_buffers objects referenced must remain valid only for the duration
+     * of the call. The implementation transfers the buffers ownership before returning
+     * the future.
+     *
+     * \param dst The destination socket address.
+     * \param bufs A span of temporary_buffer<char> objects containing the data to send.
+     * \return A future that completes when the send operation is finished.
+     */
+    future<> send(const socket_address& dst, std::span<temporary_buffer<char>> bufs);
     bool is_closed() const;
     /// Causes a pending receive() to complete (possibly with an exception)
     void shutdown_input();
@@ -418,6 +440,17 @@ struct listen_options {
         lba = server_socket::load_balancing_algorithm::fixed;
         fixed_cpu = cpu;
     }
+
+    // The connection is encapsulated with proxy protocol (which is just
+    // a header prepended to the data stream). connected_socket::remote_address()
+    // and connected_socket::local_address() will return the addresses
+    // as specified in the proxy protocol header. load_balancing_algorithm::port
+    // will use the port from the proxy protocol header.
+    //
+    // Currently only proxy protocol v2 binary format is supported.
+    //
+    // The proxy protocol is defined in https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt
+    bool proxy_protocol = false;
 };
 
 class network_interface {
@@ -444,6 +477,19 @@ public:
     bool supports_ipv6() const;
 };
 
+struct statistics {
+    uint64_t bytes_sent = 0;
+    uint64_t bytes_received = 0;
+};
+
+namespace metrics {
+class metric_groups;
+class label_instance;
+}
+
+void register_net_metrics_for_scheduling_group(
+    metrics::metric_groups& m, unsigned sg_id, const metrics::label_instance& name);
+
 class network_stack {
 public:
     virtual ~network_stack() {}
@@ -467,6 +513,11 @@ public:
     virtual bool supports_ipv6() const {
         return false;
     }
+
+    // Return network stats (bytes sent/received etc.) for this stack and scheduling group
+    virtual statistics stats(unsigned scheduling_group_id) = 0;
+    // Clears the stats for this stack and scheduling group
+    virtual void clear_stats(unsigned scheduling_group_id) = 0;
 
     /**
      * Returns available network interfaces. This represents a

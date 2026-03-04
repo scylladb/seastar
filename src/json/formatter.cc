@@ -19,9 +19,6 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <cmath>
 #include <algorithm>
@@ -30,12 +27,8 @@ module;
 #include <sstream>
 #include <string_view>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/json/formatter.hh>
 #include <seastar/json/json_elements.hh>
-#endif
 
 namespace seastar {
 
@@ -113,7 +106,7 @@ static sstring string_view_to_json(const string_view& str) {
     return oss.str();
 }
 
-sstring formatter::to_json(const sstring& str) {
+sstring formatter::to_json(std::string_view str) {
     return string_view_to_json(str);
 }
 
@@ -159,13 +152,13 @@ sstring formatter::to_json(bool b) {
     return (b) ? "true" : "false";
 }
 
-sstring formatter::to_json(const date_time& d) {    
+sstring formatter::to_json(const date_time& d) {
     // use RFC3339/RFC8601 "internet format"
     // which is stipulated as mandatory for swagger
     // dates
     // Note that this assumes dates are in UTC timezone
     static constexpr const char* TIME_FORMAT = "%FT%TZ";
-    
+
     char buff[50];
     sstring res = "\"";
     strftime(buff, 50, TIME_FORMAT, &d);

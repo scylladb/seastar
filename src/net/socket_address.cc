@@ -17,29 +17,22 @@
  */
 /*
  * Copyright (C) 2016 ScyllaDB.
- */ 
+ */
 /*! \file
     \brief Some non-INET-specific socket address code
 
     Extracted from inet_address.cc.
  */
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <arpa/inet.h>
 #include <sys/un.h>
 #include <ostream>
 #include <boost/functional/hash.hpp>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/net/socket_defs.hh>
 #include <seastar/net/inet_address.hh>
 #include <seastar/net/ip.hh>
 #include <seastar/core/print.hh>
-#endif
 
 using namespace std::string_literals;
 
@@ -151,7 +144,7 @@ bool socket_address::operator==(const socket_address& a) const noexcept {
     auto& in1 = as_posix_sockaddr_in6();
     auto& in2 = a.as_posix_sockaddr_in6();
 
-    return IN6_ARE_ADDR_EQUAL(&in1, &in2);
+    return IN6_ARE_ADDR_EQUAL(&in1.sin6_addr, &in2.sin6_addr);
 }
 
 std::string unix_domain_addr_text(const socket_address& sa) {

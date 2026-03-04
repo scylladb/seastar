@@ -21,18 +21,15 @@
 
 #pragma once
 
-#include <seastar/util/modules.hh>
-#ifndef SEASTAR_MODULE
+#include <seastar/util/assert.hh>
 #include <utility>
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/slist.hpp>
-#endif
 
 namespace bi = boost::intrusive;
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT
 class io_intent;
 
 namespace internal {
@@ -59,7 +56,7 @@ public:
 
     public:
         link() noexcept : _ref(nullptr) {}
-        ~link() { assert(_ref == nullptr); }
+        ~link() { SEASTAR_ASSERT(_ref == nullptr); }
 
         void enqueue(cancellable_queue& cq) noexcept {
             cq.push_back(*this);

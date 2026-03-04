@@ -21,17 +21,15 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <boost/intrusive/list.hpp>
 
 #include <seastar/core/future.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
 #include <cassert>
 #include <exception>
 #include <optional>
 #include <utility>
-#endif
 
 #ifdef SEASTAR_DEBUG
 #define SEASTAR_GATE_HOLDER_DEBUG
@@ -44,11 +42,30 @@ namespace seastar {
 
 /// Exception thrown when a \ref gate object has been closed
 /// by the \ref gate::close() method.
-SEASTAR_MODULE_EXPORT
 class gate_closed_exception : public std::exception {
 public:
     virtual const char* what() const noexcept override {
         return "gate closed";
+    }
+};
+
+/// Exception thrown when a \ref named_gate object has been closed
+/// by the \ref gate::close() method.
+class named_gate_closed_exception : public gate_closed_exception {
+    static constexpr const char* _default_what = "named gate closed";
+    sstring _what;
+public:
+    named_gate_closed_exception(const sstring& name) noexcept : gate_closed_exception() {
+        if (!name.empty()) {
+            try {
+                _what = fmt::format("{} gate closed", name);
+            } catch (...) {
+                // Ignore
+            }
+        }
+    }
+    virtual const char* what() const noexcept override {
+        return _what.empty() ? _default_what : _what.c_str();
     }
 };
 
@@ -57,7 +74,6 @@ public:
 /// When stopping a service that serves asynchronous requests, we are faced with
 /// two problems: preventing new requests from coming in, and knowing when existing
 /// requests have completed.  The \c gate class provides a solution.
-SEASTAR_MODULE_EXPORT
 class gate {
     size_t _count = 0;
     std::optional<promise<>> _stopped;
@@ -80,15 +96,15 @@ public:
     }
     gate& operator=(gate&& x) noexcept {
         if (this != &x) {
-            assert(!_count && "gate reassigned with outstanding requests");
+            SEASTAR_ASSERT(!_count && "gate reassigned with outstanding requests");
             x.assert_not_held_when_moved();
             _count = std::exchange(x._count, 0);
             _stopped = std::exchange(x._stopped, std::nullopt);
         }
         return *this;
     }
-    ~gate() {
-        assert(!_count && "gate destroyed with outstanding requests");
+    virtual ~gate() {
+        SEASTAR_ASSERT(!_count && "gate destroyed with outstanding requests");
         assert_not_held_when_destroyed();
     }
     /// Tries to register an in-progress request.
@@ -108,7 +124,7 @@ public:
     /// a \ref gate_closed_exception is thrown.
     void enter() {
         if (!try_enter()) {
-            throw gate_closed_exception();
+            throw_closed_exception();
         }
     }
     /// Unregisters an in-progress request.
@@ -132,7 +148,7 @@ public:
     /// bail out of the long-running code if the gate is closed.
     void check() const {
         if (_stopped) {
-            throw gate_closed_exception();
+            throw_closed_exception();
         }
     }
     /// Closes the gate.
@@ -141,7 +157,7 @@ public:
     /// all current requests call \ref leave(), the returned future will be
     /// made ready.
     future<> close() noexcept {
-        assert(!_stopped && "seastar::gate::close() cannot be called more than once");
+        SEASTAR_ASSERT(!_stopped && "seastar::gate::close() cannot be called more than once");
         _stopped = std::make_optional(promise<>());
         if (!_count) {
             _stopped->set_value();
@@ -287,6 +303,13 @@ public:
         return is_closed() ? std::nullopt : std::make_optional<holder>(*this);
     }
 
+protected:
+    virtual std::exception_ptr make_closed_exception() const {
+        return std::make_exception_ptr(gate_closed_exception{});
+    }
+
+    template <typename Func>
+    friend auto try_with_gate(gate&, Func&&) noexcept;
 private:
 #ifdef SEASTAR_GATE_HOLDER_DEBUG
     using holders_list_t = boost::intrusive::list<holder,
@@ -295,17 +318,38 @@ private:
 
     holders_list_t _holders;
 #endif  // SEASTAR_GATE_HOLDER_DEBUG
+
+    [[noreturn]] void throw_closed_exception() const {
+        std::rethrow_exception(make_closed_exception());
+    }
 };
 
 #ifdef SEASTAR_GATE_HOLDER_DEBUG
-SEASTAR_MODULE_EXPORT
 inline void gate::assert_not_held_when_moved() const noexcept {
-    assert(_holders.empty() && "gate moved with outstanding holders");
+    SEASTAR_ASSERT(_holders.empty() && "gate moved with outstanding holders");
 }
 inline void gate::assert_not_held_when_destroyed() const noexcept {
-    assert(_holders.empty() && "gate destroyed with outstanding holders");
+    SEASTAR_ASSERT(_holders.empty() && "gate destroyed with outstanding holders");
 }
 #endif  // SEASTAR_GATE_HOLDER_DEBUG
+
+class named_gate : public gate {
+    sstring _name;
+
+public:
+    named_gate() = default;
+    explicit named_gate(sstring name) noexcept
+        : gate()
+        , _name(std::move(name))
+    {}
+    named_gate(named_gate&&) = default;
+    named_gate& operator=(named_gate&&) = default;
+
+protected:
+    virtual std::exception_ptr make_closed_exception() const override {
+        return std::make_exception_ptr(named_gate_closed_exception(_name));
+    }
+};
 
 namespace internal {
 
@@ -326,7 +370,6 @@ invoke_func_with_gate(gate::holder&& gh, Func&& func) noexcept {
 /// \returns whatever \c func returns
 ///
 /// \relates gate
-SEASTAR_MODULE_EXPORT
 template <typename Func>
 inline
 auto
@@ -345,14 +388,13 @@ with_gate(gate& g, Func&& func) {
 /// \returns whatever \c func returns.
 ///
 /// \relates gate
-SEASTAR_MODULE_EXPORT
 template <typename Func>
 inline
 auto
 try_with_gate(gate& g, Func&& func) noexcept {
     if (g.is_closed()) {
         using futurator = futurize<std::invoke_result_t<Func>>;
-        return futurator::make_exception_future(gate_closed_exception());
+        return futurator::make_exception_future(g.make_closed_exception());
     }
     return internal::invoke_func_with_gate(g.hold(), std::forward<Func>(func));
 }

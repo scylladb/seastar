@@ -21,24 +21,21 @@
 
 #pragma once
 
-#include <seastar/util/modules.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/optimized_optional.hh>
 #include <seastar/util/std-compat.hh>
 
-#ifndef SEASTAR_MODULE
 #include <boost/intrusive/list.hpp>
 #include <exception>
 #include <optional>
 #include <type_traits>
 #include <utility>
-#endif
 
 namespace bi = boost::intrusive;
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \addtogroup fiber-module
 /// @{
@@ -132,7 +129,7 @@ private:
             return;
         }
         _ex = ex.value_or(get_default_exception());
-        assert(_ex);
+        SEASTAR_ASSERT(_ex);
         auto subs = std::move(_subscriptions);
         while (!subs.empty()) {
             subscription& s = subs.front();
@@ -223,7 +220,6 @@ public:
 
 /// @}
 
-SEASTAR_MODULE_EXPORT_END
 
 }
 

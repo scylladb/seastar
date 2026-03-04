@@ -21,17 +21,14 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <seastar/core/task.hh>
 #include <seastar/core/future.hh>
-#include <seastar/util/modules.hh>
-#endif
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 template <typename Func>
+requires std::invocable<Func>
 class lambda_task final : public task {
     Func _func;
     using futurator = futurize<std::invoke_result_t<Func>>;
@@ -50,6 +47,7 @@ public:
 };
 
 template <typename Func>
+requires std::invocable<Func>
 inline
 lambda_task<Func>*
 make_task(Func&& func) noexcept {
@@ -57,12 +55,12 @@ make_task(Func&& func) noexcept {
 }
 
 template <typename Func>
+requires std::invocable<Func>
 inline
 lambda_task<Func>*
 make_task(scheduling_group sg, Func&& func) noexcept {
     return new lambda_task<Func>(sg, std::forward<Func>(func));
 }
 
-SEASTAR_MODULE_EXPORT_END
 
 }

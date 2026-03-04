@@ -30,7 +30,7 @@ better for newer kernels.
 
 Filesystem implementation quality can have significant effect on
 file I/O performance. XFS is known to be working, ext4 may work well
-too. Test your filesystem and kernel versions to be sure. 
+too. Test your filesystem and kernel versions to be sure.
 
 Patches for new platforms (e.g, Windows) are welcome.
 
@@ -74,6 +74,10 @@ versions of the API. For example.
    - Seastar_API_LEVEL=6 makes futures non-variadic
    - Seastar_API_LEVEL=7 unifies CPU scheduling groups and IO priority classes
      "while at it" file_impl API is forced to accept io_intent argument
+   - Seastar_API_LEVEL=8 changes json_return_type to hold a noncopyable function
+     and become a move-only type
+   - Seastar_API_LEVEL=9 defines the data_sink_impl::put(span<temporary_buffer>)
+     as the new and only method to be implemented
 
 Applications can use an old API_LEVEL during a transition
 period, fix their code, and move to the new API_LEVEL.
@@ -114,6 +118,8 @@ API Level History
 | 5   |  2020-08  | 2023-03 | future::get() returns std::monostate() instead of void |
 | 6   |  2020-09  | 2023-03 | future<T> instead of future<T...>            |
 | 7   |  2023-05  | 2024-09 | unified CPU/IO scheduling groups             |
+| 8   |  2025-08  |         | noncopyable function in json_return_type     |
+| 9   |  2025-08  |         | data_sink_impl new API                       |
 
 
 Note: The "mandatory" column indicates when backwards compatibility

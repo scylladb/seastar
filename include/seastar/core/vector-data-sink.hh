@@ -21,15 +21,15 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <seastar/core/iostream.hh>
-#include <seastar/util/modules.hh>
-#endif
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT
-class vector_data_sink final : public data_sink_impl {
+class
+#if SEASTAR_API_LEVEL >= 9
+[[deprecated("Use util::memory_data_sink")]]
+#endif
+vector_data_sink final : public data_sink_impl {
 public:
     using vector_type = std::vector<net::packet>;
 private:
@@ -37,10 +37,18 @@ private:
 public:
     vector_data_sink(vector_type& v) : _v(v) {}
 
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        net::packet p = net::packet(bufs);
+        _v.push_back(std::move(p));
+        return make_ready_future<>();
+    }
+#else
     virtual future<> put(net::packet p) override {
         _v.push_back(std::move(p));
         return make_ready_future<>();
     }
+#endif
 
     virtual future<> close() override {
         // TODO: close on local side

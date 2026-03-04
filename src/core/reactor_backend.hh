@@ -26,11 +26,9 @@
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/core/internal/poll.hh>
-#include <seastar/core/linux-aio.hh>
+#include <seastar/core/internal/linux-aio.hh>
 #include <seastar/core/cacheline.hh>
-#include <seastar/util/modules.hh>
 
-#ifndef SEASTAR_MODULE
 #include <fmt/ostream.h>
 #include <sys/time.h>
 #include <thread>
@@ -39,7 +37,6 @@
 #include <boost/program_options.hpp>
 #include <boost/container/static_vector.hpp>
 
-#endif
 
 namespace seastar {
 
@@ -63,7 +60,7 @@ class aio_storage_context {
     static constexpr unsigned max_aio = 1024;
 
     class iocb_pool {
-        alignas(cache_line_size) std::array<internal::linux_abi::iocb, max_aio> _iocb_pool;
+        alignas(cache_line_size) std::array<internal::linux_abi::iocb, max_aio> _all_iocbs;
         std::stack<internal::linux_abi::iocb*, boost::container::static_vector<internal::linux_abi::iocb*, max_aio>> _free_iocbs;
     public:
         iocb_pool();
@@ -174,6 +171,7 @@ public:
 class reactor_backend {
 public:
     virtual ~reactor_backend() {};
+    virtual std::string_view get_backend_name() const = 0;
     // The methods below are used to communicate with the kernel.
     // reap_kernel_completions() will complete any previous async
     // work that is ready to consume.
@@ -199,12 +197,13 @@ public:
     virtual future<std::tuple<pollable_fd, socket_address>>
     accept(pollable_fd_state& listenfd) = 0;
     virtual future<> connect(pollable_fd_state& fd, socket_address& sa) = 0;
-    virtual void shutdown(pollable_fd_state& fd, int how) = 0;
     virtual future<size_t> read(pollable_fd_state& fd, void* buffer, size_t len) = 0;
     virtual future<size_t> recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) = 0;
     virtual future<temporary_buffer<char>> read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) = 0;
-    virtual future<size_t> sendmsg(pollable_fd_state& fd, net::packet& p) = 0;
+    virtual future<size_t> sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) = 0;
+#if SEASTAR_API_LEVEL < 9
     virtual future<size_t> send(pollable_fd_state& fd, const void* buffer, size_t len) = 0;
+#endif
     virtual future<temporary_buffer<char>> recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) = 0;
 
     virtual bool do_blocking_io() const {
@@ -238,6 +237,7 @@ class reactor_backend_epoll : public reactor_backend {
     // Only one of the two is active at any time.
     file_desc _steady_clock_timer_reactor_thread;
     file_desc _steady_clock_timer_timer_thread;
+    std::atomic<bool> _dying{false};
 private:
     file_desc _epollfd;
     void task_quota_timer_thread_fn();
@@ -253,6 +253,7 @@ public:
     explicit reactor_backend_epoll(reactor& r);
     virtual ~reactor_backend_epoll() override;
 
+    virtual std::string_view get_backend_name() const override;
     virtual bool reap_kernel_completions() override;
     virtual bool kernel_submit_work() override;
     virtual bool kernel_events_can_sleep() const override;
@@ -266,12 +267,13 @@ public:
     virtual future<std::tuple<pollable_fd, socket_address>>
     accept(pollable_fd_state& listenfd) override;
     virtual future<> connect(pollable_fd_state& fd, socket_address& sa) override;
-    virtual void shutdown(pollable_fd_state& fd, int how) override;
     virtual future<size_t> read(pollable_fd_state& fd, void* buffer, size_t len) override;
     virtual future<size_t> recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) override;
     virtual future<temporary_buffer<char>> read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) override;
-    virtual future<size_t> sendmsg(pollable_fd_state& fd, net::packet& p) override;
+    virtual future<size_t> sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) override;
+#if SEASTAR_API_LEVEL < 9
     virtual future<size_t> send(pollable_fd_state& fd, const void* buffer, size_t len) override;
+#endif
     virtual future<temporary_buffer<char>> recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) override;
 
     virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) override;
@@ -302,6 +304,7 @@ class reactor_backend_aio : public reactor_backend {
 public:
     explicit reactor_backend_aio(reactor& r);
 
+    virtual std::string_view get_backend_name() const override;
     virtual bool reap_kernel_completions() override;
     virtual bool kernel_submit_work() override;
     virtual bool kernel_events_can_sleep() const override;
@@ -315,12 +318,13 @@ public:
     virtual future<std::tuple<pollable_fd, socket_address>>
     accept(pollable_fd_state& listenfd) override;
     virtual future<> connect(pollable_fd_state& fd, socket_address& sa) override;
-    virtual void shutdown(pollable_fd_state& fd, int how) override;
     virtual future<size_t> read(pollable_fd_state& fd, void* buffer, size_t len) override;
     virtual future<size_t> recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) override;
     virtual future<temporary_buffer<char>> read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) override;
-    virtual future<size_t> sendmsg(pollable_fd_state& fd, net::packet& p) override;
+    virtual future<size_t> sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) override;
+#if SEASTAR_API_LEVEL < 9
     virtual future<size_t> send(pollable_fd_state& fd, const void* buffer, size_t len) override;
+#endif
     virtual future<temporary_buffer<char>> recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) override;
 
     virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) override;
@@ -354,8 +358,6 @@ public:
 
 }
 
-#if FMT_VERSION >= 90000
 
 template <> struct fmt::formatter<seastar::reactor_backend_selector> : fmt::ostream_formatter {};
 
-#endif

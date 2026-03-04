@@ -21,14 +21,25 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
-#include <iostream>
-#endif
-
 #include <seastar/net/stack.hh>
 #include <seastar/net/inet_address.hh>
+#include <seastar/util/assert.hh>
+#include <seastar/util/log.hh>
 
 namespace seastar {
+
+extern logger seastar_logger;
+
+namespace internal {
+
+namespace native_stack_net_stats {
+
+inline thread_local std::array<uint64_t, max_scheduling_groups()> bytes_sent = {};
+inline thread_local std::array<uint64_t, max_scheduling_groups()> bytes_received = {};
+
+};
+
+}
 
 namespace net {
 
@@ -121,10 +132,10 @@ public:
 
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
         //TODO: implement SCTP
-        assert(proto == transport::TCP);
+        SEASTAR_ASSERT(proto == transport::TCP);
 
         // FIXME: local is ignored since native stack does not support multiple IPs yet
-        assert(sa.as_posix_sockaddr().sa_family == AF_INET);
+        SEASTAR_ASSERT(sa.as_posix_sockaddr().sa_family == AF_INET);
 
         _conn = make_lw_shared<typename Protocol::connection>(_proto.connect(sa));
         return _conn->connected().then([conn = _conn]() mutable {
@@ -135,7 +146,7 @@ public:
 
     virtual void set_reuseaddr(bool reuseaddr) override {
         // FIXME: implement
-        std::cerr << "Reuseaddr is not supported by native stack" << std::endl;
+        seastar_logger.error("Reuseaddr is not supported by native stack");
     }
 
     virtual bool get_reuseaddr() const override {
@@ -173,6 +184,8 @@ public:
         }
         return _conn->wait_for_data().then([this] {
             _buf = _conn->read();
+            auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+            internal::native_stack_net_stats::bytes_received[sg_id] += _buf.len();
             _cur_frag = 0;
             _eof = !_buf.len();
             return get();
@@ -192,10 +205,23 @@ class native_connected_socket_impl<Protocol>::native_data_sink_impl final
 public:
     explicit native_data_sink_impl(lw_shared_ptr<connection_type> conn)
         : _conn(std::move(conn)) {}
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+        auto sizes = bufs | std::views::transform(&temporary_buffer<char>::size);
+        auto len = std::accumulate(sizes.begin(), sizes.end(), size_t(0));
+        internal::native_stack_net_stats::bytes_sent[sg_id] += len;
+        return _conn->send(bufs);
+    }
+#else
     using data_sink_impl::put;
     virtual future<> put(packet p) override {
-        return _conn->send(std::move(p));
+        auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+        internal::native_stack_net_stats::bytes_sent[sg_id] += p.len();
+        auto v = std::move(p).release();
+        return _conn->send(v);
     }
+#endif
     virtual future<> close() override {
         _conn->close_write();
         return make_ready_future<>();
@@ -244,7 +270,7 @@ native_connected_socket_impl<Protocol>::get_nodelay() const {
 template <typename Protocol>
 void native_connected_socket_impl<Protocol>::set_keepalive(bool keepalive) {
     // FIXME: implement
-    std::cerr << "Keepalive is not supported by native stack" << std::endl;
+    seastar_logger.error("Keepalive is not supported by native stack");
 }
 template <typename Protocol>
 bool native_connected_socket_impl<Protocol>::get_keepalive() const {
@@ -255,7 +281,7 @@ bool native_connected_socket_impl<Protocol>::get_keepalive() const {
 template <typename Protocol>
 void native_connected_socket_impl<Protocol>::set_keepalive_parameters(const keepalive_params&) {
     // FIXME: implement
-    std::cerr << "Keepalive parameters are not supported by native stack" << std::endl;
+    seastar_logger.error("Keepalive parameters are not supported by native stack");
 }
 
 template <typename Protocol>

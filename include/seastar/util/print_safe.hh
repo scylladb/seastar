@@ -21,20 +21,16 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
-#include <cassert>
 #include <cerrno>
 #include <concepts>
 #include <cstring>
 #include <stdio.h>
 #include <unistd.h>
-#endif
 
-#include <seastar/util/modules.hh>
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 //
 // Collection of async-signal safe printing functions.
 //
@@ -77,7 +73,7 @@ char* convert_hex_safe(char *buf, size_t bufsz, Integral n) noexcept {
     memset(buf, Padding, bufsz);
     auto* p = buf + bufsz;
     do {
-        assert(p > buf);
+        SEASTAR_ASSERT(p > buf);
         *--p = digits[n & 0xf];
         n >>= 4;
     } while (n);
@@ -112,7 +108,7 @@ size_t convert_decimal_safe(char *buf, size_t bufsz, Integral n) noexcept {
     char tmp[sizeof(n) * 3];
     unsigned i = bufsz;
     do {
-        assert(i > 0);
+        SEASTAR_ASSERT(i > 0);
         tmp[--i] = '0' + n % 10;
         n /= 10;
     } while (n);
@@ -130,5 +126,4 @@ void print_decimal_safe(Integral n) noexcept {
     auto len = convert_decimal_safe(buf, i, n);
     print_safe(buf, len);
 }
-SEASTAR_MODULE_EXPORT_END
 }

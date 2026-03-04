@@ -21,19 +21,15 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <algorithm>
 #include <atomic>
 #include <utility>
 #include <functional>
 #include <seastar/core/align.hh>
 #include <seastar/core/cacheline.hh>
-#include <seastar/util/modules.hh>
-#endif
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 template <size_t N, int RW, int LOC>
 struct prefetcher;
@@ -125,6 +121,5 @@ void prefetchw_n(T** pptr) {
         (..., prefetchw<L, LOC>(*(pptr + x)));
     }, std::make_index_sequence<C>{});
 }
-SEASTAR_MODULE_EXPORT_END
 
 }

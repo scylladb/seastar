@@ -20,11 +20,10 @@
  * author: Niek J Bouman
  * reviewers: Avi Kivity, Benny Halevy
  * November 2021
- */ 
+ */
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <iterator>
 #include <cstddef>
 #include <type_traits>
@@ -33,8 +32,6 @@
 #include <utility>
 #include <seastar/core/future.hh>
 #include <seastar/core/shared_ptr.hh>
-#include <seastar/util/modules.hh>
-#endif
 
 namespace seastar {
 
@@ -65,7 +62,7 @@ public:
 ///
 /// Given a range of futures as input, wait for the first of them
 /// to resolve (either successfully or with an exception), and return
-/// all of them in a \c when_any_result (following the concurrency TS from 
+/// all of them in a \c when_any_result (following the concurrency TS from
 /// the standard library), containing a std::vector to all futures
 /// and the index (into the vector) of the future that resolved.
 ///
@@ -73,7 +70,6 @@ public:
 /// \param end an \c InputIterator designating the end of the range of futures
 /// \return a \c when_any_result of all the futures in the input; when
 ///         ready, at least one of the contained futures (the one indicated by index) will be ready.
-SEASTAR_MODULE_EXPORT
 template <class FutureIterator>
 requires requires (FutureIterator i) { { *i++ }; requires is_future<std::remove_reference_t<decltype(*i)>>::value; }
 auto when_any(FutureIterator begin, FutureIterator end) noexcept
@@ -146,7 +142,6 @@ when_any_impl(std::index_sequence<I...>, Futures&&... futs) noexcept
 /// \return a \c when_any_result containing a tuple of all futures
 ///  and and index; when ready, at least one of the contained futures
 ///  (the one indicated by index) will be ready.
-SEASTAR_MODULE_EXPORT
 template <class... FutOrFuncs>
 auto when_any(FutOrFuncs&&... fut_or_funcs) noexcept
 {

@@ -16,22 +16,33 @@
  * under the License.
  */
 /*
- * Copyright 2015 Scylla DB
+ * Copyright 2025 ScyllaDB
  */
 
 #pragma once
+#include <seastar/util/memory-data-sink.hh>
 
 namespace seastar {
 
-/// \cond internal
-
-// cause all threads to invoke a full memory barrier
-void systemwide_memory_barrier();
-// attempt to invoke a systemwide memory barrier; return false
-// if doing so would cause lock contention in the kernel
-bool try_systemwide_memory_barrier();
-
-/// \endcond
-
+inline void append_buffers(std::stringstream& ss, std::span<seastar::temporary_buffer<char>> bufs) {
+    for (auto& buf : bufs) {
+        ss.write(buf.get(), buf.size());
+    }
 }
 
+namespace testing {
+
+using memory_data_sink_impl = util::basic_memory_data_sink<std::stringstream>;
+
+/*!
+ * \brief a helper data sink that stores everything it gets in a stringstream
+ */
+
+class memory_data_sink : public data_sink {
+public:
+    memory_data_sink(std::stringstream& ss)
+        : data_sink(std::make_unique<memory_data_sink_impl>(ss)) {}
+};
+
+} // testing namespace
+} // seastar namespace

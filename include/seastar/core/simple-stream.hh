@@ -23,17 +23,14 @@
 
 #include <seastar/core/sstring.hh>
 #include <seastar/util/variant_utils.hh>
-#include <seastar/util/modules.hh>
-#ifndef SEASTAR_MODULE
 #include <algorithm>
+#include <concepts>
 #include <cstddef>
 #include <stdexcept>
 #include <type_traits>
-#endif
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 class measuring_output_stream {
     size_t _size = 0;
@@ -128,11 +125,22 @@ class fragmented_memory_output_stream {
 private:
     template<typename Func>
     //requires requires(Func f, view bv) { { f(bv) } -> void; }
+    [[gnu::always_inline]]
     void for_each_fragment(size_t size, Func&& func) {
         if (size > _size) {
             throw std::out_of_range("serialization buffer overflow");
         }
         _size -= size;
+        // Fast path, avoids memcpy for constant sizes.
+        if (__builtin_constant_p(size)) {
+            if (size <= _current.size()) [[likely]] {
+                func(_current.write_substream(size));
+                return;
+            }
+        }
+        for_each_fragment_slowpath(size, std::forward<Func>(func));
+    }
+    void for_each_fragment_slowpath(size_t size, std::invocable<simple_memory_output_stream> auto&& func) {
         while (size) {
             if (!_current.size()) {
                 _current = simple(reinterpret_cast<char*>((*_it).get_write()), (*_it).size());
@@ -155,9 +163,11 @@ public:
         : _it(it), _size(size) {
     }
 
+    [[gnu::always_inline]]
     void skip(size_t size) {
         for_each_fragment(size, [] (auto) { });
     }
+    [[gnu::always_inline]]
     memory_output_stream<Iterator> write_substream(size_t size) {
         if (size > _size) {
             throw std::out_of_range("serialization buffer overflow");
@@ -170,12 +180,14 @@ public:
         skip(size);
         return substream;
     }
+    [[gnu::always_inline]]
     void write(const char* p, size_t size) {
         for_each_fragment(size, [&p] (auto bv) {
             std::copy_n(p, bv.size(), bv.begin());
             p += bv.size();
         });
     }
+    [[gnu::always_inline]]
     void fill(char c, size_t size) {
         for_each_fragment(size, [c] (simple fragment) {
             std::fill_n(fragment.begin(), fragment.size(), c);
@@ -390,11 +402,22 @@ class fragmented_memory_input_stream {
 private:
     template<typename Func>
     //requires requires(Func f, view bv) { { f(bv) } -> void; }
+    [[gnu::always_inline]]
     void for_each_fragment(size_t size, Func&& func) {
         if (size > _size) {
             throw std::out_of_range("deserialization buffer underflow");
         }
         _size -= size;
+        // Fast path, avoids memcpy for constant sizes.
+        if (__builtin_constant_p(size)) {
+            if (size <= _current.size()) [[likely]] {
+                func(_current.read_substream(size));
+                return;
+            }
+        }
+        for_each_fragment_slowpath(size, std::forward<Func>(func));
+    }
+    void for_each_fragment_slowpath(size_t size, std::invocable<simple_memory_input_stream> auto&& func) {
         while (size) {
             if (!_current.size()) {
                 _current = simple(reinterpret_cast<const char*>((*_it).begin()), (*_it).size());
@@ -415,9 +438,11 @@ public:
         : _it(it), _size(size) {
     }
 
+    [[gnu::always_inline]]
     void skip(size_t size) {
         for_each_fragment(size, [] (auto) { });
     }
+    [[gnu::always_inline]]
     fragmented read_substream(size_t size) {
         if (size > _size) {
             throw std::out_of_range("deserialization buffer underflow");
@@ -426,12 +451,14 @@ public:
         skip(size);
         return substream;
     }
+    [[gnu::always_inline]]
     void read(char* p, size_t size) {
         for_each_fragment(size, [&p] (auto bv) {
             p = std::copy_n(bv.begin(), bv.size(), p);
         });
     }
     template<typename Output>
+    [[gnu::always_inline]]
     void copy_to(Output& out) {
         for_each_fragment(_size, [&out] (auto bv) {
             bv.copy_to(out);
@@ -595,7 +622,6 @@ public:
     friend decltype(auto) with_serialized_stream(Stream& stream, StreamVisitor&& visitor);
 };
 
-SEASTAR_MODULE_EXPORT_END
 
 inline simple_memory_input_stream simple_memory_output_stream::to_input_stream() const {
     return simple_memory_input_stream(_p, _size);
@@ -631,15 +657,16 @@ inline memory_input_stream<Iterator> memory_output_stream<Iterator>::to_input_st
 // Using with_stream() there is at most one dynamic dispatch per such
 // function, instead of one per each skip() and deserialize() call.
 
-SEASTAR_MODULE_EXPORT_BEGIN
-template<typename Stream, typename StreamVisitor, typename = std::enable_if_t<Stream::has_with_stream::value>>
+template<typename Stream, typename StreamVisitor>
+requires Stream::has_with_stream::value
 [[gnu::always_inline]]
  inline decltype(auto)
  with_serialized_stream(Stream& stream, StreamVisitor&& visitor) {
     return stream.with_stream(std::forward<StreamVisitor>(visitor));
 }
 
-template<typename Stream, typename StreamVisitor, typename = std::enable_if_t<!Stream::has_with_stream::value>, typename = void>
+template<typename Stream, typename StreamVisitor>
+requires (!Stream::has_with_stream::value)
 [[gnu::always_inline]]
  inline decltype(auto)
  with_serialized_stream(Stream& stream, StreamVisitor&& visitor) {
@@ -649,6 +676,5 @@ template<typename Stream, typename StreamVisitor, typename = std::enable_if_t<!S
 using simple_input_stream = simple_memory_input_stream;
 using simple_output_stream = simple_memory_output_stream;
 
-SEASTAR_MODULE_EXPORT_END
 
 }

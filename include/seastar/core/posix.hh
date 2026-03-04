@@ -21,7 +21,6 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <sys/ioctl.h>
@@ -45,16 +44,14 @@
 #include <memory>
 #include <set>
 #include <optional>
-#endif
 #include "abort_on_ebadf.hh"
 #include <seastar/core/sstring.hh>
 #include <seastar/net/socket_defs.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \file
 /// \defgroup posix-support POSIX Support
@@ -68,6 +65,7 @@ SEASTAR_MODULE_EXPORT_BEGIN
 inline void throw_system_error_on(bool condition, const char* what_arg = "");
 
 template <typename T>
+requires std::signed_integral<T>
 inline void throw_kernel_error(T r);
 
 template <typename T>
@@ -100,7 +98,7 @@ public:
         return *this;
     }
     void close() {
-        assert(_fd != -1);
+        SEASTAR_ASSERT(_fd != -1);
         auto r = ::close(_fd);
         throw_system_error_on(r == -1, "close");
         _fd = -1;
@@ -469,9 +467,9 @@ void throw_system_error_on(bool condition, const char* what_arg) {
 }
 
 template <typename T>
+requires std::signed_integral<T>
 inline
 void throw_kernel_error(T r) {
-    static_assert(std::is_signed_v<T>, "kernel error variables must be signed");
     if (r < 0) {
         auto ec = -r;
         if ((ec == EBADF || ec == ENOTSOCK) && is_abort_on_ebadf_enabled()) {
@@ -517,7 +515,7 @@ void pin_this_thread(unsigned cpu_id) {
     CPU_ZERO(&cs);
     CPU_SET(cpu_id, &cs);
     auto r = pthread_setaffinity_np(pthread_self(), sizeof(cs), &cs);
-    assert(r == 0);
+    SEASTAR_ASSERT(r == 0);
     (void)r;
 }
 
@@ -525,5 +523,4 @@ std::set<unsigned> get_current_cpuset();
 
 /// @}
 
-SEASTAR_MODULE_EXPORT_END
 }

@@ -21,14 +21,10 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <cstddef>
-#include <seastar/util/modules.hh>
-#endif
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 // Platform-dependent cache line size for alignment and padding purposes.
 constexpr size_t cache_line_size =
@@ -44,6 +40,5 @@ constexpr size_t cache_line_size =
 #error "cache_line_size not defined for this architecture"
 #endif
 
-SEASTAR_MODULE_EXPORT_END
 
 }

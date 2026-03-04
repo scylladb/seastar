@@ -19,15 +19,20 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#include <seastar/testing/test_case.hh>
+#include <seastar/testing/test_runner.hh>
+
 #include <seastar/util/std-compat.hh>
 #ifdef SEASTAR_COROUTINES_ENABLED
 #include <seastar/core/coroutine.hh>
+#include <seastar/coroutine/generator.hh>
 #endif
 #include <seastar/core/reactor.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/file.hh>
+#include <seastar/util/assert.hh>
 
 using namespace seastar;
 
@@ -51,11 +56,11 @@ const char* de_type_desc(directory_entry_type t)
     case directory_entry_type::socket:
         return "socket";
     }
-    assert(0 && "should not get here");
+    SEASTAR_ASSERT(0 && "should not get here");
     return nullptr;
 }
 
-future<> lister_test() {
+SEASTAR_TEST_CASE(test_lister) {
     class lister {
         file _f;
         subscription<directory_entry> _listing;
@@ -67,35 +72,33 @@ future<> lister_test() {
         future<> done() { return _listing.done(); }
     private:
         future<> report(directory_entry de) {
-            return file_stat(de.name, follow_symlink::no).then([de = std::move(de)] (stat_data sd) {
-                if (de.type) {
-                    assert(*de.type == sd.type);
-                } else {
-                    assert(sd.type == directory_entry_type::unknown);
-                }
-                fmt::print("{} (type={})\n", de.name, de_type_desc(sd.type));
-                return make_ready_future<>();
-            });
+            stat_data sd = co_await file_stat(de.name, follow_symlink::no);
+            if (de.type) {
+                SEASTAR_ASSERT(*de.type == sd.type);
+            } else {
+                SEASTAR_ASSERT(sd.type == directory_entry_type::unknown);
+            }
+            fmt::print("{} (type={})\n", de.name, de_type_desc(sd.type));
         }
     };
     fmt::print("--- Regular lister test ---\n");
-    return engine().open_directory(".").then([] (file f) {
-        return do_with(lister(std::move(f)), [] (lister& l) {
-          return l.done();
-       });
-    });
+    file f = co_await open_directory(".");
+    lister l(std::move(f));
+    co_await l.done();
 }
 
 future<> lister_generator_test(file f) {
     auto lister = f.experimental_list_directory();
+
     while (auto de = co_await lister()) {
-        auto sd = co_await file_stat(de->name, follow_symlink::no);
-        if (de->type) {
-            assert(*de->type == sd.type);
+        auto& entry = *de;
+        auto sd = co_await file_stat(entry.name, follow_symlink::no);
+        if (entry.type) {
+            SEASTAR_ASSERT(entry.type == sd.type);
         } else {
-            assert(sd.type == directory_entry_type::unknown);
+            SEASTAR_ASSERT(sd.type == directory_entry_type::unknown);
         }
-        fmt::print("{} (type={})\n", de->name, de_type_desc(sd.type));
+        fmt::print("{} (type={})\n", entry.name, de_type_desc(sd.type));
     }
     co_await f.close();
 }
@@ -107,6 +110,7 @@ public:
 
     virtual future<> flush() override { return get_file_impl(_lower)->flush(); }
     virtual future<struct stat> stat() override { return get_file_impl(_lower)->stat(); }
+    virtual future<struct stat> statat(std::string_view name, int flags) override { return get_file_impl(_lower)->statat(name, flags); }
     virtual future<> truncate(uint64_t length) override { return get_file_impl(_lower)->truncate(length); }
     virtual future<> discard(uint64_t offset, uint64_t length) override { return get_file_impl(_lower)->discard(offset, length); }
     virtual future<> allocate(uint64_t position, uint64_t length) override { return get_file_impl(_lower)->allocate(position, length); }
@@ -122,22 +126,50 @@ public:
     virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, io_intent* i) override { return get_file_impl(_lower)->dma_read_bulk(offset, range_size, i); }
 };
 
-future<> lister_generator_test() {
-    fmt::print("--- Generator lister test ---\n");
+SEASTAR_TEST_CASE(test_generator_lister) {
     auto f = co_await engine().open_directory(".");
     co_await lister_generator_test(std::move(f));
+}
 
-    fmt::print("--- Generator fallback test ---\n");
+SEASTAR_TEST_CASE(test_generator_early_abort) {
+    auto f = co_await engine().open_directory(".");
+    {
+        auto lister = f.experimental_list_directory();
+        [[maybe_unused]] auto de = co_await lister();
+    } // destroys the lister object before it reports EOF
+    co_await f.close();
+}
+
+SEASTAR_TEST_CASE(test_generator_fallback) {
     auto lf = co_await engine().open_directory(".");
     auto tf = ::seastar::make_shared<test_file_impl>(std::move(lf));
     auto f2 = file(std::move(tf));
     co_await lister_generator_test(std::move(f2));
 }
 
-int main(int ac, char** av) {
-    return app_template().run(ac, av, [] {
-        return lister_test().then([] {
-            return lister_generator_test();
-        });
-    });
+SEASTAR_TEST_CASE(test_generator_fallback_early_abort) {
+    auto lf = co_await engine().open_directory(".");
+    auto tf = ::seastar::make_shared<test_file_impl>(std::move(lf));
+    auto f = file(std::move(tf));
+    {
+        auto lister = f.experimental_list_directory();
+        [[maybe_unused]] auto de = co_await lister();
+    } // destroys the lister object before it reports EOF
+    co_await f.close();
+}
+
+SEASTAR_TEST_CASE(test_generator_with_statat) {
+    auto f = co_await engine().open_directory(".");
+    auto lister = f.experimental_list_directory();
+
+    while (auto de = co_await lister()) {
+        auto& entry = *de;
+        auto sd1 = co_await f.statat(entry.name);
+        auto sd2 = co_await file_stat(f, entry.name, follow_symlink::no);
+        BOOST_REQUIRE_EQUAL(sd1.st_ino, sd2.inode_number);
+
+        auto sd3 = co_await file_stat(entry.name, follow_symlink::no);
+        BOOST_REQUIRE_EQUAL(sd1.st_ino, sd3.inode_number);
+    }
+    co_await f.close();
 }

@@ -24,13 +24,17 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/vector-data-sink.hh>
 #include <seastar/json/formatter.hh>
 #include <seastar/json/json_elements.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include "memory-data-sink.hh"
 
 using namespace seastar;
 using namespace json;
+
+static_assert(internal::is_string_like<std::string_view>);
+static_assert(internal::is_string_like<std::string>);
+static_assert(internal::is_string_like<sstring>);
 
 SEASTAR_TEST_CASE(test_simple_values) {
     BOOST_CHECK_EQUAL("3", formatter::to_json(3));
@@ -58,6 +62,25 @@ SEASTAR_TEST_CASE(test_collections) {
     BOOST_CHECK_EQUAL("[{1:2},{3:4}]", formatter::to_json(std::vector<std::pair<int,int>>({{1,2},{3,4}})));
     BOOST_CHECK_EQUAL("[{1:2},{3:4}]", formatter::to_json(std::vector<std::map<int,int>>({{{1,2}},{{3,4}}})));
     BOOST_CHECK_EQUAL("[[1,2],[3,4]]", formatter::to_json(std::vector<std::vector<int>>({{1,2},{3,4}})));
+
+    return make_ready_future();
+}
+
+SEASTAR_TEST_CASE(test_ranges) {
+    BOOST_CHECK_EQUAL("[1,2,3,4]", formatter::to_json(std::views::iota(1, 5)));
+#ifdef __cpp_lib_ranges_enumerate
+    BOOST_CHECK_EQUAL("[{0:5},{1:6},{2:7},{3:8}]", formatter::to_json(std::views::iota(5, 9) | std::views::enumerate));
+#endif
+    return make_ready_future();
+}
+
+SEASTAR_TEST_CASE(test_strings) {
+    sstring s = "hello, world";
+    const char* expected = "\"hello, world\"";
+    BOOST_CHECK_EQUAL(expected, formatter::to_json(s));
+    BOOST_CHECK_EQUAL(expected, formatter::to_json(std::string(s)));
+    BOOST_CHECK_EQUAL(expected, formatter::to_json(std::string_view(s)));
+    BOOST_CHECK_EQUAL(expected, formatter::to_json(s.c_str()));
 
     return make_ready_future();
 }
@@ -93,25 +116,27 @@ SEASTAR_TEST_CASE(test_jsonable) {
 
 template<typename F>
 void formatter_check_expected(sstring expected, F f, bool close = true) {
-    auto vec = std::vector<net::packet>{};
-    auto out = output_stream<char>(data_sink(std::make_unique<vector_data_sink>(vec)), 8);
+    std::stringstream ss;
+    auto out = output_stream<char>(testing::memory_data_sink(ss), 8);
 
     f(out);
     if (close) {
         out.close().get();
     }
 
-    auto packets = net::packet{};
-    for (auto &p : vec) {
-      packets.append(std::move(p));
-    }
-    packets.linearize();
-    auto buf = packets.release();
-
-    sstring result(buf.front().get(), buf.front().size());
-    BOOST_CHECK_EQUAL(expected, result);
+    BOOST_CHECK_EQUAL(expected, ss.str());
 }
 
+SEASTAR_THREAD_TEST_CASE(test_stream_range_as_array_simple) {
+    sstring expected = R"(["1", "2", "3"])";
+    formatter_check_expected(expected, [] (auto& out) {
+        auto mapper = stream_range_as_array(std::vector<int>{1,2,3}, [] (auto i) {
+            return std::to_string(i);
+        });
+
+        mapper(std::move(out)).get();
+    }, false);
+}
 
 SEASTAR_THREAD_TEST_CASE(test_stream_range_as_array) {
     sstring expected = R"([{"subject":"1","values":[1]}, {"subject":"2","values":[2]}, {"subject":"3","values":[3]}])";
@@ -158,4 +183,12 @@ SEASTAR_THREAD_TEST_CASE(formatter_write) {
     formatter_check_expected("[[1,2],[3,4]]", [] (auto &out) {
         json::formatter::write(out, std::vector<std::vector<int>>({{1, 2}, {3, 4}})).get();
     });
+    formatter_check_expected("[1,2,3,4]", [] (auto& out) {
+        json::formatter::write(out, std::views::iota(1, 5)).get();
+    });
+#ifdef __cpp_lib_ranges_enumerate
+    formatter_check_expected("[{0:5},{1:6},{2:7},{3:8}]", [] (auto& out) {
+        json::formatter::write(out, std::views::iota(5, 9) | std::views::enumerate).get();
+    });
+#endif
 }

@@ -20,16 +20,3 @@ $ seabuild() { docker run -v $HOME/seastar/:/seastar -u $(id -u):$(id -g) -w /se
 $ seabuild ./configure.py
 $ seabuild ninja -C build/release
 ```
-
-Alternatively there's a `scripts/build.sh` script with the usage of
-
-```
-build.sh <mode> [<compiler>] [<compiler version>] [<c++ dialect>]
-```
-
-that will do the above steps itself, e.g. the above example would be like
-
-```
-$ scripts/build.sh release
-```
-

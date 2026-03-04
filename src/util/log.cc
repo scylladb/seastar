@@ -19,9 +19,6 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <iostream>
 #include <map>
@@ -46,20 +43,16 @@ module;
 #include <unistd.h>
 
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/util/log.hh>
 #include <seastar/util/log-cli.hh>
 
-#include <seastar/core/array_map.hh>
+#include <seastar/util/internal/array_map.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/print.hh>
 
 
 #include "core/program_options.hh"
-#endif
 
 using namespace std::chrono_literals;
 
@@ -87,7 +80,7 @@ template <> struct formatter<wrapped_log_level> {
 
     template <typename FormatContext>
     auto format(wrapped_log_level wll, FormatContext& ctx) const {
-        static seastar::array_map<seastar::sstring, nr_levels> text = {
+        static seastar::internal::array_map<seastar::sstring, nr_levels> text = {
             { int(log_level::debug), "DEBUG" },
             { int(log_level::info),  "INFO " },
             { int(log_level::trace), "TRACE" },
@@ -96,7 +89,7 @@ template <> struct formatter<wrapped_log_level> {
         };
         int index = static_cast<int>(wll.level);
         std::string_view name = text[index];
-        static seastar::array_map<text_style, nr_levels> style = {
+        static seastar::internal::array_map<text_style, nr_levels> style = {
             { int(log_level::debug), fg(terminal_color::green)  },
             { int(log_level::info),  fg(terminal_color::white)  },
             { int(log_level::trace), fg(terminal_color::blue)   },
@@ -122,6 +115,12 @@ auto formatter<seastar::log_level>::format(seastar::log_level level, format_cont
 namespace seastar {
 
 namespace internal {
+
+[[noreturn]] void assert_fail(const char* msg, const char* file, int line, const char* func) {
+    fprintf(stderr, "%s:%u: %s: Assertion `%s` failed.\n", file, line, func, msg);
+    std::fflush(stderr);
+    std::terminate();
+}
 
 void log_buf::free_buffer() noexcept {
     if (_own_buf) {
@@ -152,7 +151,7 @@ void log_buf::realloc_buffer_and_append(char c) noexcept {
     _alloc_failure = true;
     std::string_view msg = "(log buffer allocation failure)";
     auto can_copy = std::min(msg.size(), size_t(_current - _begin));
-    std::memcpy(_current - can_copy, msg.begin(), can_copy);
+    std::memcpy(_current - can_copy, msg.data(), can_copy);
   }
 }
 
@@ -260,7 +259,11 @@ static internal::log_buf::inserter_iterator print_real_timestamp(internal::log_b
     if (this_second.t != t) {
         this_second.t = t;
         this_second.buf.clear();
-        fmt::format_to(this_second.buf.back_insert_begin(), "{:%Y-%m-%d %T}", fmt::localtime(t));
+        std::tm tm_local;
+        if (!localtime_r(&t, &tm_local)) {
+            throw fmt::format_error("time_t value out of range");
+        }
+        fmt::format_to(this_second.buf.back_insert_begin(), "{:%F %T}", tm_local);
     }
     auto ms = (n - clock::from_time_t(t)) / 1ms;
     return fmt::format_to(it, "{},{:03d}", this_second.buf.view(), ms);
@@ -359,7 +362,7 @@ logger::do_log(log_level level, log_writer& writer) {
         auto it = buf.back_insert_begin();
         it = print_once(it);
         *it = '\0';
-        static array_map<int, 20> level_map = {
+        static internal::array_map<int, 20> level_map = {
                 { int(log_level::debug), LOG_DEBUG },
                 { int(log_level::info), LOG_INFO },
                 { int(log_level::trace), LOG_DEBUG },  // no LOG_TRACE
@@ -378,7 +381,7 @@ logger::do_log(log_level level, log_writer& writer) {
 
 void logger::failed_to_log(std::exception_ptr ex,
                            fmt::string_view fmt,
-                           compat::source_location loc) noexcept
+                           std::source_location loc) noexcept
 {
     try {
         lambda_log_writer writer([ex = std::move(ex), fmt, loc] (internal::log_buf::inserter_iterator it) {
@@ -401,11 +404,6 @@ logger::set_ostream(std::ostream& out) noexcept {
 
 void
 logger::set_ostream_enabled(bool enabled) noexcept {
-    _ostream.store(enabled, std::memory_order_relaxed);
-}
-
-void
-logger::set_stdout_enabled(bool enabled) noexcept {
     _ostream.store(enabled, std::memory_order_relaxed);
 }
 
@@ -628,18 +626,6 @@ logging_settings extract_settings(const options& opts) {
     };
 }
 
-}
-
-}
-namespace boost {
-template<>
-seastar::log_level lexical_cast(const std::string& source) {
-    std::istringstream in(source);
-    seastar::log_level level;
-    if (!(in >> level)) {
-        throw boost::bad_lexical_cast();
-    }
-    return level;
 }
 
 }

@@ -20,20 +20,11 @@
  *
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#include <chrono>
-#include <string>
-#include <boost/asio/ip/address_v4.hpp>
-#include <fmt/core.h>
-module seastar;
-#else
 #include <seastar/net/ip.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/net/toeplitz.hh>
 #include <seastar/core/metrics.hh>
-#endif
 
 namespace seastar {
 
@@ -41,12 +32,12 @@ namespace net {
 
 ipv4_address::ipv4_address(const std::string& addr) {
     boost::system::error_code ec;
-    auto ipv4 = boost::asio::ip::address_v4::from_string(addr, ec);
+    auto ipv4 = boost::asio::ip::make_address_v4(addr, ec);
     if (ec) {
         throw std::runtime_error(
             fmt::format("Wrong format for IPv4 address {}. Please ensure it's in dotted-decimal format", addr));
     }
-    ip = static_cast<uint32_t>(std::move(ipv4).to_ulong());
+    ip = static_cast<uint32_t>(std::move(ipv4).to_uint());
 }
 
 ipv4::ipv4(interface* netif)

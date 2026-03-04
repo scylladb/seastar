@@ -24,16 +24,13 @@
 #include <seastar/core/resource.hh>
 #include <seastar/core/bitops.hh>
 #include <seastar/util/backtrace.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/util/sampler.hh>
-#ifndef SEASTAR_MODULE
 #include <new>
 #include <cstdint>
 #include <functional>
 #include <optional>
 #include <string>
 #include <vector>
-#endif
 
 namespace seastar {
 
@@ -131,9 +128,9 @@ namespace memory {
 #define SEASTAR_INTERNAL_ALLOCATOR_PAGE_SIZE 4096
 #endif
 
-static constexpr size_t page_size = SEASTAR_INTERNAL_ALLOCATOR_PAGE_SIZE;
-static constexpr size_t page_bits = log2ceil(page_size);
-static constexpr size_t huge_page_size =
+constexpr inline size_t page_size = SEASTAR_INTERNAL_ALLOCATOR_PAGE_SIZE;
+constexpr inline size_t page_bits = log2ceil(page_size);
+constexpr inline size_t huge_page_size =
 #if defined(__x86_64__) || defined(__i386__) || defined(__s390x__) || defined(__zarch__)
     1 << 21; // 2M
 #elif defined(__aarch64__)
@@ -159,6 +156,10 @@ struct numa_layout {
 
 numa_layout merge(numa_layout one, numa_layout two);
 
+size_t per_shard_memory(size_t total_memory, unsigned nr_shards);
+
+void global_setup(unsigned nr_shards);
+
 }
 
 internal::numa_layout configure(std::vector<resource::memory> m, bool mbind,
@@ -167,14 +168,20 @@ internal::numa_layout configure(std::vector<resource::memory> m, bool mbind,
 
 void configure_minimal();
 
-// A deprecated alias for set_abort_on_allocation_failure(true).
-[[deprecated("use set_abort_on_allocation_failure(true) instead")]]
-void enable_abort_on_allocation_failure();
+namespace internal {
+
+extern thread_local constinit int abort_on_alloc_failure_suppressed;
+
+}
 
 class disable_abort_on_alloc_failure_temporarily {
 public:
-    disable_abort_on_alloc_failure_temporarily();
-    ~disable_abort_on_alloc_failure_temporarily() noexcept;
+    disable_abort_on_alloc_failure_temporarily() {
+        ++internal::abort_on_alloc_failure_suppressed;
+    }
+    ~disable_abort_on_alloc_failure_temporarily() noexcept {
+        --internal::abort_on_alloc_failure_suppressed;
+    }
 };
 
 // Disables heap profiling as long as this object is alive.
@@ -252,7 +259,6 @@ void set_reclaim_hook(
 
 /// \endcond
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \brief Set the global state of the abort on allocation failure behavior.
 ///
@@ -498,7 +504,6 @@ public:
     ~scoped_heap_profiling();
 };
 
-SEASTAR_MODULE_EXPORT_END
 
 }
 }

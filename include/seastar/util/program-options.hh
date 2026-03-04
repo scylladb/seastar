@@ -21,11 +21,9 @@
 
 #pragma once
 
+#include <seastar/core/format.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/print.hh>
-#include <seastar/util/modules.hh>
 
-#ifndef SEASTAR_MODULE
 #include <fmt/format.h>
 
 #include <boost/any.hpp>
@@ -37,7 +35,7 @@
 #include <vector>
 #include <optional>
 #include <set>
-#endif
+#include <memory>
 
 /// \defgroup program-options Program Options
 ///
@@ -119,7 +117,6 @@ using list_base_hook = boost::intrusive::list_base_hook<boost::intrusive::link_m
 
 } // namespace program_options
 
-SEASTAR_MODULE_EXPORT_BEGIN
 enum class log_level;
 enum class logger_timestamp_style;
 enum class logger_ostream_type;
@@ -533,7 +530,7 @@ private:
     size_t _selected_candidate = no_selected_candidate;
     bool _defaulted = true;
 
-private:
+public:
     std::vector<std::string> get_candidate_names() const {
         std::vector<std::string> candidate_names;
         candidate_names.reserve(_candidates.size());
@@ -542,6 +539,7 @@ private:
         }
         return candidate_names;
     }
+private:
     virtual void do_describe(options_descriptor& descriptor) const override {
         descriptor.visit_selection_value(get_candidate_names(), _selected_candidate == no_selected_candidate ? nullptr : &_selected_candidate);
         for (auto& c : _candidates) {
@@ -622,6 +620,5 @@ public:
 /// @}
 
 }
-SEASTAR_MODULE_EXPORT_END
 
 }

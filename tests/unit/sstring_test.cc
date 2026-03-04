@@ -21,7 +21,7 @@
 
 #define BOOST_TEST_MODULE core
 // formatting of std::optional was introduced in fmt 10
-#define FMT_VERSION_OPTIONAL_FORMAT 100000 
+#define FMT_VERSION_OPTIONAL_FORMAT 100000
 
 #include <boost/test/unit_test.hpp>
 #include <seastar/core/sstring.hh>
@@ -315,7 +315,6 @@ BOOST_AUTO_TEST_CASE(test_compares_left_hand_not_string) {
 #endif
 }
 
-#if FMT_VERSION >= 90000
 
 BOOST_AUTO_TEST_CASE(test_fmt) {
 #if FMT_VERSION >= FMT_VERSION_OPTIONAL_FORMAT
@@ -326,4 +325,3 @@ BOOST_AUTO_TEST_CASE(test_fmt) {
     std::ignore = fmt::format("{}", strings);
 }
 
-#endif

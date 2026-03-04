@@ -21,17 +21,16 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <unordered_map>
 #include <map>
 #include <functional>
 #include <deque>
 #include <chrono>
 #include <random>
+#include <span>
 #include <stdexcept>
 #include <system_error>
 #include <gnutls/crypto.h>
-#endif
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/semaphore.hh>
@@ -42,6 +41,7 @@
 #include <seastar/net/ip.hh>
 #include <seastar/net/const.hh>
 #include <seastar/net/packet-util.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
 
 namespace seastar {
@@ -338,7 +338,7 @@ private:
             tcp_seq wl2;
             tcp_seq initial;
             std::deque<unacked_segment> data;
-            std::deque<packet> unsent;
+            std::deque<temporary_buffer<char>> unsent;
             uint32_t unsent_len = 0;
             bool closed = false;
             promise<> _window_opened;
@@ -435,7 +435,7 @@ private:
         void abort_reader() noexcept;
         future<> wait_for_all_data_acked();
         future<> wait_send_available();
-        future<> send(packet p);
+        future<> send(std::span<temporary_buffer<char>> data);
         void connect();
         packet read();
         void close() noexcept;
@@ -688,8 +688,8 @@ public:
         future<> connected() {
             return _tcb->connect_done();
         }
-        future<> send(packet p) {
-            return _tcb->send(std::move(p));
+        future<> send(std::span<temporary_buffer<char>> data) {
+            return _tcb->send(data);
         }
         future<> wait_for_data() {
             return _tcb->wait_for_data();
@@ -1589,27 +1589,9 @@ packet tcp<InetTraits>::tcb::get_transmit_packet() {
         len = std::min(uint16_t(_tcp.hw_features().mtu - net::tcp_hdr_len_min - InetTraits::ip_hdr_len_min), _snd.mss);
     }
     can_send = std::min(can_send, len);
-    // easy case: one small packet
-    if (_snd.unsent.size() == 1 && _snd.unsent.front().len() <= can_send) {
-        auto p = std::move(_snd.unsent.front());
-        _snd.unsent.pop_front();
-        _snd.unsent_len -= p.len();
-        return p;
-    }
-    // moderate case: need to split one packet
-    if (_snd.unsent.front().len() > can_send) {
-        auto p = _snd.unsent.front().share(0, can_send);
-        _snd.unsent.front().trim_front(can_send);
-        _snd.unsent_len -= p.len();
-        return p;
-    }
-    // hard case: merge some packets, possibly split last
-    auto p = std::move(_snd.unsent.front());
-    _snd.unsent.pop_front();
-    can_send -= p.len();
-    while (!_snd.unsent.empty()
-            && _snd.unsent.front().len() <= can_send) {
-        can_send -= _snd.unsent.front().len();
+    auto p = packet();
+    while (!_snd.unsent.empty() && _snd.unsent.front().size() <= can_send) {
+        can_send -= _snd.unsent.front().size();
         p.append(std::move(_snd.unsent.front()));
         _snd.unsent.pop_front();
     }
@@ -1730,7 +1712,7 @@ void tcp<InetTraits>::tcb::output_one(bool data_retransmit) {
     // if advertised TCP receive window is 0 we may only transmit zero window probing segment.
     // Payload size of this segment is 1. Queueing anything bigger when _snd.window == 0 is bug
     // and violation of RFC
-    assert((_snd.window > 0) || ((_snd.window == 0) && (len <= 1)));
+    SEASTAR_ASSERT((_snd.window > 0) || ((_snd.window == 0) && (len <= 1)));
     queue_packet(std::move(p));
 }
 
@@ -1812,16 +1794,19 @@ future<> tcp<InetTraits>::tcb::wait_send_available() {
 }
 
 template <typename InetTraits>
-future<> tcp<InetTraits>::tcb::send(packet p) {
+future<> tcp<InetTraits>::tcb::send(std::span<temporary_buffer<char>> data) {
     // We can not send after the connection is closed
     if (_snd.closed || in_state(CLOSED)) {
         return make_exception_future<>(tcp_reset_error());
     }
 
-    auto len = p.len();
+    auto sizes = data | std::views::transform(&temporary_buffer<char>::size);
+    auto len = std::accumulate(sizes.begin(), sizes.end(), size_t(0));
+
     _snd.current_queue_space += len;
     _snd.unsent_len += len;
-    _snd.unsent.push_back(std::move(p));
+    // FIXME: use append_range with C++23
+    std::ranges::move(data, std::back_inserter(_snd.unsent));
 
     if (can_send() > 0) {
         output();
@@ -2094,7 +2079,7 @@ tcp_seq tcp<InetTraits>::tcb::get_isn() {
     gnutls_hash(md5_hash_handle, hash, 3 * sizeof(hash[0]));
     gnutls_hash(md5_hash_handle, _isn_secret.key, sizeof(_isn_secret.key));
     // reuse "hash" for the output of digest
-    assert(sizeof(hash) == gnutls_hash_get_len(GNUTLS_DIG_MD5));
+    SEASTAR_ASSERT(sizeof(hash) == gnutls_hash_get_len(GNUTLS_DIG_MD5));
     gnutls_hash_deinit(md5_hash_handle, hash);
     auto seq = hash[0];
     auto m = duration_cast<microseconds>(clock_type::now().time_since_epoch());
@@ -2113,7 +2098,7 @@ std::optional<typename InetTraits::l4packet> tcp<InetTraits>::tcb::get_packet() 
         return std::optional<typename InetTraits::l4packet>();
     }
 
-    assert(!_packetq.empty());
+    SEASTAR_ASSERT(!_packetq.empty());
 
     auto p = std::move(_packetq.front());
     _packetq.pop_front();

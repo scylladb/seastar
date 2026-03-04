@@ -32,10 +32,17 @@
 using namespace seastar;
 using namespace seastar::experimental;
 
+namespace bpo = boost::program_options;
+
 int main(int argc, char** argv) {
     seastar::app_template app;
-    app.run(argc, argv, [] () -> seastar::future<> {
-        return async([] {
+    app.add_options()
+        ("port", bpo::value<uint16_t>()->default_value(10000), "WebSocket server port") ;
+    app.run(argc, argv, [&app]() -> seastar::future<> {
+        auto&& config = app.configuration();
+        uint16_t port = config["port"].as<uint16_t>();
+
+        return async([port] {
             websocket::server ws;
             ws.register_handler("echo", [] (input_stream<char>& in,
                         output_stream<char>& out) {
@@ -57,8 +64,8 @@ int main(int argc, char** argv) {
             auto d = defer([&ws] () noexcept {
                 ws.stop().get();
             });
-            ws.listen(socket_address(ipv4_addr("127.0.0.1", 8123)));
-            std::cout << "Listening on 127.0.0.1:8123 for 1 hour (interruptible, hit Ctrl-C to stop)..." << std::endl;
+            ws.listen(socket_address(ipv4_addr("127.0.0.1", port)));
+            std::cout << "Listening on 127.0.0.1:" << port << " for 1 hour (interruptible, hit Ctrl-C to stop)..." << std::endl;
             seastar::sleep_abortable(std::chrono::hours(1)).handle_exception([](auto ignored) {}).get();
             std::cout << "Stopping the server, deepest thanks to all clients, hope we meet again" << std::endl;
         });

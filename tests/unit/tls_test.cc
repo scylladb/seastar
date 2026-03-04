@@ -27,11 +27,13 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/core/memory.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/iostream.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/core/with_timeout.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/process.hh>
@@ -40,6 +42,7 @@
 #include <seastar/net/inet_address.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include <seastar/util/defer.hh>
 
 #include <boost/dll.hpp>
 
@@ -63,6 +66,9 @@ static const auto cert_location = boost::dll::program_location().parent_path();
 static std::string certfile(const std::string& file) {
     return (cert_location / file).string();
 }
+
+using enable_if_with_networking = boost::unit_test::enable_if<SEASTAR_TESTING_WITH_NETWORKING>;
+using enable_if_without_networking = boost::unit_test::enable_if<!SEASTAR_TESTING_WITH_NETWORKING>;
 
 using namespace seastar;
 
@@ -106,8 +112,6 @@ static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> c
     }).discard_result();
 }
 
-#if SEASTAR_TESTING_WITH_NETWORKING
-
 static const auto google_name = "www.google.com";
 
 // broken out from below. to allow pre-lookup
@@ -129,27 +133,31 @@ static future<> connect_to_ssl_google(::shared_ptr<tls::certificate_credentials>
     });
 }
 
-SEASTAR_TEST_CASE(test_simple_x509_client) {
+SEASTAR_TEST_CASE(test_simple_x509_client_with_google,
+                  *enable_if_with_networking()) {
     auto certs = ::make_shared<tls::certificate_credentials>();
     return certs->set_x509_trust_file(certfile("tls-ca-bundle.pem"), tls::x509_crt_format::PEM).then([certs]() {
         return connect_to_ssl_google(certs);
     });
 }
 
-SEASTAR_TEST_CASE(test_x509_client_with_system_trust) {
+SEASTAR_TEST_CASE(test_x509_client_with_system_trust,
+                  *enable_if_with_networking()) {
     auto certs = ::make_shared<tls::certificate_credentials>();
     return certs->set_system_trust().then([certs]() {
         return connect_to_ssl_google(certs);
     });
 }
 
-SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust) {
+SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust,
+                  *enable_if_with_networking()) {
     tls::credentials_builder b;
     (void)b.set_system_trust();
     return connect_to_ssl_google(b.build_certificate_credentials());
 }
 
-SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust_multiple) {
+SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust_multiple,
+                  *enable_if_with_networking()) {
     // avoid getting parallel connects stuck on dns lookup (if running single case).
     // pre-lookup www.google.com
     return google_address().then([](socket_address) {
@@ -161,7 +169,8 @@ SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust_multiple) {
     });
 }
 
-SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings) {
+SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings,
+                  *enable_if_with_networking()) {
     static std::vector<sstring> prios( {
         "NORMAL:+ARCFOUR-128", // means normal ciphers plus ARCFOUR-128.
         "SECURE128:-VERS-SSL3.0:+COMP-DEFLATE", // means that only secure ciphers are enabled, SSL3.0 is disabled, and libz compression enabled.
@@ -181,7 +190,8 @@ SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings) {
     });
 }
 
-SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings_fail) {
+SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings_fail,
+                  *enable_if_with_networking()) {
     static std::vector<sstring> prios( { "NONE",
         "NONE:+CURVE-SECP256R1"
     });
@@ -201,7 +211,59 @@ SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings_fail) 
         return make_ready_future<>();
     });
 }
-#endif // SEASTAR_TESTING_WITH_NETWORKING
+
+SEASTAR_TEST_CASE(test_alpn_client_negotiate_h2_with_google,
+                  *enable_if_with_networking()) {
+    auto addr = co_await google_address();
+    auto certs = ::make_shared<tls::certificate_credentials>();
+    co_await certs->set_system_trust();
+
+    tls::tls_options client_tls_options;
+    client_tls_options.server_name = google_name; // For SNI
+    client_tls_options.alpn_protocols = {"h2", "http/1.1"}; // Offer h2 first
+
+    auto c = co_await tls::connect(certs, addr, client_tls_options);
+    auto selected_alpn = co_await tls::get_selected_alpn_protocol(c);
+    BOOST_CHECK(selected_alpn.has_value());
+    BOOST_CHECK(*selected_alpn == "h2" || *selected_alpn == "http/1.1");
+    BOOST_TEST_MESSAGE(fmt::format("Google selected ALPN: {}", *selected_alpn).c_str());
+    if (*selected_alpn != "h2") {
+        BOOST_TEST_MESSAGE("Warning: Google did not select 'h2'. Selected: " + *selected_alpn);
+    }
+    co_return;
+}
+
+SEASTAR_TEST_CASE(test_alpn_client_server) {
+    auto certs = ::make_shared<tls::server_credentials>(::make_shared<tls::dh_params>());
+    co_await certs->set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM);
+    certs->set_alpn_protocols({"h2", "http/1.1"});
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    auto addr = ::make_ipv4_address({0x7f000001, 4712});
+    auto server = tls::listen(certs, addr, opts);
+
+    co_await when_all(
+        [server = std::move(server)]() mutable -> future<> {
+            auto s = co_await server.accept();
+            auto alpn = co_await tls::get_selected_alpn_protocol(s.connection);
+            BOOST_CHECK(alpn.has_value());
+            BOOST_CHECK_EQUAL(*alpn, "h2");
+            co_return;
+        },
+        [addr]() mutable -> future<> {
+            tls::credentials_builder b;
+            co_await b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM);
+            tls::tls_options client_opts{.alpn_protocols = {"hx", "h2"}};
+            auto c = co_await tls::connect(b.build_certificate_credentials(), addr, client_opts);
+            auto alpn = co_await tls::get_selected_alpn_protocol(c);
+            BOOST_CHECK(alpn.has_value());
+            BOOST_CHECK_EQUAL(*alpn, "h2");
+            co_return;
+        }
+    );
+    co_return;
+}
 
 class https_server {
     const sstring _cert;
@@ -269,16 +331,13 @@ public:
     }
 };
 
-#if !SEASTAR_TESTING_WITH_NETWORKING
-
-SEASTAR_THREAD_TEST_CASE(test_simple_x509_client) {
+SEASTAR_THREAD_TEST_CASE(test_simple_x509_client_with_local_server,
+                         *enable_if_without_networking()) {
     auto certs = ::make_shared<tls::certificate_credentials>();
     https_server server;
     certs->set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
     connect_to_ssl_addr(certs, server.addr(), server.name()).get();
 }
-
-#endif // !SEASTAR_TESTING_WITH_NETWORKING
 
 SEASTAR_THREAD_TEST_CASE(test_x509_client_with_builder) {
     tls::credentials_builder b;
@@ -487,7 +546,7 @@ class echoserver {
 public:
     echoserver(size_t message_size, bool use_dh_params = true)
             : _certs(
-                    use_dh_params 
+                    use_dh_params
                         ? ::make_shared<tls::server_credentials>(::make_shared<tls::dh_params>())
                         : ::make_shared<tls::server_credentials>()
                     )
@@ -571,7 +630,7 @@ static future<> run_echo_test(sstring message,
     auto server = ::make_shared<seastar::sharded<echoserver>>();
     auto addr = ::make_ipv4_address( {0x7f000001, port});
 
-    assert(do_read || loops == 1);
+    SEASTAR_ASSERT(do_read || loops == 1);
 
     future<> f = make_ready_future();
 
@@ -808,6 +867,18 @@ SEASTAR_THREAD_TEST_CASE(test_close_timout) {
             future<> flush() override {
                 return _sink.flush();
             }
+#if SEASTAR_API_LEVEL >= 9
+            future<> put(std::span<temporary_buffer<char>> bufs) override {
+                std::vector<temporary_buffer<char>> stable_bufs(std::make_move_iterator(bufs.begin()), std::make_move_iterator(bufs.end()));
+                if (!std::exchange(_impl._close, false)) {
+                    return _sink.put(std::move(stable_bufs));
+                }
+
+                return _p.get_future().then([this, bufs = std::move(stable_bufs)] () mutable {
+                    return put(std::span(bufs));
+                });
+            }
+#else
             using data_sink_impl::put;
             future<> put(net::packet p) override {
                 if (std::exchange(_impl._close, false)) {
@@ -817,6 +888,7 @@ SEASTAR_THREAD_TEST_CASE(test_close_timout) {
                 }
                 return _sink.put(std::move(p));
             }
+#endif
             future<> close() override {
                 _p.set_value();
                 return make_ready_future<>();
@@ -828,7 +900,7 @@ SEASTAR_THREAD_TEST_CASE(test_close_timout) {
     };
 
     auto constexpr iterations = 500;
-        
+
     for (int i = 0; i < iterations; ++i) {
         auto b1 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::SERVER_TX);
         auto b2 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::CLIENT_TX);
@@ -848,7 +920,7 @@ SEASTAR_THREAD_TEST_CASE(test_close_timout) {
         auto f2 = is.read();
         f1.get();
         f2.get();
-        
+
         // block further writes
         ssir._close = true;
         csir._close = true;
@@ -863,7 +935,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
     namespace fs = std::filesystem;
 
     // copy the wrong certs. We don't trust these
-    // blocking calls, but this is a test and seastar does not have a copy 
+    // blocking calls, but this is a test and seastar does not have a copy
     // util and I am lazy...
     fs::copy_file(certfile("other.crt"), tmp.path() / "test.crt");
     fs::copy_file(certfile("other.key"), tmp.path() / "test.key");
@@ -1018,8 +1090,8 @@ SEASTAR_THREAD_TEST_CASE(test_reload_broken_certificates) {
 
 using namespace std::chrono_literals;
 
-// the same as previous test, but we set a big tolerance for 
-// reload errors, and verify that either our scheduling/fs is 
+// the same as previous test, but we set a big tolerance for
+// reload errors, and verify that either our scheduling/fs is
 // super slow, or we got through the changes without failures.
 SEASTAR_THREAD_TEST_CASE(test_reload_tolerance) {
     tmpdir tmp;
@@ -1074,7 +1146,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_tolerance) {
 
     auto end = std::chrono::system_clock::now();
 
-    BOOST_ASSERT(nfails == 0 || (end - start) > 4s);
+    SEASTAR_ASSERT(nfails == 0 || (end - start) > 4s);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_reload_by_move) {
@@ -1154,12 +1226,12 @@ SEASTAR_THREAD_TEST_CASE(test_reload_by_move) {
     // it should reload here as well.
     p.get_future().get();
 
-    // could get two notifications. but not more. 
+    // could get two notifications. but not more.
     for (int i = 0;; ++i) {
         p = promise();
         try {
             with_timeout(std::chrono::steady_clock::now() + 3s, p.get_future()).get();
-            BOOST_ASSERT(i == 0);
+            SEASTAR_ASSERT(i == 0);
         } catch (timed_out_error&) {
             // ok
             break;
@@ -1299,7 +1371,7 @@ SEASTAR_THREAD_TEST_CASE(test_dn_name_handling) {
     // - mtls_client2.crt - second client certificate
     //
     // The test runs server that uses mtls_server.crt.
-    // The server accepts two incomming connections, first one uses mtls_client1.crt
+    // The server accepts two incoming connections, first one uses mtls_client1.crt
     // and the second one uses mtls_client2.crt. Every client sends a short string
     // that server receives and tries to find it in the DN string.
 
@@ -1434,6 +1506,66 @@ SEASTAR_THREAD_TEST_CASE(test_alt_names) {
 
 }
 
+SEASTAR_THREAD_TEST_CASE(test_peer_certificate_chain_handling) {
+    tls::credentials_builder b;
+
+    b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+    b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    b.set_client_auth(tls::client_auth::REQUIRE);
+
+    auto creds = b.build_certificate_credentials();
+    auto serv = b.build_server_credentials();
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    opts.set_fixed_cpu(this_shard_id());
+
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto server = tls::listen(serv, addr, opts);
+
+    {
+        auto sa = server.accept();
+        auto c = tls::connect(creds, addr).get();
+        auto s = sa.get();
+
+        auto in = s.connection.input();
+        output_stream<char> out(c.output().detach(), 1024);
+        out.write("nils").get();
+
+        auto fscrts = tls::get_peer_certificate_chain(s.connection);
+        auto fccrts = tls::get_peer_certificate_chain(c);
+
+        auto fout = out.flush();
+        auto fin = in.read();
+
+        fout.get();
+
+        auto scrts = fscrts.get();
+        auto ccrts = fccrts.get();
+        fin.get();
+
+        in.close().get();
+        out.close().get();
+
+        s.connection.shutdown_input();
+        s.connection.shutdown_output();
+
+        c.shutdown_input();
+        c.shutdown_output();
+
+        auto read_file = [](std::filesystem::path const& path) {
+            auto contents = tls::certificate_data(std::filesystem::file_size(path));
+            std::ifstream{path, std::ios_base::binary}.read(reinterpret_cast<char *>(contents.data()), contents.size());
+            return contents;
+        };
+
+        auto ders = {read_file(certfile("test.crt.der"))};
+
+        BOOST_REQUIRE(std::ranges::equal(scrts, ders));
+        BOOST_REQUIRE(std::ranges::equal(ccrts, ders));
+    }
+}
+
 SEASTAR_THREAD_TEST_CASE(test_skip_wait_for_eof) {
     tls::credentials_builder b;
 
@@ -1456,7 +1588,7 @@ SEASTAR_THREAD_TEST_CASE(test_skip_wait_for_eof) {
         auto sa = server.accept();
         auto c = engine().connect(addr).get();
         auto c_tls = tls::wrap_client(creds, std::move(c),
-                                      tls::tls_options{.wait_for_eof_on_shutdown = false}).get();
+                                      tls::tls_options{.bye_timeout = std::chrono::seconds(0)}).get();
         auto s = sa.get();
 
         auto in = s.connection.input();
@@ -1490,10 +1622,7 @@ SEASTAR_THREAD_TEST_CASE(test_skip_wait_for_eof) {
     }
 }
 
-/**
- * Test TLS13 session ticket support. 
-*/
-SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
+static void do_test_tls13_session_tickets(bool reset_server) {
     tls::credentials_builder b;
 
     b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
@@ -1523,8 +1652,8 @@ SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
         output_stream<char> out(c.output().detach(), 1024);
         output_stream<char> sout(s.connection.output().detach(), 1024);
 
-        // write data in both directions. Required for session data to 
-        // become available. 
+        // write data in both directions. Required for session data to
+        // become available.
         out.write("nils").get();
         auto fin = in.read();
         auto fout = out.flush();
@@ -1555,6 +1684,12 @@ SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
         c.shutdown_output();
     }
 
+    if (reset_server) {
+        server = {};
+        // rebuild creds
+        serv = b.build_server_credentials();
+        server = tls::listen(serv, addr, opts);
+    }
 
     {
         auto sa = server.accept();
@@ -1569,7 +1704,7 @@ SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
         // This is ok. Will force a handshake.
         auto f = tls::check_session_is_resumed(c);
 
-        // But we need to force some IO to make the 
+        // But we need to force some IO to make the
         // handshake actually happen.
         auto in = s.connection.input();
         output_stream<char> out(c.output().detach(), 1024);
@@ -1594,4 +1729,437 @@ SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
         c.shutdown_output();
     }
 
+}
+
+/**
+ * Test TLS13 session ticket support.
+*/
+SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
+    do_test_tls13_session_tickets(false);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets_retain_session_key) {
+    do_test_tls13_session_tickets(true);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets_invalidated_by_reload) {
+    tls::credentials_builder b;
+    tmpdir tmp;
+
+    namespace fs = std::filesystem;
+
+    // copy the wrong certs. We don't trust these
+    // blocking calls, but this is a test and seastar does not have a copy
+    // util and I am lazy...
+    fs::copy_file(certfile("test.crt"), tmp.path() / "test.crt");
+    fs::copy_file(certfile("test.key"), tmp.path() / "test.key");
+
+    auto cert = (tmp.path() / "test.crt").native();
+    auto key = (tmp.path() / "test.key").native();
+    promise<> p;
+
+    b.set_x509_key_file(cert, key, tls::x509_crt_format::PEM).get();
+    b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    b.set_session_resume_mode(tls::session_resume_mode::TLS13_SESSION_TICKET);
+    b.set_priority_string("SECURE128:+SECURE192:-VERS-TLS-ALL:+VERS-TLS1.3");
+
+    auto creds = b.build_certificate_credentials();
+    auto serv = b.build_reloadable_server_credentials([&p](const std::unordered_set<sstring>&, std::exception_ptr) {
+        p.set_value();
+    }).get();
+
+    auto reloaded = p.get_future();
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    opts.set_fixed_cpu(this_shard_id());
+
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto server = tls::listen(serv, addr, opts);
+
+    tls::session_data sess_data;
+
+    {
+        auto sa = server.accept();
+        auto c = tls::connect(creds, addr).get();
+        auto s = sa.get();
+
+        auto in = s.connection.input();
+        auto cin = c.input();
+        output_stream<char> out(c.output().detach(), 1024);
+        output_stream<char> sout(s.connection.output().detach(), 1024);
+
+        // write data in both directions. Required for session data to
+        // become available.
+        out.write("nils").get();
+        auto fin = in.read();
+        auto fout = out.flush();
+
+        fout.get();
+        fin.get();
+
+        sout.write("banan").get();
+        fin = cin.read();
+        fout = sout.flush();
+
+        fout.get();
+        fin.get();
+
+        BOOST_REQUIRE(!tls::check_session_is_resumed(c).get()); // no resume data
+
+        // get ticket data
+        sess_data = tls::get_session_resume_data(c).get();
+        BOOST_REQUIRE(!sess_data.empty());
+
+        in.close().get();
+        out.close().get();
+
+        s.connection.shutdown_input();
+        s.connection.shutdown_output();
+
+        c.shutdown_input();
+        c.shutdown_output();
+    }
+
+    BOOST_REQUIRE(!reloaded.available());
+
+    fs::copy_file(certfile("test.crt"), tmp.path() / "test.crt", fs::copy_options::overwrite_existing);
+    reloaded.get();
+
+    {
+        auto sa = server.accept();
+
+        // tell client to try resuming.
+        tls::tls_options tls_opts;
+        tls_opts.session_resume_data = sess_data;
+
+        auto c = tls::connect(creds, addr, tls_opts).get();
+        auto s = sa.get();
+
+        // This is ok. Will force a handshake.
+        auto f = tls::check_session_is_resumed(c);
+
+        // But we need to force some IO to make the
+        // handshake actually happen.
+        auto in = s.connection.input();
+        output_stream<char> out(c.output().detach(), 1024);
+
+        auto fin = in.read();
+
+        out.write("nils").get();
+        auto fout = out.flush();
+
+        fout.get();
+        fin.get();
+
+        BOOST_REQUIRE(!f.get()); // Should NOT work. Keys should have been replaced
+
+        in.close().get();
+        out.close().get();
+
+        s.connection.shutdown_input();
+        s.connection.shutdown_output();
+
+        c.shutdown_input();
+        c.shutdown_output();
+    }
+
+}
+
+SEASTAR_THREAD_TEST_CASE(test_reload_certificates_with_only_shard0_notify) {
+    tmpdir tmp;
+
+    namespace fs = std::filesystem;
+
+    // copy the wrong certs. We don't trust these
+    // blocking calls, but this is a test and seastar does not have a copy
+    // util and I am lazy...
+    fs::copy_file(certfile("other.crt"), tmp.path() / "test.crt");
+    fs::copy_file(certfile("other.key"), tmp.path() / "test.key");
+
+    auto cert = (tmp.path() / "test.crt").native();
+    auto key = (tmp.path() / "test.key").native();
+    promise<> p;
+
+    tls::credentials_builder b;
+    b.set_x509_key_file(cert, key, tls::x509_crt_format::PEM).get();
+    b.set_dh_level();
+
+    auto certs = b.build_server_credentials();
+
+    auto shard_1_certs = smp::submit_to(1, [&]() -> future<shared_ptr<tls::server_credentials>> {
+        co_return co_await b.build_reloadable_server_credentials([&, changed = std::unordered_set<sstring>{}](const tls::credentials_builder& builder, const std::unordered_set<sstring>& files, std::exception_ptr ep) mutable -> future<> {
+            if (ep) {
+                co_return;
+            }
+            changed.insert(files.begin(), files.end());
+            if (changed.count(cert) && changed.count(key)) {
+                // shard one certs are not reloadable. We issue a reload of them from shard 0
+                // - to save inotify instances.
+                co_await smp::submit_to(0, [&] {
+                    builder.rebuild(*certs);
+                    p.set_value();
+                });
+            }
+        });
+    }).get();
+
+    auto def = defer([&]() noexcept {
+        try {
+            smp::submit_to(1, [&] {
+                shard_1_certs = nullptr;
+            }).get();
+        } catch (...) {}
+    });
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto server = tls::listen(certs, addr, opts);
+
+    tls::credentials_builder b2;
+    b2.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+
+    {
+        auto sa = server.accept();
+        auto c = tls::connect(b2.build_certificate_credentials(), addr).get();
+        auto s = sa.get();
+        auto in = s.connection.input();
+
+        output_stream<char> out(c.output().detach(), 4096);
+
+        try {
+            out.write("apa").get();
+            auto f = out.flush();
+            auto f2 = in.read();
+
+            try {
+                f.get();
+                BOOST_FAIL("should not reach");
+            } catch (tls::verification_error&) {
+                // ok
+            }
+            try {
+                out.close().get();
+            } catch (...) {
+            }
+
+            try {
+                f2.get();
+                BOOST_FAIL("should not reach");
+            } catch (...) {
+                // ok
+            }
+            try {
+                in.close().get();
+            } catch (...) {
+            }
+        } catch (tls::verification_error&) {
+            // ok
+        }
+    }
+
+    // copy the right (trusted) certs over the old ones.
+    fs::copy_file(certfile("test.crt"), tmp.path() / "test0.crt");
+    fs::copy_file(certfile("test.key"), tmp.path() / "test0.key");
+
+    rename_file((tmp.path() / "test0.crt").native(), (tmp.path() / "test.crt").native()).get();
+    rename_file((tmp.path() / "test0.key").native(), (tmp.path() / "test.key").native()).get();
+
+    p.get_future().get();
+
+    // now it should work
+    {
+        auto sa = server.accept();
+        auto c = tls::connect(b2.build_certificate_credentials(), addr).get();
+        auto s = sa.get();
+        auto in = s.connection.input();
+
+        output_stream<char> out(c.output().detach(), 4096);
+
+        out.write("apa").get();
+        auto f = out.flush();
+        auto buf = in.read().get();
+        f.get();
+        out.close().get();
+        in.read().get(); // ignore - just want eof
+        in.close().get();
+
+        BOOST_CHECK_EQUAL(sstring(buf.begin(), buf.end()), "apa");
+    }
+}
+
+SEASTAR_TEST_CASE(test_tls_cipher_suite_and_protocol_version, *enable_if_with_networking()) {
+    auto certs = ::make_shared<tls::certificate_credentials>();
+    co_await certs->set_system_trust();
+
+    auto c = co_await tls::connect(certs, co_await google_address(), tls::tls_options{ .server_name = google_name });
+    BOOST_CHECK_EQUAL(co_await tls::get_cipher_suite(c), "TLS_AES_256_GCM_SHA384");
+    BOOST_CHECK_EQUAL(co_await tls::get_protocol_version(c), "TLS1.3");
+}
+
+SEASTAR_TEST_CASE(test_cipher_suite_and_protocol_version_for_non_tls_connection, *enable_if_with_networking()) {
+    auto c = co_await seastar::connect(co_await google_address());
+    BOOST_CHECK_THROW(co_await tls::get_cipher_suite(c), std::invalid_argument);
+    BOOST_CHECK_THROW(co_await tls::get_protocol_version(c), std::invalid_argument);
+}
+
+/**
+ * Tests that re-handshaking during a connection lifetime
+ * does not cause large buffer allocations inside gnutls.
+ * #2859
+ */
+SEASTAR_THREAD_TEST_CASE(test_send_recv_alloc_limits) {
+    tls::credentials_builder b;
+
+    b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+    b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    b.set_client_auth(tls::client_auth::REQUIRE);
+    b.set_session_resume_mode(tls::session_resume_mode::TLS13_SESSION_TICKET);
+    b.set_priority_string("SECURE128:+SECURE192:-VERS-TLS-ALL:-VERS-TLS1.2:+VERS-TLS1.3");
+
+    auto creds = b.build_certificate_credentials();
+    auto serv = b.build_server_credentials();
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    opts.set_fixed_cpu(this_shard_id());
+
+    // cannot use 128k because auto-resize of recv buffers
+    // in posix stack will hit 128 by default, and we cannot
+    // control this on underlying socket side for tls.
+    static constexpr size_t size_limit = 256 * 1024;
+    // make data payload somewhat smaller than maximum
+    static constexpr size_t buf_size = size_limit - 512;
+
+    temporary_buffer<char> to_send(buf_size);
+    std::fill(to_send.get_write(), to_send.get_write() + to_send.size(), 'a');
+
+    auto stats_before = memory::stats();
+    memory::scoped_large_allocation_warning_threshold sct(size_limit);
+
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto server = tls::listen(serv, addr, opts);
+
+    {
+        auto sa = server.accept();
+        auto c = tls::connect(creds, addr).get();
+        auto s = sa.get();
+
+        auto cin = c.input();
+        auto cout = output_stream<char>(c.output().detach(), 1024);
+        auto sin = s.connection.input();
+        auto sout = output_stream<char>(s.connection.output().detach(), 1024);
+
+        constexpr size_t num_loops = (1 << 10);
+
+        auto write = [&](auto& out) {
+            return out.write(to_send.share()).then([&] {
+                return out.flush();
+            });
+        };
+        auto read = [&](auto& in) {
+            // ensure we don't try to read into a large buffer.
+            return in.read_exactly(buf_size / 4).then([&](auto&&) {
+                    return in.read_exactly(buf_size / 4);
+                }).then([&](auto&&) {
+                    return in.read_exactly(buf_size / 4);
+                }).then([&](auto&&) {
+                    return in.read_exactly(buf_size / 4);
+                })
+                ;
+        };
+        for (size_t i = 0; i < num_loops; ++i) {
+            auto fout = write(sout);
+            auto fin = read(cin);
+
+            auto h = (i > 0 && (i & 0xff) == 0)
+                ? BOOST_TEST_MESSAGE("Forcing re-handshake"), tls::force_rehandshake(s.connection)
+                : make_ready_future<>()
+                ;
+
+            fin.get();
+            fout.get();
+
+            fout = write(cout);
+            fin = read(sin);
+
+            fin.get();
+            fout.get();
+
+            h.get();
+
+            if ((i & 0xff) == 0) {
+                BOOST_TEST_MESSAGE(fmt::format("Did {} loops", i));
+            }
+        }
+
+        sout.close().get();
+        sin.close().get();
+        cout.close().get();
+        cin.close().get();
+
+        s.connection.shutdown_input();
+        s.connection.shutdown_output();
+
+        c.shutdown_input();
+        c.shutdown_output();
+
+        auto stats_after = memory::stats();
+
+        BOOST_CHECK_EQUAL(stats_after.large_allocations(), stats_before.large_allocations());
+    }
+}
+
+static std::pair<connected_socket, connected_socket> tls_socketpair() {
+    auto certs = ::make_shared<tls::server_credentials>(::make_shared<tls::dh_params>());
+    certs->set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto ss = tls::listen(certs, addr, opts);
+    tls::credentials_builder b;
+    b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+
+    auto cf = tls::connect(b.build_certificate_credentials(), addr);
+    auto ar = ss.accept().get();
+    auto cs = cf.get();
+
+    return std::make_pair(std::move(ar.connection), std::move(cs));
+}
+
+SEASTAR_THREAD_TEST_CASE(test_session_close_with_unread_data) {
+    auto p = tls_socketpair();
+
+    auto c = seastar::async([c = std::move(p.first)] () mutable {
+        auto in = c.input();
+        auto b = in.read_exactly(1).get();
+        in.close().get();
+        c.shutdown_output();
+    });
+
+    auto s = seastar::async([s = std::move(p.second)] () mutable {
+        auto out = s.output();
+        size_t bytes_sent = 0;
+        auto buf = temporary_buffer<char>(1024);
+        std::memset(buf.get_write(), '\0', buf.size());
+        auto start = std::chrono::steady_clock::now();
+        while (true) {
+            try {
+                out.write(buf.get(), buf.size()).get();
+                out.flush().get();
+                bytes_sent += buf.size();
+            } catch (...) {
+                break;
+            }
+        }
+        auto delay = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
+        BOOST_TEST_MESSAGE(fmt::format("Wrote {} bytes in {:.3f} seconds\n", bytes_sent, delay.count()));
+        out.close().handle_exception([] (auto x) {}).get();
+        s.shutdown_input();
+        BOOST_CHECK_LT(delay.count(), 1.0);
+    });
+
+    seastar::when_all(std::move(c), std::move(s)).discard_result().get();
 }

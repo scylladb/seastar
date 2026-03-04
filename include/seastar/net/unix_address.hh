@@ -17,19 +17,15 @@
  */
 /*
  * Copyright (C) 2019 Red Hat, Inc.
- */ 
+ */
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <iosfwd>
 #include <sys/types.h>
 #include <sys/un.h>
 #include <string>
-#endif
-#include <seastar/util/modules.hh>
 
 namespace seastar {
-SEASTAR_MODULE_EXPORT_BEGIN
 /*!
     A helper struct for creating/manipulating UNIX-domain sockets.
 
@@ -74,5 +70,4 @@ struct unix_domain_addr {
 };
 
 std::ostream& operator<<(std::ostream&, const unix_domain_addr&);
-SEASTAR_MODULE_EXPORT_END
 } // namespace seastar

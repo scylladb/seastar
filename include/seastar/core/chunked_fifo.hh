@@ -21,12 +21,12 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <algorithm>
 #include <cassert>
+#include <concepts>
+#include <iterator>
 #include <type_traits>
-#include <seastar/util/modules.hh>
-#endif
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -86,7 +86,6 @@ namespace seastar {
 // uses move/copy constructors instead of move/copy assignments, which are
 // less efficient.
 
-SEASTAR_MODULE_EXPORT
 template <typename T, size_t items_per_chunk = 128>
 class chunked_fifo {
     static_assert((items_per_chunk & (items_per_chunk - 1)) == 0,
@@ -158,7 +157,8 @@ private:
 
     public:
         basic_iterator() noexcept = default;
-        template<bool OtherIsConst, std::enable_if_t<IsConst && !OtherIsConst, int> = 0>
+        template<bool OtherIsConst>
+        requires (IsConst && !OtherIsConst)
         inline basic_iterator(const basic_iterator<OtherIsConst>& o) noexcept
 	  :  basic_iterator{o._chunk, o._item_index} {}
         inline bool operator==(const basic_iterator& o) const noexcept;
@@ -176,10 +176,11 @@ public:
 public:
     chunked_fifo() noexcept = default;
     chunked_fifo(chunked_fifo&& x) noexcept;
-    chunked_fifo(const chunked_fifo& X) = delete;
+    chunked_fifo(const chunked_fifo&);
     ~chunked_fifo();
-    chunked_fifo& operator=(const chunked_fifo&) = delete;
+    chunked_fifo& operator=(const chunked_fifo&);
     chunked_fifo& operator=(chunked_fifo&&) noexcept;
+    inline bool operator==(const chunked_fifo& rhs) const;
     inline void push_back(const T& data);
     inline void push_back(T&& data);
     T& back() noexcept;
@@ -298,6 +299,25 @@ chunked_fifo<T, items_per_chunk>::chunked_fifo(chunked_fifo&& x) noexcept
 
 template <typename T, size_t items_per_chunk>
 inline
+chunked_fifo<T, items_per_chunk>::chunked_fifo(const chunked_fifo& rhs)
+        : chunked_fifo() {
+    std::copy_n(rhs.begin(), rhs.size(), std::back_inserter(*this));
+}
+
+template <typename T, size_t items_per_chunk>
+inline
+chunked_fifo<T, items_per_chunk>&
+chunked_fifo<T, items_per_chunk>::operator=(const chunked_fifo& rhs) {
+    if (&rhs != this) {
+        clear();
+        std::copy_n(rhs.begin(), rhs.size(), std::back_inserter(*this));
+        shrink_to_fit();
+    }
+    return *this;
+}
+
+template <typename T, size_t items_per_chunk>
+inline
 chunked_fifo<T, items_per_chunk>&
 chunked_fifo<T, items_per_chunk>::operator=(chunked_fifo&& x) noexcept {
     if (&x != this) {
@@ -342,7 +362,7 @@ void chunked_fifo<T, items_per_chunk>::clear() noexcept {
 template <typename T, size_t items_per_chunk>
 void chunked_fifo<T, items_per_chunk>::pop_front_n(size_t n) noexcept {
     while (n) {
-        assert(_front_chunk && "pop_front_n n too large");
+        SEASTAR_ASSERT(_front_chunk && "pop_front_n n too large");
 
         auto target = _front_chunk;
         unsigned delete_count = std::min(target->size(), n);
@@ -453,6 +473,11 @@ chunked_fifo<T, items_per_chunk>::emplace_back(Args&&... args) {
         throw;
     }
     ++_back_chunk->end;
+}
+
+template <typename T, size_t items_per_chunk>
+inline bool chunked_fifo<T, items_per_chunk>::operator==(const chunked_fifo& rhs) const {
+    return size() == rhs.size() && std::equal(begin(), end(), rhs.begin());
 }
 
 template <typename T, size_t items_per_chunk>

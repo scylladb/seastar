@@ -8,12 +8,11 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifdef SEASTAR_MODULE
-module;
-module seastar;
-#else
+
+#include <string_view>
+
 #include <seastar/http/mime_types.hh>
-#endif
+
 
 namespace seastar {
 
@@ -25,6 +24,7 @@ struct mapping {
     const char* mime_type;
 } mappings[] = {
         { "json", "application/json"},
+	{ "xml", "application/xml"},
         { "gif", "image/gif" },
         { "htm", "text/html" },
         { "css", "text/css" },
@@ -39,7 +39,7 @@ struct mapping {
         { "proto", "application/vnd.google.protobuf; proto=io.prometheus.client.MetricFamily; encoding=delimited"},
 };
 
-const char* extension_to_type(const sstring& extension)
+const char* extension_to_type(std::string_view extension)
 {
     for (mapping m : mappings) {
         if (extension == m.extension) {

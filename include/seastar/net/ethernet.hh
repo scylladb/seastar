@@ -21,14 +21,12 @@
 
 #pragma once
 
-#if FMT_VERSION >= 90000
 #include <fmt/ostream.h>
-#endif
 
 #include <array>
-#include <assert.h>
 #include <algorithm>
 #include <seastar/net/byteorder.hh>
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -43,7 +41,7 @@ struct ethernet_address {
     }
 
     ethernet_address(std::initializer_list<uint8_t> eaddr) noexcept {
-        assert(eaddr.size() == mac.size());
+        SEASTAR_ASSERT(eaddr.size() == mac.size());
         std::copy(eaddr.begin(), eaddr.end(), mac.begin());
     }
 
@@ -99,6 +97,4 @@ ethernet_address parse_ethernet_address(std::string addr);
 
 }
 
-#if FMT_VERSION >= 90000
 template <> struct fmt::formatter<seastar::net::ethernet_address> : fmt::ostream_formatter {};
-#endif

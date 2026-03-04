@@ -20,25 +20,21 @@
  * Copyright 2020 ScyllaDB
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <cstdint>
-#include <deque>
+#include <list>
+#include <optional>
 #include <filesystem>
 #include <iostream>
 #include <list>
 #include <vector>
+#include <coroutine>
 #include <sys/statvfs.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/util/file.hh>
-#endif
 
 namespace seastar {
 
@@ -128,8 +124,16 @@ future<uint64_t> fs_free(std::string_view name) noexcept {
     });
 }
 
+future<std::filesystem::space_info> file_system_space(std::string_view name) noexcept {
+    return engine().file_system_space(name);
+}
+
 future<stat_data> file_stat(std::string_view name, follow_symlink follow) noexcept {
     return engine().file_stat(name, follow);
+}
+
+future<stat_data> file_stat(file& directory, std::string_view name, follow_symlink follow) noexcept {
+    return engine().file_stat(directory, name, follow);
 }
 
 future<std::optional<struct group_details>> getgrnam(std::string_view name) {
@@ -162,45 +166,30 @@ future<> chmod(std::string_view name, file_permissions permissions) noexcept {
 
 static future<> do_recursive_remove_directory(const fs::path path) noexcept {
     struct work_entry {
-        const fs::path path;
+        fs::path path;
         bool listed;
-
-        work_entry(const fs::path path, bool listed)
-                : path(std::move(path))
-                , listed(listed)
-        {
-        }
     };
 
-    return do_with(std::deque<work_entry>(), [path = std::move(path)] (auto& work_queue) mutable {
-        work_queue.emplace_back(std::move(path), false);
-        return do_until([&work_queue] { return work_queue.empty(); }, [&work_queue] () mutable {
-            auto ent = work_queue.back();
-            work_queue.pop_back();
-            if (ent.listed) {
-                return remove_file(ent.path.native());
-            } else {
-                work_queue.emplace_back(ent.path, true);
-                return do_with(std::move(ent.path), [&work_queue] (const fs::path& path) {
-                    return open_directory(path.native()).then([&path, &work_queue] (file dir) mutable {
-                        return do_with(std::move(dir), [&path, &work_queue] (file& dir) mutable {
-                            return dir.list_directory([&path, &work_queue] (directory_entry de) mutable {
-                                const fs::path sub_path = path / de.name.c_str();
-                                if (de.type && *de.type == directory_entry_type::directory) {
-                                    work_queue.emplace_back(std::move(sub_path), false);
-                                } else {
-                                    work_queue.emplace_back(std::move(sub_path), true);
-                                }
-                                return make_ready_future<>();
-                            }).done().then([&dir] () mutable {
-                                return dir.close();
-                            });
-                        });
-                    });
-                });
-            }
-        });
-    });
+    std::list<work_entry> work_queue;
+    work_queue.emplace_back(std::move(path), false);
+    while (!work_queue.empty()) {
+        auto ent = std::move(work_queue.back());
+        work_queue.pop_back();
+        if (ent.listed) {
+            co_await remove_file(ent.path.native());
+        } else {
+            work_queue.emplace_back(ent.path, true);
+            auto path = std::move(ent.path);
+            file dir = co_await open_directory(path.native());
+            co_await dir.list_directory([&] (directory_entry de) -> future<> {
+                fs::path sub_path = path / de.name.c_str();
+                bool is_dir = de.type && *de.type == directory_entry_type::directory;
+                work_queue.emplace_back(std::move(sub_path), !is_dir);
+                co_return;
+            }).done();
+            co_await dir.close();
+        }
+    }
 }
 
 future<> recursive_remove_directory(fs::path path) noexcept {

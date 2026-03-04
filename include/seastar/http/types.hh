@@ -16,17 +16,19 @@
  * under the License.
  */
 /*
- * Copyright (C) 2023 ScyllaDB
+ * Copyright (C) 2025-present ScyllaDB
  */
 
 #pragma once
 
-#ifdef SEASTAR_MODULE
-#  define SEASTAR_MODULE_EXPORT export
-#  define SEASTAR_MODULE_EXPORT_BEGIN export {
-#  define SEASTAR_MODULE_EXPORT_END }
-#else
-#  define SEASTAR_MODULE_EXPORT
-#  define SEASTAR_MODULE_EXPORT_BEGIN
-#  define SEASTAR_MODULE_EXPORT_END
-#endif
+#include <seastar/core/future.hh>
+#include <seastar/core/iostream.hh>
+#include <seastar/util/noncopyable_function.hh>
+
+namespace seastar::http {
+
+/// body_writer_type - a function that accepts an output stream and uses that stream to write the body.
+/// The function should take ownership of the stream while using it and must close the stream when done.
+using body_writer_type = noncopyable_function<future<>(output_stream<char>&&)>;
+
+} // namespace seastar::http

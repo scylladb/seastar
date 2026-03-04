@@ -21,11 +21,9 @@
 
 #pragma once
 
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// Determines whether seastar should throw or abort when operation made by
 /// seastar fails because the target file descriptor is not valid. This is
@@ -37,6 +35,5 @@ void set_abort_on_ebadf(bool do_abort);
 /// See set_abort_on_ebadf().
 bool is_abort_on_ebadf_enabled();
 
-SEASTAR_MODULE_EXPORT_END
 
 }

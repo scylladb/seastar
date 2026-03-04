@@ -19,9 +19,6 @@
  * Copyright 2020 ScyllaDB
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <atomic>
 #include <exception>
@@ -29,13 +26,9 @@ module;
 #include <string_view>
 #include <cstdlib>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/on_internal_error.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/log.hh>
-#endif
 
 static std::atomic<bool> abort_on_internal_error{false};
 
@@ -45,8 +38,16 @@ bool seastar::set_abort_on_internal_error(bool do_abort) noexcept {
     return abort_on_internal_error.exchange(do_abort);
 }
 
+namespace seastar::internal {
+thread_local uint64_t internal_errors = 0;
+void increase_internal_errors_counter() noexcept {
+    internal_errors++;
+}
+}
+
 template <typename Message>
 static void log_error_and_backtrace(logger& logger, const Message& msg) noexcept {
+    internal::increase_internal_errors_counter();
     logger.error("{}, at: {}", msg, current_backtrace());
 }
 

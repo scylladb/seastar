@@ -24,24 +24,21 @@
 #include <seastar/core/deleter.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/net/const.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
-#ifndef SEASTAR_MODULE
+#include <span>
 #include <algorithm>
-#include <cassert>
 #include <cstdint>
 #include <functional>
 #include <iosfwd>
 #include <memory>
 #include <optional>
 #include <vector>
-#endif
 
 namespace seastar {
 
 namespace net {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 struct fragment {
     char* base;
@@ -148,7 +145,7 @@ class packet final {
             return copy(old.get(), std::max<size_t>(old->_nr_frags + extra_frags, 2 * old->_nr_frags));
         }
         void* operator new(size_t size, size_t nr_frags = default_nr_frags) {
-            assert(nr_frags == uint16_t(nr_frags));
+            SEASTAR_ASSERT(nr_frags == uint16_t(nr_frags));
             return ::operator new(size + nr_frags * sizeof(fragment));
         }
         // Matching the operator new above
@@ -228,6 +225,8 @@ public:
     packet(temporary_buffer<char> buf);
     // append deleter
     packet(packet&& x, deleter d);
+    // create from span of buffers (zero-copy, ownership is transfered)
+    explicit packet(std::span<temporary_buffer<char>>);
 
     packet& operator=(packet&& x) noexcept {
         if (this != &x) {
@@ -310,7 +309,7 @@ public:
         });
         return ret;
     }
-    explicit operator bool() noexcept {
+    explicit operator bool() const noexcept {
         return bool(_impl);
     }
     static packet make_null_packet() noexcept {
@@ -327,7 +326,6 @@ public:
 
 std::ostream& operator<<(std::ostream& os, const packet& p);
 
-SEASTAR_MODULE_EXPORT_END
 
 inline
 packet::packet(packet&& x) noexcept
@@ -342,7 +340,7 @@ packet::impl::impl(size_t nr_frags) noexcept
 inline
 packet::impl::impl(fragment frag, size_t nr_frags)
     : _len(frag.size), _allocated_frags(nr_frags) {
-    assert(_allocated_frags > _nr_frags);
+    SEASTAR_ASSERT(_allocated_frags > _nr_frags);
     if (frag.size <= internal_data_size) {
         _headroom -= frag.size;
         _frags[0] = { _data + _headroom, frag.size };
@@ -367,6 +365,19 @@ packet::packet()
 inline
 packet::packet(size_t nr_frags)
     : _impl(impl::allocate(nr_frags)) {
+}
+
+inline packet::packet(std::span<temporary_buffer<char>> bufs)
+    : _impl(impl::allocate(bufs.size()))
+{
+    for (auto& b : bufs) {
+        temporary_buffer<char> buf = std::move(b);
+        _impl->_len += buf.size();
+        _impl->_frags[_impl->_nr_frags++] = fragment{buf.get_write(), buf.size()};
+        deleter d = buf.release();
+        d.append(std::move(_impl->_deleter));
+        _impl->_deleter = std::move(d);
+    }
 }
 
 inline
@@ -533,7 +544,7 @@ Header* packet::get_header(size_t offset) {
 
 inline
 void packet::trim_front(size_t how_much) noexcept {
-    assert(how_much <= _impl->_len);
+    SEASTAR_ASSERT(how_much <= _impl->_len);
     _impl->_len -= how_much;
     size_t i = 0;
     while (how_much && how_much >= _impl->_frags[i].size) {
@@ -555,7 +566,7 @@ void packet::trim_front(size_t how_much) noexcept {
 
 inline
 void packet::trim_back(size_t how_much) noexcept {
-    assert(how_much <= _impl->_len);
+    SEASTAR_ASSERT(how_much <= _impl->_len);
     _impl->_len -= how_much;
     size_t i = _impl->_nr_frags - 1;
     while (how_much && how_much >= _impl->_frags[i].size) {
@@ -622,7 +633,7 @@ packet packet::share(size_t offset, size_t len) {
         offset = 0;
     }
     n._impl->_offload_info = _impl->_offload_info;
-    assert(!n._impl->_deleter);
+    SEASTAR_ASSERT(!n._impl->_deleter);
     n._impl->_deleter = _impl->_deleter.share();
     return n;
 }

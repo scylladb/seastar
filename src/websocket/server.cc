@@ -24,35 +24,19 @@
 #include <seastar/core/loop.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/log.hh>
-#include <seastar/core/scattered_message.hh>
-#include <seastar/core/byteorder.hh>
 #include <seastar/http/request.hh>
-#include <gnutls/crypto.h>
-#include <gnutls/gnutls.h>
 
 namespace seastar::experimental::websocket {
 
-static sstring magic_key_suffix = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-static sstring http_upgrade_reply_template =
+using namespace std::string_view_literals;
+
+constexpr auto magic_key_suffix = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"sv;
+constexpr auto http_upgrade_reply_template =
     "HTTP/1.1 101 Switching Protocols\r\n"
     "Upgrade: websocket\r\n"
     "Connection: Upgrade\r\n"
     "Sec-WebSocket-Version: 13\r\n"
-    "Sec-WebSocket-Accept: ";
-
-static logger wlogger("websocket");
-
-opcodes websocket_parser::opcode() const {
-    if (_header) {
-        return opcodes(_header->opcode);
-    } else {
-        return opcodes::INVALID;
-    }
-}
-
-websocket_parser::buff_t websocket_parser::result() {
-    return std::move(_result);
-}
+    "Sec-WebSocket-Accept: "sv;
 
 void server::listen(socket_address addr, listen_options lo) {
     _listeners.push_back(seastar::listen(addr, lo));
@@ -74,10 +58,10 @@ void server::accept(server_socket &listener) {
 
 future<stop_iteration> server::accept_one(server_socket &listener) {
     return listener.accept().then([this](accept_result ar) {
-        auto conn = std::make_unique<connection>(*this, std::move(ar.connection));
+        auto conn = std::make_unique<server_connection>(*this, std::move(ar.connection));
         (void)try_with_gate(_task_gate, [conn = std::move(conn)]() mutable {
             return conn->process().finally([conn = std::move(conn)] {
-                wlogger.debug("Connection is finished");
+                websocket_logger.debug("Connection is finished");
             });
         }).handle_exception_type([](const gate_closed_exception &e) {});
         return make_ready_future<stop_iteration>(stop_iteration::no);
@@ -85,11 +69,11 @@ future<stop_iteration> server::accept_one(server_socket &listener) {
         // We expect a ECONNABORTED when server::stop is called,
         // no point in warning about that.
         if (e.code().value() != ECONNABORTED) {
-            wlogger.error("accept failed: {}", e);
+            websocket_logger.error("accept failed: {}", e);
         }
         return make_ready_future<stop_iteration>(stop_iteration::yes);
     }).handle_exception([](std::exception_ptr ex) {
-        wlogger.info("accept failed: {}", ex);
+        websocket_logger.info("accept failed: {}", ex);
         return make_ready_future<stop_iteration>(stop_iteration::yes);
     });
 }
@@ -104,223 +88,74 @@ future<> server::stop() {
     }
 
     return _task_gate.close().finally([this] {
-        return parallel_for_each(_connections, [] (connection& conn) {
+        return parallel_for_each(_connections, [] (server_connection& conn) {
             return conn.close(true).handle_exception([] (auto ignored) {});
         });
     });
 }
 
-connection::~connection() {
+server_connection::~server_connection() {
     _server._connections.erase(_server._connections.iterator_to(*this));
 }
 
-void connection::on_new_connection() {
+void server_connection::on_new_connection() {
     _server._connections.push_back(*this);
 }
 
-future<> connection::process() {
+future<> server_connection::process() {
     return when_all_succeed(read_loop(), response_loop()).discard_result().handle_exception([] (const std::exception_ptr& e) {
-        wlogger.debug("Processing failed: {}", e);
+        websocket_logger.debug("Processing failed: {}", e);
     });
 }
 
-static std::string sha1_base64(std::string_view source) {
-    unsigned char hash[20];
-    assert(sizeof(hash) == gnutls_hash_get_len(GNUTLS_DIG_SHA1));
-    if (int ret = gnutls_hash_fast(GNUTLS_DIG_SHA1, source.data(), source.size(), hash);
-        ret != GNUTLS_E_SUCCESS) {
-        throw websocket::exception(fmt::format("gnutls_hash_fast: {}", gnutls_strerror(ret)));
-    }
-    gnutls_datum_t hash_data{
-        .data = hash,
-        .size = sizeof(hash),
-    };
-    gnutls_datum_t base64_encoded;
-    if (int ret = gnutls_base64_encode2(&hash_data, &base64_encoded);
-        ret != GNUTLS_E_SUCCESS) {
-        throw websocket::exception(fmt::format("gnutls_base64_encode2: {}", gnutls_strerror(ret)));
-    }
-    auto free_base64_encoded = defer([&] () noexcept { gnutls_free(base64_encoded.data); });
-    // base64_encoded.data is "unsigned char *"
-    return std::string(reinterpret_cast<const char*>(base64_encoded.data), base64_encoded.size);
-}
-
-future<> connection::read_http_upgrade_request() {
+future<> server_connection::read_http_upgrade_request() {
     _http_parser.init();
-    return _read_buf.consume(_http_parser).then([this] () mutable {
-        if (_http_parser.eof()) {
-            _done = true;
-            return make_ready_future<>();
-        }
-        std::unique_ptr<http::request> req = _http_parser.get_parsed_request();
-        if (_http_parser.failed()) {
-            return make_exception_future<>(websocket::exception("Incorrect upgrade request"));
-        }
+    co_await _read_buf.consume(_http_parser);
 
-        sstring upgrade_header = req->get_header("Upgrade");
-        if (upgrade_header != "websocket") {
-            return make_exception_future<>(websocket::exception("Upgrade header missing"));
-        }
-
-        sstring subprotocol = req->get_header("Sec-WebSocket-Protocol");
-        if (subprotocol.empty()) {
-            return make_exception_future<>(websocket::exception("Subprotocol header missing."));
-        }
-
-        if (!_server.is_handler_registered(subprotocol)) {
-            return make_exception_future<>(websocket::exception("Subprotocol not supported."));
-        }
-        this->_handler = this->_server._handlers[subprotocol];
-        this->_subprotocol = subprotocol;
-        wlogger.debug("Sec-WebSocket-Protocol: {}", subprotocol);
-
-        sstring sec_key = req->get_header("Sec-Websocket-Key");
-        sstring sec_version = req->get_header("Sec-Websocket-Version");
-
-        sstring sha1_input = sec_key + magic_key_suffix;
-
-        wlogger.debug("Sec-Websocket-Key: {}, Sec-Websocket-Version: {}", sec_key, sec_version);
-
-        std::string sha1_output = sha1_base64(sha1_input);
-        wlogger.debug("SHA1 output: {} of size {}", sha1_output, sha1_output.size());
-
-        return _write_buf.write(http_upgrade_reply_template).then([this, sha1_output = std::move(sha1_output)] {
-            return _write_buf.write(sha1_output);
-        }).then([this] {
-            return _write_buf.write("\r\nSec-WebSocket-Protocol: ", 26);
-        }).then([this] {
-            return _write_buf.write(_subprotocol);
-        }).then([this] {
-            return _write_buf.write("\r\n\r\n", 4);
-        }).then([this] {
-            return _write_buf.flush();
-        });
-    });
-}
-
-future<websocket_parser::consumption_result_t> websocket_parser::operator()(
-        temporary_buffer<char> data) {
-    if (data.size() == 0) {
-        // EOF
-        _cstate = connection_state::closed;
-        return websocket_parser::stop(std::move(data));
+    if (_http_parser.eof()) {
+        _done = true;
+        co_return;
     }
-    if (_state == parsing_state::flags_and_payload_data) {
-        if (_buffer.length() + data.size() >= 2) {
-            if (_buffer.length() < 2) {
-                size_t hlen = _buffer.length();
-                _buffer.append(data.get(), 2 - hlen);
-                data.trim_front(2 - hlen);
-                _header = std::make_unique<frame_header>(_buffer.data());
-                _buffer = {};
-
-                // https://datatracker.ietf.org/doc/html/rfc6455#section-5.1
-                // We must close the connection if data isn't masked.
-                if ((!_header->masked) ||
-                        // RSVX must be 0
-                        (_header->rsv1 | _header->rsv2 | _header->rsv3) ||
-                        // Opcode must be known.
-                        (!_header->is_opcode_known())) {
-                    _cstate = connection_state::error;
-                    return websocket_parser::stop(std::move(data));
-                }
-            }
-            _state = parsing_state::payload_length_and_mask;
-        } else {
-            _buffer.append(data.get(), data.size());
-            return websocket_parser::dont_stop();
-        }
+    std::unique_ptr<http::request> req = _http_parser.get_parsed_request();
+    if (_http_parser.failed()) {
+        throw websocket::exception("Incorrect upgrade request");
     }
-    if (_state == parsing_state::payload_length_and_mask) {
-        size_t const required_bytes = _header->get_rest_of_header_length();
-        if (_buffer.length() + data.size() >= required_bytes) {
-            if (_buffer.length() < required_bytes) {
-                size_t hlen = _buffer.length();
-                _buffer.append(data.get(), required_bytes - hlen);
-                data.trim_front(required_bytes - hlen);
 
-                _payload_length = _header->length;
-                char const *input = _buffer.data();
-                if (_header->length == 126) {
-		    _payload_length = consume_be<uint16_t>(input);
-                } else if (_header->length == 127) {
-		    _payload_length = consume_be<uint64_t>(input);
-                }
-
-		_masking_key = consume_be<uint32_t>(input);
-                _buffer = {};
-            }
-            _state = parsing_state::payload;
-        } else {
-            _buffer.append(data.get(), data.size());
-            return websocket_parser::dont_stop();
-        }
+    sstring upgrade_header = req->get_header("Upgrade");
+    if (upgrade_header != "websocket") {
+        throw websocket::exception("Upgrade header missing");
     }
-    if (_state == parsing_state::payload) {
-        if (_payload_length > data.size()) {
-            _payload_length -= data.size();
-            remove_mask(data, data.size());
-            _result = std::move(data);
-            return websocket_parser::stop(buff_t(0));
-        } else {
-            _result = data.clone();
-            remove_mask(_result, _payload_length);
-            data.trim_front(_payload_length);
-            _payload_length = 0;
-            _state = parsing_state::flags_and_payload_data;
-            return websocket_parser::stop(std::move(data));
-        }
+
+    sstring subprotocol = req->get_header("Sec-WebSocket-Protocol");
+
+    if (!_server.is_handler_registered(subprotocol)) {
+        throw websocket::exception("Subprotocol not supported.");
     }
-    _cstate = connection_state::error;
-    return websocket_parser::stop(std::move(data));
+    this->_handler = this->_server._handlers[subprotocol];
+    this->_subprotocol = subprotocol;
+    websocket_logger.debug("Sec-WebSocket-Protocol: {}", subprotocol);
+
+    sstring sec_key = req->get_header("Sec-Websocket-Key");
+    sstring sec_version = req->get_header("Sec-Websocket-Version");
+
+    auto sha1_input = fmt::format("{}{}", sec_key, magic_key_suffix);
+
+    websocket_logger.debug("Sec-Websocket-Key: {}, Sec-Websocket-Version: {}", sec_key, sec_version);
+
+    std::string sha1_output = sha1_base64(sha1_input);
+    websocket_logger.debug("SHA1 output: {} of size {}", sha1_output, sha1_output.size());
+
+    co_await _write_buf.write(http_upgrade_reply_template.data(), http_upgrade_reply_template.size());
+    co_await _write_buf.write(sha1_output);
+    if (!_subprotocol.empty()) {
+        co_await _write_buf.write("\r\nSec-WebSocket-Protocol: ", 26);
+        co_await _write_buf.write(_subprotocol);
+    }
+    co_await _write_buf.write("\r\n\r\n", 4);
+    co_await _write_buf.flush();
 }
 
-future<> connection::handle_ping() {
-    // TODO
-    return make_ready_future<>();
-}
-
-future<> connection::handle_pong() {
-    // TODO
-    return make_ready_future<>();
-}
-
-
-future<> connection::read_one() {
-    return _read_buf.consume(_websocket_parser).then([this] () mutable {
-        if (_websocket_parser.is_valid()) {
-            // FIXME: implement error handling
-            switch(_websocket_parser.opcode()) {
-                // We do not distinguish between these 3 types.
-                case opcodes::CONTINUATION:
-                case opcodes::TEXT:
-                case opcodes::BINARY:
-                    return _input_buffer.push_eventually(_websocket_parser.result());
-                case opcodes::CLOSE:
-                    wlogger.debug("Received close frame.");
-                    /*
-                     * datatracker.ietf.org/doc/html/rfc6455#section-5.5.1
-                     */
-                    return close(true);
-                case opcodes::PING:
-                    wlogger.debug("Received ping frame.");
-                    return handle_ping();
-                case opcodes::PONG:
-                    wlogger.debug("Received pong frame.");
-                    return handle_pong();
-                default:
-                    // Invalid - do nothing.
-                    ;
-            }
-        } else if (_websocket_parser.eof()) {
-            return close(false);
-        }
-        wlogger.debug("Reading from socket has failed.");
-        return close(true);
-    });
-}
-
-future<> connection::read_loop() {
+future<> server_connection::read_loop() {
     return read_http_upgrade_request().then([this] {
         return when_all_succeed(
             _handler(_input, _output).handle_exception([this] (std::exception_ptr e) mutable {
@@ -335,68 +170,11 @@ future<> connection::read_loop() {
     });
 }
 
-void connection::shutdown_input() {
-    _fd.shutdown_input();
-}
-
-future<> connection::close(bool send_close) {
-    return [this, send_close]() {
-        if (send_close) {
-            return send_data(opcodes::CLOSE, temporary_buffer<char>(0));
-        } else {
-            return make_ready_future<>();
-        }
-    }().finally([this] {
-        _done = true;
-        return when_all_succeed(_input.close(), _output.close()).discard_result().finally([this] {
-            _fd.shutdown_output();
-        });
-    });
-}
-
-future<> connection::send_data(opcodes opcode, temporary_buffer<char>&& buff) {
-    char header[10] = {'\x80', 0};
-    size_t header_size = 2;
-
-    header[0] += opcode;
-
-    if ((126 <= buff.size()) && (buff.size() <= std::numeric_limits<uint16_t>::max())) {
-        header[1] = 0x7E;
-        write_be<uint16_t>(header + 2, buff.size());
-        header_size += sizeof(uint16_t);
-    } else if (std::numeric_limits<uint16_t>::max() < buff.size()) {
-        header[1] = 0x7F;
-        write_be<uint64_t>(header + 2, buff.size());
-        header_size += sizeof(uint64_t);
-    } else {
-        header[1] = uint8_t(buff.size());
-    }
-
-    scattered_message<char> msg;
-    msg.append(sstring(header, header_size));
-    msg.append(std::move(buff));
-    return _write_buf.write(std::move(msg)).then([this] {
-        return _write_buf.flush();
-    });
-}
-
-future<> connection::response_loop() {
-    return do_until([this] {return _done;}, [this] {
-        // FIXME: implement error handling
-        return _output_buffer.pop_eventually().then([this] (
-                temporary_buffer<char> buf) {
-            return send_data(opcodes::BINARY, std::move(buf));
-        });
-    }).finally([this]() {
-        return _write_buf.close();
-    });
-}
-
 bool server::is_handler_registered(std::string const& name) {
     return _handlers.find(name) != _handlers.end();
 }
 
-void server::register_handler(std::string&& name, handler_t handler) {
+void server::register_handler(const std::string& name, handler_t handler) {
     _handlers[name] = handler;
 }
 

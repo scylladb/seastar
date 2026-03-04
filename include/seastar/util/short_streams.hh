@@ -24,13 +24,11 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/core/temporary_buffer.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 
 namespace util {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 /// Returns all bytes from the stream until eof, accessible in chunks.
 ///
 /// \note use only on short streams to avoid running out of memory.
@@ -50,7 +48,6 @@ future<sstring> read_entire_stream_contiguous(input_stream<char>& inp);
 /// \param inp \ref input_stream to be read.
 future<> skip_entire_stream(input_stream<char>& inp);
 
-SEASTAR_MODULE_EXPORT_END
 } // namespace util
 
 } // namespace seastar

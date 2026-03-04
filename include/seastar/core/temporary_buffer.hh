@@ -21,16 +21,15 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <algorithm>
 #include <cstddef>
+#include <cstring>
 #include <string_view>
 #include <malloc.h>
-#endif
 #include <seastar/core/deleter.hh>
 #include <seastar/util/eclipse.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -62,7 +61,6 @@ namespace seastar {
 ///    tcp output)
 ///
 /// \tparam CharType underlying character type (must be a variant of \c char).
-SEASTAR_MODULE_EXPORT
 template <typename CharType>
 class temporary_buffer {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");
@@ -225,7 +223,7 @@ public:
             throw std::bad_alloc();
         }
         auto buf = static_cast<CharType*>(ptr);
-        memcpy(buf, view.data(), view.size());
+        std::memcpy(buf, view.data(), view.size());
         return temporary_buffer(buf, view.size(), make_free_deleter(buf));
     }
 
@@ -247,5 +245,43 @@ public:
 };
 
 /// @}
+
+namespace internal {
+
+// Takes a vector of buffers and detaches some buffers from its front so
+// that the total size of the detached part equals the given value. The
+// detached buffers are returned, the original vector is updated to hold
+// the remainder.
+//
+// Buffers content is not copied. If it happens that one buffer must be
+// split, it is shared between the returned and the original vectors.
+
+template <typename CharType>
+inline std::vector<temporary_buffer<CharType>> detach_front(std::vector<temporary_buffer<CharType>>& bufs, size_t length) {
+    std::vector<temporary_buffer<CharType>> ret;
+    auto it = bufs.begin();
+    while (it != bufs.end()) {
+        if (it->size() <= length) {
+            length -= it->size();
+            ret.emplace_back(std::move(*it));
+            it++;
+            continue;
+        } else {
+            if (length > 0) {
+                auto b = it->share();
+                b.trim(length);
+                it->trim_front(length);
+                ret.emplace_back(std::move(b));
+                length = 0;
+            }
+            break;
+        }
+    }
+    bufs.erase(bufs.begin(), it);
+    SEASTAR_ASSERT(length == 0);
+    return ret;
+}
+
+} // internal namespace
 
 }

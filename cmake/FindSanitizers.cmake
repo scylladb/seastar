@@ -26,7 +26,8 @@ cmake_policy (SET CMP0057 NEW)
 if(NOT Sanitizers_FIND_COMPONENTS)
   set(Sanitizers_FIND_COMPONENTS
     address
-    undefined_behavior)
+    undefined_behavior
+    vptr)
 endif()
 
 foreach (component ${Sanitizers_FIND_COMPONENTS})
@@ -36,10 +37,21 @@ foreach (component ${Sanitizers_FIND_COMPONENTS})
     list (APPEND ${compile_options} -fsanitize=address)
   elseif (component STREQUAL "undefined_behavior")
     list (APPEND ${compile_options} -fsanitize=undefined)
+  elseif (component STREQUAL "vptr")
+    # since Clang version 21, -fsanitize=undefined no longer implies vptr,
+    # so we enable it explicitly
+    list (APPEND ${compile_options} -fsanitize=vptr)
+  elseif (component STREQUAL "fuzzer")
+    # fuzzer-no-link provides instrumentation without the libfuzzer main
+    list (APPEND ${compile_options} -fsanitize=fuzzer-no-link)
+  elseif (component STREQUAL "fuzzer_main")
+    # fuzzer provides the full fuzzer with main function
+    list (APPEND ${compile_options} -fsanitize=fuzzer)
   else ()
     message (FATAL_ERROR "Unsupported sanitizer: ${component}")
   endif ()
   list(APPEND Sanitizers_COMPILE_OPTIONS "${${compile_options}}")
+  unset (compile_options)
 endforeach ()
 
 include(CheckCXXSourceCompiles)
@@ -49,7 +61,6 @@ include(CMakePushCheckState)
 # the combination of the compiler options.
 cmake_push_check_state()
 string (REPLACE ";" " " CMAKE_REQUIRED_FLAGS "${Sanitizers_COMPILE_OPTIONS}")
-set(CMAKE_REQUIRED_FLAGS ${Sanitizers_COMPILE_OPTIONS})
 check_cxx_source_compiles("int main() {}"
   Sanitizers_SUPPORTED)
 if (Sanitizers_SUPPORTED)

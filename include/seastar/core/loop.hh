@@ -22,7 +22,6 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <cassert>
 #include <cstddef>
 #include <iterator>
@@ -30,16 +29,14 @@
 #include <optional>
 #include <type_traits>
 #include <vector>
-#endif
 #include <seastar/core/future.hh>
 #include <seastar/core/task.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/bool_class.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/core/semaphore.hh>
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \addtogroup future-util
 /// @{
@@ -79,6 +76,11 @@ public:
                 auto f = futurize_invoke(_action);
                 if (!f.available()) {
                     internal::set_callback(std::move(f), this);
+                    return;
+                }
+                if (f.failed()) {
+                    _promise.set_exception(f.get_exception());
+                    delete this;
                     return;
                 }
                 if (f.get() == stop_iteration::yes) {
@@ -196,6 +198,11 @@ public:
                 auto f = futurize_invoke(_action);
                 if (!f.available()) {
                     internal::set_callback(std::move(f), this);
+                    return;
+                }
+                if (f.failed()) {
+                    _promise.set_exception(f.get_exception());
+                    delete this;
                     return;
                 }
                 auto ret = f.get();
@@ -503,17 +510,20 @@ struct has_iterator_category : std::false_type {};
 template <typename T>
 struct has_iterator_category<T, std::void_t<typename std::iterator_traits<T>::iterator_category >> : std::true_type {};
 
-template <typename Iterator, typename Sentinel, typename IteratorCategory>
+template <typename Iterator, typename Sentinel>
 inline
 size_t
-iterator_range_estimate_vector_capacity(Iterator begin, Sentinel end, IteratorCategory) {
-    // May be linear time below random_access_iterator_tag, but still better than reallocation
-    if constexpr (std::is_base_of_v<std::forward_iterator_tag, IteratorCategory>) {
-        return std::distance(begin, end);
+iterator_range_estimate_vector_capacity(Iterator begin, Sentinel end) {
+    if constexpr (std::forward_iterator<Iterator> &&
+                  std::forward_iterator<Sentinel>) {
+        return std::ranges::distance(begin, end);
+    } else if constexpr (std::random_access_iterator<Iterator> &&
+                         std::random_access_iterator<Sentinel>) {
+        return std::ranges::distance(begin, end);
+    } else {
+        // For InputIterators we can't estimate needed capacity
+        return 0;
     }
-
-    // For InputIterators we can't estimate needed capacity
-    return 0;
 }
 
 } // namespace internal
@@ -577,12 +587,11 @@ parallel_for_each(Iterator begin, Sentinel end, Func&& func) noexcept {
         memory::scoped_critical_alloc_section _;
         if (!f.available() || f.failed()) {
             if (!s) {
-                using itraits = std::iterator_traits<Iterator>;
                 size_t n{0U};
                 if constexpr (internal::has_iterator_category<Iterator>::value) {
                     // We need if-constexpr here because there exist iterators for which std::iterator_traits
                     // does not have 'iterator_category' as member type
-                    n = (internal::iterator_range_estimate_vector_capacity(begin, end, typename itraits::iterator_category{}) + 1);
+                    n = (internal::iterator_range_estimate_vector_capacity(begin, end) + 1);
                 }
                 s = new parallel_for_each_state(n);
             }
@@ -690,7 +699,7 @@ max_concurrent_for_each(Iterator begin, Sentinel end, size_t max_concurrent, Fun
         { }
     };
 
-    assert(max_concurrent > 0);
+    SEASTAR_ASSERT(max_concurrent > 0);
 
     try {
         return do_with(state(std::move(begin), std::move(end), max_concurrent, std::forward<Func>(func)), [] (state& s) {
@@ -762,6 +771,5 @@ max_concurrent_for_each(Range&& range, size_t max_concurrent, Func&& func) noexc
 
 /// @}
 
-SEASTAR_MODULE_EXPORT_END
 
 } // namespace seastar

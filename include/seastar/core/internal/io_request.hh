@@ -23,7 +23,7 @@
 
 #include <seastar/core/sstring.hh>
 #include <seastar/core/on_internal_error.hh>
-#include <cassert>
+#include <seastar/util/assert.hh>
 #include <cstdint>
 #include <vector>
 #include <sys/types.h>
@@ -215,7 +215,7 @@ public:
     static io_request make_writev(int fd, uint64_t pos, std::vector<iovec>& iov, bool nowait_works) {
         io_request req;
         req._writev = {
-          .op = operation::writev,  
+          .op = operation::writev,
           .nowait_works = nowait_works,
           .fd = fd,
           .pos = pos,
@@ -426,7 +426,7 @@ public:
     io_direction_and_length(int idx, size_t val) noexcept
             : _directed_length((val << 1) | idx)
     {
-        assert(idx == read_idx || idx == write_idx);
+        SEASTAR_ASSERT(idx == read_idx || idx == write_idx);
     }
 };
 

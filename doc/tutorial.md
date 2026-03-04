@@ -85,7 +85,8 @@ To compile this program (it's present in the `demos/hello-world.cc` file) you ca
 
 ```
 $ docker build -t seastar-dev  -f ./docker/dev/Dockerfile .
-$ scripts/build.sh dev
+$ docker run -it --rm -v $(pwd):/seastar seastar-dev /seastar/configure --mode=dev --cook=c-ares
+$ docker run -it --rm -v $(pwd):/seastar seastar-dev ninja -C /seastar/build/dev
 $ docker run -it --rm -v $(pwd):/seastar seastar-dev /seastar/build/dev/demos/hello-world_demo -c1
 ```
 
@@ -380,7 +381,47 @@ In #4, we call a function that returns a `seastar::future<>`. In this case, the 
 
 Line #5 demonstrates returning a value. The integer value is used to satisfy the `future<int>` that our caller got when calling the coroutine.
 
-## Lambda coroutines
+## Lambda coroutines (C++ 23 and later)
+
+In C++ 23 and later, lambda coroutines can be safely used from all contexts.
+
+If the lambda coroutine is awaited from an outer coroutine, nothing special needs to be done:
+
+```cpp
+future<>
+outer_coroutine() {
+    co_await [captures...] () {
+        co_await ...;
+        co_return;
+    }();
+}
+```
+
+This works even if the lambda is called indirectly, as long as it is captured by value and
+awaited in the same statement it is defined in, as C++ will extend the lifetime of the capture
+group until the semicolon.
+
+In other cases (lambdas called asynchronously to the caller, or passed to continuations, add
+`this auto` as the first parameter to convert the signature of the generated `operator()()`
+to accept the lambda by value. This copies the capture group to the lambda coroutine frame when
+it is called.
+
+```cpp
+future<>
+outer_coroutine() {
+    asynchronous_function([captures...] (this auto) {
+        co_await ...;
+        co_return;
+    });
+    // The lambda coroutine can be called after outer_coroutine() returns
+    co_return;
+}
+```
+
+Using `this auto` can add some small overhead to move objects, but is generally safer
+when it's not clear the lambda is awaited synchronously.
+
+## Lambda coroutines (before C++ 23)
 
 A lambda function can be a coroutine. Due to an interaction between how C++ lambda coroutines are specified and how
 Seastar coroutines work, using lambda coroutines as continuations can result in use-after-free. To avoid such problems,
@@ -509,24 +550,35 @@ seastar::future<> exception_handling() {
 Both `throw` and `std::rethrow_exception()` involve managing stack unwinding and exception objects, potentially
 impacting performance. Additionally, the C++ standard permits `std::rethrow_exception()` to create a copy of the
 exception object, introducing further overhead. Fortunately, in certain cases, exceptions can also be propagated
-directly, without throwing or rethrowing them. It can be achieved by returning a `coroutine::exception` wrapper.
-This approach can be advantageous when aiming to minimize overhead associated with exception handling. But it only
-works for coroutines which return `future<T>`, not `future<>`, due to the limitations in compilers. In particular,
-the example above won't compile if the return type is changed to `future<>`.
+directly, without throwing or rethrowing them. There are multiple facilities for this.
+`coroutine::try_future` can be used to propagate exceptions automatically from a called asynchronous function.
+It is analagous to rust's [try operator](https://google.github.io/comprehensive-rust/error-handling/try.html).
+If the awaited function resolves with an exception, it is automatically propagated to the coroutine's waiter
+without throwing. If manual error handling is needed, one can use `coroutine::as_future` and `coroutine::exception`.
+`coroutine::as_future` is analagous to `future<>::then_wrapped()`. It returns a ready future, allowing the code to
+probe for exception without expensive throw and catch. The exception can then be propagated directly using
+the `coroutine::exception` wrapper. `coroutine::exception` only works for coroutines which return `future<T>`, not
+`future<>`, due to the limitations in compilers. In particular, the example below won't compile if the return type is
+changed to `future<>`.
 
 Example:
 
 ```cpp
 seastar::future<int> exception_propagating() {
-    std::exception_ptr eptr;
-    try {
-        co_await function_returning_an_exceptional_future();
-    } catch (...) {
-        eptr = std::current_exception();
+    // Will automatically propagate the exception, if there is one.
+    auto result = co_await seastar::coroutine::try_future(
+        function_returning_an_exceptional_future()
+    );
+
+    // Will extract the ready future. Will not result in throwing, even if the future is exceptional.
+    auto fut = co_await seastar::coroutine::as_future(
+        function_returning_an_exceptional_future()
+    );
+    if (fut.failed()) {
+        // Saved exception pointer can be propagated without rethrowing
+        co_return seastar::coroutine::exception(fut.get_exception());
     }
-    if (eptr) {
-        co_return seastar::coroutine::exception(eptr); // Saved exception pointer can be propagated without rethrowing
-    }
+
     co_return seastar::coroutine::make_exception(3); // Custom exceptions can be propagated without throwing
 }
 ```
@@ -844,13 +896,17 @@ seastar::future<> fail() {
     try {
         inner();
     } catch(...) {
-        return seastar::make_exception_future(std::current_exception());
+        return seastar::current_exception_as_future();
     }
     return seastar::make_ready_future<>();
 }
 ```
 
 Here, `fail()` catches the exception thrown by `inner()`, whatever it might be, and returns a failed future with that failure. Written this way, the `finally()` continuation will be reached, and the "cleaning up" message printed.
+
+The `seastar::current_exception_as_future()` function is equivalent
+to `seastar::make_exception_future(std::current_exception())`, but
+expands to less code.
 
 >Despite this recommendation that asynchronous functions avoid throwing, some asynchronous functions do throw exceptions in addition to returning exceptional futures. A common example are functions which allocate memory and throw `std::bad_alloc` when running out of memory, instead of returning a future. The `future<> seastar::semaphore::wait()` method is one such function: It returns a future which may be exceptional if the semaphore was `broken()` or the wait timed out, but may also *throw* an exception when failing to allocate memory it needs to hold the list of waiters.
 > Therefore, unless a function --- including asynchronous functions --- is explicitly tagged "`noexcept`", the application should be prepared to handle exceptions thrown from it. In modern C++, code usually uses RAII to be exception-safe without sprinkling it with `try`/`catch`.  `seastar::defer()` is a RAII-based idiom that ensures that some cleanup code is run even if an exception is thrown.
@@ -2423,3 +2479,65 @@ TODO: Talk about how to dynamically change the number of shares, and why.
 
 ## Multi-tenancy
 TODO
+
+# General application structuring tips
+
+## Initialization and cleanup
+
+In C++, RAII is typically used to coordinate initialization and cleanup. In asyncronous programming, RAII
+is not available, but for the control plane it is useful to bring up a seastar::thread to make use of it.
+
+In conjunction with seastar::app_template, initialization and cleanup look like so:
+
+```cpp
+#include <seastar/core/app-template.hh>
+#include <seastar/core/reactor.hh>
+#include <iostream>
+
+int main(int argc, char** argv) {
+    seastar::app_template app;
+    return app.run(argc, argv, [] {
+        return seastar::async() {
+            std::cout << "Hello world\n";
+            my_class my_object;
+            // ... more code
+
+            // my_object will be destroyed here
+            return 0;
+    });
+}
+```
+
+If one needs to invoke an asynchronous function during shutdown, one can make
+use of the seastar::defer() function to schedule an arbitrary cleanup function:
+
+```cpp
+#include <seastar/core/app-template.hh>
+#include <seastar/core/reactor.hh>
+#include <iostream>
+
+int main(int argc, char** argv) {
+    seastar::app_template app;
+    return app.run(argc, argv, [] {
+        return seastar::async() {
+            std::cout << "Hello world\n";
+            my_class my_object;
+            // ... more code
+
+            auto cleanup = defer([] () noexcept {
+                // .get() joins the asynchronous function back
+                // into the thread.
+                call_async_cleanup_function().get();
+            });
+
+            // `cleanup` will invoke its function here, if we reached
+            // its construction point
+
+            // my_object will be destroyed here
+            return 0;
+    });
+}
+```
+
+See also seastar::deferred_close and seastar::deferred_stop for more ways to
+control cleanup.

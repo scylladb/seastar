@@ -21,25 +21,21 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <string>
 #include <vector>
-#include <time.h>
-#include <sstream>
-#endif
 
+#include <seastar/core/chunked_fifo.hh>
 #include <seastar/core/do_with.hh>
-#include <seastar/core/loop.hh>
-#include <seastar/json/formatter.hh>
-#include <seastar/core/sstring.hh>
 #include <seastar/core/iostream.hh>
-#include <seastar/util/modules.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/core/sstring.hh>
+#include <seastar/json/formatter.hh>
+#include <seastar/http/types.hh>
 
 namespace seastar {
 
 namespace json {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /**
  * The base class for all json element.
@@ -151,22 +147,33 @@ private:
 };
 
 /**
- * json_list is based on std vector implementation.
+ * json_list_template is an array type based on a
+ * container type passed as a template parameter, as we want to
+ * have flavors based on both vector and chunked_fifo.
  *
  * When values are added with push it is set the "set" flag to true
  * hence will be included in the parsed object
  */
-template<class T>
-class json_list : public json_base_element {
+template <class T, class Container>
+class json_list_template : public json_base_element {
 public:
 
     /**
      * Add an element to the list.
-     * @param element a new element that will be added to the list
+     * @param element a new element that will be added to the end of the list
      */
     void push(const T& element) {
         _set = true;
         _elements.push_back(element);
+    }
+
+    /**
+     * Move an element into the list.
+     * @param element a new element that will be added to the list using move-construction
+     */
+    void push(T&& element) {
+        _set = true;
+        _elements.push_back(std::move(element));
     }
 
     virtual std::string to_string() override
@@ -179,7 +186,7 @@ public:
      * iteration and that it's elements can be assigned to the list elements
      */
     template<class C>
-    json_list& operator=(const C& list) {
+    json_list_template& operator=(const C& list) {
         _elements.clear();
         for  (auto i : list) {
             push(i);
@@ -189,8 +196,15 @@ public:
     virtual future<> write(output_stream<char>& s) const override {
         return formatter::write(s, _elements);
     }
-    std::vector<T> _elements;
+
+    Container _elements;
 };
+
+template <typename T>
+using json_list = json_list_template<T, std::vector<T>>;
+
+template <typename T>
+using json_chunked_list = json_list_template<T, seastar::chunked_fifo<T>>;
 
 class jsonable {
 public:
@@ -298,8 +312,13 @@ struct json_void : public jsonable{
  */
 struct json_return_type {
     sstring _res;
-    std::function<future<>(output_stream<char>&&)> _body_writer;
-    json_return_type(std::function<future<>(output_stream<char>&&)>&& body_writer) : _body_writer(std::move(body_writer)) {
+#if SEASTAR_API_LEVEL >= 8
+    using body_writer_type = http::body_writer_type;
+#else
+    using body_writer_type = std::function<future<>(output_stream<char>&&)>;
+#endif
+    body_writer_type _body_writer;
+    json_return_type(body_writer_type&& body_writer) : _body_writer(std::move(body_writer)) {
     }
     template<class T>
     json_return_type(const T& res) {
@@ -316,8 +335,10 @@ struct json_return_type {
         return *this;
     }
 
+#if SEASTAR_API_LEVEL < 8
     json_return_type(const json_return_type&) = default;
     json_return_type& operator=(const json_return_type&) = default;
+#endif
 };
 
 /*!
@@ -330,7 +351,7 @@ struct json_return_type {
  */
 template<typename Container, typename Func>
 requires requires (Container c, Func aa, output_stream<char> s) { { formatter::write(s, aa(*c.begin())) } -> std::same_as<future<>>; }
-std::function<future<>(output_stream<char>&&)> stream_range_as_array(Container val, Func fun) {
+json_return_type::body_writer_type stream_range_as_array(Container val, Func fun) {
     return [val = std::move(val), fun = std::move(fun)](output_stream<char>&& s) mutable {
         return do_with(output_stream<char>(std::move(s)), Container(std::move(val)), Func(std::move(fun)), true, [](output_stream<char>& s, const Container& val, const Func& f, bool& first){
             return s.write("[").then([&val, &s, &first, &f] () {
@@ -357,17 +378,16 @@ std::function<future<>(output_stream<char>&&)> stream_range_as_array(Container v
  * return make_ready_future<json::json_return_type>(stream_object(res));
  */
 template<class T>
-std::function<future<>(output_stream<char>&&)> stream_object(T val) {
+json_return_type::body_writer_type stream_object(T val) {
     return [val = std::move(val)](output_stream<char>&& s) mutable {
-        return do_with(output_stream<char>(std::move(s)), T(std::move(val)), [](output_stream<char>& s, const T& val){
-            return formatter::write(s, val).finally([&s] {
+        return do_with(output_stream<char>(std::move(s)), T(std::move(val)), [](output_stream<char>& s, T& val){
+            return formatter::write(s, std::move(val)).finally([&s] {
                 return s.close();
             });
         });
     };
 }
 
-SEASTAR_MODULE_EXPORT_END
 }
 
 }

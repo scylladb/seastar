@@ -70,11 +70,11 @@ int main(int ac, char** av) {
             if (https) {
                 auto certs = ::make_shared<tls::certificate_credentials>();
                 certs->set_system_trust().get();
-                fmt::print("{} {}:443{}\n", method, e.addr_list.front(), path);
-                cln = std::make_unique<http::experimental::client>(socket_address(e.addr_list.front(), 443), std::move(certs), host);
+                fmt::print("{} {}:443{}\n", method, e.addr_entries.front().addr, path);
+                cln = std::make_unique<http::experimental::client>(socket_address(e.addr_entries.front().addr, 443), std::move(certs), host);
             } else {
-                fmt::print("{} {}:80{}\n", method, e.addr_list.front(), path);
-                cln = std::make_unique<http::experimental::client>(socket_address(e.addr_list.front(), 80));
+                fmt::print("{} {}:80{}\n", method, e.addr_entries.front().addr, path);
+                cln = std::make_unique<http::experimental::client>(socket_address(e.addr_entries.front().addr, 80));
             }
             auto req = http::request::make(method, host, path);
             if (body != "") {

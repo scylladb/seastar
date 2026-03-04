@@ -22,24 +22,45 @@
 #include <exception>
 #include <numeric>
 #include <ranges>
+#include <any>
 
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/coroutine/all.hh>
 #include <seastar/coroutine/maybe_yield.hh>
 #include <seastar/coroutine/switch_to.hh>
 #include <seastar/coroutine/parallel_for_each.hh>
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/exception.hh>
-#include <seastar/coroutine/generator.hh>
+#include <seastar/coroutine/try_future.hh>
 #include <seastar/testing/random.hh>
 #include <seastar/testing/test_case.hh>
+#include <seastar/util/defer.hh>
 #include <seastar/util/later.hh>
 
-using namespace seastar;
+using seastar::broken_promise;
+using seastar::circular_buffer;
+using seastar::create_scheduling_group;
+using seastar::current_scheduling_group;
+using seastar::default_scheduling_group;
+using seastar::future;
+using seastar::make_exception_future;
+using seastar::make_ready_future;
+using seastar::need_preempt;
+using seastar::promise;
+using seastar::scheduling_group;
+using seastar::semaphore;
+using seastar::semaphore_timed_out;
+using seastar::sleep;
+using seastar::yield;
+
+namespace coroutine = seastar::coroutine;
+namespace testing = seastar::testing;
+
 using namespace std::chrono_literals;
 
 namespace {
@@ -271,7 +292,7 @@ SEASTAR_TEST_CASE(test_preemption) {
     // task queue shaffling in debug mode which may cause co-routine
     // continuation to run first.
     while(preempted < 1000 && !x) {
-        preempted += need_preempt(); 
+        preempted += need_preempt();
         co_await make_ready_future<>();
     }
     auto save_x = x;
@@ -349,11 +370,11 @@ SEASTAR_TEST_CASE(test_all_ready_exceptions) {
 SEASTAR_TEST_CASE(test_all_nonready_exceptions) {
     try {
         co_await coroutine::all(
-            [] () -> future<> { 
+            [] () -> future<> {
                 co_await sleep(1ms);
                 throw 1;
             },
-            [] () -> future<> { 
+            [] () -> future<> {
                 co_await sleep(1ms);
                 throw 2;
             }
@@ -365,14 +386,14 @@ SEASTAR_TEST_CASE(test_all_nonready_exceptions) {
 
 SEASTAR_TEST_CASE(test_all_heterogeneous_types) {
     auto [a, b] = co_await coroutine::all(
-        [] () -> future<int> { 
+        [] () -> future<int> {
             co_await sleep(1ms);
             co_return 1;
         },
-        [] () -> future<> { 
+        [] () -> future<> {
             co_await sleep(1ms);
         },
-        [] () -> future<long> { 
+        [] () -> future<long> {
             co_await sleep(1ms);
             co_return 2L;
         }
@@ -741,147 +762,6 @@ SEASTAR_TEST_CASE(test_as_future_preemption) {
     BOOST_REQUIRE_THROW(f0.get(), std::runtime_error);
 }
 
-template<template<typename> class Container>
-coroutine::experimental::generator<int, Container>
-fibonacci_sequence(coroutine::experimental::buffer_size_t size, unsigned count) {
-    auto a = 0, b = 1;
-    for (unsigned i = 0; i < count; ++i) {
-        if (std::numeric_limits<decltype(a)>::max() - a < b) {
-            throw std::out_of_range(
-                fmt::format("fibonacci[{}] is greater than the largest value of int", i));
-        }
-        co_yield std::exchange(a, std::exchange(b, a + b));
-    }
-}
-
-template<template<typename> class Container>
-seastar::future<> test_async_generator_drained() {
-    auto expected_fibs = {0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55};
-    auto fib = fibonacci_sequence<Container>(coroutine::experimental::buffer_size_t{2},
-                                             std::size(expected_fibs));
-    for (auto expected_fib : expected_fibs) {
-        auto actual_fib = co_await fib();
-        BOOST_REQUIRE(actual_fib.has_value());
-        BOOST_REQUIRE_EQUAL(actual_fib.value(), expected_fib);
-    }
-    auto sentinel = co_await fib();
-    BOOST_REQUIRE(!sentinel.has_value());
-}
-
-template<typename T>
-using buffered_container = circular_buffer<T>;
-
-SEASTAR_TEST_CASE(test_async_generator_drained_buffered) {
-    return test_async_generator_drained<buffered_container>();
-}
-
-SEASTAR_TEST_CASE(test_async_generator_drained_unbuffered) {
-    return test_async_generator_drained<std::optional>();
-}
-
-template<template<typename> class Container>
-seastar::future<> test_async_generator_not_drained() {
-    auto fib = fibonacci_sequence<Container>(coroutine::experimental::buffer_size_t{2},
-                                             42);
-    auto actual_fib = co_await fib();
-    BOOST_REQUIRE(actual_fib.has_value());
-    BOOST_REQUIRE_EQUAL(actual_fib.value(), 0);
-}
-
-SEASTAR_TEST_CASE(test_async_generator_not_drained_buffered) {
-    return test_async_generator_not_drained<buffered_container>();
-}
-
-SEASTAR_TEST_CASE(test_async_generator_not_drained_unbuffered) {
-    return test_async_generator_not_drained<std::optional>();
-}
-
-struct counter_t {
-    int n;
-    int* count;
-    counter_t(counter_t&& other) noexcept
-        : n{std::exchange(other.n, -1)},
-          count{std::exchange(other.count, nullptr)}
-    {}
-    counter_t(int n, int* count) noexcept
-        : n{n}, count{count} {
-        ++(*count);
-    }
-    ~counter_t() noexcept {
-        if (count) {
-            --(*count);
-        }
-    }
-};
-std::ostream& operator<<(std::ostream& os, const counter_t& c) {
-    return os << c.n;
-}
-
-template<template<typename> class Container>
-coroutine::experimental::generator<counter_t, Container>
-fiddle(coroutine::experimental::buffer_size_t size, int n, int* total) {
-    int i = 0;
-    while (true) {
-        if (i++ == n) {
-            throw std::invalid_argument("Eureka from generator!");
-        }
-        co_yield counter_t{i, total};
-    }
-}
-
-template<template<typename> class Container>
-seastar::future<> test_async_generator_throws_from_generator() {
-    int total = 0;
-    auto count_to = [total=&total](unsigned n) -> seastar::future<> {
-        auto count = fiddle<Container>(coroutine::experimental::buffer_size_t{2},
-                                       n, total);
-        for (unsigned i = 0; i < 2 * n; i++) {
-            co_await count();
-        }
-    };
-    co_await count_to(42).then_wrapped([&total] (auto f) {
-        BOOST_REQUIRE(f.failed());
-        BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), std::invalid_argument);
-        BOOST_REQUIRE_EQUAL(total, 0);
-    });
-}
-
-SEASTAR_TEST_CASE(test_async_generator_throws_from_generator_buffered) {
-    return test_async_generator_throws_from_generator<buffered_container>();
-}
-
-SEASTAR_TEST_CASE(test_async_generator_throws_from_generator_unbuffered) {
-    return test_async_generator_throws_from_generator<std::optional>();
-}
-
-template<template<typename> class Container>
-seastar::future<> test_async_generator_throws_from_consumer() {
-    int total = 0;
-    auto count_to = [total=&total](unsigned n) -> seastar::future<> {
-        auto count = fiddle<Container>(coroutine::experimental::buffer_size_t{2},
-                                       n, total);
-        for (unsigned i = 0; i < n; i++) {
-            if (i == n / 2) {
-                throw std::invalid_argument("Eureka from consumer!");
-            }
-            co_await count();
-        }
-    };
-    co_await count_to(42).then_wrapped([&total] (auto f) {
-        BOOST_REQUIRE(f.failed());
-        BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), std::invalid_argument);
-        BOOST_REQUIRE_EQUAL(total, 0);
-    });
-}
-
-SEASTAR_TEST_CASE(test_async_generator_throws_from_consumer_buffered) {
-    return test_async_generator_throws_from_consumer<buffered_container>();
-}
-
-SEASTAR_TEST_CASE(test_async_generator_throws_from_consumer_unbuffered) {
-    return test_async_generator_throws_from_consumer<std::optional>();
-}
-
 SEASTAR_TEST_CASE(test_lambda_coroutine_in_continuation) {
     auto dist = std::uniform_real_distribution<>(0.0, 1.0);
     auto rand_eng = std::default_random_engine(std::random_device()());
@@ -907,4 +787,162 @@ SEASTAR_TEST_CASE(test_lambda_coroutine_in_continuation) {
         co_return std::sin(n);
     }));
     BOOST_REQUIRE_EQUAL(sin1, sin2);
+}
+
+#ifdef __cpp_explicit_this_parameter
+
+SEASTAR_TEST_CASE(test_lambda_value_capture_coroutine) {
+    // Note: crashes without "this auto"
+    auto f1 = [p = std::make_unique<int>(7)] (this auto) -> future<int> {
+        co_await yield();
+        co_return *p + 2;
+    }();
+    // f1 is not ready at this point (due to the yield). Verify that the capture
+    // group was copied to the coroutine frame.
+    auto n = co_await std::move(f1);
+    BOOST_REQUIRE_EQUAL(n, 9);
+}
+
+SEASTAR_TEST_CASE(test_lambda_value_capture_continuation) {
+    // Note: crashes without "this auto"
+    return yield().then([p = std::make_unique<int>(7)] (this auto) -> future<int> {
+        co_await yield();
+        co_return *p + 2;
+    }).then([] (int n) {
+        BOOST_REQUIRE_EQUAL(n, 9);
+    });
+}
+
+
+#endif
+
+class test_exception : std::exception { };
+
+future<> return_ex_void() {
+    fmt::print("return_ex_void()\n");
+    return make_exception_future<>(test_exception{});
+}
+
+future<> return_void() {
+    fmt::print("return_void()\n");
+    co_await sleep(1ms);
+}
+
+future<int> return_ex_int() {
+    fmt::print("return_ex_int()\n");
+    return make_exception_future<int>(test_exception{});
+}
+
+future<int> return_int() {
+    fmt::print("return_int()\n");
+    co_await sleep(1ms);
+    co_return 128;
+}
+
+template <typename T>
+struct result_wrapper {
+    T value;
+    explicit result_wrapper(T v) : value(v) {}
+};
+
+template <>
+struct result_wrapper<seastar::internal::monostate> {
+};
+
+template <bool CheckPreempt, std::invocable<> F>
+// Use result_wrapper to create a mismatch between the return type of
+// the coroutine and that of the underlying function, to ensure that
+// try_future handles this case correctly.
+future<result_wrapper<typename std::invoke_result_t<F>::value_type>>
+do_run_try_future_test(F underlying_func, int& ctor_dtor_counter, bool& run_past) {
+    auto func = [&] () -> future<result_wrapper<typename std::invoke_result_t<F>::value_type>> {
+        counter_ref c1{ctor_dtor_counter};
+        counter_ref c2{ctor_dtor_counter};
+
+        BOOST_REQUIRE_GT(ctor_dtor_counter, 0);
+
+        using return_future_type = std::invoke_result_t<F>;
+        using return_type = typename return_future_type::value_type;
+        constexpr bool is_void = std::is_same_v<return_future_type, future<>>;
+
+        std::any ret;
+
+        try {
+            if constexpr (is_void) {
+                if constexpr (CheckPreempt) {
+                    co_await seastar::coroutine::try_future(underlying_func());
+                } else {
+                    co_await seastar::coroutine::try_future_without_preemption_check(underlying_func());
+                }
+            } else {
+                if constexpr (CheckPreempt) {
+                    ret = co_await seastar::coroutine::try_future(underlying_func());
+                } else {
+                    ret = co_await seastar::coroutine::try_future_without_preemption_check(underlying_func());
+                }
+            }
+            run_past = true;
+        } catch (...) {
+            BOOST_FAIL(fmt::format("Exception should be handled in try_future, bug caught: {}", std::current_exception()));
+        }
+
+        if constexpr (is_void) {
+            co_return result_wrapper<seastar::internal::monostate>{};
+        } else {
+            co_return result_wrapper(std::any_cast<return_type>(ret));
+        }
+    };
+
+    return seastar::do_with(func, [] (auto& func) {
+        const auto cxx_exception_before = seastar::engine().cxx_exceptions();
+        return func().then_wrapped([cxx_exception_before] (auto&& fut) {
+            const auto cxx_exception_after = seastar::engine().cxx_exceptions();
+            BOOST_REQUIRE_EQUAL(cxx_exception_before, cxx_exception_after);
+            return std::move(fut);
+        });
+    });
+}
+
+template <bool CheckPreempt, std::invocable<> F>
+future<> run_try_future_test(F underlying_func, std::optional<std::any> expected_value, std::source_location sl = std::source_location::current()) {
+    fmt::print("running test case at {}:{}\n", sl.file_name(), sl.line());
+
+    int ctor_dtor_counter{0};
+    bool run_past{false};
+
+    const bool throws = !expected_value.has_value();
+
+    using return_future_type = std::invoke_result_t<F>;
+    using return_type = typename return_future_type::value_type;
+    constexpr bool is_void = std::is_same_v<return_future_type, future<>>;
+
+    try {
+        if constexpr (is_void) {
+            co_await do_run_try_future_test<CheckPreempt>(std::move(underlying_func), ctor_dtor_counter, run_past);
+            BOOST_REQUIRE(expected_value);
+        } else {
+            auto res = co_await do_run_try_future_test<CheckPreempt>(std::move(underlying_func), ctor_dtor_counter, run_past);
+            BOOST_REQUIRE(expected_value);
+            BOOST_REQUIRE_EQUAL(res.value, std::any_cast<return_type>(*expected_value));
+        }
+    } catch (test_exception&) {
+        BOOST_REQUIRE(throws);
+    } catch (...) {
+        BOOST_FAIL(fmt::format("Unexpected exception {}", std::current_exception()));
+    }
+
+    BOOST_REQUIRE_EQUAL(run_past, !throws);
+    BOOST_REQUIRE_EQUAL(ctor_dtor_counter, 0);
+}
+
+SEASTAR_TEST_CASE(test_try_future) {
+    co_await run_try_future_test<true>(return_void, std::any{});
+    co_await run_try_future_test<false>(return_void, std::any{});
+    co_await run_try_future_test<true>(return_ex_void, std::nullopt);
+    co_await run_try_future_test<false>(return_ex_void, std::nullopt);
+
+    co_await run_try_future_test<true>(return_int, 128);
+    co_await run_try_future_test<false>(return_int, 128);
+    co_await run_try_future_test<true>(return_ex_int, std::nullopt);
+    co_await run_try_future_test<false>(return_ex_int, std::nullopt);
 }

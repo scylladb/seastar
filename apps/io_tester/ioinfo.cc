@@ -18,6 +18,7 @@
 /*
  * Copyright (C) 2021 ScyllaDB
  */
+#include <iostream>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/reactor.hh>
@@ -57,9 +58,11 @@ int main(int ac, char** av) {
                             auto& ioq = engine().get_io_queue(st.st_dev);
                             auto& cfg = ioq.get_config();
 
+                            out << YAML::Key << "device" << YAML::Value << st.st_dev;
                             out << YAML::Key << "io_latency_goal_ms" << YAML::Value <<
-                                    std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(cfg.rate_limit_duration).count();
+                                    std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(ioq.get_io_latency_goal()).count();
                             out << YAML::Key << "io_queue" << YAML::BeginMap;
+                            out << YAML::Key << "id" << YAML::Value << ioq.id();
                             out << YAML::Key << "req_count_rate" << YAML::Value << cfg.req_count_rate;
                             out << YAML::Key << "blocks_count_rate" << YAML::Value << cfg.blocks_count_rate;
                             out << YAML::Key << "disk_req_write_to_read_multiplier" << YAML::Value << cfg.disk_req_write_to_read_multiplier;
@@ -76,7 +79,7 @@ int main(int ac, char** av) {
                             }
                             out << YAML::EndMap;
 
-                            const auto& fg = internal::get_fair_group(ioq, internal::io_direction_and_length::write_idx);
+                            const auto& fg = internal::get_throttler(ioq, internal::io_direction_and_length::write_idx);
                             out << YAML::Key << "per_tick_grab_threshold" << YAML::Value << fg.per_tick_grab_threshold();
 
                             const auto& tb = fg.token_bucket();

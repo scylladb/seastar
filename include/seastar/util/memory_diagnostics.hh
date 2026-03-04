@@ -23,11 +23,9 @@
 
 #include <seastar/core/sstring.hh>
 #include <seastar/util/noncopyable_function.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 enum class log_level;
 
@@ -88,7 +86,6 @@ void set_additional_diagnostics_producer(noncopyable_function<void(memory_diagno
 /// low-memory conditions.
 sstring generate_memory_diagnostics_report();
 
-SEASTAR_MODULE_EXPORT_END
 
 namespace internal {
 /// Log the memory diagnostics to the internal logger in the same way as

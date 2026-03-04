@@ -23,23 +23,72 @@
 
 
 #include <seastar/core/future.hh>
+#include <seastar/core/make_task.hh>
 #include <seastar/coroutine/exception.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/util/std-compat.hh>
 
 
-#ifndef SEASTAR_MODULE
 #include <coroutine>
+#include <new>
+#include <cstdlib>
+#include <source_location>
+
+#if !(__GLIBC__ == 2 && __GLIBC_MINOR__ >= 43) && !(__GLIBC__ > 2)
+
+extern "C" {
+
+void free_sized(void* ptr, size_t size);
+
+}
+
 #endif
 
 namespace seastar {
 
 namespace internal {
 
+
+inline
+void
+execute_involving_handle_destruction_in_await_suspend(std::invocable<> auto&& func) noexcept {
+#if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ > 15 || (__GNUC__ == 15 && __GNUC_MINOR__ >= 2))
+    memory::scoped_critical_alloc_section _;
+    schedule(new lambda_task(current_scheduling_group(), std::forward<decltype(func)>(func)));
+#else
+    std::invoke(std::forward<decltype(func)>(func));
+#endif
+}
+
+inline
+void
+execute_involving_handle_destruction_in_await_suspend(task* tsk) noexcept {
+#if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ > 15 || (__GNUC__ == 15 && __GNUC_MINOR__ >= 2))
+    schedule(tsk);
+#else
+    tsk->run_and_dispose();
+#endif
+}
+
+class coroutine_allocators {
+public:
+    static void* operator new(size_t size) {
+        memory::scoped_critical_alloc_section _;
+        return ::malloc(size);
+    }
+    static void operator delete(void* ptr) noexcept {
+        ::free(ptr);
+    }
+#ifdef __cpp_sized_deallocation
+    static void operator delete(void* ptr, std::size_t sz) noexcept {
+        ::free_sized(ptr, sz);
+    }
+#endif
+};
+
 template <typename T = void>
 class coroutine_traits_base {
 public:
-    class promise_type final : public seastar::task {
+    class promise_type final : public seastar::task, public coroutine_allocators {
         seastar::promise<T> _promise;
     public:
         promise_type() = default;
@@ -91,7 +140,7 @@ public:
 template <>
 class coroutine_traits_base<> {
 public:
-   class promise_type final : public seastar::task {
+   class promise_type final : public seastar::task, public coroutine_allocators {
         seastar::promise<> _promise;
     public:
         promise_type() = default;
@@ -144,7 +193,8 @@ public:
     }
 
     template<typename U>
-    void await_suspend(std::coroutine_handle<U> hndl) noexcept {
+    void await_suspend(std::coroutine_handle<U> hndl SEASTAR_COROUTINE_LOC_PARAM) noexcept {
+        SEASTAR_COROUTINE_LOC_STORE(hndl.promise());
         if (!CheckPreempt || !_future.available()) {
             _future.set_coroutine(hndl.promise());
         } else {
@@ -169,7 +219,8 @@ public:
     }
 
     template<typename U>
-    void await_suspend(std::coroutine_handle<U> hndl) noexcept {
+    void await_suspend(std::coroutine_handle<U> hndl SEASTAR_COROUTINE_LOC_PARAM) noexcept {
+        SEASTAR_COROUTINE_LOC_STORE(hndl.promise());
         if (!CheckPreempt || !_future.available()) {
             _future.set_coroutine(hndl.promise());
         } else {
@@ -182,10 +233,9 @@ public:
 
 } // seastar::internal
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 template<typename T>
-auto operator co_await(future<T> f) noexcept {
+auto operator co_await(future<T>&& f) noexcept {
     return internal::awaiter<true, T>(std::move(f));
 }
 
@@ -243,14 +293,12 @@ auto operator co_await(coroutine::without_preemption_check<T> f) noexcept {
     return internal::awaiter<false, T>(std::move(f));
 }
 
-SEASTAR_MODULE_EXPORT_END
 
 } // seastar
 
 
 namespace std {
 
-SEASTAR_MODULE_EXPORT
 template<typename T, typename... Args>
 class coroutine_traits<seastar::future<T>, Args...> : public seastar::internal::coroutine_traits_base<T> {
 };

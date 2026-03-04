@@ -21,16 +21,15 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <stdint.h>
 #include <algorithm>
-#include <cassert>
 #if __has_include(<compare>)
 #include <compare>
 #endif
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <concepts>
 #include <cstring>
 #include <initializer_list>
 #include <istream>
@@ -41,14 +40,12 @@
 #if FMT_VERSION >= 110000
 #include <fmt/ranges.h>
 #endif
-#endif
+#include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/core/temporary_buffer.hh>
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 template <typename char_type, typename Size, Size max_size, bool NulTerminate = true>
 class basic_sstring;
@@ -63,7 +60,6 @@ using sstring = basic_sstring<char, uint32_t, 15>;
 using sstring = std::string;
 #endif
 
-SEASTAR_MODULE_EXPORT_END
 
 namespace internal {
 [[noreturn]] void throw_bad_alloc();
@@ -71,7 +67,6 @@ namespace internal {
 [[noreturn]] void throw_sstring_out_of_range();
 }
 
-SEASTAR_MODULE_EXPORT
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 class basic_sstring {
     static_assert(
@@ -118,7 +113,7 @@ public:
     // FIXME: add reverse_iterator and friend
     using difference_type = ssize_t;  // std::make_signed_t<Size> can be too small
     using size_type = Size;
-    static constexpr size_type  npos = static_cast<size_type>(-1);
+    static constexpr size_t npos = static_cast<size_t>(-1);
     static constexpr unsigned padding() { return unsigned(NulTerminate); }
 public:
     struct initialized_later {};
@@ -258,7 +253,7 @@ public:
     }
 
     size_t find(const char_type* c_str, size_t pos, size_t len2) const noexcept {
-        assert(c_str != nullptr || len2 == 0);
+        SEASTAR_ASSERT(c_str != nullptr || len2 == 0);
         if (pos > size()) {
             return npos;
         }
@@ -303,11 +298,7 @@ public:
         return find(s.str(), pos, s.size());
     }
 
-    template<class StringViewLike,
-             std::enable_if_t<std::is_convertible_v<StringViewLike,
-                                                    std::basic_string_view<char_type, traits_type>>,
-                              int> = 0>
-    size_t find(const StringViewLike& sv_like, size_type pos = 0) const noexcept {
+    size_t find(const std::convertible_to<std::basic_string_view<char_type, traits_type>> auto& sv_like, size_type pos = 0) const noexcept {
         std::basic_string_view<char_type, traits_type> sv = sv_like;
         return find(sv.data(), pos, sv.size());
     }
@@ -361,7 +352,7 @@ public:
             *this = basic_sstring(initialized_later(), n);
         }
         size_t r = std::move(op)(data(), n);
-        assert(r <= n);
+        SEASTAR_ASSERT(r <= n);
         resize(r);
     }
 
@@ -470,7 +461,7 @@ public:
      */
     reference
     front() noexcept {
-        assert(!empty());
+        SEASTAR_ASSERT(!empty());
         return *str();
     }
 
@@ -481,7 +472,7 @@ public:
      */
     const_reference
     front() const noexcept {
-        assert(!empty());
+        SEASTAR_ASSERT(!empty());
         return *str();
     }
 
@@ -565,7 +556,7 @@ public:
         }
     }
     int compare(std::basic_string_view<char_type, traits_type> x) const noexcept {
-        auto n = traits_type::compare(begin(), x.begin(), std::min(size(), x.size()));
+        auto n = traits_type::compare(begin(), x.data(), std::min(size(), x.size()));
         if (n != 0) {
             return n;
         }
@@ -584,7 +575,7 @@ public:
         }
 
         sz = std::min(size() - pos, sz);
-        auto n = traits_type::compare(begin() + pos, x.begin(), std::min(sz, x.size()));
+        auto n = traits_type::compare(begin() + pos, x.data(), std::min(sz, x.size()));
         if (n != 0) {
             return n;
         }
@@ -711,7 +702,6 @@ template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 struct is_sstring<basic_sstring<char_type, Size, max_size, NulTerminate>> : std::true_type {};
 }
 
-SEASTAR_MODULE_EXPORT
 template <typename string_type = sstring>
 string_type uninitialized_string(size_t size) {
     if constexpr (internal::is_sstring<string_type>::value) {
@@ -727,7 +717,6 @@ string_type uninitialized_string(size_t size) {
     }
 }
 
-SEASTAR_MODULE_EXPORT
 template <typename char_type, typename size_type, size_type Max, size_type N, bool NulTerminate>
 inline
 basic_sstring<char_type, size_type, Max, NulTerminate>
@@ -746,7 +735,6 @@ size_t constexpr str_len(const T& s) {
     return std::string_view(s).size();
 }
 
-SEASTAR_MODULE_EXPORT
 template <typename char_type, typename size_type, size_type max_size>
 inline
 void swap(basic_sstring<char_type, size_type, max_size>& x,
@@ -755,7 +743,6 @@ void swap(basic_sstring<char_type, size_type, max_size>& x,
     return x.swap(y);
 }
 
-SEASTAR_MODULE_EXPORT
 template <typename char_type, typename size_type, size_type max_size, bool NulTerminate, typename char_traits>
 inline
 std::basic_ostream<char_type, char_traits>&
@@ -764,7 +751,6 @@ operator<<(std::basic_ostream<char_type, char_traits>& os,
     return os.write(s.begin(), s.size());
 }
 
-SEASTAR_MODULE_EXPORT
 template <typename char_type, typename size_type, size_type max_size, bool NulTerminate, typename char_traits>
 inline
 std::basic_istream<char_type, char_traits>&
@@ -780,7 +766,6 @@ operator>>(std::basic_istream<char_type, char_traits>& is,
 
 namespace std {
 
-SEASTAR_MODULE_EXPORT
 template <typename char_type, typename size_type, size_type max_size, bool NulTerminate>
 struct hash<seastar::basic_sstring<char_type, size_type, max_size, NulTerminate>> {
     size_t operator()(const seastar::basic_sstring<char_type, size_type, max_size, NulTerminate>& s) const {
@@ -843,7 +828,6 @@ string_type to_sstring(T value) {
 
 namespace std {
 
-SEASTAR_MODULE_EXPORT
 template <typename T>
 [[deprecated("Use {fmt} instead")]]
 inline
@@ -862,7 +846,6 @@ std::ostream& operator<<(std::ostream& os, const std::vector<T>& v) {
     return os;
 }
 
-SEASTAR_MODULE_EXPORT
 template <typename Key, typename T, typename Hash, typename KeyEqual, typename Allocator>
 [[deprecated("Use {fmt} instead")]]
 std::ostream& operator<<(std::ostream& os, const std::unordered_map<Key, T, Hash, KeyEqual, Allocator>& v) {
@@ -891,12 +874,10 @@ struct fmt::range_format_kind<seastar::basic_sstring<char_type, Size, max_size, 
 
 #endif
 
-#if FMT_VERSION >= 90000
 
 // Due to https://github.com/llvm/llvm-project/issues/68849, we inherit
 // from formatter<string_view> publicly rather than privately
 
-SEASTAR_MODULE_EXPORT
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 struct fmt::formatter<seastar::basic_sstring<char_type, Size, max_size, NulTerminate>>
     : public fmt::formatter<basic_string_view<char_type>> {
@@ -908,4 +889,3 @@ struct fmt::formatter<seastar::basic_sstring<char_type, Size, max_size, NulTermi
     }
 };
 
-#endif

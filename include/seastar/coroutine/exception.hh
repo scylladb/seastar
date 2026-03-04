@@ -24,6 +24,7 @@
 #include <seastar/core/future.hh>
 #include <coroutine>
 #include <exception>
+#include <source_location>
 
 namespace seastar {
 
@@ -42,9 +43,12 @@ struct exception_awaiter {
     }
 
     template<typename U>
-    void await_suspend(std::coroutine_handle<U> hndl) noexcept {
+    void await_suspend(std::coroutine_handle<U> hndl SEASTAR_COROUTINE_LOC_PARAM) noexcept {
+      SEASTAR_COROUTINE_LOC_STORE(hndl.promise());
+      execute_involving_handle_destruction_in_await_suspend([hndl, eptr = std::move(eptr)] () mutable {
         hndl.promise().set_exception(std::move(eptr));
         hndl.destroy();
+      });
     }
 
     void await_resume() noexcept {}
@@ -98,7 +102,7 @@ template<typename T>
 [[deprecated("Use co_await coroutine::return_exception_ptr or co_return coroutine::exception instead")]]
 [[nodiscard]]
 exception make_exception(T&& t) noexcept {
-    log_exception_trace();
+    log_exception_trace(log_level::trace);
     return exception(std::make_exception_ptr(std::forward<T>(t)));
 }
 
@@ -148,14 +152,13 @@ inline exception return_exception(std::exception_ptr ex) noexcept {
 template<typename T>
 [[nodiscard]]
 exception return_exception(T&& t) noexcept {
-    log_exception_trace();
+    log_exception_trace(log_level::trace);
     return exception(std::make_exception_ptr(std::forward<T>(t)));
 }
 
-} // coroutine
-
-inline auto operator co_await(coroutine::exception ex) noexcept {
+inline auto operator co_await(exception ex) noexcept {
     return internal::exception_awaiter(std::move(ex.eptr));
 }
 
+} // coroutine
 } // seastar

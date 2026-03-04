@@ -45,7 +45,8 @@ struct tcp_test {
                     return;
                 }
                 fmt::print("read {:d} bytes\n", p.len());
-                (void)tcp_conn.send(std::move(p));
+                auto v = std::move(p).release();
+                (void)tcp_conn.send(std::span(v));
                 run();
             });
         }

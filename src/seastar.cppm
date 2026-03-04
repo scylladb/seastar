@@ -41,121 +41,6 @@
 
 module;
 
-// put all headers not provided by this module into the global module fragment
-// to prevent attachment to the module
-
-#include <any>
-#include <array>
-#include <algorithm>
-#include <atomic>
-#include <bitset>
-#include <cassert>
-#include <chrono>
-#include <compare>
-#include <concepts>
-#include <coroutine>
-#include <cstddef>
-#include <cstdint>
-#include <cstdlib>
-#include <cstring>
-#include <deque>
-#include <exception>
-#include <filesystem>
-#include <functional>
-#include <future>
-#include <initializer_list>
-#include <iomanip>
-#include <iostream>
-#include <iterator>
-#include <limits>
-#include <list>
-#include <memory>
-#include <memory_resource>
-#include <mutex>
-#include <new>
-#include <optional>
-#include <queue>
-#include <random>
-#include <ranges>
-#include <regex>
-#include <source_location>
-#include <sstream>
-#include <stack>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <thread>
-#include <tuple>
-#include <typeindex>
-#include <type_traits>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
-#include <variant>
-#include <vector>
-
-#include <boost/container/small_vector.hpp>
-#include <boost/container/static_vector.hpp>
-#include <boost/endian/conversion.hpp>
-#include <boost/functional/hash.hpp>
-#include <boost/intrusive/list.hpp>
-#include <boost/intrusive/parent_from_member.hpp>
-#include <boost/intrusive/slist.hpp>
-#include <boost/intrusive_ptr.hpp>
-#include <boost/iterator/counting_iterator.hpp>
-#include <boost/lexical_cast.hpp>
-#include <boost/lockfree/queue.hpp>
-#include <boost/lockfree/spsc_queue.hpp>
-#include <boost/mpl/for_each.hpp>
-#include <boost/mpl/range_c.hpp>
-#include <boost/next_prior.hpp>
-#include <boost/program_options.hpp>
-#include <boost/range/adaptor/filtered.hpp>
-#include <boost/range/adaptor/transformed.hpp>
-#include <boost/range/irange.hpp>
-#include <boost/thread/barrier.hpp>
-
-#include <fmt/format.h>
-#include <fmt/ostream.h>
-#include <fmt/ranges.h>
-#include <fmt/printf.h>
-#include <gnutls/crypto.h>
-#ifdef SEASTAR_HAVE_HWLOC
-#include <hwloc.h>
-#endif
-#if defined(__x86_64__) || defined(__i386__)
-#include <xmmintrin.h>
-#endif
-#include <linux/fs.h>
-#include <linux/perf_event.h>
-#include <arpa/inet.h>
-#include <sys/epoll.h>
-#include <sys/eventfd.h>
-#include <sys/inotify.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <sys/statvfs.h>
-#include <sys/timerfd.h>
-#include <sys/types.h>
-#include <sys/uio.h>
-#include <sys/un.h>
-#include <execinfo.h>
-#include <fcntl.h>
-#include <malloc.h>
-#include <pthread.h>
-#include <setjmp.h>
-#include <signal.h>
-#include <spawn.h>
-#include <ucontext.h>
-#include <unistd.h>
-
-export module seastar;
-
-// include all declaration and definitions to be exported in the the module
-// purview
 #include <seastar/util/std-compat.hh>
 #include <seastar/core/abortable_fifo.hh>
 #include <seastar/core/abort_on_ebadf.hh>
@@ -165,7 +50,6 @@ export module seastar;
 #include <seastar/core/align.hh>
 #include <seastar/core/aligned_buffer.hh>
 #include <seastar/core/app-template.hh>
-#include <seastar/core/array_map.hh>
 #include <seastar/core/bitops.hh>
 #include <seastar/core/bitset-iter.hh>
 #include <seastar/core/byteorder.hh>
@@ -177,7 +61,7 @@ export module seastar;
 #include <seastar/core/condition-variable.hh>
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/deleter.hh>
-#include <seastar/core/distributed.hh>
+#include <seastar/core/disk_params.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/enum.hh>
 #include <seastar/core/exception_hacks.hh>
@@ -244,7 +128,6 @@ export module seastar;
 #include <seastar/core/sstring.hh>
 #include <seastar/core/stream.hh>
 #include <seastar/core/stall_sampler.hh>
-#include <seastar/core/systemwide_memory_barrier.hh>
 #include <seastar/core/task.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/thread.hh>
@@ -260,6 +143,14 @@ export module seastar;
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/with_timeout.hh>
 
+#include <seastar/coroutine/all.hh>
+#include <seastar/coroutine/as_future.hh>
+#include <seastar/coroutine/exception.hh>
+#include <seastar/coroutine/generator.hh>
+#include <seastar/coroutine/maybe_yield.hh>
+#include <seastar/coroutine/parallel_for_each.hh>
+#include <seastar/coroutine/switch_to.hh>
+
 #include <seastar/util/alloc_failure_injector.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/conversions.hh>
@@ -273,6 +164,8 @@ export module seastar;
 #include <seastar/util/process.hh>
 #include <seastar/util/read_first_line.hh>
 #include <seastar/util/short_streams.hh>
+#include <seastar/util/memory-data-source.hh>
+#include <seastar/util/memory-data-sink.hh>
 
 #include <seastar/net/arp.hh>
 #include <seastar/net/packet.hh>
@@ -303,38 +196,169 @@ export module seastar;
 #include <seastar/json/formatter.hh>
 #include <seastar/json/json_elements.hh>
 
-module : private;
+export module seastar;
 
-#include <seastar/core/internal/read_state.hh>
-#include <seastar/core/internal/buffer_allocator.hh>
-#include <seastar/core/internal/io_intent.hh>
-#include <seastar/core/internal/stall_detector.hh>
-#include <seastar/core/internal/uname.hh>
+export namespace seastar {
 
-#include "core/cgroup.hh"
-#include "core/file-impl.hh"
-#include "core/prefault.hh"
-#include "core/program_options.hh"
-#include "core/reactor_backend.hh"
-#include "core/syscall_result.hh"
-#include "core/thread_pool.hh"
-#include "core/scollectd-impl.hh"
-#include "core/vla.hh"
+// Core types and utilities
+using seastar::app_template;
+using seastar::logger;
+using seastar::log_level;
+using seastar::future;
+using seastar::promise;
+using seastar::shared_future;
+using seastar::make_ready_future;
+using seastar::make_exception_future;
+using seastar::thread;
+using seastar::thread_attributes;
+using seastar::reactor;
+using seastar::engine;
+using seastar::smp;
+using seastar::shard_id;
+using seastar::this_shard_id;
 
-#include <seastar/util/internal/iovec_utils.hh>
-#include <seastar/util/internal/magic.hh>
-#include <seastar/util/function_input_iterator.hh>
-#include <seastar/util/shared_token_bucket.hh>
-#include <seastar/util/transform_iterator.hh>
+// Memory management
+using seastar::temporary_buffer;
+using seastar::deleter;
+using seastar::shared_ptr;
+using seastar::lw_shared_ptr;
+using seastar::make_shared;
+using seastar::make_lw_shared;
+using seastar::weak_ptr;
+using seastar::enable_shared_from_this;
+using seastar::enable_lw_shared_from_this;
+using seastar::foreign_ptr;
+using seastar::make_foreign;
 
-#include <seastar/net/dhcp.hh>
-#include <seastar/net/native-stack.hh>
-#include <seastar/net/proxy.hh>
-#include <seastar/net/tcp-stack.hh>
-#include <seastar/net/toeplitz.hh>
-#include <seastar/net/virtio.hh>
+// Synchronization primitives
+using seastar::semaphore;
+using seastar::broken_semaphore;
+using seastar::semaphore_timed_out;
+using seastar::gate;
+using seastar::gate_closed_exception;
+using seastar::condition_variable;
+using seastar::broken_condition_variable;
+using seastar::rwlock;
+using seastar::shared_mutex;
+using seastar::abort_source;
+using seastar::abort_requested_exception;
 
-#include "net/native-stack-impl.hh"
+// Containers
+using seastar::circular_buffer;
+using seastar::circular_buffer_fixed_capacity;
+using seastar::chunked_fifo;
+using seastar::queue;
+using seastar::sstring;
 
-#include <seastar/http/url.hh>
-#include <seastar/http/internal/content_source.hh>
+// Scheduling
+using seastar::scheduling_group;
+using seastar::task;
+
+// Timers and clocks
+using seastar::timer;
+using seastar::lowres_clock;
+using seastar::lowres_system_clock;
+using seastar::manual_clock;
+using seastar::steady_clock_type;
+
+// Sharding
+using seastar::sharded;
+
+// I/O
+using seastar::file;
+using seastar::file_open_options;
+using seastar::open_flags;
+using seastar::directory_entry_type;
+using seastar::file_handle;
+using seastar::input_stream;
+using seastar::output_stream;
+using seastar::data_sink;
+using seastar::data_source;
+
+// Networking
+using seastar::socket;
+using seastar::server_socket;
+using seastar::connected_socket;
+using seastar::socket_address;
+using seastar::ipv4_addr;
+using seastar::ipv6_addr;
+using seastar::transport;
+
+// Metrics
+using seastar::metrics::metric_groups;
+using seastar::metrics::metric_group_definition;
+using seastar::metrics::label;
+using seastar::metrics::label_instance;
+
+// Utility functions
+using seastar::do_with;
+using seastar::do_for_each;
+using seastar::do_until;
+using seastar::repeat;
+using seastar::repeat_until_value;
+using seastar::parallel_for_each;
+using seastar::map_reduce;
+using seastar::when_all;
+using seastar::when_all_succeed;
+using seastar::sleep;
+using seastar::yield;
+
+// Exception types
+using seastar::nested_exception;
+using seastar::timed_out_error;
+
+// Resource management
+using seastar::with_scheduling_group;
+using seastar::with_timeout;
+
+// Print utilities
+using seastar::format;
+
+}
+
+export namespace seastar::net {
+
+using seastar::net::packet;
+using seastar::net::fragment;
+using seastar::net::ethernet_address;
+using seastar::net::ipv4_address;
+using seastar::net::ipv6_address;
+using seastar::net::inet_address;
+using seastar::net::ipv4_tcp;
+using seastar::net::ipv4_udp;
+using seastar::net::udp_channel;
+using seastar::net::datagram;
+using seastar::net::get_impl;
+
+}
+
+export namespace seastar::http {
+
+using seastar::http::reply;
+using seastar::http::request;
+
+}
+
+export namespace seastar::util {
+
+using seastar::util::basic_memory_data_source;
+using seastar::util::temporary_buffer_data_source;
+using seastar::util::basic_memory_data_sink;
+
+}
+
+export namespace std {
+
+using std::hash;
+
+// Expose hash specializations for seastar types that have them
+template <>
+struct hash<seastar::socket_address>;
+
+template <>
+struct hash<seastar::ipv4_addr>;
+
+template <>
+struct hash<seastar::net::inet_address>;
+
+}

@@ -21,16 +21,12 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <type_traits>
-#include <seastar/util/modules.hh>
-#endif
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \addtogroup fileio-module
 /// @{
@@ -48,7 +44,7 @@ enum class open_flags {
     dsync = O_DSYNC,
 };
 
-inline open_flags operator|(open_flags a, open_flags b) {
+inline constexpr open_flags operator|(open_flags a, open_flags b) {
     return open_flags(std::underlying_type_t<open_flags>(a) | std::underlying_type_t<open_flags>(b));
 }
 
@@ -56,7 +52,7 @@ inline void operator|=(open_flags& a, open_flags b) {
     a = (a | b);
 }
 
-inline open_flags operator&(open_flags a, open_flags b) {
+inline constexpr open_flags operator&(open_flags a, open_flags b) {
     return open_flags(std::underlying_type_t<open_flags>(a) & std::underlying_type_t<open_flags>(b));
 }
 
@@ -119,11 +115,11 @@ enum class access_flags {
     lookup = execute,
 };
 
-inline access_flags operator|(access_flags a, access_flags b) {
+inline constexpr access_flags operator|(access_flags a, access_flags b) {
     return access_flags(std::underlying_type_t<access_flags>(a) | std::underlying_type_t<access_flags>(b));
 }
 
-inline access_flags operator&(access_flags a, access_flags b) {
+inline constexpr access_flags operator&(access_flags a, access_flags b) {
     return access_flags(std::underlying_type_t<access_flags>(a) & std::underlying_type_t<access_flags>(b));
 }
 
@@ -160,6 +156,5 @@ inline constexpr file_permissions operator&(file_permissions a, file_permissions
 
 /// @}
 
-SEASTAR_MODULE_EXPORT_END
 
 } // namespace seastar
