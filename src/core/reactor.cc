@@ -3867,7 +3867,7 @@ static std::tuple<std::filesystem::path, uint64_t> wakeup_granularity() {
     // This will in practice almost always fail because debug fs requires root
     // perms to read so we are out of luck
     auto debug_fs_path = "/sys/kernel/debug/sched/wakeup_granularity_ns";
-    if (auto val = try_read(legacy_path); val) {
+    if (auto val = try_read(debug_fs_path); val) {
         return {debug_fs_path, val};
     }
 
