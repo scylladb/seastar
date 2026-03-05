@@ -4435,7 +4435,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         memory::configure_minimal();
     }
 
-    _shard_to_numa_node_mapping.resize(smp::count);
+    _shard_to_numa_node_mapping.reserve(smp::count);
     for (unsigned i = 0; i < smp::count; i++) {
         _shard_to_numa_node_mapping.push_back(allocations[i].mem.size() > 0 ? allocations[i].mem[0].nodeid : 0);
     }
