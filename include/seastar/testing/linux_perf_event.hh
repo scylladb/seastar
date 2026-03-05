@@ -35,6 +35,7 @@ struct perf_event_attr; // from <linux/perf_event.h>
 
 class linux_perf_event {
     int _fd = -1;
+    linux_perf_event() = default;
 public:
     linux_perf_event(const struct ::perf_event_attr& attr, pid_t pid, int cpu, int group_fd, unsigned long flags);
     linux_perf_event(linux_perf_event&& x) noexcept : _fd(std::exchange(x._fd, -1)) {}
@@ -44,6 +45,8 @@ public:
     void enable();
     void disable();
 public:
+    /// Returns a no-op event that always reads as zero.
+    static linux_perf_event always_zero() { return linux_perf_event(); }
     static linux_perf_event user_instructions_retired();
     static linux_perf_event user_cpu_cycles_retired();
 };

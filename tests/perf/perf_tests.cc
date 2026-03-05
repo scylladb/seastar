@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <boost/program_options/value_semantic.hpp>
 #include <cmath>
+#include <optional>
 #include <ranges>
 #include <seastar/testing/perf_tests.hh>
 
@@ -145,8 +146,8 @@ class time_measurement {
     perf_stats _start_stats;
     perf_stats _total_stats;
 
-    linux_perf_event _instructions_retired_counter = linux_perf_event::user_instructions_retired();
-    linux_perf_event _cpu_cycles_retired_counter = linux_perf_event::user_cpu_cycles_retired();
+    linux_perf_event _instructions_retired_counter;
+    linux_perf_event _cpu_cycles_retired_counter;
 
     uint64_t _start_stop_count = 0;
 
@@ -155,6 +156,11 @@ class time_measurement {
     clock_type::duration _start_stop_overhead_external{0}; // external clock measurement (for comparison)
 
 public:
+    explicit time_measurement(bool perf_counters)
+        : _instructions_retired_counter(perf_counters ? linux_perf_event::user_instructions_retired() : linux_perf_event::always_zero())
+        , _cpu_cycles_retired_counter(perf_counters ? linux_perf_event::user_cpu_cycles_retired() : linux_perf_event::always_zero())
+    {}
+
     void enable_counters() {
         _instructions_retired_counter.enable();
         _cpu_cycles_retired_counter.enable();
@@ -199,8 +205,7 @@ public:
     void stop_iteration() {
         auto t = clock_type::now();
         _total_time += t - _start_time;
-        perf_stats stats;
-        stats = perf_stats::snapshot(&_instructions_retired_counter, &_cpu_cycles_retired_counter);
+        perf_stats stats = perf_stats::snapshot(&_instructions_retired_counter, &_cpu_cycles_retired_counter);
         _total_stats += stats - _start_stats;
     }
 
@@ -240,25 +245,25 @@ public:
     }
 };
 
-static time_measurement measure_time;
+static std::optional<time_measurement> measure_time;
 
 void performance_test::start_run() {
-    measure_time.enable_counters();
-    measure_time.start_run();
+    measure_time->enable_counters();
+    measure_time->start_run();
 }
 
 performance_test::run_result performance_test::stop_run() {
-    auto ret = measure_time.stop_run();
-    measure_time.disable_counters();
+    auto ret = measure_time->stop_run();
+    measure_time->disable_counters();
     return ret;
 }
 
 void time_measurement_start_iteration() {
-    measure_time.start_iteration();
+    measure_time->start_iteration();
 }
 
 void time_measurement_stop_iteration() {
-    measure_time.stop_iteration();
+    measure_time->stop_iteration();
 }
 
 struct config;
@@ -696,8 +701,8 @@ struct stdout_printer : text_printer {
                 "number of runs:", c.number_of_runs,
                 "number of cores:", smp::count,
                 "random seed:", c.random_seed,
-                "start/stop overhead:", duration { measure_time.start_stop_overhead() },
-                duration { measure_time.start_stop_overhead_external() });
+                "start/stop overhead:", duration { measure_time->start_stop_overhead() },
+                duration { measure_time->start_stop_overhead_external() });
 
         print_header_row();
     }
@@ -818,7 +823,7 @@ void performance_test::do_run(const config& conf)
                 add(r.cycles, rr.stats.cpu_cycles_retired);
 
                 // Calculate overhead ratio from start/stop timing calls
-                auto overhead = rr.start_stop_count * measure_time.start_stop_overhead();
+                auto overhead = rr.start_stop_count * measure_time->start_stop_overhead();
                 double overhead_ratio = dt.count() ? (1.0 * overhead / dt) : 0.;
                 r.overhead.add(overhead_ratio, 1.0);  // already per-run, not per-iteration
             });
@@ -928,12 +933,15 @@ int main(int ac, char** av)
         ("overhead-threshold", bpo::value<double>()->default_value(0.1),
             "warn if overhead exceeds this ratio (default: 0.1 = 10%)")
         ("fail-on-high-overhead", "fail the test run if any test exceeds the overhead threshold")
+        ("no-perf-counters", "disable hardware perf counters (inst/cycles)")
         ;
 
     return app.run(ac, av, [&] {
         return async([&] {
             signal_timer::init();
-            measure_time.calibrate_overhead();
+            bool use_counters = !app.configuration().count("no-perf-counters");
+            measure_time.emplace(use_counters);
+            measure_time->calibrate_overhead();
 
             config conf;
             conf.single_run_iterations = app.configuration()["iterations"].as<size_t>();
