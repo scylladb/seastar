@@ -5370,7 +5370,7 @@ run_in_background(future<> f) {
 }
 
 void log_timer_callback_exception(std::exception_ptr ex) noexcept {
-    seastar_logger.error("Timer callback failed: {}", std::current_exception());
+    seastar_logger.error("Timer callback failed: {}", ex);
 }
 
 void set_current_task(task* t) {
