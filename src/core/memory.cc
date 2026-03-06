@@ -2029,7 +2029,7 @@ std::ostream& operator<<(std::ostream& os, const human_readable_value& val) {
     return os;
 }
 
-static human_readable_value to_human_readable_value(uint64_t value, uint64_t step, uint64_t precision, const std::array<char, 5>& suffixes) {
+static constexpr human_readable_value to_human_readable_value(uint64_t value, uint64_t step, uint64_t precision, const std::array<char, 5>& suffixes) {
     if (!value) {
         return {0, suffixes[0]};
     }
@@ -2050,12 +2050,12 @@ static human_readable_value to_human_readable_value(uint64_t value, uint64_t ste
     return {uint16_t(remainder < (step / 2) ? result : result + 1), suffixes[i]};
 }
 
-static human_readable_value to_hr_size(uint64_t size) {
+static constexpr human_readable_value to_hr_size(uint64_t size) {
     const std::array<char, 5> suffixes = {'B', 'K', 'M', 'G', 'T'};
     return to_human_readable_value(size, 1024, 8192, suffixes);
 }
 
-static human_readable_value to_hr_number(uint64_t number) {
+static constexpr human_readable_value to_hr_number(uint64_t number) {
     const std::array<char, 5> suffixes = {'\0', 'k', 'm', 'b', 't'};
     return to_human_readable_value(number, 1000, 10000, suffixes);
 }
