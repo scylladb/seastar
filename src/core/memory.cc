@@ -2019,6 +2019,7 @@ void set_additional_diagnostics_producer(noncopyable_function<void(memory_diagno
 struct human_readable_value {
     uint16_t value;  // [0, 16k)
     char suffix; // 0 -> no suffix
+    constexpr bool operator==(const human_readable_value& o) const = default;
 };
 
 std::ostream& operator<<(std::ostream& os, const human_readable_value& val) {
@@ -2053,6 +2054,15 @@ static constexpr human_readable_value to_hr_size(uint64_t size) {
     const std::array<char, 6> suffixes = {'B', 'K', 'M', 'G', 'T', 'P'};
     return to_human_readable_value(size, 1024, 8192, suffixes);
 }
+
+static_assert(to_hr_size(1ull) == human_readable_value{1, 'B'});
+static_assert(to_hr_size(1ull << 10) == human_readable_value{1, 'K'});
+static_assert(to_hr_size(1ull << 20) == human_readable_value{1, 'M'});
+static_assert(to_hr_size(1ull << 30) == human_readable_value{1, 'G'});
+static_assert(to_hr_size(1ull << 40) == human_readable_value{1, 'T'});
+static_assert(to_hr_size(1ull << 50) == human_readable_value{1, 'P'});
+static_assert(to_hr_size(1ull << 60) == human_readable_value{1024, 'P'});
+static_assert(to_hr_size(std::numeric_limits<uint64_t>::max()) == human_readable_value{16 << 10, 'P'});
 
 static constexpr human_readable_value to_hr_number(uint64_t number) {
     const std::array<char, 6> suffixes = {'\0', 'k', 'm', 'b', 't', 'p'};
