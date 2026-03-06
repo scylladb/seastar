@@ -60,6 +60,12 @@ inline void operator&=(open_flags& a, open_flags b) {
     a = (a & b);
 }
 
+// The mask that should be used to extract only open-mode from the flags
+constexpr open_flags open_flags_mode_mask = open_flags(3);
+static_assert((open_flags_mode_mask & open_flags::ro) == open_flags::ro);
+static_assert((open_flags_mode_mask & open_flags::rw) == open_flags::rw);
+static_assert((open_flags_mode_mask & open_flags::wo) == open_flags::wo);
+
 /// Enumeration describing the type of a directory entry being listed.
 ///
 /// \see file::list_directory()
