@@ -2017,7 +2017,7 @@ void set_additional_diagnostics_producer(noncopyable_function<void(memory_diagno
 }
 
 struct human_readable_value {
-    uint16_t value;  // [0, 1024)
+    uint16_t value;  // [0, 16k)
     char suffix; // 0 -> no suffix
 };
 
@@ -2029,7 +2029,7 @@ std::ostream& operator<<(std::ostream& os, const human_readable_value& val) {
     return os;
 }
 
-static constexpr human_readable_value to_human_readable_value(uint64_t value, uint64_t step, uint64_t precision, const std::array<char, 5>& suffixes) {
+static constexpr human_readable_value to_human_readable_value(uint64_t value, uint64_t step, uint64_t precision, const std::array<char, 6>& suffixes) {
     if (!value) {
         return {0, suffixes[0]};
     }
@@ -2050,12 +2050,12 @@ static constexpr human_readable_value to_human_readable_value(uint64_t value, ui
 }
 
 static constexpr human_readable_value to_hr_size(uint64_t size) {
-    const std::array<char, 5> suffixes = {'B', 'K', 'M', 'G', 'T'};
+    const std::array<char, 6> suffixes = {'B', 'K', 'M', 'G', 'T', 'P'};
     return to_human_readable_value(size, 1024, 8192, suffixes);
 }
 
 static constexpr human_readable_value to_hr_number(uint64_t number) {
-    const std::array<char, 5> suffixes = {'\0', 'k', 'm', 'b', 't'};
+    const std::array<char, 6> suffixes = {'\0', 'k', 'm', 'b', 't', 'p'};
     return to_human_readable_value(number, 1000, 10000, suffixes);
 }
 
