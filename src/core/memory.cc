@@ -2039,13 +2039,12 @@ static constexpr human_readable_value to_human_readable_value(uint64_t value, ui
     unsigned i = 0;
     // If there is no remainder we go below precision because we don't loose any.
     while (((!remainder && result >= step) || result >= precision)) {
+        if (i + 1 == suffixes.size()) {
+            break;
+        }
         remainder = result % step;
         result /= step;
-        if (i == suffixes.size()) {
-            break;
-        } else {
-            ++i;
-        }
+        ++i;
     }
     return {uint16_t(remainder < (step / 2) ? result : result + 1), suffixes[i]};
 }
