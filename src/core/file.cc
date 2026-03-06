@@ -168,7 +168,7 @@ void posix_file_impl::configure_io_lengths() noexcept {
 template <typename FileImpl>
 std::unique_ptr<seastar::file_handle_impl>
 posix_file_impl::do_dup() {
-    if ((_open_flags & open_flags::ro) != open_flags{}) {
+    if ((_open_flags & open_flags_mode_mask) != open_flags::ro) {
         throw std::runtime_error("File is not read-only");
     }
 
@@ -343,7 +343,7 @@ posix_file_impl::close() noexcept {
     delete _refcount;
     _refcount = nullptr;
     auto closed = make_ready_future<syscall_result<int>>(0, 0);
-    if ((_open_flags & open_flags::ro) != open_flags{}) {
+    if ((_open_flags & open_flags_mode_mask) == open_flags::ro) {
         closed = futurize_invoke([fd] () noexcept {
             return wrap_syscall<int>(::close(fd));
         });
