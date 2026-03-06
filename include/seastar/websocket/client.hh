@@ -36,7 +36,8 @@ namespace seastar::experimental::websocket {
  * Represents a single WebSocket connection initiated by a client.
  * Handles the HTTP upgrade handshake and WebSocket frame exchange.
  */
-class client_connection : public basic_connection<true> {
+template <bool text_frame = false>
+class client_connection : public basic_connection<true, text_frame> {
     http_response_parser _http_parser;
     sstring _resource;
     sstring _host;
@@ -71,8 +72,9 @@ public:
  * A client capable of establishing a WebSocket connection to a server.
  * Manages the connection lifecycle.
  */
+template<bool text_frame = false>
 class client {
-    std::unique_ptr<client_connection> _conn;
+    std::unique_ptr<client_connection<text_frame>> _conn;
     gate _task_gate;
 
 public:
