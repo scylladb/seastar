@@ -28,6 +28,7 @@
 #include <seastar/http/retry_strategy.hh>
 #include <seastar/core/condition-variable.hh>
 #include <seastar/core/iostream.hh>
+#include <seastar/util/integrated-length.hh>
 
 namespace bi = boost::intrusive;
 
@@ -162,6 +163,7 @@ private:
     unsigned long _total_new_connections = 0;
     std::unique_ptr<retry_strategy> _retry_strategy;
     condition_variable _wait_con;
+    util::integrated_length<unsigned, lowres_clock> _requests_queued;
     connections_list_t _pool;
 
     using connection_ptr = seastar::shared_ptr<connection>;
@@ -360,6 +362,20 @@ public:
 
     unsigned long total_new_connections_nr() const noexcept {
         return _total_new_connections;
+    }
+
+    /**
+     * \brief Returns the integrated_length<> for the number of requests waiting for connection
+     *
+     * The caller may choose to
+     * - export the immediate .value() as GAUGE metrics or
+     * - export the .integral() value as COUNTER metrics
+     *
+     * The latter option is preferred, when rate()-d it provides an average over scrape time
+     * value of the queue length.
+     */
+    const auto& integrated_requests_queued() const noexcept {
+        return _requests_queued;
     }
 };
 
