@@ -274,7 +274,7 @@ fair_queue_entry* fair_queue::priority_class_group_data::top() {
 
 void fair_queue::pop_front() {
     auto [empty, req_cap] = _root.pop_front();
-    _queued_capacity += req_cap;
+    _queued_capacity -= req_cap;
 }
 
 std::pair<bool, fair_queue_entry::capacity_t> fair_queue::priority_class_group_data::pop_front() {
