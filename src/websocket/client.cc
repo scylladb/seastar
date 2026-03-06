@@ -43,18 +43,20 @@ static sstring generate_websocket_key() {
     return sstring(encode_base64(std::string_view(raw, 16)));
 }
 
-client_connection::client_connection(connected_socket&& fd, sstring resource,
+template <bool text_frame>
+client_connection<text_frame>::client_connection(connected_socket&& fd, sstring resource,
                                      sstring host, sstring subprotocol,
                                      handler_t handler)
-    : basic_connection(std::move(fd))
+    : basic_connection<true, text_frame>(std::move(fd))
     , _resource(std::move(resource))
     , _host(std::move(host))
 {
-    _subprotocol = std::move(subprotocol);
-    _handler = std::move(handler);
+    this->_subprotocol = std::move(subprotocol);
+    this->_handler = std::move(handler);
 }
 
-future<> client_connection::send_http_upgrade_request() {
+template <bool text_frame>
+future<> client_connection<text_frame>::send_http_upgrade_request() {
     _websocket_key = generate_websocket_key();
     auto req = fmt::format(
         "GET {} HTTP/1.1\r\n"
@@ -65,18 +67,19 @@ future<> client_connection::send_http_upgrade_request() {
         "Sec-WebSocket-Version: 13\r\n",
         _resource, _host, _websocket_key);
 
-    if (!_subprotocol.empty()) {
-        req += fmt::format("Sec-WebSocket-Protocol: {}\r\n", _subprotocol);
+    if (!this->_subprotocol.empty()) {
+        req += fmt::format("Sec-WebSocket-Protocol: {}\r\n", this->_subprotocol);
     }
     req += "\r\n";
 
-    co_await _write_buf.write(req);
-    co_await _write_buf.flush();
+    co_await this->_write_buf.write(req);
+    co_await this->_write_buf.flush();
 }
 
-future<> client_connection::read_http_upgrade_response() {
+template <bool text_frame>
+future<> client_connection<text_frame>::read_http_upgrade_response() {
     _http_parser.init();
-    co_await _read_buf.consume(_http_parser);
+    co_await this->_read_buf.consume(_http_parser);
 
     if (_http_parser.eof()) {
         throw websocket::exception("Connection closed during HTTP upgrade");
@@ -117,12 +120,14 @@ future<> client_connection::read_http_upgrade_response() {
     websocket_logger.debug("WebSocket client handshake completed");
 }
 
-future<> client_connection::handshake() {
+template <bool text_frame>
+future<> client_connection<text_frame>::handshake() {
     co_await send_http_upgrade_request();
     co_await read_http_upgrade_response();
 }
 
-future<> client_connection::process() {
+template <bool text_frame>
+future<> client_connection<text_frame>::process() {
     co_await coroutine::all(
         [this] () -> future<> {
             co_await this->_handler(this->_input, this->_output).handle_exception([this] (std::exception_ptr e) -> future<> {
@@ -141,10 +146,11 @@ future<> client_connection::process() {
     );
 }
 
-future<> client::connect(socket_address addr, sstring resource, sstring host,
+template <bool text_frame>
+future<> client<text_frame>::connect(socket_address addr, sstring resource, sstring host,
                          sstring subprotocol, handler_t handler) {
     auto fd = co_await seastar::connect(addr);
-    _conn = std::make_unique<client_connection>(std::move(fd),
+    _conn = std::make_unique<client_connection<text_frame>>(std::move(fd),
         std::move(resource), std::move(host),
         std::move(subprotocol), std::move(handler));
 
@@ -158,12 +164,13 @@ future<> client::connect(socket_address addr, sstring resource, sstring host,
     }).handle_exception_type([] (const gate_closed_exception&) {});
 }
 
-future<> client::connect(socket_address addr,
+template <bool text_frame>
+future<> client<text_frame>::connect(socket_address addr,
                          shared_ptr<tls::certificate_credentials> creds,
                          sstring resource, sstring host,
                          sstring subprotocol, handler_t handler) {
     auto fd = co_await tls::connect(creds, addr, tls::tls_options{.server_name = host});
-    _conn = std::make_unique<client_connection>(std::move(fd),
+    this->_conn = std::make_unique<client_connection<text_frame>>(std::move(fd),
         std::move(resource), std::move(host),
         std::move(subprotocol), std::move(handler));
 
@@ -177,12 +184,19 @@ future<> client::connect(socket_address addr,
     }).handle_exception_type([] (const gate_closed_exception&) {});
 }
 
-future<> client::close() {
+template <bool text_frame>
+future<> client<text_frame>::close() {
     if (_conn) {
         co_await _conn->close(true).handle_exception([] (auto) {});
         _conn->shutdown_input();
     }
     co_await _task_gate.close();
 }
+
+template class client_connection<false>;
+template class client_connection<true>;
+
+template class client<true>;
+template class client<false>;
 
 }

@@ -53,7 +53,7 @@ public:
 /*!
  * \brief a server WebSocket connection
  */
-template <bool is_client = false>
+template <bool is_client = false, bool text_frame = false>
 class basic_connection : public boost::intrusive::list_base_hook<> {
 protected:
     using buff_t = temporary_buffer<char>;
@@ -174,7 +174,7 @@ protected:
     future<> send_data(opcodes opcode, temporary_buffer<char> buff);
 };
 
-using connection = basic_connection<false>;
+using connection = basic_connection<false, false>;
 
 std::string sha1_base64(std::string_view source);
 std::string encode_base64(std::string_view source);

@@ -28,18 +28,19 @@
 #include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
 #include <random>
+#include <seastar/websocket/parser.hh>
 
 namespace seastar::experimental::websocket {
 
 logger websocket_logger("websocket");
 
-template <bool is_client>
-future<> basic_connection<is_client>::handle_ping(temporary_buffer<char> buff) {
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::handle_ping(temporary_buffer<char> buff) {
     return send_data(opcodes::PONG, std::move(buff));
 }
 
-template <bool is_client>
-future<> basic_connection<is_client>::handle_pong() {
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::handle_pong() {
     // TODO
     return make_ready_future<>();
 }
@@ -58,8 +59,8 @@ static void apply_mask(char* data, size_t len, uint32_t masking_key) {
     }
 }
 
-template <bool is_client>
-future<> basic_connection<is_client>::send_data(opcodes opcode, temporary_buffer<char> buff) {
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::send_data(opcodes opcode, temporary_buffer<char> buff) {
     char header[14] = {'\x80', 0}; // max: 2 + 8 (extended len) + 4 (mask key)
     size_t header_size = 2;
 
@@ -91,8 +92,8 @@ future<> basic_connection<is_client>::send_data(opcodes opcode, temporary_buffer
     co_await _write_buf.flush();
 }
 
-template <bool is_client>
-future<> basic_connection<is_client>::response_loop() {
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::response_loop() {
     return do_until([this] {return _done;}, [this] {
         // FIXME: implement error handling
         return _output_buffer.pop_eventually().then([this] (
@@ -100,20 +101,20 @@ future<> basic_connection<is_client>::response_loop() {
             if (!buf) {
                 return make_ready_future<>();
             }
-            return send_data(opcodes::BINARY, std::move(buf));
+            return send_data(text_frame ? opcodes::TEXT : opcodes::BINARY, std::move(buf));
         });
     }).finally([this]() {
         return _write_buf.close();
     });
 }
 
-template <bool is_client>
-void basic_connection<is_client>::shutdown_input() {
+template <bool is_client, bool text_frame>
+void basic_connection<is_client, text_frame>::shutdown_input() {
     _fd.shutdown_input();
 }
 
-template <bool is_client>
-future<> basic_connection<is_client>::close(bool send_close) {
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::close(bool send_close) {
     if (_half_close) {
         return make_ready_future<>();
     }
@@ -132,8 +133,8 @@ future<> basic_connection<is_client>::close(bool send_close) {
     });
 }
 
-template <bool is_client>
-future<> basic_connection<is_client>::read_one() {
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::read_one() {
     return _read_buf.consume(_websocket_parser).then([this] () mutable {
         if (_websocket_parser.is_valid()) {
             if (_half_close) {
@@ -193,7 +194,9 @@ std::string encode_base64(std::string_view source) {
     return std::string(reinterpret_cast<const char*>(encoded_data.data), encoded_data.size);
 }
 
-template class basic_connection<true>;
-template class basic_connection<false>;
+template class basic_connection<true, false>;
+template class basic_connection<true, true>;
+template class basic_connection<false, false>;
+template class basic_connection<false, true>;
 
 }
