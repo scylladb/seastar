@@ -37,6 +37,7 @@
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/exception.hh>
 #include <seastar/coroutine/try_future.hh>
+#include <seastar/coroutine/at_coroutine_exit.hh>
 #include <seastar/testing/random.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/util/defer.hh>
@@ -945,4 +946,265 @@ SEASTAR_TEST_CASE(test_try_future) {
     co_await run_try_future_test<false>(return_int, 128);
     co_await run_try_future_test<true>(return_ex_int, std::nullopt);
     co_await run_try_future_test<false>(return_ex_int, std::nullopt);
+}
+
+class scope_canary {
+    bool* _flag{nullptr};
+public:
+    scope_canary(bool& flag)
+        : _flag(&flag) { }
+    scope_canary(scope_canary&& c) : _flag(std::exchange(c._flag, nullptr)) { }
+    scope_canary(const scope_canary&) = delete;
+    scope_canary& operator=(const scope_canary&) = delete;
+    scope_canary& operator=(scope_canary&&) = delete;
+    ~scope_canary() {
+        if (_flag) {
+            *_flag = true;
+        }
+    }
+};
+
+struct coroutine_exception : public std::exception {
+    const char* what() const noexcept override {
+        return "exception from coroutine";
+    }
+};
+
+struct coroutine_at_exit_exception : public std::exception {
+    const char* what() const noexcept override {
+        return "exception from coroutine_at_exit";
+    }
+};
+
+using coroutine_throws_exception = seastar::bool_class<struct coroutine_throws_tag>;
+using coroutine_at_exit_throws_exception = seastar::bool_class<struct coroutine_at_exit_throws_tag>;
+using coroutine_yields = seastar::bool_class<struct coroutine_yields_tag>;
+using coroutine_at_exit_yields = seastar::bool_class<struct at_exit_yields_tag>;
+
+template <typename R, typename Func>
+future<R> coroutine_at_exit_coroutine(scope_canary c, coroutine_yields yields, coroutine_throws_exception throws, std::list<Func> funcs) {
+    co_await coroutine::schedule_at_coroutine_exit(std::move(funcs.front()));
+    funcs.pop_front();
+
+    if (yields) {
+        co_await yield();
+    }
+
+    while (!funcs.empty()) {
+        co_await coroutine::schedule_at_coroutine_exit(std::move(funcs.front()));
+        funcs.pop_front();
+        if (yields) {
+            co_await yield();
+        }
+    }
+
+    if (throws) {
+        fmt::print("  coroutine_at_exit_coroutine(): throw\n");
+        throw coroutine_exception{};
+    }
+    fmt::print("  coroutine_at_exit_coroutine(): return\n");
+
+    if constexpr (std::is_void_v<R>) {
+        co_return;
+    } else {
+        co_return R{};
+    }
+}
+
+struct coroutine_at_exit_func_result {
+    bool called{};
+    bool waited{};
+    unsigned index{};
+    std::exception_ptr ex;
+};
+
+class basic_coroutine_at_exit_func_instance {
+protected:
+    coroutine_at_exit_func_result& _result;
+    const coroutine_at_exit_yields _yields;
+    const coroutine_at_exit_throws_exception _throws;
+    std::function<unsigned()> _get_index;
+
+    void post_yield() {
+        _result.waited = true;
+        if (_throws) {
+            fmt::print("  func in coroutine_at_exit throws\n");
+            throw coroutine_at_exit_exception{};
+        }
+    }
+
+    future<> invoke(std::exception_ptr ex) {
+        _result.called = true;
+        if (_get_index) {
+            _result.index = _get_index();
+        }
+        _result.ex = std::move(ex);
+        if (_yields) {
+            return yield().then([&] { post_yield(); });
+        }
+        post_yield();
+        return make_ready_future<>();
+    }
+
+public:
+    explicit basic_coroutine_at_exit_func_instance(coroutine_at_exit_func_result& result, coroutine_at_exit_yields yields, coroutine_at_exit_throws_exception throws, std::function<unsigned()> get_index)
+        : _result(result)
+        , _yields(yields)
+        , _throws(throws)
+        , _get_index(std::move(get_index))
+    { }
+};
+
+template <bool TakesException>
+class coroutine_at_exit_func_instance : public basic_coroutine_at_exit_func_instance { };
+
+template <>
+class coroutine_at_exit_func_instance<true> : public basic_coroutine_at_exit_func_instance {
+public:
+    coroutine_at_exit_func_instance(coroutine_at_exit_func_result& result, coroutine_at_exit_yields yields, coroutine_at_exit_throws_exception throws, std::function<unsigned()> get_next_index = {})
+        : basic_coroutine_at_exit_func_instance(result, yields, throws, std::move(get_next_index)) { }
+    future<> operator() (std::exception_ptr ex) {
+        return this->invoke(std::move(ex));
+    }
+};
+
+template <>
+class coroutine_at_exit_func_instance<false> : public basic_coroutine_at_exit_func_instance {
+public:
+    coroutine_at_exit_func_instance(coroutine_at_exit_func_result& result, coroutine_at_exit_yields yields, coroutine_at_exit_throws_exception throws, std::function<unsigned()> get_next_index = {})
+        : basic_coroutine_at_exit_func_instance(result, yields, throws, std::move(get_next_index)) { }
+    future<> operator() () {
+        return this->invoke(nullptr);
+    }
+};
+
+template <typename R, bool FuncTakesException>
+class coroutine_at_exit_tester {
+    future<> do_run(size_t num_coroutine_at_exit_functions, coroutine_yields coroutine_yields, coroutine_throws_exception coroutine_throws,
+            coroutine_at_exit_yields at_exit_yields, coroutine_at_exit_throws_exception coroutine_at_exit_throws, std::source_location sl) {
+        fmt::print("coroutine_at_exit_tester<{}, {}>::do_run(num_coroutine_at_exit_functions={}, coroutine_yields={}, coroutine_throws={}, at_exit_yields={}, coroutine_at_exit_throws={}) at {}:{}\n",
+                typeid(R).name(), FuncTakesException, num_coroutine_at_exit_functions, coroutine_yields, coroutine_throws, at_exit_yields, coroutine_at_exit_throws, sl.file_name(), sl.line());
+
+        bool scope_canary_destroyed = false;
+        unsigned index = 0;
+
+        std::vector<coroutine_at_exit_func_result> results(num_coroutine_at_exit_functions);
+        std::list<coroutine_at_exit_func_instance<FuncTakesException>> at_exit_funcs;
+        for (auto& result : results) {
+            at_exit_funcs.emplace_back(result, at_exit_yields, coroutine_at_exit_throws, [&index] { return ++index; });
+        }
+
+        std::optional<future<R>> fopt;
+        try {
+            fopt = co_await coroutine::as_future(coroutine_at_exit_coroutine<R>(scope_canary{scope_canary_destroyed}, coroutine_yields, coroutine_throws, std::move(at_exit_funcs)));
+        } catch (...) {
+            BOOST_FAIL(fmt::format("Unexpected exception: {}", std::current_exception()));
+        }
+        auto& f = fopt.value();
+
+        if (f.failed()) {
+            auto ex = f.get_exception();
+            fmt::print("  coroutine returned exception: {}\n", ex);
+
+            BOOST_REQUIRE(coroutine_throws || coroutine_at_exit_throws);
+            if (coroutine_throws && coroutine_at_exit_throws) {
+                BOOST_REQUIRE_THROW(std::rethrow_exception(ex), seastar::nested_exception);
+            } else if (coroutine_throws) {
+                BOOST_REQUIRE_THROW(std::rethrow_exception(ex), coroutine_exception);
+            } else {
+                if (results.size() == 1) {
+                    BOOST_REQUIRE_THROW(std::rethrow_exception(ex), coroutine_at_exit_exception);
+                } else {
+                    BOOST_REQUIRE_THROW(std::rethrow_exception(ex), seastar::nested_exception);
+                }
+            }
+        } else {
+            f.ignore_ready_future();
+        }
+
+        BOOST_REQUIRE(scope_canary_destroyed);
+
+        for (unsigned i = 0; i < results.size(); ++i) {
+            const auto& result = results.at(i);
+            BOOST_REQUIRE(result.called);
+            BOOST_REQUIRE(result.waited);
+            BOOST_REQUIRE_EQUAL(result.index, results.size() - i);
+            BOOST_REQUIRE_EQUAL(bool(result.ex), FuncTakesException && bool(coroutine_throws));
+            if (result.ex) {
+                BOOST_REQUIRE_THROW(std::rethrow_exception(result.ex), coroutine_exception);
+            }
+        }
+    }
+
+public:
+    future<> operator()(std::source_location sl = std::source_location::current()) {
+        for (size_t i = 1; i < 4; ++i) {
+            for (auto coroutine_yields : {coroutine_yields::no, coroutine_yields::yes}) {
+                for (auto coroutine_throws : {coroutine_throws_exception::no, coroutine_throws_exception::yes}) {
+                    for (auto at_exit_yields : {coroutine_at_exit_yields::no, coroutine_at_exit_yields::yes}) {
+                        for (auto coroutine_at_exit_throws : {coroutine_at_exit_throws_exception::no, coroutine_at_exit_throws_exception::yes}) {
+                            co_await do_run(i, coroutine_yields, coroutine_throws, at_exit_yields, coroutine_at_exit_throws, sl);
+                        }
+                    }
+                }
+            }
+        }
+    }
+};
+
+SEASTAR_TEST_CASE(test_coroutine_at_exit) {
+    co_await coroutine_at_exit_tester<void, false>{}();
+    co_await coroutine_at_exit_tester<void, true>{}();
+    co_await coroutine_at_exit_tester<int, false>{}();
+    co_await coroutine_at_exit_tester<int, true>{}();
+}
+
+SEASTAR_TEST_CASE(test_coroutine_at_exit_with_return_exception_ptr) {
+    for (bool yield_before_ret : {false, true}) {
+        fmt::print("yield={}\n", yield_before_ret);
+
+        coroutine_at_exit_func_result result;
+
+        auto f = co_await coroutine::as_future([&] () -> future<> {
+            co_await coroutine::schedule_at_coroutine_exit(coroutine_at_exit_func_instance<true>{result, coroutine_at_exit_yields::yes, coroutine_at_exit_throws_exception::no});
+            if (yield_before_ret) {
+                co_await yield();
+            }
+            co_await coroutine::return_exception_ptr(std::make_exception_ptr(coroutine_exception{}));
+        }());
+
+        BOOST_REQUIRE(f.failed());
+        BOOST_REQUIRE_THROW(f.get(), coroutine_exception);
+
+        BOOST_REQUIRE(result.called);
+        BOOST_REQUIRE(result.waited);
+        BOOST_REQUIRE(result.ex);
+        BOOST_REQUIRE_THROW(std::rethrow_exception(result.ex), coroutine_exception);
+    }
+}
+
+SEASTAR_TEST_CASE(test_coroutine_at_exit_with_try_future) {
+    auto bad_func = [] { return make_exception_future<>(coroutine_exception{}); };
+
+    for (bool yield_before_ret : {false, true}) {
+        fmt::print("yield={}\n", yield_before_ret);
+
+        coroutine_at_exit_func_result result;
+
+        auto f = co_await coroutine::as_future([&] () -> future<> {
+            co_await coroutine::schedule_at_coroutine_exit(coroutine_at_exit_func_instance<true>{result, coroutine_at_exit_yields::yes, coroutine_at_exit_throws_exception::no});
+            if (yield_before_ret) {
+                co_await yield();
+            }
+            co_await coroutine::try_future(bad_func());
+        }());
+
+        BOOST_REQUIRE(f.failed());
+        BOOST_REQUIRE_THROW(f.get(), coroutine_exception);
+
+        BOOST_REQUIRE(result.called);
+        BOOST_REQUIRE(result.waited);
+        BOOST_REQUIRE(result.ex);
+        BOOST_REQUIRE_THROW(std::rethrow_exception(result.ex), coroutine_exception);
+    }
 }
