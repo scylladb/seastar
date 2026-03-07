@@ -137,9 +137,12 @@ struct task_quota_aio_completion : public fd_kernel_completion,
     virtual void complete_with(ssize_t value) override;
 };
 
-struct smp_wakeup_aio_completion : public fd_kernel_completion,
+struct smp_wakeup_aio_completion final : public kernel_completion,
                                    public completion_with_iocb {
-    smp_wakeup_aio_completion(file_desc& fd);
+private:
+    writeable_eventfd& _efd;
+public:
+    smp_wakeup_aio_completion(writeable_eventfd& fd);
     virtual void complete_with(ssize_t value) override;
 };
 
