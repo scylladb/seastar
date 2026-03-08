@@ -53,7 +53,8 @@ public:
 /*!
  * \brief a server WebSocket connection
  */
-class connection : public boost::intrusive::list_base_hook<> {
+template <bool is_client = false, bool text_frame = false>
+class basic_connection : public boost::intrusive::list_base_hook<> {
 protected:
     using buff_t = temporary_buffer<char>;
 
@@ -117,7 +118,7 @@ protected:
      * \brief This function processess received PING frame.
      * https://datatracker.ietf.org/doc/html/rfc6455#section-5.5.2
      */
-    future<> handle_ping();
+    future<> handle_ping(temporary_buffer<char>);
     /*!
      * \brief This function processess received PONG frame.
      * https://datatracker.ietf.org/doc/html/rfc6455#section-5.5.3
@@ -129,6 +130,8 @@ protected:
     input_stream<char> _read_buf;
     output_stream<char> _write_buf;
     bool _done = false;
+    // TODO: implement https://datatracker.ietf.org/doc/html/rfc6455#section-7.1.2
+    bool _half_close = false;
 
     websocket_parser _websocket_parser;
     queue <temporary_buffer<char>> _input_buffer;
@@ -141,11 +144,14 @@ protected:
 public:
     /*!
      * \param fd established socket used for communication
+     * \param is_client if true, this is a client-side connection (sends masked
+     *        frames and expects unmasked frames from server)
      */
-    connection(connected_socket&& fd)
+    basic_connection(connected_socket&& fd)
         : _fd(std::move(fd))
         , _read_buf(_fd.input())
         , _write_buf(_fd.output())
+        , _websocket_parser(!is_client)
         , _input_buffer{PIPE_SIZE}
         , _input(data_source{std::make_unique<connection_source_impl>(&_input_buffer)})
         , _output_buffer{PIPE_SIZE}
@@ -167,6 +173,8 @@ protected:
      */
     future<> send_data(opcodes opcode, temporary_buffer<char> buff);
 };
+
+using connection = basic_connection<false, false>;
 
 std::string sha1_base64(std::string_view source);
 std::string encode_base64(std::string_view source);

@@ -64,7 +64,7 @@ struct frame_header {
     }
     // Returns length of the rest of the header.
     uint64_t get_rest_of_header_length() {
-        size_t next_read_length = sizeof(uint32_t); // Masking key
+        size_t next_read_length = masked ? sizeof(uint32_t) : 0;
         if (length == 126) {
             next_read_length += sizeof(uint16_t);
         } else if (length == 127) {
@@ -108,6 +108,7 @@ class websocket_parser {
     std::unique_ptr<frame_header> _header;
     uint64_t _payload_length = 0;
     uint64_t _consumed_payload_length = 0;
+    bool _require_mask;
     uint32_t _masking_key;
     buff_t _result;
 
@@ -129,9 +130,17 @@ class websocket_parser {
         }
     }
 public:
-    websocket_parser() : _state(parsing_state::flags_and_payload_data),
-                         _cstate(connection_state::valid),
-                         _masking_key(0) {}
+    /*!
+     * \brief Construct a websocket frame parser.
+     * \param require_mask if true (default), incoming frames must be masked
+     *        (server-side). If false, incoming frames must not be masked
+     *        (client-side).
+     */
+    explicit websocket_parser(bool require_mask = true)
+        : _state(parsing_state::flags_and_payload_data)
+        , _cstate(connection_state::valid)
+        , _require_mask(require_mask)
+        , _masking_key(0) {}
     future<consumption_result_t> operator()(temporary_buffer<char> data);
     bool is_valid() { return _cstate == connection_state::valid; }
     bool eof() { return _cstate == connection_state::closed; }
