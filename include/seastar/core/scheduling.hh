@@ -352,6 +352,17 @@ public:
     /// Similarly to the \ref set_shares, the returned value is only relevant to
     /// the calling shard
     float get_shares() const noexcept;
+
+    /// \brief Updates the current IO bandwidth for a given scheduling supergroup
+    ///
+    /// The bandwidth applied is NOT shard-local, instead it is applied so that
+    /// all shards cannot consume more bytes-per-second altogether
+    ///
+    /// Must not be called on the root supergroup
+    ///
+    /// \param bandwidth the new bandwidth value in bytes/second
+    /// \return a future that is ready when the bandwidth update is applied
+    future<> update_io_bandwidth(uint64_t bandwidth) const;
 };
 
 /// \brief Identifies function calls that are accounted as a group
