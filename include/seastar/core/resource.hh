@@ -49,6 +49,7 @@ using cpuset = std::set<unsigned>;
 
 /// \cond internal
 std::optional<cpuset> parse_cpuset(std::string value);
+cpuset get_offline_cpus();
 /// \endcond
 
 namespace hwloc::internal {
