@@ -302,7 +302,7 @@ protected:
     timer<> _thinker;
 
     virtual future<> do_start(sstring dir, directory_entry_type type) = 0;
-    virtual future<size_t> issue_request(char *buf, io_intent* intent) = 0;
+    virtual future<size_t> issue_request(io_intent* intent) = 0;
 public:
     class_data(job_config cfg)
         : _config(std::move(cfg))
@@ -333,8 +333,8 @@ private:
         }
     }
 
-    future<> issue_request(char* buf, io_intent* intent, std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point stop) {
-        return issue_request(buf, intent).then([this, start, stop] (auto size) {
+    future<> issue_request(io_intent* intent, std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point stop) {
+        return issue_request(intent).then([this, start, stop] (auto size) {
             auto now = std::chrono::steady_clock::now();
             if (now < stop) {
                 this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
@@ -345,30 +345,26 @@ private:
 
     future<> issue_requests_in_parallel(std::chrono::steady_clock::time_point stop) {
         return parallel_for_each(std::views::iota(0u, parallelism()), [this, stop] (auto dummy) mutable {
-            auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
-            auto buf = bufptr.get();
-            return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, buf, stop] () mutable {
+            return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, stop] () mutable {
                 auto start = std::chrono::steady_clock::now();
-                return issue_request(buf, nullptr, start, stop).then([this] {
+                return issue_request(nullptr, start, stop).then([this] {
                     return think();
                 });
-            }).finally([bufptr = std::move(bufptr)] {});
+            });
         });
     }
 
     future<> issue_requests_at_rate(std::chrono::steady_clock::time_point stop) {
         return do_with(io_intent{}, 0u, [this, stop] (io_intent& intent, unsigned& in_flight) {
             return parallel_for_each(std::views::iota(0u, parallelism()), [this, stop, &intent, &in_flight] (auto dummy) mutable {
-                auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
-                auto buf = bufptr.get();
                 auto pause = std::chrono::duration_cast<std::chrono::microseconds>(1s) / rps();
                 auto pause_dist = _config.options.pause_fn(pause);
-                return seastar::sleep((pause / parallelism()) * dummy).then([this, buf, stop, pause = pause_dist.get(), &intent, &in_flight] () mutable {
-                    return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, buf, stop, pause, &intent, &in_flight] () mutable {
+                return seastar::sleep((pause / parallelism()) * dummy).then([this, stop, pause = pause_dist.get(), &intent, &in_flight] () mutable {
+                    return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, stop, pause, &intent, &in_flight] () mutable {
                         auto start = std::chrono::steady_clock::now();
                         in_flight++;
-                        return parallel_for_each(std::views::iota(0u, batch()), [this, buf, &intent, start, stop] (auto dummy) {
-                            return issue_request(buf, &intent, start, stop);
+                        return parallel_for_each(std::views::iota(0u, batch()), [this, &intent, start, stop] (auto dummy) {
+                            return issue_request(&intent, start, stop);
                         }).then([this, start, pause] {
                             auto now = std::chrono::steady_clock::now();
                             auto p = pause->template get_as<std::chrono::microseconds>();
@@ -386,7 +382,7 @@ private:
                             in_flight--;
                         });
                     });
-                }).finally([bufptr = std::move(bufptr), pause = std::move(pause_dist)] {});
+                }).finally([pause = std::move(pause_dist)] {});
             }).then([&intent, &in_flight] {
                 intent.cancel();
                 return do_until([&in_flight] { return in_flight == 0; }, [] { return seastar::sleep(100ms /* ¯\_(ツ)_/¯ */); });
@@ -717,21 +713,29 @@ public:
 };
 
 class read_io_class_data : public io_class_data {
-public:
-    read_io_class_data(job_config cfg) : io_class_data(std::move(cfg)) {}
+    std::unique_ptr<char[], free_deleter> _buf;
 
-    future<size_t> issue_request(char *buf, io_intent* intent) override {
-        auto f = _file.dma_read(this->get_pos(), buf, this->req_size(), intent);
+public:
+    read_io_class_data(job_config cfg) : io_class_data(std::move(cfg)) {
+        _buf = allocate_aligned_buffer<char>(req_size(), _alignment);
+    }
+
+    future<size_t> issue_request(io_intent* intent) override {
+        auto f = _file.dma_read(this->get_pos(), _buf.get(), this->req_size(), intent);
         return on_io_completed(std::move(f));
     }
 };
 
 class write_io_class_data : public io_class_data {
-public:
-    write_io_class_data(job_config cfg) : io_class_data(std::move(cfg)) {}
+    std::unique_ptr<char[], free_deleter> _buf;
 
-    future<size_t> issue_request(char *buf, io_intent* intent) override {
-        auto f = _file.dma_write(this->get_pos(), buf, this->req_size(), intent);
+public:
+    write_io_class_data(job_config cfg) : io_class_data(std::move(cfg)) {
+        _buf = allocate_and_fill_buffer(req_size());
+    }
+
+    future<size_t> issue_request(io_intent* intent) override {
+        auto f = _file.dma_write(this->get_pos(), _buf.get(), this->req_size(), intent);
         return on_io_completed(std::move(f));
     }
 };
@@ -779,7 +783,7 @@ public:
         });
     }
 
-    future<size_t> issue_request(char *buf, io_intent* intent) override {
+    future<size_t> issue_request(io_intent* intent) override {
         auto pos = this->get_pos();
         std::vector<iovec> iovs = _iovecs;
         auto f = _file.dma_write(pos, std::move(iovs), intent);
@@ -797,7 +801,7 @@ public:
         });
     }
 
-    future<size_t> issue_request(char *buf, io_intent* intent) override {
+    future<size_t> issue_request(io_intent* intent) override {
         auto pos = this->get_pos();
         std::vector<iovec> iovs = _iovecs;
         auto f = _file.dma_read(pos, std::move(iovs), intent);
@@ -824,7 +828,7 @@ public:
         throw std::runtime_error(format("Unsupported storage. {} should be directory", path));
     }
 
-    future<size_t> issue_request(char *buf, io_intent* intent) override {
+    future<size_t> issue_request(io_intent* intent) override {
         if (all_files_removed()) {
             fmt::print("[WARNING]: Cannot issue request in unlink_class_data! All files have been removed for shard_id={}\n"
                        "[WARNING]: Please create more files or adjust the frequency of unlinks.", this_shard_id());
@@ -911,7 +915,7 @@ public:
         return make_ready_future<>();
     }
 
-    future<size_t> issue_request(char *buf, io_intent* intent) override {
+    future<size_t> issue_request(io_intent* intent) override {
         // We do want the execution time to be a busy loop, and not just a bunch of
         // continuations until our time is up: by doing this we can also simulate the behavior
         // of I/O continuations in the face of reactor stalls.
