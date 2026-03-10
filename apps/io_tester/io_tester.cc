@@ -35,6 +35,7 @@
 #include <seastar/core/io_intent.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/later.hh>
+#include <seastar/util/defer.hh>
 #include <chrono>
 #include <optional>
 #include <ranges>
@@ -1374,9 +1375,7 @@ int main(int ac, char** av) {
             }
 
             ctx.start(storage, *st_type, reqs, duration).get();
-            internal::at_exit([&ctx] {
-                return ctx.stop();
-            });
+            auto stop = defer([&ctx] () noexcept { ctx.stop().get(); });
             std::cout << "Creating initial files..." << std::endl;
             ctx.invoke_on_all([] (auto& c) {
                 return c.start();
@@ -1386,7 +1385,6 @@ int main(int ac, char** av) {
                 return c.issue_requests();
             }).get();
             show_results(ctx);
-            ctx.stop().get();
         }).or_terminate();
     });
 }
