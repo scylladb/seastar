@@ -749,13 +749,13 @@ public:
     }
 };
 
-class vectorized_read_io_class_data : public io_class_data {
+class vectorized_io_class_data : public io_class_data {
+protected:
     std::vector<std::unique_ptr<char[], free_deleter>> _buffers;
     std::vector<iovec> _iovecs;
     size_t _segment_size;
 
-public:
-    vectorized_read_io_class_data(job_config cfg)
+    vectorized_io_class_data(job_config cfg)
             : io_class_data(std::move(cfg))
             , _segment_size(_config.shard_info.request_size / _config.shard_info.iov_count)
     {
@@ -767,48 +767,29 @@ public:
             throw std::runtime_error(format("segment_size {} must be at least {} and aligned to {}",
                 _segment_size, _alignment, _alignment));
         }
-        allocate_buffers();
     }
 
-    future<size_t> issue_request(char *buf, io_intent* intent) override {
-        auto pos = this->get_pos();
-        std::vector<iovec> iovs = _iovecs;
-        auto f = _file.dma_read(pos, std::move(iovs), intent);
-        return on_io_completed(std::move(f));
-    }
-
-private:
-    void allocate_buffers() {
+    template <typename Alloc>
+    void allocate_buffers(Alloc alloc_one) {
         _buffers.reserve(_config.shard_info.iov_count);
         _iovecs.reserve(_config.shard_info.iov_count);
 
         for (unsigned i = 0; i < _config.shard_info.iov_count; ++i) {
-            auto buf = allocate_aligned_buffer<char>(_segment_size, _alignment);
+            auto buf = alloc_one();
             _iovecs.push_back(iovec{ buf.get(), _segment_size });
             _buffers.push_back(std::move(buf));
         }
     }
 };
 
-class vectorized_write_io_class_data : public io_class_data {
-    std::vector<std::unique_ptr<char[], free_deleter>> _buffers;
-    std::vector<iovec> _iovecs;
-    size_t _segment_size;
-
+class vectorized_write_io_class_data : public vectorized_io_class_data {
 public:
     vectorized_write_io_class_data(job_config cfg)
-            : io_class_data(std::move(cfg))
-            , _segment_size(_config.shard_info.request_size / _config.shard_info.iov_count)
+            : vectorized_io_class_data(std::move(cfg))
     {
-        if (_config.shard_info.request_size % _config.shard_info.iov_count != 0) {
-            throw std::runtime_error(format("request_size {} must be evenly divisible by iov_count {}",
-                _config.shard_info.request_size, _config.shard_info.iov_count));
-        }
-        if (_segment_size < _alignment || _segment_size % _alignment != 0) {
-            throw std::runtime_error(format("segment_size {} must be at least {} and aligned to {}",
-                _segment_size, _alignment, _alignment));
-        }
-        allocate_buffers();
+        allocate_buffers([this] () {
+            return allocate_and_fill_buffer(_segment_size);
+        });
     }
 
     future<size_t> issue_request(char *buf, io_intent* intent) override {
@@ -817,17 +798,23 @@ public:
         auto f = _file.dma_write(pos, std::move(iovs), intent);
         return on_io_completed(std::move(f));
     }
+};
 
-private:
-    void allocate_buffers() {
-        _buffers.reserve(_config.shard_info.iov_count);
-        _iovecs.reserve(_config.shard_info.iov_count);
+class vectorized_read_io_class_data : public vectorized_io_class_data {
+public:
+    vectorized_read_io_class_data(job_config cfg)
+            : vectorized_io_class_data(std::move(cfg))
+    {
+        allocate_buffers([this] () {
+            return allocate_aligned_buffer<char>(_segment_size, _alignment);
+        });
+    }
 
-        for (unsigned i = 0; i < _config.shard_info.iov_count; ++i) {
-            auto buf = allocate_and_fill_buffer(_segment_size);
-            _iovecs.push_back(iovec{ buf.get(), _segment_size });
-            _buffers.push_back(std::move(buf));
-        }
+    future<size_t> issue_request(char *buf, io_intent* intent) override {
+        auto pos = this->get_pos();
+        std::vector<iovec> iovs = _iovecs;
+        auto f = _file.dma_read(pos, std::move(iovs), intent);
+        return on_io_completed(std::move(f));
     }
 };
 
