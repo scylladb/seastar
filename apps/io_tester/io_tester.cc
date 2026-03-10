@@ -941,21 +941,26 @@ public:
 };
 
 std::unique_ptr<class_data> job_config::gen_class_data() {
-    if (type == request_type::cpu) {
+    switch (type) {
+    case request_type::cpu:
         return std::make_unique<cpu_class_data>(*this);
-    } else if (type == request_type::unlink) {
+    case request_type::unlink:
         return std::make_unique<unlink_class_data>(*this);
-    } else if ((type == request_type::seqread) || (type == request_type::randread)) {
+    case request_type::seqread:
+    case request_type::randread:
         if (shard_info.vectorized) {
             return std::make_unique<vectorized_read_io_class_data>(*this);
         }
         return std::make_unique<read_io_class_data>(*this);
-    } else {
+    case request_type::overwrite:
+    case request_type::randwrite:
+    case request_type::append:
         if (shard_info.vectorized) {
             return std::make_unique<vectorized_write_io_class_data>(*this);
         }
         return std::make_unique<write_io_class_data>(*this);
     }
+    __builtin_unreachable();
 }
 
 /// YAML parsing functions
