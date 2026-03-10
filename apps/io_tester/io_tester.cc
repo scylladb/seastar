@@ -444,22 +444,6 @@ public:
     }
 
 protected:
-    sstring type_str() const {
-        auto base = std::unordered_map<request_type, sstring>{
-            { request_type::seqread, "SEQ READ" },
-            { request_type::overwrite, "OVERWRITE" },
-            { request_type::randread, "RAND READ" },
-            { request_type::randwrite, "RAND WRITE" },
-            { request_type::append , "APPEND" },
-            { request_type::cpu , "CPU" },
-            { request_type::unlink, "UNLINK" },
-        }[_config.type];
-        if (_config.shard_info.vectorized) {
-            return format("{} (vectorized, {} iovecs)", base, _config.shard_info.iov_count);
-        }
-        return base;
-    }
-
     request_type req_type() const {
         return _config.type;
     }
