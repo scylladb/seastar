@@ -1360,7 +1360,7 @@ int main(int ac, char** av) {
             }
 
             parallel_for_each(reqs, [&sched_classes] (auto& r) {
-                if (r.shard_info.sched_class != "") {
+                if (!r.shard_info.sched_class.empty()) {
                     return make_ready_future<>();
                 }
 
@@ -1373,7 +1373,7 @@ int main(int ac, char** av) {
             }).get();
 
             for (job_config& r : reqs) {
-                auto cname = r.shard_info.sched_class != "" ? r.shard_info.sched_class : r.name;
+                auto cname = !r.shard_info.sched_class.empty() ? r.shard_info.sched_class : r.name;
                 fmt::print("Job {} -> sched class {}\n", r.name, cname);
                 auto& sc = sched_classes.at(cname);
                 r.shard_info.scheduling_group = sc.sg;
