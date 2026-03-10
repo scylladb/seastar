@@ -282,6 +282,39 @@ future<> maybe_close_file(file& f) {
 }
 
 class class_data {
+    struct thinker_state {
+        const std::chrono::duration<float> think_time;
+        const std::chrono::duration<float> think_after;
+        bool thinking;   // true while the think pause is active
+        timer<> t;
+
+        thinker_state(std::chrono::duration<float> think_time_, std::chrono::duration<float> think_after_)
+            : think_time(think_time_)
+            , think_after(think_after_)
+            , thinking(think_after == 0us)   // start thinking immediately unless toggled
+        {
+            t.set_callback([this] {
+                if (thinking) {
+                    thinking = false;
+                    t.arm(std::chrono::duration_cast<std::chrono::microseconds>(think_after));
+                } else {
+                    thinking = true;
+                    t.arm(std::chrono::duration_cast<std::chrono::microseconds>(think_time));
+                }
+            });
+            if (think_after > 0us) {
+                t.arm(std::chrono::duration_cast<std::chrono::microseconds>(think_after));
+            }
+        }
+
+        future<> think() {
+            if (thinking) {
+                return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(think_time));
+            }
+            return make_ready_future<>();
+        }
+    };
+
 protected:
     using accumulator_type = accumulator_set<double, stats<tag::extended_p_square_quantile(quadratic), tag::mean, tag::max>>;
 
@@ -294,9 +327,8 @@ protected:
 
     accumulator_type _latencies;
     uint64_t _requests = 0;
-    bool _think = false;
     ::sleep_fn _sleep_fn = timer_sleep<lowres_clock>;
-    timer<> _thinker;
+    std::optional<thinker_state> _thinker;
 
     virtual future<> do_start(sstring dir, directory_entry_type type) = 0;
     virtual future<size_t> issue_request(io_intent* intent) = 0;
@@ -306,28 +338,11 @@ public:
         , _sg(cfg.shard_info.scheduling_group)
         , _latencies(extended_p_square_probabilities = quantiles)
         , _sleep_fn(_config.options.sleep_fn)
-        , _thinker([this] { think_tick(); })
-    {
-        if (_config.shard_info.think_after > 0us) {
-            _thinker.arm(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_after));
-        } else if (_config.shard_info.think_time > 0us) {
-            _think = true;
-        }
-    }
+    {}
 
     virtual ~class_data() = default;
 
 private:
-
-    void think_tick() {
-        if (_think) {
-            _think = false;
-            _thinker.arm(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_after));
-        } else {
-            _think = true;
-            _thinker.arm(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_time));
-        }
-    }
 
     future<> issue_request(io_intent* intent, std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point stop) {
         return issue_request(intent).then([this, start, stop] (auto size) {
@@ -340,11 +355,14 @@ private:
     }
 
     future<> issue_requests_in_parallel(std::chrono::steady_clock::time_point stop) {
+        if (_config.shard_info.think_time > 0us || _config.shard_info.think_after > 0us) {
+            _thinker.emplace(_config.shard_info.think_time, _config.shard_info.think_after);
+        }
         return parallel_for_each(std::views::iota(0u, parallelism()), [this, stop] (auto dummy) mutable {
             return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, stop] () mutable {
                 auto start = std::chrono::steady_clock::now();
-                return issue_request(nullptr, start, stop).then([this] {
-                    return think();
+                return issue_request(nullptr, start, stop).then([this] () mutable {
+                    return _thinker ? _thinker->think() : make_ready_future<>();
                 });
             });
         });
@@ -400,13 +418,6 @@ public:
         });
     }
 
-    future<> think() {
-        if (_think) {
-            return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_time));
-        } else {
-            return make_ready_future<>();
-        }
-    }
     // Generate the test file(s) for reads and writes alike. It is much simpler to just generate one file per job instead of expecting
     // job dependencies between creators and consumers. Removal of files is an exception - it creates multiple files during startup to
     // unlink them. So every job (a class in a shard) will have its own file(s) and will operate differently depending on the type:
