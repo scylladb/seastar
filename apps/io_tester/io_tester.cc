@@ -286,7 +286,6 @@ protected:
     using accumulator_type = accumulator_set<double, stats<tag::extended_p_square_quantile(quadratic), tag::mean, tag::max>>;
 
     job_config _config;
-    uint64_t _alignment;
 
     seastar::scheduling_group _sg;
 
@@ -306,7 +305,6 @@ protected:
 public:
     class_data(job_config cfg)
         : _config(std::move(cfg))
-        , _alignment(_config.shard_info.request_size >= 4096 ? 4096 : 512)
         , _sg(cfg.shard_info.scheduling_group)
         , _latencies(extended_p_square_probabilities = quantiles)
         , _sleep_fn(_config.options.sleep_fn)
@@ -526,6 +524,7 @@ class io_class_data : public class_data {
     unsigned _overflows = 0;
     std::uniform_int_distribution<uint32_t> _pos_distribution;
 protected:
+    const uint64_t _alignment;
     bool _is_dev_null = false;
     timer<> _queue_length_timer;
     accumulator_type _disk_queue_lengths;
@@ -565,6 +564,7 @@ public:
     io_class_data(job_config cfg)
             : class_data(std::move(cfg))
             , _pos_distribution(0,  _config.file_size / _config.shard_info.request_size)
+            , _alignment(_config.shard_info.request_size >= 4096 ? 4096 : 512)
             , _queue_length_timer([this] { update_queue_length(); })
             , _disk_queue_lengths(extended_p_square_probabilities = quantiles_short)
     {}
