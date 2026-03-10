@@ -292,7 +292,6 @@ protected:
     size_t _data = 0;
     std::chrono::duration<float> _total_duration;
 
-    std::chrono::steady_clock::time_point _start = {};
     accumulator_type _latencies;
     uint64_t _requests = 0;
     file _file;
@@ -390,15 +389,15 @@ private:
 
 public:
     future<> issue_requests(std::chrono::steady_clock::time_point stop) {
-        _start = std::chrono::steady_clock::now();
+        auto start = std::chrono::steady_clock::now();
         return with_scheduling_group(_sg, [this, stop] {
             if (rps() == 0) {
                 return issue_requests_in_parallel(stop);
             } else {
                 return issue_requests_at_rate(stop);
             }
-        }).then([this] {
-            _total_duration = std::chrono::steady_clock::now() - _start;
+        }).then([this, start] {
+            _total_duration = std::chrono::steady_clock::now() - start;
         });
     }
 
