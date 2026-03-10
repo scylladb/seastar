@@ -358,8 +358,8 @@ private:
         if (_config.shard_info.think_time > 0us || _config.shard_info.think_after > 0us) {
             _thinker.emplace(_config.shard_info.think_time, _config.shard_info.think_after);
         }
-        return parallel_for_each(std::views::iota(0u, parallelism()), [this, stop] (auto dummy) mutable {
-            return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, stop] () mutable {
+        return parallel_for_each(std::views::iota(0u, _config.shard_info.parallelism), [this, stop] (auto dummy) mutable {
+            return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || _requests > _config.shard_info.limit; }, [this, stop] () mutable {
                 auto start = std::chrono::steady_clock::now();
                 return issue_request(nullptr, start, stop).then([this] () mutable {
                     return _thinker ? _thinker->think() : make_ready_future<>();
@@ -370,14 +370,14 @@ private:
 
     future<> issue_requests_at_rate(std::chrono::steady_clock::time_point stop) {
         return do_with(io_intent{}, 0u, [this, stop] (io_intent& intent, unsigned& in_flight) {
-            return parallel_for_each(std::views::iota(0u, parallelism()), [this, stop, &intent, &in_flight] (auto dummy) mutable {
-                auto pause = std::chrono::duration_cast<std::chrono::microseconds>(1s) / rps();
+            return parallel_for_each(std::views::iota(0u, _config.shard_info.parallelism), [this, stop, &intent, &in_flight] (auto dummy) mutable {
+                auto pause = std::chrono::duration_cast<std::chrono::microseconds>(1s) / _config.shard_info.rps;
                 auto pause_dist = _config.options.pause_fn(pause);
-                return seastar::sleep((pause / parallelism()) * dummy).then([this, stop, pause = pause_dist.get(), &intent, &in_flight] () mutable {
-                    return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, stop, pause, &intent, &in_flight] () mutable {
+                return seastar::sleep((pause / _config.shard_info.parallelism) * dummy).then([this, stop, pause = pause_dist.get(), &intent, &in_flight] () mutable {
+                    return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || _requests > _config.shard_info.limit; }, [this, stop, pause, &intent, &in_flight] () mutable {
                         auto start = std::chrono::steady_clock::now();
                         in_flight++;
-                        return parallel_for_each(std::views::iota(0u, batch()), [this, &intent, start, stop] (auto dummy) {
+                        return parallel_for_each(std::views::iota(0u, _config.shard_info.batch), [this, &intent, start, stop] (auto dummy) {
                             return issue_request(&intent, start, stop);
                         }).then([this, start, pause] {
                             auto now = std::chrono::steady_clock::now();
@@ -408,7 +408,7 @@ public:
     future<> issue_requests(std::chrono::steady_clock::time_point stop) {
         auto start = std::chrono::steady_clock::now();
         return with_scheduling_group(_sg, [this, stop] {
-            if (rps() == 0) {
+            if (_config.shard_info.rps == 0) {
                 return issue_requests_in_parallel(stop);
             } else {
                 return issue_requests_at_rate(stop);
@@ -452,44 +452,12 @@ protected:
         return _config.type;
     }
 
-    sstring think_time() const {
-        if (_config.shard_info.think_time == std::chrono::duration<float>(0)) {
-            return "NO think time";
-        } else {
-            return format("{:d} us think time", std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_time).count());
-        }
-    }
-
     size_t req_size() const {
         return _config.shard_info.request_size;
     }
 
-    unsigned parallelism() const {
-        return _config.shard_info.parallelism;
-    }
-
-    unsigned rps() const {
-        return _config.shard_info.rps;
-    }
-
-    unsigned batch() const {
-        return _config.shard_info.batch;
-    }
-
-    unsigned limit() const noexcept {
-        return _config.shard_info.limit;
-    }
-
-    unsigned shares() const {
-        return _config.shard_info.shares;
-    }
-
     std::chrono::duration<float> total_duration() const {
         return _total_duration;
-    }
-
-    uint64_t file_size_mb() const {
-        return _config.file_size >> 20;
     }
 
     uint64_t total_data() const {
@@ -506,10 +474,6 @@ protected:
 
     uint64_t quantile_latency(double q) const {
         return quantile(_latencies, quantile_probability = q);
-    }
-
-    uint64_t requests() const noexcept {
-        return _requests;
     }
 
     void add_result(size_t data, std::chrono::microseconds latency) {
@@ -698,7 +662,7 @@ private:
 public:
     virtual void emit_results(YAML::Emitter& out) override {
         auto throughput_kbs = (total_data() >> 10) / total_duration().count();
-        auto iops = requests() / total_duration().count();
+        auto iops = _requests / total_duration().count();
         out << YAML::Key << "throughput" << YAML::Value << throughput_kbs << YAML::Comment("kB/s");
         out << YAML::Key << "IOPS" << YAML::Value << iops;
         out << YAML::Key << "latencies" << YAML::Comment("usec");
@@ -710,7 +674,7 @@ public:
         out << YAML::Key << "max" << YAML::Value << max_latency();
         out << YAML::EndMap;
         out << YAML::Key << "stats" << YAML::BeginMap;
-        out << YAML::Key << "total_requests" << YAML::Value << requests();
+        out << YAML::Key << "total_requests" << YAML::Value << _requests;
         emit_metrics(out);
         out << YAML::Key << "disk_queue_length";
         out << YAML::BeginMap;
@@ -856,7 +820,7 @@ public:
     }
 
     void emit_results(YAML::Emitter& out) override {
-        const auto iops = requests() / total_duration().count();
+        const auto iops = _requests / total_duration().count();
         out << YAML::Key << "IOPS" << YAML::Value << iops;
         out << YAML::Key << "latencies" << YAML::Comment("usec");
         out << YAML::BeginMap;
@@ -864,7 +828,7 @@ public:
         out << YAML::Key << "max" << YAML::Value << max_latency();
         out << YAML::EndMap;
         out << YAML::Key << "stats" << YAML::BeginMap;
-        out << YAML::Key << "total_requests" << YAML::Value << requests();
+        out << YAML::Key << "total_requests" << YAML::Value << _requests;
         out << YAML::EndMap;
     }
 
