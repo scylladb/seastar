@@ -294,7 +294,6 @@ protected:
 
     accumulator_type _latencies;
     uint64_t _requests = 0;
-    file _file;
     bool _think = false;
     ::sleep_fn _sleep_fn = timer_sleep<lowres_clock>;
     timer<> _thinker;
@@ -430,9 +429,7 @@ public:
     }
 
     future<> stop() {
-        return stop_hook().finally([this] {
-            return maybe_close_file(_file);
-        });
+        return do_stop();
     }
 
     const sstring name() const {
@@ -512,7 +509,7 @@ protected:
 
 public:
     virtual void emit_results(YAML::Emitter& out) = 0;
-    virtual future<> stop_hook() {
+    virtual future<> do_stop() {
         return make_ready_future<>();
     }
 };
@@ -523,6 +520,7 @@ class io_class_data : public class_data {
     unsigned _overflows = 0;
     std::uniform_int_distribution<uint32_t> _pos_distribution;
 protected:
+    file _file;
     const uint64_t _alignment;
     bool _is_dev_null = false;
     timer<> _queue_length_timer;
@@ -572,6 +570,10 @@ public:
         return do_start_path(std::move(path), type).then([this] {
             _queue_length_timer.arm(std::chrono::steady_clock::now() + 500ms, 200ms);
         });
+    }
+
+    future<> do_stop() override {
+        return maybe_close_file(_file);
     }
 
 private:
@@ -856,7 +858,7 @@ public:
     }
 
 private:
-    future<> stop_hook() override {
+    future<> do_stop() override {
         if (all_files_removed() || keep_files) {
             return make_ready_future<>();
         }
