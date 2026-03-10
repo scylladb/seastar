@@ -266,8 +266,8 @@ struct sched_group_config {
     bool is_supergroup = false;
 };
 
-std::array<double, 4> quantiles = { 0.5, 0.95, 0.99, 0.999};
-std::array<double, 2> quantiles_short = { 0.5, 0.9 };
+static constexpr std::array<double, 4> quantiles = { 0.5, 0.95, 0.99, 0.999};
+static constexpr std::array<double, 2> quantiles_short = { 0.5, 0.9 };
 static bool keep_files = false;
 
 future<> maybe_remove_file(sstring fname) {
