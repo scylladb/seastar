@@ -28,6 +28,7 @@
 #include <seastar/core/internal/poll.hh>
 #include <seastar/core/internal/linux-aio.hh>
 #include <seastar/core/cacheline.hh>
+#include <seastar/util/bool_class.hh>
 
 #include <fmt/ostream.h>
 #include <sys/time.h>
@@ -169,6 +170,14 @@ public:
 // file-descriptors (reactor_backend_epoll), one implementation based on
 // linux aio, and one implementation based on io_uring.
 class reactor_backend {
+protected:
+    using uses_blocking_io = bool_class<struct uses_blocking_io_tag>;
+    using supports_aio_fdatasync = bool_class<struct supports_aio_fdatasync_tag>;
+
+private:
+    const uses_blocking_io _blocking_io;
+    const supports_aio_fdatasync _aio_fdatasync;
+
 public:
     virtual ~reactor_backend() {};
     virtual std::string_view get_backend_name() const = 0;
@@ -206,11 +215,11 @@ public:
 #endif
     virtual future<temporary_buffer<char>> recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) = 0;
 
-    virtual bool do_blocking_io() const {
-        return false;
+    bool do_blocking_io() const noexcept {
+        return bool(_blocking_io);
     }
-    virtual bool have_aio_fdatasync() const {
-        return true;
+    bool have_aio_fdatasync() const noexcept {
+        return bool(_aio_fdatasync);
     }
     virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) = 0;
     virtual void start_tick() = 0;
@@ -221,6 +230,12 @@ public:
     virtual void start_handling_signal() = 0;
 
     virtual pollable_fd_state_ptr make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) = 0;
+
+protected:
+    reactor_backend(uses_blocking_io blocking_io, supports_aio_fdatasync aio_fdatasync)
+        : _blocking_io(blocking_io)
+        , _aio_fdatasync(aio_fdatasync)
+    {}
 };
 
 // reactor backend using file-descriptor & epoll, suitable for running on

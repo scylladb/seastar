@@ -512,7 +512,8 @@ void reactor_backend_aio::signal_received(int signo, siginfo_t* siginfo, void* i
 }
 
 reactor_backend_aio::reactor_backend_aio(reactor& r)
-    : _r(r)
+    : reactor_backend(uses_blocking_io::no, supports_aio_fdatasync::yes)
+    , _r(r)
     , _hrtimer_timerfd(make_timerfd())
     , _storage_context(_r)
     , _preempting_io(_r, _r._task_quota_timer, _hrtimer_timerfd)
@@ -717,7 +718,8 @@ reactor_backend_aio::make_pollable_fd_state(file_desc fd, pollable_fd::speculati
 }
 
 reactor_backend_epoll::reactor_backend_epoll(reactor& r)
-        : _r(r)
+        : reactor_backend(uses_blocking_io::no, supports_aio_fdatasync::yes)
+        , _r(r)
         , _steady_clock_timer_reactor_thread(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK|TFD_CLOEXEC))
         , _steady_clock_timer_timer_thread(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK|TFD_CLOEXEC))
         , _epollfd(file_desc::epoll_create(EPOLL_CLOEXEC))
@@ -1439,7 +1441,8 @@ private:
     }
 public:
     explicit reactor_backend_uring(reactor& r)
-            : _r(r)
+            : reactor_backend(uses_blocking_io::yes, supports_aio_fdatasync::yes)
+            , _r(r)
             , _uring(try_create_uring(s_queue_len, true).value())
             , _hrtimer_timerfd(make_timerfd())
             , _preempt_io_context(_r, _r._task_quota_timer, _hrtimer_timerfd)
@@ -1849,10 +1852,6 @@ public:
         auto desc = std::make_unique<recv_completion>(fd, ba->allocate_buffer());
         auto req = internal::io_request::make_recv(fd.fd.get(), desc->get_write(), desc->get_size(), 0);
         return submit_request(std::move(desc), std::move(req));
-    }
-
-    virtual bool do_blocking_io() const override {
-        return true;
     }
 
     virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) override {
