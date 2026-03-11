@@ -125,7 +125,7 @@ void reply::write_body(const sstring& content_type, sstring content) {
 }
 
 future<> reply::write_reply(output_stream<char>& out) {
-    return out.write(response_line().data(), response_line().size()).then([this, &out] {
+    return out.write(response_line()).then([this, &out] {
         if (_body_writer) {
             add_header("Transfer-Encoding", "chunked");
         } else {
