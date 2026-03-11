@@ -351,7 +351,7 @@ static hwloc_obj_t hwloc_get_ancestor(hwloc_obj_type_t type, hwloc_topology_t to
 }
 
 static std::unordered_map<hwloc_obj_t, std::vector<unsigned>> break_cpus_into_groups(hwloc_topology_t topology,
-        std::vector<unsigned> cpus, hwloc_obj_type_t type) {
+        const std::vector<unsigned>& cpus, hwloc_obj_type_t type) {
     std::unordered_map<hwloc_obj_t, std::vector<unsigned>> groups;
 
     for (auto&& cpu_id : cpus) {
