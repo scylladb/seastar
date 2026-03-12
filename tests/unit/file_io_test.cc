@@ -153,6 +153,18 @@ SEASTAR_TEST_CASE(file_rw_dup_test) {
     });
 }
 
+// Test that the non-append-challenged path (posix_file_impl::do_dup)
+// also rejects non-read-only files
+SEASTAR_TEST_CASE(file_rw_noappend_dup_test) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+        file_open_options options;
+        options.append_is_unlikely = true;
+        auto f = open_file_dma(filename, open_flags::rw | open_flags::create, options).get();
+        BOOST_REQUIRE_THROW(f.dup(), std::runtime_error);
+    });
+}
+
 struct file_test {
     file_test(file&& f) : f(std::move(f)) {}
     file f;

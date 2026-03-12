@@ -170,7 +170,7 @@ void posix_file_impl::configure_io_lengths() noexcept {
 template <typename FileImpl>
 std::unique_ptr<seastar::file_handle_impl>
 posix_file_impl::do_dup() {
-    if ((_open_flags & open_flags::ro) != open_flags{}) {
+    if ((_open_flags & (open_flags::rw | open_flags::wo)) != open_flags{}) {
         throw std::runtime_error("File is not read-only");
     }
 
