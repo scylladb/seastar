@@ -86,18 +86,18 @@ output_stream<CharType>::zero_copy_put(std::vector<temporary_buffer<CharType>> b
     }
 }
 
-// Writes @p in chunks of _size length. The last chunk is buffered if smaller.
+// Writes @p in chunks of _buffer_size length. The last chunk is buffered if smaller.
 template <typename CharType>
 future<>
 output_stream<CharType>::zero_copy_split_and_put(std::vector<temporary_buffer<CharType>> b, size_t len) noexcept {
     return repeat([this, b = std::move(b), len] () mutable {
-        if (len < _size) {
+        if (len < _buffer_size) {
             _zc_bufs = std::move(b);
             _zc_len = len;
             return make_ready_future<stop_iteration>(stop_iteration::yes);
         }
-        auto chunk = internal::detach_front(b, _size);
-        len -= _size;
+        auto chunk = internal::detach_front(b, _buffer_size);
+        len -= _buffer_size;
         return zero_copy_put(std::move(chunk)).then([] {
             return stop_iteration::no;
         });
@@ -121,7 +121,7 @@ future<> output_stream<CharType>::write(std::span<temporary_buffer<CharType>> bu
 
         _zc_len += size;
         _zc_bufs.insert(_zc_bufs.end(), std::make_move_iterator(bufs.begin()), std::make_move_iterator(bufs.end()));
-        if (_zc_len >= _size) {
+        if (_zc_len >= _buffer_size) {
             if (_trim_to_size) {
                 return zero_copy_split_and_put(std::move(_zc_bufs), std::exchange(_zc_len, 0));
             } else {
@@ -332,23 +332,23 @@ input_stream<CharType>::detach() && {
     return std::move(_fd);
 }
 
-// Writes @buf in chunks of _size length. The last chunk is buffered if smaller.
+// Writes @buf in chunks of _buffer_size length. The last chunk is buffered if smaller.
 template <typename CharType>
 future<>
 output_stream<CharType>::split_and_put(temporary_buffer<CharType> buf) noexcept {
     SEASTAR_ASSERT(_end == 0);
 
     return repeat([this, buf = std::move(buf)] () mutable {
-        if (buf.size() < _size) {
+        if (buf.size() < _buffer_size) {
             if (!_buf) {
-                _buf = _fd.allocate_buffer(_size);
+                _buf = _fd.allocate_buffer(_buffer_size);
             }
             std::copy(buf.get(), buf.get() + buf.size(), _buf.get_write());
             _end = buf.size();
             return make_ready_future<stop_iteration>(stop_iteration::yes);
         }
-        auto chunk = buf.share(0, _size);
-        buf.trim_front(_size);
+        auto chunk = buf.share(0, _buffer_size);
+        buf.trim_front(_buffer_size);
         return put(std::move(chunk)).then([] {
             return stop_iteration::no;
         });
@@ -358,7 +358,7 @@ output_stream<CharType>::split_and_put(temporary_buffer<CharType> buf) noexcept 
 template <typename CharType>
 future<>
 output_stream<CharType>::write(const char_type* buf, size_t n) noexcept {
-    if (__builtin_expect(!_buf || n > _size - _end, false)) {
+    if (__builtin_expect(!_buf || n > _buffer_size - _end, false)) {
         return slow_write(buf, n);
     }
     std::copy_n(buf, n, _buf.get_write() + _end);
@@ -371,7 +371,7 @@ future<>
 output_stream<CharType>::slow_write(const char_type* buf, size_t n) noexcept {
     try {
         SEASTAR_ASSERT(_zc_bufs.empty() && "Mixing buffered writes and zero-copy writes not supported yet");
-        if (!_end && (n >= _size)) {
+        if (!_end && (n >= _buffer_size)) {
             temporary_buffer<char> tmp = _fd.allocate_buffer(n);
             std::copy(buf, buf + n, tmp.get_write());
             if (_trim_to_size) {
@@ -382,19 +382,19 @@ output_stream<CharType>::slow_write(const char_type* buf, size_t n) noexcept {
         }
 
         if (!_buf) {
-            _buf = _fd.allocate_buffer(_size);
+            _buf = _fd.allocate_buffer(_buffer_size);
         }
 
-        auto now = std::min(n, _size - _end);
+        auto now = std::min(n, _buffer_size - _end);
         std::copy(buf, buf + now, _buf.get_write() + _end);
         _end += now;
         if (now == n) {
             return make_ready_future<>();
         }
-        temporary_buffer<char> next = _fd.allocate_buffer(std::max(n - now, _size));
+        temporary_buffer<char> next = _fd.allocate_buffer(std::max(n - now, _buffer_size));
         std::copy(buf + now, buf + n, next.get_write());
 
-        if (n - now >= _size) {
+        if (n - now >= _buffer_size) {
             _end = 0;
             return put(std::move(_buf)).then([this, next = std::move(next)]() mutable {
                 if (_trim_to_size) {
