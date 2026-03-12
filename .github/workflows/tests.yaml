@@ -3,7 +3,10 @@ name: Test
 permissions:
   contents: read
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:  # Allows manual triggering
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
