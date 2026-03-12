@@ -1307,9 +1307,12 @@ detect_io_uring() {
     return bool(ring_opt);
 }
 
-class reactor_backend_uring final : public reactor_backend {
+// Base class for uring backends not to duplicate common logic.
+class reactor_backend_uring_base : public reactor_backend {
+protected:
     reactor& _r;
     ::io_uring _uring;
+private:
     bool _did_work_while_getting_sqe = false;
     bool _has_pending_submissions = false;
     file_desc _hrtimer_timerfd;
@@ -1351,7 +1354,7 @@ class reactor_backend_uring final : public reactor_backend {
             SEASTAR_ASSERT(!ret || *ret == 8);
             _armed = false;
         }
-        void maybe_rearm(reactor_backend_uring& be) {
+        void maybe_rearm(reactor_backend_uring_base& be) {
             if (_armed) {
                 return;
             }
@@ -1390,7 +1393,7 @@ private:
     ::io_uring_sqe* try_get_sqe() {
         return ::io_uring_get_sqe(&_uring);
     }
-
+protected:
     bool do_flush_submission_ring() {
         if (_has_pending_submissions) {
             _has_pending_submissions = false;
@@ -1540,10 +1543,10 @@ private:
         return fut;
     }
 public:
-    explicit reactor_backend_uring(reactor& r)
+    explicit reactor_backend_uring_base(reactor& r, ::io_uring uring)
             : reactor_backend(uses_blocking_io::yes, supports_aio_fdatasync::yes)
             , _r(r)
-            , _uring(try_create_uring(uring::QUEUE_LEN, true).value())
+            , _uring(uring)
             , _hrtimer_timerfd(make_timerfd())
             , _preempt_io_context(_r, _r._task_quota_timer, _hrtimer_timerfd)
             , _hrtimer_completion(_r, _hrtimer_timerfd)
@@ -1553,11 +1556,8 @@ public:
         auto tfd = _r._task_quota_timer.get();
         ::fcntl(tfd, F_SETFL, ::fcntl(tfd, F_GETFL) | O_NONBLOCK);
     }
-    ~reactor_backend_uring() {
+    ~reactor_backend_uring_base() override {
         ::io_uring_queue_exit(&_uring);
-    }
-    virtual std::string_view get_backend_name() const override {
-        return "io_uring";
     }
     virtual bool reap_kernel_completions() override {
         return do_process_kernel_completions();
@@ -1615,6 +1615,43 @@ public:
         auto* pfd = static_cast<uring_pollable_fd_state*>(&fd);
         delete pfd;
     }
+
+    virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) override {
+        _r._signals.action(signo, siginfo, ignore);
+    }
+    virtual void start_tick() override {
+        _preempt_io_context.start_tick();
+    }
+    virtual void stop_tick() override {
+        _preempt_io_context.stop_tick();
+    }
+    virtual void arm_highres_timer(const ::itimerspec& its) override {
+        _hrtimer_timerfd.timerfd_settime(TFD_TIMER_ABSTIME, its);
+    }
+    virtual void reset_preemption_monitor() override {
+        _preempt_io_context.reset_preemption_monitor();
+    }
+    virtual void request_preemption() override {
+        _preempt_io_context.request_preemption();
+    }
+    virtual void start_handling_signal() override {
+        // We don't have anything special wrt. signals
+    }
+    virtual pollable_fd_state_ptr make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override {
+        return pollable_fd_state_ptr(new uring_pollable_fd_state(std::move(fd), std::move(speculate)));
+    }
+};
+
+class reactor_backend_uring final : public reactor_backend_uring_base {
+public:
+    explicit reactor_backend_uring(reactor& r)
+        : reactor_backend_uring_base(r, try_create_uring(uring::QUEUE_LEN, true).value()) {
+    }
+
+    virtual std::string_view get_backend_name() const override {
+        return "io_uring";
+    }
+
     virtual future<std::tuple<pollable_fd, socket_address>> accept(pollable_fd_state& listenfd) override {
         if (listenfd.take_speculation(POLLIN)) {
             try {
@@ -1956,31 +1993,6 @@ public:
         auto desc = std::make_unique<recv_completion>(fd, ba->allocate_buffer());
         auto req = internal::io_request::make_recv(fd.fd.get(), desc->get_write(), desc->get_size(), 0);
         return submit_request(std::move(desc), std::move(req));
-    }
-
-    virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) override {
-        _r._signals.action(signo, siginfo, ignore);
-    }
-    virtual void start_tick() override {
-        _preempt_io_context.start_tick();
-    }
-    virtual void stop_tick() override {
-        _preempt_io_context.stop_tick();
-    }
-    virtual void arm_highres_timer(const ::itimerspec& its) override {
-        _hrtimer_timerfd.timerfd_settime(TFD_TIMER_ABSTIME, its);
-    }
-    virtual void reset_preemption_monitor() override {
-        _preempt_io_context.reset_preemption_monitor();
-    }
-    virtual void request_preemption() override {
-        _preempt_io_context.request_preemption();
-    }
-    virtual void start_handling_signal() override {
-        // We don't have anything special wrt. signals
-    }
-    virtual pollable_fd_state_ptr make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override {
-        return pollable_fd_state_ptr(new uring_pollable_fd_state(std::move(fd), std::move(speculate)));
     }
 };
 
