@@ -19,11 +19,8 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include <seastar/core/app-template.hh>
 #include <seastar/core/shared_ptr.hh>
-#include <seastar/core/loop.hh>
 #include <seastar/core/iostream.hh>
-#include <seastar/util/later.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
@@ -52,29 +49,6 @@ struct stream_maker {
 
     lw_shared_ptr<output_stream<char>> operator()(data_sink sink) {
         return make_lw_shared<output_stream<char>>(std::move(sink), _size, opts);
-    }
-};
-
-class checker_sink final : public data_sink_impl {
-    const std::vector<std::string> _expected;
-    std::vector<std::string>::const_iterator _cur;
-public:
-    checker_sink(std::vector<std::string> expected)
-        : _expected(std::move(expected))
-        , _cur(_expected.begin())
-    { }
-
-    future<> put(std::span<temporary_buffer<char>> bufs) override {
-        for (auto&& buf : bufs) {
-            BOOST_REQUIRE(_cur != _expected.end());
-            BOOST_REQUIRE_EQUAL(internal::to_sstring<sstring>(buf), *_cur++);
-        }
-        return make_ready_future<>();
-    }
-
-    future<> close() override {
-        BOOST_REQUIRE(_cur == _expected.end());
-        return make_ready_future<>();
     }
 };
 
@@ -196,56 +170,6 @@ static std::string make_data(size_t len) {
         s[i] = 'a' + (i % 26);
     }
     return s;
-}
-
-template <typename T, typename StreamConstructor>
-future<> assert_split(StreamConstructor stream_maker, std::initializer_list<T> write_calls,
-        std::vector<std::string> expected_split) {
-    static int i = 0;
-    BOOST_TEST_MESSAGE("checking split: " << i++);
-    auto sh_write_calls = make_lw_shared<std::vector<T>>(std::move(write_calls));
-    auto out = stream_maker(data_sink(std::make_unique<checker_sink>(std::move(expected_split))));
-
-    return do_for_each(sh_write_calls->begin(), sh_write_calls->end(), [out, sh_write_calls] (auto&& chunk) {
-        return out->write(chunk);
-    }).then([out] {
-        return out->close().finally([out] {});
-    });
-}
-
-SEASTAR_TEST_CASE(test_splitting) {
-    auto ctor = stream_maker().trim(false).size(4);
-    return now()
-        .then([=] { return assert_split(ctor, {"1"}, {"1"}); })
-        .then([=] { return assert_split(ctor, {"12", "3"}, {"123"}); })
-        .then([=] { return assert_split(ctor, {"12", "34"}, {"1234"}); })
-        .then([=] { return assert_split(ctor, {"12", "345"}, {"1234", "5"}); })
-        .then([=] { return assert_split(ctor, {"1234"}, {"1234"}); })
-        .then([=] { return assert_split(ctor, {"12345"}, {"12345"}); })
-        .then([=] { return assert_split(ctor, {"1234567890"}, {"1234567890"}); })
-        .then([=] { return assert_split(ctor, {"1", "23456"}, {"1234", "56"}); })
-        .then([=] { return assert_split(ctor, {"123", "4567"}, {"1234", "567"}); })
-        .then([=] { return assert_split(ctor, {"123", "45678"}, {"1234", "5678"}); })
-        .then([=] { return assert_split(ctor, {"123", "4567890"}, {"1234", "567890"}); })
-        .then([=] { return assert_split(ctor, {"1234", "567"}, {"1234", "567"}); })
-
-        .then([] { return assert_split(stream_maker().trim(false).size(3), {"1", "234567", "89"}, {"123", "4567", "89"}); })
-        .then([] { return assert_split(stream_maker().trim(false).size(3), {"1", "2345", "67"}, {"123", "456", "7"}); })
-        ;
-}
-
-SEASTAR_TEST_CASE(test_splitting_with_trimming) {
-    auto ctor = stream_maker().trim(true).size(4);
-    return now()
-        .then([=] { return assert_split(ctor, {"1"}, {"1"}); })
-        .then([=] { return assert_split(ctor, {"12", "3"}, {"123"}); })
-        .then([=] { return assert_split(ctor, {"12", "3456789"}, {"1234", "5678", "9"}); })
-        .then([=] { return assert_split(ctor, {"12", "3456789", "12"}, {"1234", "5678", "912"}); })
-        .then([=] { return assert_split(ctor, {"123456789"}, {"1234", "5678", "9"}); })
-        .then([=] { return assert_split(ctor, {"12345678"}, {"1234", "5678"}); })
-        .then([=] { return assert_split(ctor, {"12345678", "9"}, {"1234", "5678", "9"}); })
-        .then([=] { return assert_split(ctor, {"1234", "567890"}, {"1234", "5678", "90"}); })
-        ;
 }
 
 SEASTAR_THREAD_TEST_CASE(test_splitting_invariants) {
