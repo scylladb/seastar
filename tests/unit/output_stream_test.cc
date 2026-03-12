@@ -92,15 +92,20 @@ static constexpr size_t MAX_CHUNK_SIZE = 3 * STREAM_SIZE;
 enum class write_type { buffered, zero_copy };
 
 static std::string format_context(const std::vector<size_t>& input_chunk_sizes,
-        size_t stream_size, bool trim_to_size, write_type wtype) {
+        size_t stream_size, bool trim_to_size,
+        const std::vector<write_type>& write_types) {
     std::ostringstream os;
     os << "stream_size=" << stream_size
        << " trim_to_size=" << trim_to_size
-       << " write_type=" << (wtype == write_type::buffered ? "buffered" : "zero_copy")
        << " input_chunks=[";
     for (size_t i = 0; i < input_chunk_sizes.size(); i++) {
         if (i > 0) os << ", ";
         os << input_chunk_sizes[i];
+    }
+    os << "] write_types=[";
+    for (size_t i = 0; i < write_types.size(); i++) {
+        if (i > 0) os << ", ";
+        os << (write_types[i] == write_type::buffered ? "buffered" : "zero_copy");
     }
     os << "]";
     return os.str();
@@ -162,6 +167,19 @@ static void for_each_chunk_combination(Fn fn) {
     recurse();
 }
 
+// Calls fn(write_types) for every assignment of buffered/zero_copy to
+// n write calls (2^n patterns total; n <= MAX_CHUNKS so at most 16).
+template <typename Fn>
+static void for_each_type_pattern(size_t n, Fn fn) {
+    std::vector<write_type> pattern(n);
+    for (size_t mask = 0; mask < (size_t(1) << n); mask++) {
+        for (size_t i = 0; i < n; i++) {
+            pattern[i] = (mask >> i) & 1 ? write_type::zero_copy : write_type::buffered;
+        }
+        fn(pattern);
+    }
+}
+
 // Builds a string of `len` bytes filled with a cycling pattern,
 // so that data integrity failures produce readable diffs.
 static std::string make_data(size_t len) {
@@ -174,8 +192,8 @@ static std::string make_data(size_t len) {
 
 SEASTAR_THREAD_TEST_CASE(test_splitting_invariants) {
     for (bool trim_to_size : {false, true}) {
-        for (auto wtype : {write_type::buffered, write_type::zero_copy}) {
-            for_each_chunk_combination([&](const std::vector<size_t>& chunk_sizes) {
+        for_each_chunk_combination([&](const std::vector<size_t>& chunk_sizes) {
+            for_each_type_pattern(chunk_sizes.size(), [&](const std::vector<write_type>& write_types) {
                 std::string received_data;
                 std::vector<size_t> out_chunk_sizes;
                 auto mk = stream_maker().trim(trim_to_size).size(STREAM_SIZE);
@@ -183,10 +201,10 @@ SEASTAR_THREAD_TEST_CASE(test_splitting_invariants) {
                         received_data, out_chunk_sizes)));
 
                 std::string expected_data;
-                for (size_t chunk_size : chunk_sizes) {
-                    auto data = make_data(chunk_size);
+                for (size_t i = 0; i < chunk_sizes.size(); i++) {
+                    auto data = make_data(chunk_sizes[i]);
                     expected_data += data;
-                    switch (wtype) {
+                    switch (write_types[i]) {
                     case write_type::buffered:
                         out->write(data).get();
                         break;
@@ -198,9 +216,9 @@ SEASTAR_THREAD_TEST_CASE(test_splitting_invariants) {
                 out->close().get();
                 check_invariants(expected_data, out_chunk_sizes, received_data,
                         STREAM_SIZE, trim_to_size,
-                        format_context(chunk_sizes, STREAM_SIZE, trim_to_size, wtype));
+                        format_context(chunk_sizes, STREAM_SIZE, trim_to_size, write_types));
             });
-        }
+        });
     }
 }
 
