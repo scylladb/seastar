@@ -19,17 +19,16 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include <seastar/core/app-template.hh>
 #include <seastar/core/shared_ptr.hh>
-#include <seastar/core/loop.hh>
 #include <seastar/core/iostream.hh>
-#include <seastar/util/later.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include <seastar/testing/random.hh>
 #include <vector>
 #include <list>
 #include <deque>
+#include <sstream>
 #include "memory-data-sink.hh"
 
 using namespace seastar;
@@ -54,77 +53,200 @@ struct stream_maker {
     }
 };
 
-class checker_sink final : public data_sink_impl {
-    const std::vector<std::string> _expected;
-    std::vector<std::string>::const_iterator _cur;
+// A sink that records received chunk sizes and concatenates all data,
+// allowing invariant-based assertions rather than exact chunk matching.
+class invariant_checker_sink final : public data_sink_impl {
+    std::string& _received_data;
+    std::vector<size_t>& _chunk_sizes;
 public:
-    checker_sink(std::vector<std::string> expected)
-        : _expected(std::move(expected))
-        , _cur(_expected.begin())
+    invariant_checker_sink(std::string& received_data, std::vector<size_t>& chunk_sizes)
+        : _received_data(received_data)
+        , _chunk_sizes(chunk_sizes)
     { }
 
     future<> put(std::span<temporary_buffer<char>> bufs) override {
+        size_t put_size = 0;
         for (auto&& buf : bufs) {
-            BOOST_REQUIRE(_cur != _expected.end());
-            BOOST_REQUIRE_EQUAL(internal::to_sstring<sstring>(buf), *_cur++);
+            _received_data.append(buf.get(), buf.size());
+            put_size += buf.size();
+        }
+        if (put_size > 0) {
+            _chunk_sizes.push_back(put_size);
         }
         return make_ready_future<>();
     }
 
-    future<> close() override {
-        BOOST_REQUIRE(_cur == _expected.end());
-        return make_ready_future<>();
-    }
+    future<> close() override { return make_ready_future<>(); }
 };
 
-template <typename T, typename StreamConstructor>
-future<> assert_split(StreamConstructor stream_maker, std::initializer_list<T> write_calls,
-        std::vector<std::string> expected_split) {
-    static int i = 0;
-    BOOST_TEST_MESSAGE("checking split: " << i++);
-    auto sh_write_calls = make_lw_shared<std::vector<T>>(std::move(write_calls));
-    auto out = stream_maker(data_sink(std::make_unique<checker_sink>(std::move(expected_split))));
+// Iterates over all combinations of 1..MAX_CHUNKS chunks, each 1..MAX_CHUNK_SIZE
+// bytes, for both trim modes, and both buffered and zero-copy write paths.
+//
+// STREAM_SIZE=5 is chosen as a small non-power-of-two value.
+// MAX_CHUNK_SIZE=3*STREAM_SIZE ensures the split loop is exercised for at
+// least three full buffer-lengths in a single write.
+// MAX_CHUNKS=4 keeps the combination space tractable (~11k sequences).
+static constexpr size_t STREAM_SIZE = 5;
+static constexpr size_t MAX_CHUNKS = 4;
+static constexpr size_t MAX_CHUNK_SIZE = 3 * STREAM_SIZE;
 
-    return do_for_each(sh_write_calls->begin(), sh_write_calls->end(), [out, sh_write_calls] (auto&& chunk) {
-        return out->write(chunk);
-    }).then([out] {
-        return out->close().finally([out] {});
-    });
+enum class write_type { buffered, zero_copy };
+
+static std::string format_context(const std::vector<size_t>& input_chunk_sizes,
+        size_t stream_size, bool trim_to_size,
+        const std::vector<write_type>& write_types) {
+    std::ostringstream os;
+    os << "stream_size=" << stream_size
+       << " trim_to_size=" << trim_to_size
+       << " input_chunks=[";
+    for (size_t i = 0; i < input_chunk_sizes.size(); i++) {
+        if (i > 0) os << ", ";
+        os << input_chunk_sizes[i];
+    }
+    os << "] write_types=[";
+    for (size_t i = 0; i < write_types.size(); i++) {
+        if (i > 0) os << ", ";
+        os << (write_types[i] == write_type::buffered ? "buffered" : "zero_copy");
+    }
+    os << "]";
+    return os.str();
 }
 
-SEASTAR_TEST_CASE(test_splitting) {
-    auto ctor = stream_maker().trim(false).size(4);
-    return now()
-        .then([=] { return assert_split(ctor, {"1"}, {"1"}); })
-        .then([=] { return assert_split(ctor, {"12", "3"}, {"123"}); })
-        .then([=] { return assert_split(ctor, {"12", "34"}, {"1234"}); })
-        .then([=] { return assert_split(ctor, {"12", "345"}, {"1234", "5"}); })
-        .then([=] { return assert_split(ctor, {"1234"}, {"1234"}); })
-        .then([=] { return assert_split(ctor, {"12345"}, {"12345"}); })
-        .then([=] { return assert_split(ctor, {"1234567890"}, {"1234567890"}); })
-        .then([=] { return assert_split(ctor, {"1", "23456"}, {"1234", "56"}); })
-        .then([=] { return assert_split(ctor, {"123", "4567"}, {"1234", "567"}); })
-        .then([=] { return assert_split(ctor, {"123", "45678"}, {"1234", "5678"}); })
-        .then([=] { return assert_split(ctor, {"123", "4567890"}, {"1234", "567890"}); })
-        .then([=] { return assert_split(ctor, {"1234", "567"}, {"1234", "567"}); })
+// Checks the output invariants after all writes and close():
+// - data integrity: concatenation of output == concatenation of input
+// - no empty chunks reach the sink
+// - for trim_to_size=true:  all non-last chunks are exactly _size bytes
+// - for trim_to_size=false: all non-last chunks are >= _size bytes
+// - if nothing was written, the sink receives no chunks at all
+static void check_invariants(const std::string& expected_data,
+        const std::vector<size_t>& chunk_sizes,
+        const std::string& received_data,
+        size_t stream_size, bool trim_to_size,
+        const std::string& ctx) {
+    BOOST_REQUIRE_MESSAGE(received_data == expected_data,
+            "data integrity check failed: " << ctx);
 
-        .then([] { return assert_split(stream_maker().trim(false).size(3), {"1", "234567", "89"}, {"123", "4567", "89"}); })
-        .then([] { return assert_split(stream_maker().trim(false).size(3), {"1", "2345", "67"}, {"123", "456", "7"}); })
-        ;
+    if (expected_data.empty()) {
+        BOOST_REQUIRE_MESSAGE(chunk_sizes.empty(),
+                "no chunks expected for empty write: " << ctx);
+        return;
+    }
+
+    BOOST_REQUIRE_MESSAGE(chunk_sizes.back() > 0,
+            "sink must never receive an empty chunk: " << ctx);
+
+    for (size_t i = 0; i + 1 < chunk_sizes.size(); i++) {
+        BOOST_REQUIRE_MESSAGE(chunk_sizes[i] > 0,
+                "sink must never receive an empty chunk: " << ctx);
+        if (trim_to_size) {
+            BOOST_REQUIRE_MESSAGE(chunk_sizes[i] == stream_size,
+                    "with trim_to_size all non-last chunks must be exactly _size bytes: " << ctx);
+        } else {
+            BOOST_REQUIRE_MESSAGE(chunk_sizes[i] >= stream_size,
+                    "without trim_to_size all non-last chunks must be >= _size bytes: " << ctx);
+        }
+    }
 }
 
-SEASTAR_TEST_CASE(test_splitting_with_trimming) {
-    auto ctor = stream_maker().trim(true).size(4);
-    return now()
-        .then([=] { return assert_split(ctor, {"1"}, {"1"}); })
-        .then([=] { return assert_split(ctor, {"12", "3"}, {"123"}); })
-        .then([=] { return assert_split(ctor, {"12", "3456789"}, {"1234", "5678", "9"}); })
-        .then([=] { return assert_split(ctor, {"12", "3456789", "12"}, {"1234", "5678", "912"}); })
-        .then([=] { return assert_split(ctor, {"123456789"}, {"1234", "5678", "9"}); })
-        .then([=] { return assert_split(ctor, {"12345678"}, {"1234", "5678"}); })
-        .then([=] { return assert_split(ctor, {"12345678", "9"}, {"1234", "5678", "9"}); })
-        .then([=] { return assert_split(ctor, {"1234", "567890"}, {"1234", "5678", "90"}); })
-        ;
+// Calls fn(chunk_sizes) for every combination of 1..MAX_CHUNKS chunks
+// each of size 1..MAX_CHUNK_SIZE.
+template <typename Fn>
+static void for_each_chunk_combination(Fn fn) {
+    std::vector<size_t> combo;
+    std::function<void()> recurse = [&]() {
+        if (!combo.empty()) {
+            fn(combo);
+        }
+        if (combo.size() < MAX_CHUNKS) {
+            for (size_t sz = 1; sz <= MAX_CHUNK_SIZE; sz++) {
+                combo.push_back(sz);
+                recurse();
+                combo.pop_back();
+            }
+        }
+    };
+    recurse();
+}
+
+// Calls fn(write_types) for every assignment of buffered/zero_copy to
+// n write calls (2^n patterns total; n <= MAX_CHUNKS so at most 16).
+#ifndef SEASTAR_DEBUG
+template <typename Fn>
+static void for_each_type_pattern(size_t n, Fn fn) {
+    std::vector<write_type> pattern(n);
+    for (size_t mask = 0; mask < (size_t(1) << n); mask++) {
+        for (size_t i = 0; i < n; i++) {
+            pattern[i] = (mask >> i) & 1 ? write_type::zero_copy : write_type::buffered;
+        }
+        fn(pattern);
+    }
+}
+#else
+// In SEASTAR_DEBUG builds, sample ~10% of patterns to keep sanitizer
+// run times acceptable. The all-buffered (0...0) and all-zero-copy
+// (1...1) patterns are always included.
+template <typename Fn>
+static void for_each_type_pattern(size_t n, Fn fn) {
+    const size_t total = size_t(1) << n;
+    size_t sample_size = std::max(size_t(2), size_t(std::round(total * 0.1)));
+
+    std::vector<size_t> masks(total);
+    std::iota(masks.begin(), masks.end(), 0);
+    std::shuffle(masks.begin(), masks.end(), seastar::testing::local_random_engine);
+    // Ensure all-buffered (0) and all-zero-copy (total-1) are always first.
+    std::swap(*std::find(masks.begin(), masks.end(), size_t(0)), masks[0]);
+    std::swap(*std::find(masks.begin(), masks.end(), total - 1), masks[1]);
+
+    std::vector<write_type> pattern(n);
+    for (size_t i = 0; i < sample_size; i++) {
+        for (size_t j = 0; j < n; j++) {
+            pattern[j] = (masks[i] >> j) & 1 ? write_type::zero_copy : write_type::buffered;
+        }
+        fn(pattern);
+    }
+}
+#endif
+
+// Builds a string of `len` bytes filled with a cycling pattern,
+// so that data integrity failures produce readable diffs.
+static std::string make_data(size_t len) {
+    std::string s(len, '\0');
+    for (size_t i = 0; i < len; i++) {
+        s[i] = 'a' + (i % 26);
+    }
+    return s;
+}
+
+SEASTAR_THREAD_TEST_CASE(test_splitting_invariants) {
+    for (bool trim_to_size : {false, true}) {
+        for_each_chunk_combination([&](const std::vector<size_t>& chunk_sizes) {
+            for_each_type_pattern(chunk_sizes.size(), [&](const std::vector<write_type>& write_types) {
+                std::string received_data;
+                std::vector<size_t> out_chunk_sizes;
+                auto mk = stream_maker().trim(trim_to_size).size(STREAM_SIZE);
+                auto out = mk(data_sink(std::make_unique<invariant_checker_sink>(
+                        received_data, out_chunk_sizes)));
+
+                std::string expected_data;
+                for (size_t i = 0; i < chunk_sizes.size(); i++) {
+                    auto data = make_data(chunk_sizes[i]);
+                    expected_data += data;
+                    switch (write_types[i]) {
+                    case write_type::buffered:
+                        out->write(data).get();
+                        break;
+                    case write_type::zero_copy:
+                        out->write(temporary_buffer<char>::copy_of(data)).get();
+                        break;
+                    }
+                }
+                out->close().get();
+                check_invariants(expected_data, out_chunk_sizes, received_data,
+                        STREAM_SIZE, trim_to_size,
+                        format_context(chunk_sizes, STREAM_SIZE, trim_to_size, write_types));
+            });
+        });
+    }
 }
 
 SEASTAR_THREAD_TEST_CASE(test_flush_on_empty_buffer_does_not_push_empty_packet_down_stream) {

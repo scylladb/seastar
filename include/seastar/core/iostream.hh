@@ -462,9 +462,20 @@ template <typename CharType>
 class output_stream final {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");
     data_sink _fd;
+    // Buffered writes accumulate into _buf[0.._end). Once _buf is full it is
+    // put() to the sink and a fresh buffer is allocated.
+    //
+    // Zero-copy writes bypass _buf and go directly into _zc_bufs. If buffered
+    // data is pending when a zero-copy write arrives, the filled prefix of _buf
+    // is shared into _zc_bufs and _buf is trim_front()'d so its tail can still
+    // be reused for future buffered writes after the zero-copy sequence.
+    //
+    // _zc_bufs is flushed to the sink (via zero_copy_put or
+    // zero_copy_split_and_put) when _zc_len >= _buffer_size, or on flush().
+    // After a flush _buf, _zc_bufs, _end and _zc_len are all reset to empty/0.
     temporary_buffer<CharType> _buf;
     std::vector<temporary_buffer<CharType>> _zc_bufs; // zero copy buffers
-    size_t _size = 0;
+    size_t _buffer_size = 0;
     size_t _end = 0;
     size_t _zc_len = 0;
     bool _trim_to_size = false;
@@ -489,9 +500,9 @@ public:
     [[deprecated("Uninitialized output_stream is useless")]]
     output_stream() noexcept = default;
     output_stream(data_sink fd, size_t size, output_stream_options opts = {}) noexcept
-        : _fd(std::move(fd)), _size(size), _trim_to_size(opts.trim_to_size), _batch_flushes(opts.batch_flushes && _fd.can_batch_flushes()) {}
+        : _fd(std::move(fd)), _buffer_size(size), _trim_to_size(opts.trim_to_size), _batch_flushes(opts.batch_flushes && _fd.can_batch_flushes()) {}
     output_stream(data_sink fd) noexcept
-        : _fd(std::move(fd)), _size(_fd.buffer_size()), _trim_to_size(true) {}
+        : _fd(std::move(fd)), _buffer_size(_fd.buffer_size()), _trim_to_size(true) {}
     output_stream(output_stream&&) noexcept = default;
     [[deprecated("Output stream cannot be move-assigned, consider move-constructing the target in place")]]
     output_stream& operator=(output_stream&&) noexcept = default;
