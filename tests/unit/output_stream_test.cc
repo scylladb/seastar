@@ -24,6 +24,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include <seastar/testing/random.hh>
 #include <vector>
 #include <list>
 #include <deque>
@@ -169,6 +170,7 @@ static void for_each_chunk_combination(Fn fn) {
 
 // Calls fn(write_types) for every assignment of buffered/zero_copy to
 // n write calls (2^n patterns total; n <= MAX_CHUNKS so at most 16).
+#ifndef SEASTAR_DEBUG
 template <typename Fn>
 static void for_each_type_pattern(size_t n, Fn fn) {
     std::vector<write_type> pattern(n);
@@ -179,6 +181,31 @@ static void for_each_type_pattern(size_t n, Fn fn) {
         fn(pattern);
     }
 }
+#else
+// In SEASTAR_DEBUG builds, sample ~10% of patterns to keep sanitizer
+// run times acceptable. The all-buffered (0...0) and all-zero-copy
+// (1...1) patterns are always included.
+template <typename Fn>
+static void for_each_type_pattern(size_t n, Fn fn) {
+    const size_t total = size_t(1) << n;
+    size_t sample_size = std::max(size_t(2), size_t(std::round(total * 0.1)));
+
+    std::vector<size_t> masks(total);
+    std::iota(masks.begin(), masks.end(), 0);
+    std::shuffle(masks.begin(), masks.end(), seastar::testing::local_random_engine);
+    // Ensure all-buffered (0) and all-zero-copy (total-1) are always first.
+    std::swap(*std::find(masks.begin(), masks.end(), size_t(0)), masks[0]);
+    std::swap(*std::find(masks.begin(), masks.end(), total - 1), masks[1]);
+
+    std::vector<write_type> pattern(n);
+    for (size_t i = 0; i < sample_size; i++) {
+        for (size_t j = 0; j < n; j++) {
+            pattern[j] = (masks[i] >> j) & 1 ? write_type::zero_copy : write_type::buffered;
+        }
+        fn(pattern);
+    }
+}
+#endif
 
 // Builds a string of `len` bytes filled with a cycling pattern,
 // so that data integrity failures produce readable diffs.
