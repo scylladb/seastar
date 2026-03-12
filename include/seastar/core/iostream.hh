@@ -462,6 +462,17 @@ template <typename CharType>
 class output_stream final {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");
     data_sink _fd;
+    // Buffered writes accumulate into _buf[0.._end). Once _buf is full it is
+    // put() to the sink and a fresh buffer is allocated.
+    //
+    // Zero-copy writes bypass _buf and go directly into _zc_bufs. If buffered
+    // data is pending when a zero-copy write arrives, the filled prefix of _buf
+    // is shared into _zc_bufs and _buf is trim_front()'d so its tail can still
+    // be reused for future buffered writes after the zero-copy sequence.
+    //
+    // _zc_bufs is flushed to the sink (via zero_copy_put or
+    // zero_copy_split_and_put) when _zc_len >= _buffer_size, or on flush().
+    // After a flush _buf, _zc_bufs, _end and _zc_len are all reset to empty/0.
     temporary_buffer<CharType> _buf;
     std::vector<temporary_buffer<CharType>> _zc_bufs; // zero copy buffers
     size_t _buffer_size = 0;

@@ -111,12 +111,16 @@ future<> output_stream<CharType>::write(std::span<temporary_buffer<CharType>> bu
     size_t size = std::accumulate(bufs.begin(), bufs.end(), size_t(0), [] (size_t s, const auto& b) { return s + b.size(); });
     if (size != 0) {
         if (_end) {
-            SEASTAR_ASSERT(_zc_bufs.empty());
-            _buf.trim(_end);
-            _zc_len = _end;
+            // Seal the filled prefix as a shared view into _buf, then
+            // advance _buf past it so the same allocation can be reused
+            // for future buffered writes after this zero-copy sequence.
+            _zc_bufs.emplace_back(_buf.share(0, _end));
+            _buf.trim_front(_end);
+            if (!_buf.size()) {
+                _buf = {};
+            }
+            _zc_len += _end;
             _end = 0;
-            _zc_bufs.reserve(bufs.size() + 1);
-            _zc_bufs.emplace_back(std::move(_buf));
         }
 
         _zc_len += size;
@@ -340,7 +344,16 @@ output_stream<CharType>::split_and_put(temporary_buffer<CharType> buf) noexcept 
 
     return repeat([this, buf = std::move(buf)] () mutable {
         if (buf.size() < _buffer_size) {
-            if (!_buf) {
+            if (!_buf || _buf.size() < buf.size()) {
+                // _buf is absent or a trim_front'd remnant whose remaining
+                // capacity is smaller than the tail we need to store. We
+                // allocate a fresh buffer and abandon the remnant. The unused
+                // bytes of the remnant's underlying allocation are not leaked
+                // (the allocation is freed once all shared references to it are
+                // dropped), but they are wasted and will never be written to.
+                // This is a deliberate trade-off: filling the remnant partially
+                // and then copying the rest into a new buffer would require an
+                // async put() here, complicating the code with no clear benefit.
                 _buf = _fd.allocate_buffer(_buffer_size);
             }
             std::copy(buf.get(), buf.get() + buf.size(), _buf.get_write());
@@ -358,7 +371,7 @@ output_stream<CharType>::split_and_put(temporary_buffer<CharType> buf) noexcept 
 template <typename CharType>
 future<>
 output_stream<CharType>::write(const char_type* buf, size_t n) noexcept {
-    if (__builtin_expect(!_buf || n > _buffer_size - _end, false)) {
+    if (__builtin_expect(!_buf || n > _buf.size() - _end, false)) {
         return slow_write(buf, n);
     }
     std::copy_n(buf, n, _buf.get_write() + _end);
@@ -370,10 +383,24 @@ template <typename CharType>
 future<>
 output_stream<CharType>::slow_write(const char_type* buf, size_t n) noexcept {
     try {
-        SEASTAR_ASSERT(_zc_bufs.empty() && "Mixing buffered writes and zero-copy writes not supported yet");
         if (!_end && (n >= _buffer_size)) {
             temporary_buffer<char> tmp = _fd.allocate_buffer(n);
             std::copy(buf, buf + n, tmp.get_write());
+            if (!_zc_bufs.empty()) {
+                // No buffered data yet, but zero-copy data is pending.
+                // Append to _zc_bufs so ordering is preserved.
+                _zc_bufs.emplace_back(std::move(tmp));
+                _zc_len += n;
+                if (_zc_len >= _buffer_size) {
+                    if (_trim_to_size) {
+                        return zero_copy_split_and_put(std::move(_zc_bufs), std::exchange(_zc_len, 0));
+                    } else {
+                        _zc_len = 0;
+                        return zero_copy_put(std::move(_zc_bufs));
+                    }
+                }
+                return make_ready_future<>();
+            }
             if (_trim_to_size) {
                 return split_and_put(std::move(tmp));
             } else {
@@ -385,7 +412,7 @@ output_stream<CharType>::slow_write(const char_type* buf, size_t n) noexcept {
             _buf = _fd.allocate_buffer(_buffer_size);
         }
 
-        auto now = std::min(n, _buffer_size - _end);
+        auto now = std::min(n, _buf.size() - _end);
         std::copy(buf, buf + now, _buf.get_write() + _end);
         _end += now;
         if (now == n) {
@@ -393,6 +420,31 @@ output_stream<CharType>::slow_write(const char_type* buf, size_t n) noexcept {
         }
         temporary_buffer<char> next = _fd.allocate_buffer(std::max(n - now, _buffer_size));
         std::copy(buf + now, buf + n, next.get_write());
+        // Buffer is full. Seal both _buf and next into _zc_bufs if zero-copy
+        // data is pending (to preserve ordering), or if _buf is a trim_front'd
+        // remnant (flushing it directly would produce an undersized non-last chunk).
+        if (!_zc_bufs.empty() || _buf.size() < _buffer_size) {
+            _zc_bufs.emplace_back(_buf.share(0, _end));
+            _buf.trim_front(_end);
+            if (!_buf.size()) {
+                _buf = {};
+            }
+            _zc_len += _end;
+            _end = 0;
+            next.trim(n - now);
+            _zc_len += n - now;
+            _zc_bufs.emplace_back(std::move(next));
+            if (_zc_len >= _buffer_size) {
+                if (_trim_to_size) {
+                    return zero_copy_split_and_put(std::move(_zc_bufs), std::exchange(_zc_len, 0));
+                } else {
+                    _zc_len = 0;
+                    return zero_copy_put(std::move(_zc_bufs));
+                }
+            }
+            return make_ready_future<>();
+        }
+
 
         if (n - now >= _buffer_size) {
             _end = 0;
@@ -419,12 +471,21 @@ void add_to_flush_poller(output_stream<char>& x) noexcept;
 template <typename CharType>
 future<> output_stream<CharType>::do_flush() noexcept {
     if (_end) {
-        _buf.trim(_end);
-        _end = 0;
-        return _fd.put(std::move(_buf)).then([this] {
-            return _fd.flush();
-        });
-    } else if (!_zc_bufs.empty()) {
+        if (_zc_bufs.empty()) {
+            _buf.trim(_end);
+            _end = 0;
+            return _fd.put(std::move(_buf)).then([this] {
+                return _fd.flush();
+            });
+        } else {
+            // Fold buffered tail into the zero-copy vector and flush together.
+            _zc_bufs.emplace_back(_buf.share(0, _end));
+            _buf.trim_front(_end);
+            _zc_len += _end;
+            _end = 0;
+        }
+    }
+    if (!_zc_bufs.empty()) {
         _zc_len = 0;
         return _fd.put(std::move(_zc_bufs)).then([this] {
             return _fd.flush();
