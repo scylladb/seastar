@@ -123,6 +123,9 @@ seastar_add_demo (tutorial_examples
 seastar_add_demo (http_client
   SOURCES http_client_demo.cc)
 
+seastar_add_demo (metrics
+  SOURCES metrics_demo.cc)
+
 if (Seastar_MODULE)
   add_executable (hello_cxx_module)
   target_sources (hello_cxx_module
