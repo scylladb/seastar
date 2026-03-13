@@ -108,6 +108,9 @@ aio_storage_context::iocb_pool::iocb_pool() {
     for (unsigned i = 0; i != max_aio; ++i) {
         _free_iocbs.push(&_all_iocbs[i]);
     }
+#ifdef SEASTAR_IOCB_POOL_DEBUG
+    _iocb_allocated.reset();
+#endif
 }
 
 aio_storage_context::aio_storage_context(reactor& r)
@@ -123,8 +126,63 @@ aio_storage_context::~aio_storage_context() {
     internal::io_destroy(_io_context);
 }
 
+void aio_storage_context::reap_pending_retries() {
+    // Drain pending retries and complete them with -ECANCELED
+    for (auto iocb : _pending_aio_retry) {
+        _iocb_pool.put_one(iocb);
+        auto desc = get_user_data<kernel_completion>(*iocb);
+        desc->complete_with(-ECANCELED);
+    }
+    _pending_aio_retry.clear();
+
+    // Also drain any currently retrying iocbs
+    for (auto iocb : _aio_retries) {
+        _iocb_pool.put_one(iocb);
+        auto desc = get_user_data<kernel_completion>(*iocb);
+        desc->complete_with(-ECANCELED);
+    }
+    _aio_retries.clear();
+}
+
 future<> aio_storage_context::stop() noexcept {
-    return std::exchange(_pending_aio_retry_fut, make_ready_future<>()).finally([this] {
+    // Shutdown sequence:
+    // 1. Drain io_sink (operations without allocated iocbs)
+    // 2. Exchange retry future to signal stopping
+    // 3. Wait for any in-flight retry loop to complete
+    // 4. Drain pending retry queues
+    // 5. Wait for all outstanding iocbs to be reaped and returned to pool
+    //
+    // This ensures no iocbs are leaked and all operations complete with -ECANCELED.
+    //
+    // Threading: Single-threaded reactor model - all operations on the shared state
+    // (_pending_aio_retry, _aio_retries, _iocb_pool, _pending_aio_retry_fut) run on
+    // the reactor thread. The reactor guarantees stop() is called once during shutdown.
+    //
+    // Exception safety: Marked noexcept. In Seastar, future operations typically don't throw
+    // on allocation failure (they use different mechanisms). If an unexpected exception occurs,
+    // the program will terminate, which is appropriate for a shutdown failure.
+
+    // Drain all pending work and complete with -ECANCELED
+    // Items in io_sink (haven't allocated iocbs yet)
+    _r._io_sink.drain([] (const internal::io_request& req, io_completion* desc) -> bool {
+        desc->complete_with(-ECANCELED);
+        return true;
+    });
+
+    // Exchange with a never-available future to prevent new retry loops.
+    // We create a promise that we intentionally never fulfill, so the future
+    // from it will never become available. This ensures schedule_retry() sees
+    // !available() and returns early during shutdown.
+    promise<> stopping_promise;  // Never fulfilled - future remains unavailable
+    return std::exchange(_pending_aio_retry_fut, stopping_promise.get_future()).then([this] {
+        // Drain any pending retries that were queued before stop() was called.
+        // Note: In normal operation, the retry loop should have drained both vectors
+        // before completing (do_until returns true only when both are empty).
+        // However, we call this defensively to ensure no resources are leaked
+        // even if there are bugs in the retry loop logic.
+        reap_pending_retries();
+
+        // Wait for all in-flight AIOs to complete and return to pool
         return do_until([this] { return !_iocb_pool.outstanding(); }, [this] {
             reap_completions(false);
             return make_ready_future<>();
@@ -137,12 +195,29 @@ internal::linux_abi::iocb&
 aio_storage_context::iocb_pool::get_one() {
     auto io = _free_iocbs.top();
     _free_iocbs.pop();
+#ifdef SEASTAR_IOCB_POOL_DEBUG
+    auto index = io - _all_iocbs.data();
+    SEASTAR_ASSERT(index < max_aio);
+    SEASTAR_ASSERT(!_iocb_allocated[index] && "Double allocation of iocb");
+    _iocb_allocated[index] = true;
+#endif
     return *io;
 }
 
 inline
 void
 aio_storage_context::iocb_pool::put_one(internal::linux_abi::iocb* io) {
+#ifdef SEASTAR_IOCB_POOL_DEBUG
+    auto index = io - _all_iocbs.data();
+    SEASTAR_ASSERT(index < max_aio && "iocb pointer out of range");
+    if (!_iocb_allocated[index]) {
+        seastar_logger.error("Double-free detected: iocb at index {} (ptr={}) is being returned but was not allocated",
+                           index, fmt::ptr(io));
+        std::abort();
+    }
+    _iocb_allocated[index] = false;
+    SEASTAR_ASSERT(_free_iocbs.size() < max_aio && "Double-free: iocb pool already full");
+#endif
     _free_iocbs.push(io);
 }
 
@@ -236,7 +311,7 @@ aio_storage_context::submit_work() {
         did_work = true;
     }
 
-    if (need_to_retry() && !retry_in_progress()) {
+    if (need_to_retry()) {
         schedule_retry();
     }
 
@@ -244,6 +319,16 @@ aio_storage_context::submit_work() {
 }
 
 void aio_storage_context::schedule_retry() {
+    // Check if a retry loop is already in progress.
+    // After stop() moves _pending_aio_retry_fut, this check returns early,
+    // preventing new retry loops during shutdown.
+    //
+    // Threading: This runs on the reactor thread (single-threaded).
+    // The reactor guarantees happens-before ordering between operations.
+    if (!_pending_aio_retry_fut.available()) {
+        return;
+    }
+
     // loop until both _pending_aio_retry and _aio_retries are empty.
     // While retrying _aio_retries, new retries may be queued onto _pending_aio_retry.
     _pending_aio_retry_fut = do_until([this] {
