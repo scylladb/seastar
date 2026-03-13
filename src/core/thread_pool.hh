@@ -53,14 +53,14 @@ public:
 } // namespace internal
 
 class thread_pool {
-    file_desc& _notify_eventfd;
+    writeable_eventfd& _notify;
     internal::submit_metrics metrics;
     syscall_work_queue inter_thread_wq;
     posix_thread _worker_thread;
     std::atomic<bool> _stopped = { false };
     std::atomic<bool> _main_thread_idle = { false };
 public:
-    explicit thread_pool(sstring thread_name, file_desc& notify);
+    explicit thread_pool(sstring thread_name, writeable_eventfd& notify);
     ~thread_pool();
     template <typename T, typename Func>
     future<T> submit(internal::thread_pool_submit_reason reason, Func func) noexcept {
