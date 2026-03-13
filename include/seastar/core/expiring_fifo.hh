@@ -85,7 +85,9 @@ private:
     std::unique_ptr<entry> _front;
 
     // There is an invariant that the front element is never expired.
-    chunked_fifo<entry> _list;
+    // Also since the first element is cached above there is less of a need to cache a
+    // free chunk in chunked_fifo.
+    chunked_fifo<entry, 128, 0> _list;
     OnExpiry _on_expiry;
     size_t _size = 0;
 
