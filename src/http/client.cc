@@ -245,7 +245,9 @@ future<client::connection_ptr> client::get_connection(abort_source* as) {
 
     if (_nr_connections >= _max_connections) {
         auto sub = as ? as->subscribe([this] () noexcept { _wait_con.broadcast(); }) : std::nullopt;
+        _requests_queued++;
         return _wait_con.wait().then([this, as, sub = std::move(sub)] {
+            _requests_queued--;
             if (as != nullptr && as->abort_requested()) {
                 return make_exception_future<client::connection_ptr>(as->abort_requested_exception_ptr());
             }
@@ -253,6 +255,7 @@ future<client::connection_ptr> client::get_connection(abort_source* as) {
         });
     }
 
+    _requests_queued.checkpoint();
     return make_connection(as);
 }
 
