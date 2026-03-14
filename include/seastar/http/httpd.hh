@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <functional>
 #include <limits>
 #include <cctype>
 #include <vector>
@@ -37,6 +38,7 @@
 #include <seastar/http/routes.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/core/shared_ptr.hh>
+#include <seastar/core/scheduling.hh>
 
 namespace seastar {
 
@@ -134,6 +136,11 @@ class http_server {
     bool _content_streaming = false;
     gate _task_gate;
     std::optional<net::keepalive_params> _keepalive_params;
+    // Callback returning the scheduling group for new HTTPS connections.
+    // Used by Alternator to run CPU-intensive TLS handshakes in a
+    // low-priority scheduling group instead of the caller's group.
+    // Only consulted for TLS listeners; has no effect on plain HTTP.
+    std::function<scheduling_group()> _new_connection_scheduling_group;
 public:
     routes _routes;
     using connection = seastar::httpd::connection;
@@ -182,6 +189,20 @@ public:
 
     void set_content_streaming(bool b);
 
+    /// \brief Set a callback that returns the scheduling group for new HTTPS connections.
+    ///
+    /// When set, the accept loop for HTTPS listeners will switch to the
+    /// scheduling group returned by the callback before accepting
+    /// connections. This ensures that TLS handshakes (which are
+    /// CPU-intensive) run in the designated scheduling group rather than
+    /// the caller's scheduling group.
+    ///
+    /// The callback is invoked each time the accept loop resumes after
+    /// accepting a connection, allowing dynamic scheduling group changes.
+    ///
+    /// Has no effect on plain HTTP listeners.
+    void set_new_connection_scheduling_group(std::function<scheduling_group()> fn);
+
     future<> listen(socket_address addr, server_credentials_ptr credentials);
     future<> listen(socket_address addr, listen_options lo, server_credentials_ptr credentials);
     future<> listen(socket_address addr, listen_options lo);
@@ -200,6 +221,7 @@ public:
     // RFC 7231, Section 7.1.1.1.
     static sstring http_date();
 private:
+    future<> accept_loop(int which, bool with_tls);
     future<> do_accept_one(int which, bool with_tls);
     boost::intrusive::list<connection> _connections;
     friend class seastar::httpd::connection;
