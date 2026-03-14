@@ -705,6 +705,7 @@ add_library (seastar
   include/seastar/util/variant_utils.hh
   include/seastar/util/closeable.hh
   include/seastar/util/short_streams.hh
+  include/seastar/websocket/client.hh
   include/seastar/websocket/common.hh
   include/seastar/websocket/server.hh
   src/core/alien.cc
@@ -799,6 +800,7 @@ add_library (seastar
   src/util/short_streams.cc
   src/websocket/parser.cc
   src/websocket/common.cc
+  src/websocket/client.cc
   src/websocket/server.cc
   )
 

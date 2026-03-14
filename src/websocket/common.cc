@@ -19,6 +19,7 @@
  * Copyright 2024 ScyllaDB
  */
 
+#include <seastar/core/future.hh>
 #include <seastar/websocket/common.hh>
 #include <seastar/core/byteorder.hh>
 #include <seastar/core/when_all.hh>
@@ -26,23 +27,41 @@
 #include <seastar/util/defer.hh>
 #include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
+#include <random>
+#include <seastar/websocket/parser.hh>
 
 namespace seastar::experimental::websocket {
 
 logger websocket_logger("websocket");
 
-future<> connection::handle_ping() {
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::handle_ping(temporary_buffer<char> buff) {
+    return send_data(opcodes::PONG, std::move(buff));
+}
+
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::handle_pong() {
     // TODO
     return make_ready_future<>();
 }
 
-future<> connection::handle_pong() {
-    // TODO
-    return make_ready_future<>();
+static thread_local std::mt19937 masking_rng{std::random_device{}()};
+
+static uint32_t generate_masking_key() {
+    return masking_rng();
 }
 
-future<> connection::send_data(opcodes opcode, temporary_buffer<char> buff) {
-    char header[10] = {'\x80', 0};
+static void apply_mask(char* data, size_t len, uint32_t masking_key) {
+    char mask_bytes[4];
+    write_be<uint32_t>(mask_bytes, masking_key);
+    for (size_t i = 0; i < len; ++i) {
+        data[i] ^= mask_bytes[i % 4];
+    }
+}
+
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::send_data(opcodes opcode, temporary_buffer<char> buff) {
+    char header[14] = {'\x80', 0}; // max: 2 + 8 (extended len) + 4 (mask key)
     size_t header_size = 2;
 
     header[0] += opcode;
@@ -59,28 +78,47 @@ future<> connection::send_data(opcodes opcode, temporary_buffer<char> buff) {
         header[1] = uint8_t(buff.size());
     }
 
+    if constexpr (is_client) {
+        // RFC 6455 §5.3: client frames must be masked
+        header[1] |= 0x80; // set mask bit
+        uint32_t masking_key = generate_masking_key();
+        write_be<uint32_t>(header + header_size, masking_key);
+        header_size += sizeof(uint32_t);
+        apply_mask(buff.get_write(), buff.size(), masking_key);
+    }
+
     co_await _write_buf.write(header, header_size);
     co_await _write_buf.write(std::move(buff));
     co_await _write_buf.flush();
 }
 
-future<> connection::response_loop() {
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::response_loop() {
     return do_until([this] {return _done;}, [this] {
         // FIXME: implement error handling
         return _output_buffer.pop_eventually().then([this] (
                 temporary_buffer<char> buf) {
-            return send_data(opcodes::BINARY, std::move(buf));
+            if (!buf) {
+                return make_ready_future<>();
+            }
+            return send_data(text_frame ? opcodes::TEXT : opcodes::BINARY, std::move(buf));
         });
     }).finally([this]() {
         return _write_buf.close();
     });
 }
 
-void connection::shutdown_input() {
+template <bool is_client, bool text_frame>
+void basic_connection<is_client, text_frame>::shutdown_input() {
     _fd.shutdown_input();
 }
 
-future<> connection::close(bool send_close) {
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::close(bool send_close) {
+    if (_half_close) {
+        return make_ready_future<>();
+    }
+    _half_close = true;
     return [this, send_close]() {
         if (send_close) {
             return send_data(opcodes::CLOSE, temporary_buffer<char>(0));
@@ -95,9 +133,14 @@ future<> connection::close(bool send_close) {
     });
 }
 
-future<> connection::read_one() {
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::read_one() {
     return _read_buf.consume(_websocket_parser).then([this] () mutable {
         if (_websocket_parser.is_valid()) {
+            if (_half_close) {
+                // When the connection enters _half_closed state, just wait for the close to complete.
+                return make_ready_future();
+            }
             // FIXME: implement error handling
             switch(_websocket_parser.opcode()) {
             // We do not distinguish between these 3 types.
@@ -111,7 +154,7 @@ future<> connection::read_one() {
                 return close(true);
             case opcodes::PING:
                 websocket_logger.debug("Received ping frame.");
-                return handle_ping();
+                return handle_ping(_websocket_parser.result());
             case opcodes::PONG:
                 websocket_logger.debug("Received pong frame.");
                 return handle_pong();
@@ -150,5 +193,10 @@ std::string encode_base64(std::string_view source) {
     // base64_encoded.data is "unsigned char *"
     return std::string(reinterpret_cast<const char*>(encoded_data.data), encoded_data.size);
 }
+
+template class basic_connection<true, false>;
+template class basic_connection<true, true>;
+template class basic_connection<false, false>;
+template class basic_connection<false, true>;
 
 }
