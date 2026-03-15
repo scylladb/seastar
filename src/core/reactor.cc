@@ -4298,20 +4298,51 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     if (smp_opts.cpuset) {
         auto opts_cpuset = smp_opts.cpuset.get_value();
-        // CPUs that are not available are those pinned by
-        // --cpuset but not present in current task set
+
+        // CPUs that are not available are those in --cpuset
+        // but not in the current task's affinity set
         std::set<unsigned int> not_available_cpus;
         std::set_difference(opts_cpuset.begin(), opts_cpuset.end(),
                             cpu_set.begin(), cpu_set.end(),
                             std::inserter(not_available_cpus, not_available_cpus.end()));
 
         if (!not_available_cpus.empty()) {
-            std::ostringstream not_available_cpus_list;
+            auto known_offline_cpus = resource::get_offline_cpus();
+
+            // Distinguish between offline CPUs (e.g. SMT disabled)
+            // and CPUs restricted by taskset/cgroup cpuset
+            std::set<unsigned int> offline_cpus;
+            std::set<unsigned int> restricted_cpus;
             for (auto cpu_id : not_available_cpus) {
-                not_available_cpus_list << " " << cpu_id;
+                if (known_offline_cpus.count(cpu_id)) {
+                    offline_cpus.insert(cpu_id);
+                } else {
+                    restricted_cpus.insert(cpu_id);
+                }
             }
-            seastar_logger.error("Bad value for --cpuset:{} not allowed. Shutting down.", not_available_cpus_list.str());
-            exit(1);
+
+            if (!offline_cpus.empty()) {
+                std::ostringstream offline_cpus_list;
+                for (auto cpu_id : offline_cpus) {
+                    offline_cpus_list << " " << cpu_id;
+                    opts_cpuset.erase(cpu_id);
+                }
+                seastar_logger.warn("Ignoring offline CPUs from --cpuset:{}", offline_cpus_list.str());
+            }
+
+            if (!restricted_cpus.empty()) {
+                std::ostringstream restricted_cpus_list;
+                for (auto cpu_id : restricted_cpus) {
+                    restricted_cpus_list << " " << cpu_id;
+                }
+                seastar_logger.error("Bad value for --cpuset:{} not allowed by taskset/cgroup. Shutting down.", restricted_cpus_list.str());
+                exit(1);
+            }
+
+            if (opts_cpuset.empty()) {
+                seastar_logger.error("No available CPUs in --cpuset. Shutting down.");
+                exit(1);
+            }
         }
         cpu_set = opts_cpuset;
     }

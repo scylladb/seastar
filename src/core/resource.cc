@@ -91,6 +91,18 @@ std::optional<cpuset> parse_cpuset(std::string value) {
     return std::nullopt;
 }
 
+cpuset get_offline_cpus() {
+    try {
+        auto line = read_first_line(std::filesystem::path("/sys/devices/system/cpu/offline"));
+        if (auto parsed = parse_cpuset(std::string(line))) {
+            return *parsed;
+        }
+    } catch (...) {
+        seastar_logger.warn("Unable to read offline CPUs from /sys/devices/system/cpu/offline. Ignoring.");
+    }
+    return {};
+}
+
 }
 
 namespace cgroup {
