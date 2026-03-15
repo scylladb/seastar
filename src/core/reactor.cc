@@ -4107,7 +4107,7 @@ static void sigsegv_action(siginfo_t *info, ucontext_t* uc) noexcept {
         print_safe(", si_pid: ");
         // print the pid in the case the signal was sent by someone else
         print_decimal_safe(static_cast<unsigned>(info->si_pid));
-    } else if (code == SEGV_MAPERR || code == SEGV_MAPERR || code == SEGV_BNDERR) {
+    } else if (code == SEGV_MAPERR || code == SEGV_ACCERR || code == SEGV_BNDERR) {
         // print the address of the data access
         print_safe(", si_addr: ");
         print_zero_padded_hex_safe(reinterpret_cast<uintptr_t>(info->si_addr));
