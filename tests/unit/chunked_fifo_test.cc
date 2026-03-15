@@ -644,3 +644,17 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_const_iterator) {
         BOOST_REQUIRE(std::equal(fifo.cbegin(), fifo.cend(), reference.cbegin(), reference.cend()));
     }
 }
+
+BOOST_AUTO_TEST_CASE(chunked_fifo_no_free_chunks_retained) {
+    chunked_fifo<int, 1, 0> fifo;
+    fifo.push_back(42);
+    BOOST_REQUIRE_EQUAL(fifo.nfree_chunks(), 0);
+    fifo.pop_front();
+    BOOST_REQUIRE_EQUAL(fifo.nfree_chunks(), 0);
+
+    chunked_fifo<int, 1, 1> fifo_1;
+    fifo_1.push_back(42);
+    BOOST_REQUIRE_EQUAL(fifo_1.nfree_chunks(), 0);
+    fifo_1.pop_front();
+    BOOST_REQUIRE_EQUAL(fifo_1.nfree_chunks(), 1);
+}
