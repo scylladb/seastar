@@ -438,15 +438,31 @@ future<> http_server::stop() {
     return tasks_done;
 }
 
-// FIXME: This could return void
+// This is a named class member coroutine, so that 'this', 'which' and 'tls'
+// live safely in the coroutine frame, therefore `accept_loop()` can safely suspend
+// at `co_await do_accept_one()`.
+future<> http_server::accept_loop(int which, bool tls) {
+    while (!_task_gate.is_closed()) {
+        try {
+            co_await do_accept_one(which, tls);
+        } catch (const gate_closed_exception&) {
+            co_return;
+        } catch (const std::system_error& e) {
+            // We expect a ECONNABORTED when http_server::stop is called,
+            // no point in warning about that.
+            if (e.code().value() != ECONNABORTED) {
+                hlogger.error("accept failed: {}", e);
+            }
+        } catch (...) {
+            hlogger.error("accept failed: {}", std::current_exception());
+        }
+    }
+}
+
 future<> http_server::do_accepts(int which, bool tls) {
     (void)try_with_gate(_task_gate, [this, which, tls] {
-        return keep_doing([this, which, tls] {
-            return try_with_gate(_task_gate, [this, which, tls] {
-                return do_accept_one(which, tls);
-            });
-        }).handle_exception_type([](const gate_closed_exception& e) {});
-    }).handle_exception_type([](const gate_closed_exception& e) {});
+        return accept_loop(which, tls);
+    }).handle_exception_type([](const gate_closed_exception&) {});
     return make_ready_future<>();
 }
 
@@ -455,28 +471,19 @@ future<> http_server::do_accepts(int which){
 }
 
 future<> http_server::do_accept_one(int which, bool tls) {
-    return _listeners[which].accept().then([this, tls] (accept_result ar) mutable {
-        if (_keepalive_params) {
-            ar.connection.set_keepalive(true);
-            ar.connection.set_keepalive_parameters(_keepalive_params.value());
-        }
-        auto local_address = ar.connection.local_address();
-        auto conn = std::make_unique<connection>(*this, std::move(ar.connection),
-                std::move(ar.remote_address), std::move(local_address), tls);
-        (void)try_with_gate(_task_gate, [conn = std::move(conn)]() mutable {
-            return conn->process().handle_exception([conn = std::move(conn)] (std::exception_ptr ex) {
-                hlogger.error("request error: {}", ex);
-            });
-        }).handle_exception_type([] (const gate_closed_exception& e) {});
-    }).handle_exception_type([] (const std::system_error &e) {
-        // We expect a ECONNABORTED when http_server::stop is called,
-        // no point in warning about that.
-        if (e.code().value() != ECONNABORTED) {
-            hlogger.error("accept failed: {}", e);
-        }
-    }).handle_exception([] (std::exception_ptr ex) {
-        hlogger.error("accept failed: {}", ex);
-    });
+    auto ar = co_await _listeners[which].accept();
+    if (_keepalive_params) {
+        ar.connection.set_keepalive(true);
+        ar.connection.set_keepalive_parameters(_keepalive_params.value());
+    }
+    auto local_address = ar.connection.local_address();
+    auto conn = std::make_unique<connection>(*this, std::move(ar.connection),
+            std::move(ar.remote_address), std::move(local_address), tls);
+    (void)try_with_gate(_task_gate, [conn = std::move(conn)]() mutable {
+        return conn->process().handle_exception([conn = std::move(conn)] (std::exception_ptr ex) {
+            hlogger.error("request error: {}", ex);
+        });
+    }).handle_exception_type([] (const gate_closed_exception& e) {});
 }
 
 uint64_t http_server::total_connections() const {

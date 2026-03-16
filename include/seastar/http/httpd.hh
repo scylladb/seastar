@@ -207,6 +207,7 @@ public:
 
     future<> do_accepts(int which);
     future<> do_accepts(int which, bool with_tls);
+    future<> accept_loop(int which, bool tls);
 
     uint64_t total_connections() const;
     uint64_t current_connections() const;
