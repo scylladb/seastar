@@ -2018,8 +2018,9 @@ void set_additional_diagnostics_producer(noncopyable_function<void(memory_diagno
 }
 
 struct human_readable_value {
-    uint16_t value;  // [0, 1024)
+    uint16_t value;  // [0, 16k)
     char suffix; // 0 -> no suffix
+    constexpr bool operator==(const human_readable_value& o) const = default;
 };
 
 std::ostream& operator<<(std::ostream& os, const human_readable_value& val) {
@@ -2030,7 +2031,7 @@ std::ostream& operator<<(std::ostream& os, const human_readable_value& val) {
     return os;
 }
 
-static human_readable_value to_human_readable_value(uint64_t value, uint64_t step, uint64_t precision, const std::array<char, 5>& suffixes) {
+static constexpr human_readable_value to_human_readable_value(uint64_t value, uint64_t step, uint64_t precision, const std::array<char, 6>& suffixes) {
     if (!value) {
         return {0, suffixes[0]};
     }
@@ -2040,24 +2041,32 @@ static human_readable_value to_human_readable_value(uint64_t value, uint64_t ste
     unsigned i = 0;
     // If there is no remainder we go below precision because we don't loose any.
     while (((!remainder && result >= step) || result >= precision)) {
+        if (i + 1 == suffixes.size()) {
+            break;
+        }
         remainder = result % step;
         result /= step;
-        if (i == suffixes.size()) {
-            break;
-        } else {
-            ++i;
-        }
+        ++i;
     }
     return {uint16_t(remainder < (step / 2) ? result : result + 1), suffixes[i]};
 }
 
-static human_readable_value to_hr_size(uint64_t size) {
-    const std::array<char, 5> suffixes = {'B', 'K', 'M', 'G', 'T'};
+static constexpr human_readable_value to_hr_size(uint64_t size) {
+    const std::array<char, 6> suffixes = {'B', 'K', 'M', 'G', 'T', 'P'};
     return to_human_readable_value(size, 1024, 8192, suffixes);
 }
 
-static human_readable_value to_hr_number(uint64_t number) {
-    const std::array<char, 5> suffixes = {'\0', 'k', 'm', 'b', 't'};
+static_assert(to_hr_size(1ull) == human_readable_value{1, 'B'});
+static_assert(to_hr_size(1ull << 10) == human_readable_value{1, 'K'});
+static_assert(to_hr_size(1ull << 20) == human_readable_value{1, 'M'});
+static_assert(to_hr_size(1ull << 30) == human_readable_value{1, 'G'});
+static_assert(to_hr_size(1ull << 40) == human_readable_value{1, 'T'});
+static_assert(to_hr_size(1ull << 50) == human_readable_value{1, 'P'});
+static_assert(to_hr_size(1ull << 60) == human_readable_value{1024, 'P'});
+static_assert(to_hr_size(std::numeric_limits<uint64_t>::max()) == human_readable_value{16 << 10, 'P'});
+
+static constexpr human_readable_value to_hr_number(uint64_t number) {
+    const std::array<char, 6> suffixes = {'\0', 'k', 'm', 'b', 't', 'p'};
     return to_human_readable_value(number, 1000, 10000, suffixes);
 }
 
