@@ -895,10 +895,20 @@ void run_all(const std::vector<std::string>& test_patterns, config& conf) {
         return false;
     };
     size_t max_name_column_length = 0;
+    size_t matched_count = 0;
     for (auto& t : all_tests()) {
         if (match(t.get())) {
             max_name_column_length = std::max(max_name_column_length, t->name().size());
+            ++matched_count;
         }
+    }
+    if (!regexes.empty() && matched_count == 0) {
+        fmt::print(stderr, "WARNING: no tests matched the given pattern(s):");
+        for (auto& pat : test_patterns) {
+            fmt::print(stderr, " '{}'", pat);
+        }
+        fmt::print(stderr, "\n");
+        throw std::runtime_error("no tests matched the given pattern(s)");
     }
     for (auto& rp : conf.printers) {
         rp->update_name_column_length(max_name_column_length);
