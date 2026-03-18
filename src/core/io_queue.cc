@@ -669,15 +669,15 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     _averaging_decay_timer.arm_periodic(std::chrono::duration_cast<std::chrono::milliseconds>(_group->io_latency_goal() * cfg.averaging_decay_ticks));
 
     if (cfg.with_metrics) {
-    namespace sm = seastar::metrics;
-    auto owner_l = sm::shard_label(this_shard_id());
-    auto mnt_l = sm::label("mountpoint")(mountpoint());
-    auto group_l = sm::label("iogroup")(to_sstring(_group->_allocated_on));
-    _metric_groups.add_group("io_queue", {
-        sm::make_gauge("flow_ratio", [this] { return _flow_ratio; },
-                sm::description("Ratio of dispatch rate to completion rate. Is expected to be 1.0+ growing larger on reactor stalls or (!) disk problems"),
-                { owner_l, mnt_l, group_l }),
-    });
+        namespace sm = seastar::metrics;
+        auto owner_l = sm::shard_label(this_shard_id());
+        auto mnt_l = sm::label("mountpoint")(mountpoint());
+        auto group_l = sm::label("iogroup")(to_sstring(_group->_allocated_on));
+        _metric_groups.add_group("io_queue", {
+            sm::make_gauge("flow_ratio", [this] { return _flow_ratio; },
+                    sm::description("Ratio of dispatch rate to completion rate. Is expected to be 1.0+ growing larger on reactor stalls or (!) disk problems"),
+                    { owner_l, mnt_l, group_l }),
+        });
     }
 }
 
