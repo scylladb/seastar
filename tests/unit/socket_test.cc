@@ -30,6 +30,7 @@
 #include <seastar/core/smp.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
+#include <cstring>
 #include <seastar/util/later.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/testing/test_case.hh>
@@ -430,7 +431,41 @@ test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protoc
     listen_options lo;
     lo.reuse_address = true;
     lo.lba = server_socket::load_balancing_algorithm::port;
-    lo.proxy_protocol = proxy_protocol;
+    if (proxy_protocol) {
+        // Provide a PPv2 detector that reads the mandatory 16-byte header + address payload
+        static const char pp2_sig[12] = {
+            0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49, 0x54, 0x0a
+        };
+        lo.detect = [](listen_options::connection_inspector inspector, socket_address)
+                -> future<std::optional<connection_metadata>> {
+            auto hdr = co_await inspector.read(16);
+            if (hdr.empty()) co_return std::nullopt;
+            if (std::memcmp(hdr.get(), pp2_sig, 12) != 0) co_return std::nullopt;
+            uint16_t addr_len = (static_cast<uint8_t>(hdr[14]) << 8) | static_cast<uint8_t>(hdr[15]);
+            if (addr_len > 256 || addr_len < 12) co_return std::nullopt;
+            auto addr_buf = co_await inspector.read(addr_len);
+            if (addr_buf.empty()) co_return std::nullopt;
+            // Extract source address for shard routing
+            uint8_t fam = static_cast<uint8_t>(hdr[13]) >> 4;
+            connection_metadata res;
+            if (fam == 0x1) { // INET
+                auto port = (static_cast<uint16_t>(static_cast<uint8_t>(addr_buf[8])) << 8)
+                          | static_cast<uint8_t>(addr_buf[9]);
+                in_addr source;
+                std::memcpy(&source, addr_buf.get(), sizeof(source));
+                res.remote_address = socket_address(ipv4_addr(source, port));
+            } else if (fam == 0x2) { // INET6
+                auto port = (static_cast<uint16_t>(static_cast<uint8_t>(addr_buf[32])) << 8)
+                          | static_cast<uint8_t>(addr_buf[33]);
+                in6_addr source;
+                std::memcpy(&source, addr_buf.get(), sizeof(source));
+                res.remote_address = socket_address(ipv6_addr(source, port));
+            } else {
+                co_return std::nullopt;
+            }
+            co_return res;
+        };
+    }
 
     struct client_results {
         int attempts = 0;
@@ -453,7 +488,8 @@ test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protoc
         future<> run() {
             try {
                 while (true) {
-                    auto [cs, _] = co_await ss.accept();
+                    auto ar = co_await ss.accept();
+                    auto cs = std::move(ar.connection);
                     auto out = cs.output();
                     auto in = cs.input();
                     unsigned shard_id = this_shard_id();
