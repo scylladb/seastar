@@ -47,7 +47,10 @@ module seastar;
 #include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/coroutine.hh>
+#include <seastar/coroutine/maybe_yield.hh>
 #include <seastar/core/byteorder.hh>
+#include <seastar/core/with_timeout.hh>
+#include <seastar/core/lowres_clock.hh>
 #include <seastar/net/posix-stack.hh>
 #include <seastar/net/net.hh>
 #include <seastar/net/packet.hh>
@@ -577,27 +580,11 @@ get_port_or_counter(const socket_address& sa) {
     }
 }
 
-static
-proxy_data
-local_proxy_data(const pollable_fd& pfd) {
-    auto& fd = pfd.get_file_desc();
-
-    auto local_sa = fd.get_address();
-    auto remote_sa = fd.get_remote_address();
-
-    proxy_data header = {
-        .remote_address = remote_sa,
-        .local_address = local_sa,
-    };
-
-    return header;
-}
-
 // Read exactly `len` bytes from fd into buf, looping on partial reads.
 // Returns false on EOF before all bytes are read.
 static
 future<bool>
-read_exactly(pollable_fd& fd, char* buf, size_t len) {
+read_exactly_from_fd(pollable_fd& fd, char* buf, size_t len) {
     size_t total = 0;
     while (total < len) {
         auto n = co_await fd.read_some(buf + total, len - total);
@@ -618,14 +605,14 @@ static const char pp2_signature[12] = {
 static
 std::optional<proxy_data>
 parse_pp2_addresses(const char* header, const char* addr_buf, uint16_t addr_len,
-                    const pollable_fd& fd) {
+                    const socket_address& local_addr, const socket_address& remote_addr) {
     uint8_t fam_proto = header[13];
     switch (header[12]) { // version and command
     case 0x20: // v2, LOCAL
         if (fam_proto != 0x00) { // UNSPEC
             return std::nullopt;
         }
-        return local_proxy_data(fd);
+        return proxy_data{.remote_address = remote_addr, .local_address = local_addr};
     case 0x21: // v2, PROXY
         break;
     default:
@@ -666,39 +653,8 @@ parse_pp2_addresses(const char* header, const char* addr_buf, uint16_t addr_len,
     return addr_data;
 }
 
-// Parses proxy protocol v2 header; returns std::nullopt if no valid header is found.
-static
-future<std::optional<proxy_data>>
-read_proxy_data(pollable_fd& fd) {
-    constexpr size_t pp2_header_len = 16;
-    char header_buf[pp2_header_len];
-    if (!co_await read_exactly(fd, header_buf, pp2_header_len)) {
-        co_return std::nullopt;
-    }
-    if (std::memcmp(header_buf, pp2_signature, sizeof(pp2_signature)) != 0) {
-        co_return std::nullopt;
-    }
-
-    auto len = read_be<uint16_t>(header_buf + 14);
-
-    char stack_buffer[36]; // Suitable for IPv6 without extra TLVs
-    std::unique_ptr<char[]> heap_buffer;
-    auto* buffer = stack_buffer;
-
-    if (len > sizeof(stack_buffer)) {
-        heap_buffer = std::make_unique<char[]>(len);
-        buffer = heap_buffer.get();
-    }
-
-    if (!co_await read_exactly(fd, buffer, len)) {
-        co_return std::nullopt;
-    }
-
-    co_return parse_pp2_addresses(header_buf, buffer, len, fd);
-}
-
 // Data source that yields prefix bytes before delegating to the underlying source.
-// Used by master port to prepend bytes consumed during protocol detection.
+// Used by unified port to prepend bytes consumed during protocol detection.
 class prefixed_data_source_impl final : public data_source_impl {
     temporary_buffer<char> _prefix;
     data_source _underlying;
@@ -711,23 +667,45 @@ public:
         }
         return _underlying.get();
     }
+    future<temporary_buffer<char>> skip(uint64_t n) override {
+        if (!_prefix.empty()) {
+            auto skip_bytes = std::min(n, static_cast<uint64_t>(_prefix.size()));
+            _prefix.trim_front(skip_bytes);
+            n -= skip_bytes;
+        }
+        if (n == 0) {
+            return make_ready_future<temporary_buffer<char>>();
+        }
+        return _underlying.skip(n);
+    }
     future<> close() override {
         return _underlying.close();
     }
 };
 
-// Connected socket that prepends a single prefix byte to the data stream.
-// Used by master port for legacy clients where the first byte was consumed during detection.
+// Connected socket that prepends a single prefix byte to the data stream
+// and optionally carries proxy protocol address data.
+// Used by unified port for legacy clients where the first byte was consumed during detection.
+// When proxy data is present, local_address() and remote_address() return the proxied addresses.
 class prefixed_posix_connected_socket_impl final : public posix_connected_socket_impl {
     std::optional<char> _prefix;
+    std::optional<socket_address> _proxy_local_addr;
+    std::optional<socket_address> _proxy_remote_addr;
 public:
     prefixed_posix_connected_socket_impl(
             sa_family_t family, int protocol, pollable_fd fd,
             conntrack::handle&& handle,
             std::optional<char> prefix,
+            std::optional<proxy_data> addr_data_opt = {},
             std::pmr::polymorphic_allocator<char>* allocator = memory::malloc_allocator)
         : posix_connected_socket_impl(family, protocol, std::move(fd), std::move(handle), allocator)
-        , _prefix(prefix) {}
+        , _prefix(prefix)
+    {
+        if (addr_data_opt) {
+            _proxy_local_addr = std::move(addr_data_opt->local_address);
+            _proxy_remote_addr = std::move(addr_data_opt->remote_address);
+        }
+    }
     data_source source() override {
         return source(connected_socket_input_stream_config());
     }
@@ -738,24 +716,70 @@ public:
         }
         temporary_buffer<char> pfx(1);
         *pfx.get_write() = *_prefix;
-        _prefix.reset();
+        _prefix.reset(); // consume prefix on first call only
         return data_source(std::make_unique<prefixed_data_source_impl>(
             std::move(pfx), std::move(underlying)));
     }
+    socket_address local_address() const noexcept override {
+        return _proxy_local_addr ? *_proxy_local_addr : posix_connected_socket_impl::local_address();
+    }
+    socket_address remote_address() const noexcept override {
+        return _proxy_remote_addr ? *_proxy_remote_addr : posix_connected_socket_impl::remote_address();
+    }
 };
 
-// Magic byte for the master port shard selection header.
-static constexpr char master_port_shard_select_magic = '\xAA';
+// Result of reading and parsing a PP v2 header.
+struct pp2_parse_result {
+    enum class status { ok, incomplete, invalid };
+    status st;
+    std::optional<proxy_data> addr_data;
+};
+
+// Read and parse a PP v2 header from a validated 16-byte header buffer.
+// `read_fn` must read exactly `n` bytes into `buf` and return false on failure.
+// This function reads the address payload, validates it, and returns the result.
+template <typename ReadFn>
+static future<pp2_parse_result>
+read_and_parse_pp2(const char* full_header, ReadFn&& read_fn,
+                   const socket_address& local_addr, const socket_address& remote_addr) {
+    auto len = read_be<uint16_t>(full_header + 14);
+    static constexpr uint16_t max_pp2_addr_len = 256;
+    if (len > max_pp2_addr_len) {
+        co_return pp2_parse_result{pp2_parse_result::status::invalid, std::nullopt};
+    }
+    // Stack buffer covers all valid address lengths (max 256 bytes).
+    char buffer[max_pp2_addr_len];
+    if (!co_await read_fn(buffer, len)) {
+        co_return pp2_parse_result{pp2_parse_result::status::incomplete, std::nullopt};
+    }
+    auto addr = parse_pp2_addresses(full_header, buffer, len, local_addr, remote_addr);
+    if (!addr) {
+        co_return pp2_parse_result{pp2_parse_result::status::invalid, std::nullopt};
+    }
+    co_return pp2_parse_result{pp2_parse_result::status::ok, std::move(addr)};
+}
+
+// Timeout for the protocol detection phase on unified port connections.
+// If a client connects but doesn't send data within this period, the
+// connection is dropped so it doesn't block the accept loop.
+static constexpr auto unified_port_detect_timeout = std::chrono::seconds(5);
 
 static
 std::unique_ptr<connected_socket_impl>
-make_maybe_proxied_connected_socket_impl(
+make_connected_socket_impl(
         sa_family_t family,
         int protocol,
         pollable_fd fd,
         conntrack::handle&& handle,
         std::optional<proxy_data> addr_data_opt,
+        std::optional<char> prefix = {},
         std::pmr::polymorphic_allocator<char>* allocator = memory::malloc_allocator) {
+    if (prefix) {
+        // Handles both prefix-only and prefix + proxy data (PP v2 + legacy CQL).
+        return std::make_unique<prefixed_posix_connected_socket_impl>(
+            family, protocol, std::move(fd), std::move(handle),
+            prefix, std::move(addr_data_opt), allocator);
+    }
     if (addr_data_opt) {
         return std::make_unique<posix_proxied_connected_socket_impl>(
             family,
@@ -765,131 +789,301 @@ make_maybe_proxied_connected_socket_impl(
             std::move(addr_data_opt->local_address),
             std::move(addr_data_opt->remote_address),
             allocator);
-    } else {
-        return std::make_unique<posix_connected_socket_impl>(
-            family,
-            protocol,
-            std::move(fd),
-            std::move(handle),
-            allocator);
     }
+    return std::make_unique<posix_connected_socket_impl>(
+        family,
+        protocol,
+        std::move(fd),
+        std::move(handle),
+        allocator);
 }
 
-static
-std::unique_ptr<connected_socket_impl>
-make_master_port_connected_socket_impl(
-        sa_family_t family,
-        int protocol,
-        pollable_fd fd,
-        conntrack::handle&& handle,
-        std::optional<proxy_data> addr_data_opt,
-        std::optional<char> prefix,
-        std::pmr::polymorphic_allocator<char>* allocator = memory::malloc_allocator) {
-    if (prefix) {
-        return std::make_unique<prefixed_posix_connected_socket_impl>(
-            family, protocol, std::move(fd), std::move(handle),
-            prefix, allocator);
+// Result of unified port protocol detection phase.
+// Returned by detect_unified_port_protocol() and consumed by both
+// posix_server_socket_impl::accept() and posix_reuseport_server_socket_impl::accept().
+struct protocol_detection_result {
+    enum class outcome { success, drop };
+    outcome status = outcome::drop;
+    std::optional<proxy_data> addr_data;
+    connection_metadata meta;
+    std::optional<char> prefix;
+    bool has_ppv2 = false;
+    bool has_meta_frame = false;
+};
+
+// Perform unified port protocol detection on a newly-accepted connection.
+// Reads PPv2 header and/or first byte for TLS detection depending on config.
+// Does NOT peek into the data stream unless it has to:
+//   - ppv2 auto_detect: reads first byte to check for 0x0D
+//   - detect_tls: reads first byte to check for 0x16
+//   - neither: no reads at all
+// On failure (timeout, invalid data), returns outcome::drop.
+// `sa` may be updated to the proxied remote address when PPv2 is present.
+static future<protocol_detection_result>
+detect_unified_port_protocol(const posix_server_socket_impl::accept_config& cfg,
+                             pollable_fd& fd, socket_address& sa) {
+    using accept_cfg = posix_server_socket_impl::accept_config;
+    using result_t = protocol_detection_result;
+    result_t res;
+    static thread_local logger::rate_limit drop_rl(std::chrono::seconds(10));
+
+    auto deadline = lowres_clock::now() + unified_port_detect_timeout;
+
+    auto read_with_timeout = [&](char* buf, size_t len) -> future<bool> {
+        try {
+            co_return co_await with_timeout(deadline, read_exactly_from_fd(fd, buf, len));
+        } catch (const timed_out_error&) {
+            seastar_logger.debug("accept: timeout during protocol detection, dropping connection");
+            co_return false;
+        }
+    };
+
+    auto drop_connection = [&](const char* reason) {
+        seastar_logger.debug("accept: {}, dropping connection from {}", reason, sa);
+        seastar_logger.log(log_level::warn, drop_rl,
+            "accept: dropping invalid connection from {} ({})", sa, reason);
+    };
+
+    // --- PPv2 mandatory mode (dedicated proxy protocol ports) ---
+    bool ppv2_read_done = false;
+    if (cfg.ppv2 == accept_cfg::ppv2_mode::mandatory) {
+        char full_header[16];
+        if (!co_await read_with_timeout(full_header, 16)) {
+            drop_connection("incomplete PP v2 header");
+            co_return res;
+        }
+        if (std::memcmp(full_header, pp2_signature, sizeof(pp2_signature)) != 0) {
+            drop_connection("invalid PP v2 signature");
+            co_return res;
+        }
+        auto result = co_await read_and_parse_pp2(full_header, read_with_timeout,
+            fd.get_file_desc().get_address(), fd.get_file_desc().get_remote_address());
+        if (result.st == pp2_parse_result::status::incomplete) {
+            drop_connection("incomplete PP v2 address data");
+            co_return res;
+        }
+        if (result.st == pp2_parse_result::status::invalid) {
+            drop_connection("unsupported PP v2 address family or protocol");
+            co_return res;
+        }
+        res.addr_data = std::move(result.addr_data);
+        sa = res.addr_data->remote_address;
+        res.has_ppv2 = true;
+        ppv2_read_done = true;
     }
-    return make_maybe_proxied_connected_socket_impl(
-        family, protocol, std::move(fd), std::move(handle),
-        std::move(addr_data_opt), allocator);
+
+    // Determine if we need to read the first byte (after mandatory PPv2, or
+    // as the very first byte of the connection).
+    bool need_post_ppv2 = cfg.detect_tls || cfg.detect_meta_frame;
+    bool need_first_byte = (!ppv2_read_done && cfg.ppv2 == accept_cfg::ppv2_mode::auto_detect)
+                        || need_post_ppv2
+                        || (ppv2_read_done && need_post_ppv2);
+
+    char first_byte;
+    bool have_first_byte = false;
+    if (need_first_byte) {
+        if (!co_await read_with_timeout(&first_byte, 1)) {
+            drop_connection(ppv2_read_done ? "EOF after PP v2 header" : "EOF or timeout on first byte");
+            co_return res;
+        }
+        have_first_byte = true;
+    }
+
+    // --- PPv2 auto-detect from first byte (0x0D) ---
+    if (have_first_byte && !ppv2_read_done
+            && cfg.ppv2 == accept_cfg::ppv2_mode::auto_detect
+            && first_byte == 0x0D) {
+        char header_rest[15];
+        if (!co_await read_with_timeout(header_rest, 15)) {
+            drop_connection("incomplete PP v2 header");
+            co_return res;
+        }
+        char full_header[16];
+        full_header[0] = first_byte;
+        std::memcpy(full_header + 1, header_rest, 15);
+        if (std::memcmp(full_header, pp2_signature, sizeof(pp2_signature)) != 0) {
+            drop_connection("invalid PP v2 signature");
+            co_return res;
+        }
+        auto result = co_await read_and_parse_pp2(full_header, read_with_timeout,
+            fd.get_file_desc().get_address(), fd.get_file_desc().get_remote_address());
+        if (result.st == pp2_parse_result::status::incomplete) {
+            drop_connection("incomplete PP v2 address data");
+            co_return res;
+        }
+        if (result.st == pp2_parse_result::status::invalid) {
+            drop_connection("unsupported PP v2 address family or protocol");
+            co_return res;
+        }
+        res.addr_data = std::move(result.addr_data);
+        sa = res.addr_data->remote_address;
+        res.has_ppv2 = true;
+
+        // After PPv2, read next byte if TLS or meta-frame detection is needed
+        if (need_post_ppv2) {
+            if (!co_await read_with_timeout(&first_byte, 1)) {
+                drop_connection("EOF after PP v2 header");
+                co_return res;
+            }
+            // have_first_byte remains true — first_byte now holds post-PPv2 byte
+        } else {
+            have_first_byte = false; // PPv2 consumed, no further peeking
+        }
+    }
+
+    // --- Meta-frame detection (magic byte 0x53) ---
+    // Wire format: [0x53 magic] [4-byte BE version] [version-specific payload]
+    // Version 1 payload: [2-byte BE target shard]
+    // Total: 7 bytes. Fully consumed (not prepended as prefix).
+    if (have_first_byte && cfg.detect_meta_frame
+            && static_cast<uint8_t>(first_byte) == 0x53) {
+        char frame_rest[6]; // 4-byte version + 2-byte shard
+        if (!co_await read_with_timeout(frame_rest, 6)) {
+            drop_connection("incomplete meta-frame");
+            co_return res;
+        }
+        uint32_t version = (static_cast<uint8_t>(frame_rest[0]) << 24)
+                         | (static_cast<uint8_t>(frame_rest[1]) << 16)
+                         | (static_cast<uint8_t>(frame_rest[2]) << 8)
+                         | static_cast<uint8_t>(frame_rest[3]);
+        if (version != 1) {
+            drop_connection(seastar::format("unsupported meta-frame version {}", version).c_str());
+            co_return res;
+        }
+        uint16_t target_shard = (static_cast<uint8_t>(frame_rest[4]) << 8)
+                              | static_cast<uint8_t>(frame_rest[5]);
+        if (target_shard >= smp::count) {
+            drop_connection(seastar::format("meta-frame shard {} out of range (max {})",
+                target_shard, smp::count - 1).c_str());
+            co_return res;
+        }
+        res.meta.meta_frame_shard = target_shard;
+        res.has_meta_frame = true;
+
+        // Meta-frame fully consumed. Read next byte for TLS detection if needed.
+        if (cfg.detect_tls) {
+            if (!co_await read_with_timeout(&first_byte, 1)) {
+                drop_connection("EOF after meta-frame");
+                co_return res;
+            }
+            // have_first_byte remains true — first_byte now holds post-meta-frame byte
+        } else {
+            have_first_byte = false;
+        }
+    }
+
+    // --- TLS detection / prefix handling ---
+    if (have_first_byte) {
+        if (cfg.detect_tls) {
+            res.meta.is_tls = (static_cast<uint8_t>(first_byte) == 0x16);
+        }
+        res.prefix = first_byte;
+    }
+
+    res.status = result_t::outcome::success;
+    co_return res;
+}
+
+// Runs on a remote shard: performs protocol detection on a forwarded raw fd,
+// then delivers the completed connection to the local posix_ap_server_socket_impl.
+static future<> detect_and_deliver_connection(
+        int protocol, socket_address server_addr,
+        file_desc raw_fd, socket_address remote_addr,
+        conntrack::handle cth,
+        posix_server_socket_impl::accept_config cfg,
+        std::pmr::polymorphic_allocator<char>* allocator) {
+    auto fd = pollable_fd(std::move(raw_fd));
+    auto det = co_await detect_unified_port_protocol(cfg, fd, remote_addr);
+    if (det.status == protocol_detection_result::outcome::drop) {
+        co_return;
+    }
+    posix_ap_server_socket_impl::move_connected_socket(
+        protocol, server_addr, std::move(fd), remote_addr, std::move(cth),
+        std::move(det.addr_data), allocator, det.meta, det.prefix);
+}
+
+conntrack::handle
+posix_server_socket_impl::route_connection(const accept_config& cfg,
+        bool has_ppv2, std::optional<shard_id> meta_frame_shard,
+        const socket_address& sa) {
+    // Meta-frame shard takes highest priority — the driver explicitly requested it.
+    if (meta_frame_shard) {
+        return _conntrack.get_handle(*meta_frame_shard);
+    }
+    auto lba = has_ppv2 ? cfg.ppv2_lba : cfg.default_lba;
+    switch (lba) {
+    case server_socket::load_balancing_algorithm::port:
+        return _conntrack.get_handle(get_port_or_counter(sa) % smp::count);
+    case server_socket::load_balancing_algorithm::fixed:
+        return _conntrack.get_handle(cfg.fixed_cpu);
+    case server_socket::load_balancing_algorithm::connection_distribution:
+    default:
+        return _conntrack.get_handle();
+    }
 }
 
 future<accept_result>
-posix_server_socket_impl::accept_master_port() {
+posix_server_socket_impl::accept() {
+    const bool needs_detection = _accept_cfg.needs_detection();
+    const bool distribute = _accept_cfg.distribute_detection;
+
     while (true) {
+        co_await coroutine::maybe_yield();
         auto [fd, sa] = co_await _lfd.accept();
 
-        std::optional<proxy_data> addr_data_opt;
-        connection_metadata meta;
-        std::optional<char> prefix;
-        bool has_shard_selection = false;
-        unsigned target_shard = 0;
-
-        // Read first byte to detect protocol layer
-        char first_byte;
-        if (!co_await read_exactly(fd, &first_byte, 1)) {
-            seastar_logger.debug("master port: EOF on first byte, dropping connection");
+        if (distribute) {
+            // Distribute detection work across shards. Pick a round-robin
+            // shard and forward the raw fd there. The detection shard does
+            // the protocol sniffing and keeps the connection.
+            auto cth = _conntrack.get_handle(); // round-robin
+            auto cpu = cth.cpu();
+            if (cpu == this_shard_id()) {
+                // Detection on local shard — do it here and return.
+                auto det = co_await detect_unified_port_protocol(_accept_cfg, fd, sa);
+                if (det.status == protocol_detection_result::outcome::drop) {
+                    continue;
+                }
+                auto csi = make_connected_socket_impl(
+                    sa.family(), _protocol, std::move(fd), std::move(cth),
+                    std::move(det.addr_data), det.prefix, _allocator);
+                co_return accept_result{connected_socket(std::move(csi)), sa, det.meta};
+            } else {
+                // Forward raw fd to remote shard for detection + delivery.
+                (void)smp::submit_to(cpu, [protocol = _protocol, ssa = _sa,
+                        raw_fd = std::move(fd.get_file_desc()), sa,
+                        cth = std::move(cth), cfg = _accept_cfg,
+                        allocator = _allocator] () mutable {
+                    return detect_and_deliver_connection(
+                        protocol, ssa, std::move(raw_fd), sa,
+                        std::move(cth), cfg, allocator);
+                }).handle_exception([sa] (auto ep) {
+                    seastar_logger.warn("accept: failed to distribute detection for connection from {}: {}", sa, ep);
+                });
+            }
             continue;
         }
 
-        // 1. Proxy Protocol v2 auto-detection (first byte 0x0D)
-        if (first_byte == 0x0D) {
-            // Might be PP v2. Read remaining 15 bytes of the 16-byte header.
-            char header_rest[15];
-            if (!co_await read_exactly(fd, header_rest, 15)) {
-                seastar_logger.debug("master port: incomplete PP v2 header, dropping connection");
+        // Non-distributed path: detect locally, then route.
+        std::optional<proxy_data> addr_data_opt;
+        connection_metadata meta;
+        std::optional<char> prefix;
+        bool has_ppv2 = false;
+
+        if (needs_detection) {
+            auto det = co_await detect_unified_port_protocol(_accept_cfg, fd, sa);
+            if (det.status == protocol_detection_result::outcome::drop) {
                 continue;
             }
-
-            char full_header[16];
-            full_header[0] = first_byte;
-            std::memcpy(full_header + 1, header_rest, 15);
-
-            if (std::memcmp(full_header, pp2_signature, sizeof(pp2_signature)) != 0) {
-                seastar_logger.debug("master port: invalid PP v2 signature, dropping connection");
-                continue;
-            }
-
-            auto len = read_be<uint16_t>(full_header + 14);
-
-            char stack_buffer[36];
-            std::unique_ptr<char[]> heap_buffer;
-            auto* buffer = stack_buffer;
-            if (len > sizeof(stack_buffer)) {
-                heap_buffer = std::make_unique<char[]>(len);
-                buffer = heap_buffer.get();
-            }
-
-            if (!co_await read_exactly(fd, buffer, len)) {
-                seastar_logger.debug("master port: incomplete PP v2 address data, dropping connection");
-                continue;
-            }
-
-            addr_data_opt = parse_pp2_addresses(full_header, buffer, len, fd);
-            if (!addr_data_opt) {
-                seastar_logger.debug("master port: unsupported PP v2 address family or protocol, dropping connection");
-                continue;
-            }
-            sa = addr_data_opt->remote_address;
-
-            // Read next byte for further detection
-            if (!co_await read_exactly(fd, &first_byte, 1)) {
-                seastar_logger.debug("master port: EOF after PP v2 header, dropping connection");
-                continue;
-            }
+            addr_data_opt = std::move(det.addr_data);
+            meta = det.meta;
+            prefix = det.prefix;
+            has_ppv2 = det.has_ppv2;
         }
 
-        // 2. Shard selection header auto-detection (magic 0xAA)
-        if (first_byte == master_port_shard_select_magic) {
-            char hdr[3]; // remaining 3 bytes of 4-byte header
-            if (!co_await read_exactly(fd, hdr, 3)) {
-                seastar_logger.debug("master port: incomplete shard selection header, dropping connection");
-                continue;
-            }
-
-            uint8_t flags = static_cast<uint8_t>(hdr[0]);
-            meta.is_tls = (flags & 0x01) != 0;
-            uint16_t shard_id = (static_cast<uint16_t>(static_cast<uint8_t>(hdr[1])) << 8)
-                              | static_cast<uint8_t>(hdr[2]);
-            target_shard = shard_id % smp::count;
-            has_shard_selection = true;
-            // All header bytes consumed, fd stream starts with TLS or CQL data
-        } else {
-            // 3. Legacy client: first_byte is TLS (0x16) or CQL version (0x03+)
-            meta.is_tls = (static_cast<uint8_t>(first_byte) == 0x16);
-            // Save consumed byte as prefix to prepend to the data stream
-            prefix = first_byte;
-        }
-
-        // Determine target shard
-        auto cth = has_shard_selection
-            ? _conntrack.get_handle(target_shard)
-            : _conntrack.get_handle(); // default LBA (connection_distribution)
-
+        auto cth = route_connection(_accept_cfg, has_ppv2, meta.meta_frame_shard, sa);
         auto cpu = cth.cpu();
         if (cpu == this_shard_id()) {
-            auto csi = make_master_port_connected_socket_impl(
+            auto csi = make_connected_socket_impl(
                 sa.family(), _protocol, std::move(fd), std::move(cth),
                 std::move(addr_data_opt), prefix, _allocator);
             co_return accept_result{connected_socket(std::move(csi)), sa, meta};
@@ -901,59 +1095,11 @@ posix_server_socket_impl::accept_master_port() {
                 posix_ap_server_socket_impl::move_connected_socket(
                     protocol, ssa, pollable_fd(std::move(fd)), sa, std::move(cth),
                     std::move(addr_data_opt), allocator, meta, prefix);
+            }).handle_exception([sa] (auto ep) {
+                seastar_logger.warn("accept: failed to move connection from {} to target shard: {}", sa, ep);
             });
         }
     }
-}
-
-future<accept_result>
-posix_server_socket_impl::accept() {
-    if (_master_port) {
-        co_return co_await accept_master_port();
-    }
-    while (true) { // exited via co_return
-        auto [fd, sa] = co_await _lfd.accept();
-
-        std::optional<proxy_data> addr_data_opt;
-        if (_proxy_protocol) {
-            addr_data_opt = co_await read_proxy_data(fd);
-            if (!addr_data_opt) {
-                continue; // drop the connection
-            }
-            sa = addr_data_opt->remote_address;
-        }
-
-        auto cth = conntrack::handle();
-        switch(_lba) {
-        case server_socket::load_balancing_algorithm::connection_distribution:
-            cth = _conntrack.get_handle();
-            break;
-        case server_socket::load_balancing_algorithm::port:
-            cth = _conntrack.get_handle(get_port_or_counter(sa) % smp::count);
-            break;
-        case server_socket::load_balancing_algorithm::fixed:
-            cth = _conntrack.get_handle(_fixed_cpu);
-            break;
-        default: abort();
-        }
-
-        auto cpu = cth.cpu();
-        if (cpu == this_shard_id()) {
-            auto csi = make_maybe_proxied_connected_socket_impl(
-                sa.family(),
-                _protocol,
-                std::move(fd),
-                std::move(cth),
-                std::move(addr_data_opt),
-                _allocator);
-            co_return accept_result{connected_socket(std::move(csi)), sa};
-        } else {
-            // FIXME: future is discarded
-            (void)smp::submit_to(cpu, [protocol = _protocol, ssa = _sa, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth), addr_data_opt = std::move(addr_data_opt), allocator = _allocator] () mutable {
-                posix_ap_server_socket_impl::move_connected_socket(protocol, ssa, pollable_fd(std::move(fd)), sa, std::move(cth), std::move(addr_data_opt), allocator);
-            });
-        }
-    };
 }
 
 void
@@ -985,18 +1131,11 @@ future<accept_result> posix_ap_server_socket_impl::accept() {
         connection c = std::move(conni->second);
         conn_q.erase(conni);
         try {
-            std::unique_ptr<connected_socket_impl> csi;
-            if (c.prefix) {
-                csi = make_master_port_connected_socket_impl(
-                    _sa.family(), _protocol, std::move(c.fd),
-                    std::move(c.connection_tracking_handle),
-                    std::move(c.proxy_protocol_header_opt),
-                    c.prefix, _allocator);
-            } else {
-                csi = std::make_unique<posix_connected_socket_impl>(
-                    _sa.family(), _protocol, std::move(c.fd),
-                    std::move(c.connection_tracking_handle), _allocator);
-            }
+            auto csi = make_connected_socket_impl(
+                _sa.family(), _protocol, std::move(c.fd),
+                std::move(c.connection_tracking_handle),
+                std::move(c.proxy_protocol_header_opt),
+                c.prefix, _allocator);
             return make_ready_future<accept_result>(accept_result{connected_socket(std::move(csi)), std::move(c.addr), c.metadata});
         } catch (...) {
             return make_exception_future<accept_result>(std::current_exception());
@@ -1025,12 +1164,60 @@ posix_ap_server_socket_impl::abort_accept() {
 
 future<accept_result>
 posix_reuseport_server_socket_impl::accept() {
-    return _lfd.accept().then_unpack([allocator = _allocator, protocol = _protocol] (pollable_fd fd, socket_address sa) {
-        std::unique_ptr<connected_socket_impl> csi(
-                new posix_connected_socket_impl(sa.family(), protocol, std::move(fd), allocator));
-        return make_ready_future<accept_result>(
-            accept_result{connected_socket(std::move(csi)), sa});
-    });
+    const bool needs_detection = _accept_cfg.needs_detection();
+
+    while (true) {
+        co_await coroutine::maybe_yield();
+        auto [fd, sa] = co_await _lfd.accept();
+
+        if (!needs_detection) {
+            // Fast path: no protocol detection, serve on this shard directly
+            std::unique_ptr<connected_socket_impl> csi(
+                    new posix_connected_socket_impl(sa.family(), _protocol, std::move(fd), _allocator));
+            co_return accept_result{connected_socket(std::move(csi)), sa};
+        }
+
+        // Unified port protocol detection
+        auto det = co_await detect_unified_port_protocol(_accept_cfg, fd, sa);
+        if (det.status == protocol_detection_result::outcome::drop) {
+            continue;
+        }
+
+        // Meta-frame or PPv2 shard-aware routing: forward the connection if it
+        // belongs on a different shard.
+        auto forward_to_shard = [&]() -> std::optional<shard_id> {
+            if (det.has_meta_frame && det.meta.meta_frame_shard) {
+                return *det.meta.meta_frame_shard;
+            }
+            if (det.has_ppv2
+                    && _accept_cfg.ppv2_lba == server_socket::load_balancing_algorithm::port) {
+                return get_port_or_counter(sa) % smp::count;
+            }
+            return std::nullopt;
+        }();
+        if (forward_to_shard && *forward_to_shard != this_shard_id()) {
+            auto cth = _conntrack.get_handle(*forward_to_shard);
+            auto cpu = cth.cpu();
+            (void)smp::submit_to(cpu, [protocol = _protocol, ssa = _sa,
+                    fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth),
+                    addr_data_opt = std::move(det.addr_data), allocator = _allocator,
+                    meta = det.meta, prefix = det.prefix] () mutable {
+                posix_ap_server_socket_impl::move_connected_socket(
+                    protocol, ssa, pollable_fd(std::move(fd)), sa, std::move(cth),
+                    std::move(addr_data_opt), allocator, meta, prefix);
+            }).handle_exception([sa] (auto ep) {
+                seastar_logger.warn("accept: failed to move connection from {} to target shard: {}", sa, ep);
+            });
+            continue; // forwarded — accept next connection
+        }
+
+        // Connection stays on this shard
+        auto cth = _conntrack.get_handle(this_shard_id());
+        auto csi = make_connected_socket_impl(
+            sa.family(), _protocol, std::move(fd), std::move(cth),
+            std::move(det.addr_data), det.prefix, _allocator);
+        co_return accept_result{connected_socket(std::move(csi)), sa, det.meta};
+    }
 }
 
 void
@@ -1048,16 +1235,9 @@ posix_ap_server_socket_impl::move_connected_socket(int protocol, socket_address 
     auto i = sockets.find(t_sa);
     if (i != sockets.end()) {
         try {
-            std::unique_ptr<connected_socket_impl> csi;
-            if (prefix) {
-                csi = make_master_port_connected_socket_impl(
-                    sa.family(), protocol, std::move(fd), std::move(cth),
-                    std::move(addr_data_opt), prefix, allocator);
-            } else {
-                csi = make_maybe_proxied_connected_socket_impl(
-                    sa.family(), protocol, std::move(fd), std::move(cth),
-                    std::move(addr_data_opt), allocator);
-            }
+            auto csi = make_connected_socket_impl(
+                sa.family(), protocol, std::move(fd), std::move(cth),
+                std::move(addr_data_opt), prefix, allocator);
             i->second.set_value(accept_result{connected_socket(std::move(csi)), std::move(addr), meta});
         } catch (...) {
             i->second.set_exception(std::current_exception());
@@ -1133,21 +1313,53 @@ posix_network_stack::posix_network_stack(const program_options::option_group& op
         : _reuseport(engine().posix_reuseport_available()), _allocator(allocator) {
 }
 
+static posix_server_socket_impl::accept_config
+make_accept_config(const listen_options& opt) {
+    using cfg_t = posix_server_socket_impl::accept_config;
+    cfg_t cfg;
+    if (opt.unified_port.enabled) {
+        cfg.ppv2 = opt.unified_port.ppv2 ? cfg_t::ppv2_mode::auto_detect : cfg_t::ppv2_mode::disabled;
+        cfg.detect_tls = opt.unified_port.detect_tls;
+        cfg.detect_meta_frame = opt.unified_port.detect_meta_frame;
+        cfg.default_lba = opt.unified_port.default_lba;
+        cfg.ppv2_lba = opt.unified_port.ppv2_lba;
+        // Distribute detection across shards when routing doesn't depend on
+        // detection results. With ppv2 shard-aware routing or meta-frame,
+        // we must detect first to know which shard to route to.
+        cfg.distribute_detection = cfg.needs_detection()
+            && opt.unified_port.ppv2_lba != server_socket::load_balancing_algorithm::port
+            && !opt.unified_port.detect_meta_frame;
+    } else if (opt.proxy_protocol) {
+        cfg.ppv2 = cfg_t::ppv2_mode::mandatory;
+        cfg.default_lba = opt.lba;
+        cfg.ppv2_lba = opt.lba;
+        cfg.fixed_cpu = opt.fixed_cpu;
+    } else {
+        cfg.default_lba = opt.lba;
+        cfg.fixed_cpu = opt.fixed_cpu;
+    }
+    return cfg;
+}
+
 server_socket
 posix_network_stack::listen(socket_address sa, listen_options opt) {
     using server_socket = seastar::server_socket;
+    if (opt.unified_port.enabled && opt.proxy_protocol) {
+        throw std::invalid_argument("unified_port and proxy_protocol are mutually exclusive");
+    }
     // allow unspecified bind address -> default to ipv4 wildcard
     if (sa.is_unspecified()) {
         sa = inet_address(inet_address::family::INET);
     }
+    auto cfg = make_accept_config(opt);
     if (sa.is_af_unix()) {
-        return server_socket(std::make_unique<posix_server_socket_impl>(0, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, opt.proxy_protocol, opt.master_port, _allocator));
+        return server_socket(std::make_unique<posix_server_socket_impl>(0, sa, internal::posix_listen(sa, opt), cfg, _allocator));
     }
     auto protocol = static_cast<int>(opt.proto);
     return _reuseport ?
-        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), _allocator))
+        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), cfg, _allocator))
         :
-        server_socket(std::make_unique<posix_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, opt.proxy_protocol, opt.master_port, _allocator));
+        server_socket(std::make_unique<posix_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), cfg, _allocator));
 }
 
 ::seastar::socket posix_network_stack::socket() {
@@ -1155,12 +1367,15 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
 }
 
 posix_ap_network_stack::posix_ap_network_stack(const program_options::option_group& opts, std::pmr::polymorphic_allocator<char>* allocator)
-        : posix_network_stack(opts, allocator), _reuseport(engine().posix_reuseport_available()) {
+        : posix_network_stack(opts, allocator) {
 }
 
 server_socket
 posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
     using server_socket = seastar::server_socket;
+    if (opt.unified_port.enabled) {
+        throw std::invalid_argument("unified_port is not supported on posix_ap_network_stack; use posix_network_stack instead");
+    }
     // allow unspecified bind address -> default to ipv4 wildcard
     if (sa.is_unspecified()) {
         sa = inet_address(inet_address::family::INET);
@@ -1170,7 +1385,7 @@ posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
     }
     auto protocol = static_cast<int>(opt.proto);
     return _reuseport ?
-        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), _allocator))
+        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), posix_server_socket_impl::accept_config{}, _allocator))
         :
         server_socket(std::make_unique<posix_ap_server_socket_impl>(protocol, sa, _allocator));
 }

@@ -200,23 +200,42 @@ public:
 };
 
 class posix_server_socket_impl : public server_socket_impl {
+public:
+    struct accept_config {
+        enum class ppv2_mode : uint8_t { disabled, mandatory, auto_detect };
+        ppv2_mode ppv2 = ppv2_mode::disabled;
+        bool detect_tls = false;
+        bool detect_meta_frame = false;
+        server_socket::load_balancing_algorithm default_lba = server_socket::load_balancing_algorithm::connection_distribution;
+        server_socket::load_balancing_algorithm ppv2_lba = server_socket::load_balancing_algorithm::connection_distribution;
+        shard_id fixed_cpu = 0;
+        // When true, protocol detection work is distributed across shards
+        // rather than being done on shard 0. After accept(), the raw fd is
+        // forwarded to a round-robin shard which performs detection and
+        // keeps the connection. Only used when routing doesn't depend on
+        // detection results (i.e. not with ppv2 shard-aware routing or
+        // meta-frame shard routing).
+        bool distribute_detection = false;
+
+        bool needs_detection() const {
+            return ppv2 != ppv2_mode::disabled || detect_tls || detect_meta_frame;
+        }
+    };
+private:
     socket_address _sa;
     int _protocol;
     pollable_fd _lfd;
     conntrack _conntrack;
-    server_socket::load_balancing_algorithm _lba;
-    shard_id _fixed_cpu;
-    bool _proxy_protocol;
-    bool _master_port;
+    accept_config _accept_cfg;
     std::pmr::polymorphic_allocator<char>* _allocator;
 
-    future<accept_result> accept_master_port();
+    conntrack::handle route_connection(const accept_config& cfg,
+        bool has_ppv2, std::optional<shard_id> meta_frame_shard,
+        const socket_address& sa);
 public:
     explicit posix_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
-        server_socket::load_balancing_algorithm lba, shard_id fixed_cpu,
-        bool proxy_protocol,
-        bool master_port = false,
-        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _lba(lba), _fixed_cpu(fixed_cpu), _proxy_protocol(proxy_protocol), _master_port(master_port), _allocator(allocator) {}
+        accept_config cfg,
+        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _accept_cfg(cfg), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
@@ -226,19 +245,21 @@ class posix_reuseport_server_socket_impl : public server_socket_impl {
     socket_address _sa;
     int _protocol;
     pollable_fd _lfd;
+    posix_server_socket_impl::accept_config _accept_cfg;
+    conntrack _conntrack;
     std::pmr::polymorphic_allocator<char>* _allocator;
 public:
     explicit posix_reuseport_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
-        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _allocator(allocator) {}
+        posix_server_socket_impl::accept_config cfg = {},
+        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _accept_cfg(cfg), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
 };
 
 class posix_network_stack : public network_stack {
-private:
-    const bool _reuseport;
 protected:
+    const bool _reuseport;
     std::pmr::polymorphic_allocator<char>* _allocator;
 public:
     explicit posix_network_stack(const program_options::option_group& opts, std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator);
@@ -258,8 +279,6 @@ public:
 };
 
 class posix_ap_network_stack : public posix_network_stack {
-private:
-    const bool _reuseport;
 public:
     posix_ap_network_stack(const program_options::option_group& opts, std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator);
     virtual server_socket listen(socket_address sa, listen_options opts) override;

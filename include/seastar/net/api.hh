@@ -338,9 +338,10 @@ public:
 /// \addtogroup networking-module
 /// @{
 
-/// Metadata about an accepted connection, populated by master port protocol detection.
+/// Metadata about an accepted connection, populated by unified port protocol detection.
 struct connection_metadata {
-    bool is_tls = false;  ///< Whether TLS follows (detected by master port logic)
+    bool is_tls = false;  ///< Whether TLS follows (detected by unified port logic)
+    std::optional<shard_id> meta_frame_shard;  ///< Target shard from meta-frame (0x53)
 };
 
 /// The result of an server_socket::accept() call
@@ -458,12 +459,26 @@ struct listen_options {
     // The proxy protocol is defined in https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt
     bool proxy_protocol = false;
 
-    // Master port mode: auto-detects proxy protocol v2, shard selection header,
-    // and TLS vs plain CQL on a single port. When enabled, proxy_protocol and lba
-    // settings are ignored — the master port handles protocol detection and shard
-    // routing internally. Connections with a shard selection header are routed to
-    // the requested shard; legacy connections use connection_distribution LBA.
-    bool master_port = false;
+    // Unified port mode: auto-detects proxy protocol v2 and optionally TLS vs
+    // plain CQL on a single port. When enabled, proxy_protocol and lba settings
+    // are ignored — the unified port handles protocol detection and shard routing
+    // internally.
+    struct unified_port_config {
+        bool enabled = false;
+        // Whether to auto-detect PPv2 headers (first byte 0x0D).
+        bool ppv2 = false;
+        // Shard routing for PPv2 connections.
+        server_socket::load_balancing_algorithm ppv2_lba = server_socket::load_balancing_algorithm::connection_distribution;
+        // Shard routing for plain (non-PPv2) connections.
+        server_socket::load_balancing_algorithm default_lba = server_socket::load_balancing_algorithm::connection_distribution;
+        // Whether to peek at the first byte for TLS detection (0x16).
+        // When false, the data stream is passed through untouched.
+        bool detect_tls = true;
+        // Whether to detect meta-frame headers (first byte 0x53).
+        // Meta-frame carries per-connection metadata (e.g. target shard).
+        bool detect_meta_frame = false;
+    };
+    unified_port_config unified_port;
 };
 
 class network_interface {
