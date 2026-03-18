@@ -192,6 +192,7 @@ public:
         std::chrono::milliseconds stall_threshold = std::chrono::milliseconds(100);
         std::chrono::microseconds tau = std::chrono::milliseconds(5);
         std::optional<uint32_t> physical_block_size; // Override for disks that lie about their physical block size
+        bool with_metrics = true;
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);
