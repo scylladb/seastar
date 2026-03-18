@@ -51,6 +51,8 @@ public:
 class io_sink {
     chunked_fifo<pending_io_request> _pending_io;
 public:
+    io_sink() = default;
+    io_sink(io_sink&&) = delete;
     void submit(io_completion* desc, internal::io_request req) noexcept;
 
     template <typename Fn>
