@@ -30,7 +30,9 @@
 namespace seastar {
 
 template <typename CharType>
-class scattered_message {
+class
+[[deprecated("Use output_stream::write(span<temporary_buffer>) from API level 9")]]
+scattered_message {
 private:
     using fragment = net::fragment;
     using packet = net::packet;
