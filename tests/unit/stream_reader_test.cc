@@ -23,11 +23,17 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/core/units.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include <seastar/testing/random.hh>
 #include <seastar/http/request.hh>
 #include <seastar/util/short_streams.hh>
+#include <algorithm>
+#include <cmath>
+#include <random>
 #include <string>
+#include <string_view>
 
 using namespace seastar;
 using namespace util;
@@ -128,5 +134,176 @@ SEASTAR_THREAD_TEST_CASE(test_read_exactly) {
             }
         }
         BOOST_REQUIRE_EQUAL(total, total_size);
+    }
+}
+
+// A data source that produces exactly the given content in
+// chunk_size-byte pieces, and fails if get() is called after it
+// already returned an empty buffer (EOS). This catches callers that
+// do not check _eof before re-entering the source.
+class strict_source_impl : public data_source_impl {
+    std::string _data;
+    size_t _pos = 0;
+    size_t _chunk_size;
+    bool _eos_returned = false;
+
+public:
+    strict_source_impl(std::string data, size_t chunk_size) : _data(std::move(data)), _chunk_size(chunk_size) {}
+
+    future<temporary_buffer<char>> get() override {
+        BOOST_REQUIRE_MESSAGE(!_eos_returned, "get() called after EOS — caller does not check _eof");
+        if (_pos >= _data.size()) {
+            _eos_returned = true;
+            return make_ready_future<temporary_buffer<char>>();
+        }
+        auto n = std::min(_chunk_size, _data.size() - _pos);
+        temporary_buffer<char> buf(n);
+        std::copy_n(_data.data() + _pos, n, buf.get_write());
+        _pos += n;
+        return make_ready_future<temporary_buffer<char>>(std::move(buf));
+    }
+};
+
+// Helper: build an input_stream backed by a strict_source_impl.
+static input_stream<char> make_strict_stream(const std::string& data, size_t chunk_size) {
+    return input_stream<char>(data_source(std::make_unique<strict_source_impl>(data, chunk_size)));
+}
+
+// Helper: build a reference string of given size (cycling a-z).
+static std::string make_test_data(size_t n) {
+    std::string s(n, '\0');
+    for (size_t i = 0; i < n; ++i) {
+        s[i] = 'a' + (i % 26);
+    }
+    return s;
+}
+
+// For each representative source chunk size, build a shuffled sequence
+// of read/read_up_to/read_exactly/skip operations with random sizes,
+// cycle through it until the 5 MB stream is exhausted while checking
+// data integrity, then re-apply the same sequence post-EOF to verify
+// nothing gets stuck.
+SEASTAR_THREAD_TEST_CASE(test_read_splitting_invariants) {
+    static constexpr size_t STREAM_SIZE = 5_MiB;
+    static constexpr size_t MAX_READ_SIZE = 128_KiB;
+    // How many full {read, read_up_to, read_exactly, skip} cycles to put
+    // into the operations container before shuffling.
+    static constexpr size_t OP_CYCLES = 256;
+    // Number of chunk-size iterations.  Each picks a random chunk_size
+    // from a logarithmic band so that early iterations exercise tiny
+    // chunks and later ones exercise large ones, covering the full
+    // range [1, STREAM_SIZE].
+    static constexpr size_t NUM_CHUNK_ITERATIONS = 40; // ~30 sec. execution time
+    static const double LOG_MAX = std::log(static_cast<double>(STREAM_SIZE));
+
+    enum class op_t { read, read_up_to, read_exactly, skip };
+
+    struct op_desc {
+        op_t type;
+        size_t size;
+    };
+
+    auto& rng = testing::local_random_engine;
+    std::uniform_int_distribution<size_t> size_dist(1, MAX_READ_SIZE);
+
+    auto data = make_test_data(STREAM_SIZE);
+
+    for (size_t iter = 0; iter < NUM_CHUNK_ITERATIONS; iter++) {
+        // Logarithmic band for this iteration: e.g. iter 0 → [1,~2],
+        // then [~2,~4], ..., up to [..., STREAM_SIZE].
+        const double lo = LOG_MAX * static_cast<double>(iter) / static_cast<double>(NUM_CHUNK_ITERATIONS);
+        const double hi = LOG_MAX * static_cast<double>(iter + 1) / static_cast<double>(NUM_CHUNK_ITERATIONS);
+        std::uniform_real_distribution<double> band_dist(lo, hi);
+        size_t chunk_size = std::max<size_t>(1, static_cast<size_t>(std::exp(band_dist(rng))));
+        // Fill the container: repeating read, read_up_to, read_exactly, skip.
+        std::vector<op_desc> ops;
+        for (size_t c = 0; c < OP_CYCLES; c++) {
+            ops.push_back({op_t::read, 0});
+            ops.push_back({op_t::read_up_to, size_dist(rng)});
+            ops.push_back({op_t::read_exactly, size_dist(rng)});
+            ops.push_back({op_t::skip, size_dist(rng)});
+        }
+        std::ranges::shuffle(ops, rng);
+
+        auto in = make_strict_stream(data, chunk_size);
+        size_t pos = 0;
+
+        // --- Phase 1: cycle through ops until the stream is exhausted ---
+        for (size_t i = 0; !in.eof(); i = (i + 1) % ops.size()) {
+            const auto& [type, size] = ops[i];
+            size_t remaining = STREAM_SIZE - pos;
+
+            switch (type) {
+            case op_t::read: {
+                auto buf = in.read().get();
+                BOOST_REQUIRE_MESSAGE(buf.size() <= remaining, "read() returned more than remaining, chunk_size=" << chunk_size);
+                if (!buf.empty()) {
+                    BOOST_REQUIRE_MESSAGE(std::string_view(buf.get(), buf.size()) == std::string_view(data.data() + pos, buf.size()),
+                                          "data mismatch in read(), chunk_size=" << chunk_size);
+                }
+                pos += buf.size();
+                break;
+            }
+            case op_t::read_up_to: {
+                auto buf = in.read_up_to(size).get();
+                BOOST_REQUIRE_MESSAGE(buf.size() <= size, "read_up_to() returned more than requested, chunk_size=" << chunk_size);
+                BOOST_REQUIRE_MESSAGE(buf.size() <= remaining, "read_up_to() returned more than remaining, chunk_size=" << chunk_size);
+                if (!buf.empty()) {
+                    BOOST_REQUIRE_MESSAGE(std::string_view(buf.get(), buf.size()) == std::string_view(data.data() + pos, buf.size()),
+                                          "data mismatch in read_up_to(), chunk_size=" << chunk_size);
+                }
+                pos += buf.size();
+                break;
+            }
+            case op_t::read_exactly: {
+                auto buf = in.read_exactly(size).get();
+                BOOST_REQUIRE_MESSAGE(buf.size() <= size, "read_exactly() returned more than requested, chunk_size=" << chunk_size);
+                BOOST_REQUIRE_MESSAGE(buf.size() <= remaining, "read_exactly() returned more than remaining, chunk_size=" << chunk_size);
+                if (!buf.empty()) {
+                    BOOST_REQUIRE_MESSAGE(std::string_view(buf.get(), buf.size()) == std::string_view(data.data() + pos, buf.size()),
+                                          "data mismatch in read_exactly(), chunk_size=" << chunk_size);
+                }
+                pos += buf.size();
+                break;
+            }
+            case op_t::skip: {
+                const auto to_skip = std::min(size, remaining);
+                in.skip(to_skip).get();
+                pos += to_skip;
+                break;
+            }
+            }
+        }
+        BOOST_REQUIRE_MESSAGE(pos == STREAM_SIZE, "not all data consumed, chunk_size=" << chunk_size);
+
+        // --- Phase 2: re-apply the same ops after EOS ---
+        // Every call must return empty / complete without
+        // re-entering the exhausted source (strict_source_impl
+        // asserts on post-EOS get() calls).
+        BOOST_REQUIRE(in.eof());
+        for (const auto& [type, size] : ops) {
+            switch (type) {
+            case op_t::read: {
+                auto buf = in.read().get();
+                BOOST_REQUIRE_MESSAGE(buf.empty(), "post-EOF read() returned data, chunk_size=" << chunk_size);
+                break;
+            }
+            case op_t::read_up_to: {
+                auto buf = in.read_up_to(size).get();
+                BOOST_REQUIRE_MESSAGE(buf.empty(), "post-EOF read_up_to() returned data, chunk_size=" << chunk_size);
+                break;
+            }
+            case op_t::read_exactly: {
+                auto buf = in.read_exactly(size).get();
+                BOOST_REQUIRE_MESSAGE(buf.empty(), "post-EOF read_exactly() returned data, chunk_size=" << chunk_size);
+                break;
+            }
+            case op_t::skip: {
+                in.skip(size).get();
+                // Must complete without re-entering the source.
+                break;
+            }
+            }
+        }
     }
 }

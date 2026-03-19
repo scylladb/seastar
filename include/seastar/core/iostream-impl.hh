@@ -169,6 +169,9 @@ future<> output_stream<CharType>::write(scattered_message<CharType> msg) noexcep
 template <typename CharType>
 future<temporary_buffer<CharType>>
 input_stream<CharType>::read_exactly_part(size_t n) noexcept {
+    if (_eof) {
+        co_return temporary_buffer<CharType>();
+    }
     temporary_buffer<CharType> out(n);
     size_t completed{0U};
     while (completed < n) {
@@ -207,6 +210,9 @@ input_stream<CharType>::read_exactly(size_t n) noexcept {
         _buf.trim_front(n);
         return make_ready_future<tmp_buf>(std::move(front));
     } else if (_buf.size() == 0) {
+        if (_eof) {
+            return make_ready_future<tmp_buf>();
+        }
         // buffer is empty: grab one and retry
         return _fd.get().then([this, n] (auto buf) mutable {
             if (buf.size() == 0) {
@@ -318,7 +324,7 @@ input_stream<CharType>::skip(uint64_t n) noexcept {
     auto skip_buf = std::min(n, _buf.size());
     _buf.trim_front(skip_buf);
     n -= skip_buf;
-    if (!n) {
+    if (!n || _eof) {
         return make_ready_future<>();
     }
     return _fd.skip(n).then([this] (temporary_buffer<CharType> buffer) {
