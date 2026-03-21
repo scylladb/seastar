@@ -87,7 +87,7 @@ void create_native_net_device(const native_stack_options& opts) {
         auto device_configs = parse_config(net_config);
 
         if ( device_configs.size() > 1) {
-            std::runtime_error("only one network interface is supported");
+            throw std::runtime_error("only one network interface is supported");
         }
 
         for ( auto&& device_config : device_configs) {
@@ -99,7 +99,7 @@ void create_native_net_device(const native_stack_options& opts) {
 #endif
             {
                 (void)hw_config;
-                std::runtime_error("only DPDK supports new configuration format");
+                throw std::runtime_error("only DPDK supports new configuration format");
             }
         }
     }
