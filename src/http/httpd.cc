@@ -194,7 +194,6 @@ void connection::generate_error_reply_and_close(std::unique_ptr<http::request> r
     resp->set_version(req->_version);
     resp->set_status(status, msg);
     set_header_connection(*resp, false);
-    resp->done();
     _done = true;
     _replies.push(std::move(resp));
 }
@@ -247,7 +246,7 @@ future<> connection::read_one() {
                     auto continue_reply = std::make_unique<http::reply>();
                     set_headers(*continue_reply);
                     continue_reply->set_version(req->_version);
-                    continue_reply->set_status(http::reply::status_type::continue_).done();
+                    continue_reply->set_status(http::reply::status_type::continue_);
                     this->_replies.push(std::move(continue_reply));
                     return make_ready_future<std::unique_ptr<http::request>>(std::move(req));
                 });
@@ -347,7 +346,7 @@ future<bool> connection::generate_reply(std::unique_ptr<http::request> req) {
     return _server._routes.handle(url, std::move(req), std::move(resp)).
     // Caller guarantees enough room
     then([this, keep_alive , version = std::move(version)](std::unique_ptr<http::reply> rep) {
-        rep->set_version(version).done();
+        rep->set_version(version);
         this->_replies.push(std::move(rep));
         return make_ready_future<bool>(!keep_alive);
     });

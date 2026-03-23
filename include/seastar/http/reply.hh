@@ -157,7 +157,6 @@ struct reply {
     size_t left_content_length = std::numeric_limits<size_t>::max();
     bool _skip_body = false;
 
-    sstring _response_line;
     std::unordered_map<sstring, sstring> trailing_headers;
     std::unordered_map<sstring, sstring> chunk_extensions;
 
@@ -230,15 +229,15 @@ struct reply {
         return *this;
     }
 
+    [[deprecated("Use set_content_type() or write_body() instead")]]
     reply& done(const sstring& content_type) {
-        return set_content_type(content_type).done();
+        return set_content_type(content_type);
     }
     /**
-     * Done should be called before using the reply.
-     * It would set the response line
+     * \deprecated done() is no longer required; remove the call.
      */
+    [[deprecated("done() is no longer required; remove the call")]]
     reply& done() {
-        _response_line = response_line();
         return *this;
     }
     sstring response_line() const;

@@ -56,7 +56,7 @@ future<std::unique_ptr<http::reply>> directory_handler::handle(const sstring& pa
                     }
                     return h->read(full_path, std::move(req), std::move(rep));
                 }
-                rep->set_status(http::reply::status_type::not_found).done();
+                rep->set_status(http::reply::status_type::not_found);
                 return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
 
             });
@@ -112,7 +112,6 @@ bool file_interaction_handler::redirect_if_needed(const http::request& req,
     if (req._url.length() == 0 || req._url.back() != '/') {
         rep.set_status(http::reply::status_type::moved_permanently);
         rep._headers["Location"] = req.get_url() + "/";
-        rep.done();
         return true;
     }
     return false;

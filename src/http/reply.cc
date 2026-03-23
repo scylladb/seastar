@@ -120,8 +120,8 @@ void reply::write_body(const sstring& content_type, body_writer_type&& body_writ
 }
 
 void reply::write_body(const sstring& content_type, sstring content) {
+    set_content_type(content_type);
     _content = std::move(content);
-    done(content_type);
 }
 
 future<> reply::write_reply(output_stream<char>& out) {

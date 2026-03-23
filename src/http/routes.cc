@@ -84,7 +84,7 @@ std::unique_ptr<http::reply> routes::exception_reply(std::exception_ptr eptr) {
                 internal::to_json(std::current_exception()));
     }
 
-    rep->done("json");
+    rep->set_content_type("json");
     return rep;
 }
 
@@ -101,7 +101,7 @@ future<std::unique_ptr<http::reply> > routes::handle(const sstring& path, std::u
         }
     } else {
         rep.reset(new http::reply());
-        rep->set_status(http::reply::status_type::not_found, internal::to_json(not_found_exception("Not found"))).done(
+        rep->set_status(http::reply::status_type::not_found, internal::to_json(not_found_exception("Not found"))).set_content_type(
                 "json");
     }
     return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));

@@ -110,7 +110,7 @@ public:
             std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
         return _f_handle(std::move(req), std::move(rep)).then(
                 [this](std::unique_ptr<http::reply> rep) {
-                    rep->done(_type);
+                    rep->set_content_type(_type);
                     return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
                 });
     }

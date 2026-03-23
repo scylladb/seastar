@@ -128,7 +128,7 @@ public:
     future<std::unique_ptr<http::reply>> handle(const sstring& path,
             std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
         rep->_content = json::formatter::to_json(_docs);
-        rep->done("json");
+        rep->set_content_type("json");
         return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
     }
 

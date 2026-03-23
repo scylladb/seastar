@@ -43,7 +43,7 @@ class handl : public httpd::handler_base {
 public:
     virtual future<std::unique_ptr<http::reply> > handle(const sstring& path,
             std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
-        rep->done("html");
+        rep->set_content_type("html");
         return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
     }
 };
@@ -2358,6 +2358,61 @@ SEASTAR_THREAD_TEST_CASE(test_content_length_data_sink) {
     do_check(2, "1", true);
     do_check(2, "12", true);
     do_check(2, "123", true);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_write_reply_content) {
+    // Tests write_reply() for the sstring body path:
+    // - response line is correctly formatted
+    // - Content-Type header reflects set_content_type()
+    // - Content-Length header matches the body
+    // - body is written verbatim
+    http::reply reply;
+    reply.set_version("1.1");
+    reply.set_status(http::reply::status_type::ok);
+    reply.write_body("txt", sstring("hello"));
+
+    std::stringstream ss;
+    auto os = output_stream<char>(data_sink(std::make_unique<testing::memory_data_sink_impl>(ss)));
+    auto close_os = deferred_close(os);
+
+    reply.write_reply(os).get();
+    os.flush().get();
+
+    auto s = ss.str();
+    BOOST_REQUIRE(s.starts_with("HTTP/1.1 200 OK\r\n"));
+    BOOST_REQUIRE_NE(s.find("Content-Type: text/plain\r\n"), std::string::npos);
+    BOOST_REQUIRE_NE(s.find("Content-Length: 5\r\n"), std::string::npos);
+    BOOST_REQUIRE(s.ends_with("hello"));
+}
+
+SEASTAR_THREAD_TEST_CASE(test_write_reply_body_writer) {
+    // Tests write_reply() for the body_writer (chunked) path:
+    // - response line is correctly formatted
+    // - Content-Type header reflects set_content_type()
+    // - Transfer-Encoding: chunked is set (not Content-Length)
+    // - body is wrapped in chunked framing
+    http::reply reply;
+    reply.set_version("1.1");
+    reply.set_status(http::reply::status_type::ok);
+    reply.write_body("json", [] (output_stream<char>& out) -> future<> {
+        return out.write(sstring("{}"));
+    });
+
+    std::stringstream ss;
+    auto os = output_stream<char>(data_sink(std::make_unique<testing::memory_data_sink_impl>(ss)));
+    auto close_os = deferred_close(os);
+
+    reply.write_reply(os).get();
+    os.flush().get();
+
+    auto s = ss.str();
+    BOOST_REQUIRE(s.starts_with("HTTP/1.1 200 OK\r\n"));
+    BOOST_REQUIRE_NE(s.find("Content-Type: application/json\r\n"), std::string::npos);
+    BOOST_REQUIRE_NE(s.find("Transfer-Encoding: chunked\r\n"), std::string::npos);
+    BOOST_REQUIRE_EQUAL(s.find("Content-Length:"), std::string::npos);
+    // chunk: "2\r\n{}\r\n" followed by terminal "0\r\n\r\n"
+    BOOST_REQUIRE_NE(s.find("2\r\n{}\r\n"), std::string::npos);
+    BOOST_REQUIRE(s.ends_with("0\r\n\r\n"));
 }
 
 SEASTAR_THREAD_TEST_CASE(test_reply_cookies) {
