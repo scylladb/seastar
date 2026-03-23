@@ -499,9 +499,11 @@ SEASTAR_TEST_CASE(test_rpc_remote_verb_error) {
     rpc_test_config cfg;
     return rpc_test_env<>::do_with_thread(cfg, [] (rpc_test_env<>& env) {
         test_rpc_proto::client c1(env.proto(), {}, env.make_socket(), ipv4_addr());
-        env.register_handler(1, []() { throw std::runtime_error("error"); }).get();
+        env.register_handler(1, []() { throw std::runtime_error("test_error"); }).get();
         auto f = env.proto().make_client<void ()>(1);
-        BOOST_REQUIRE_THROW(f(c1).get(), rpc::remote_verb_error);
+        BOOST_REQUIRE_EXCEPTION(f(c1).get(), rpc::remote_verb_error, [](const rpc::remote_verb_error& e) {
+            return std::string_view(e.what()) == "std::runtime_error: test_error";
+        });
         c1.stop().get();
     });
 }

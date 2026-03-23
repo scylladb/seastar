@@ -27,6 +27,7 @@
 #include <seastar/core/when_all.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/is_smart_ptr.hh>
+#include <seastar/util/log.hh>
 #include <seastar/core/simple-stream.hh>
 #include <seastar/core/deleter.hh>
 
@@ -618,7 +619,9 @@ inline future<> reply(wait_type, future<RetTypes>&& ret, uint64_t verb, int64_t 
                 data = std::invoke(marshall<Serializer, const RetTypes&>, std::ref(client->template serializer<Serializer>()), response_frame_headroom, std::move(ret.get()));
             }
         } catch (std::exception& ex) {
-            uint32_t len = std::strlen(ex.what());
+            const auto type_name = pretty_type_name(typeid(ex));
+            const auto message = std::string_view(ex.what());
+            uint32_t len = message.size() + type_name.size() + 2; // 2 bytes for separating type name and what() message
             data = snd_buf(response_frame_headroom + 2 * sizeof(uint32_t) + len);
             auto os = make_serializer_stream(data);
             os.skip(response_frame_headroom);
@@ -626,7 +629,9 @@ inline future<> reply(wait_type, future<RetTypes>&& ret, uint64_t verb, int64_t 
             os.write(reinterpret_cast<char*>(&v32), sizeof(v32));
             v32 = cpu_to_le(len);
             os.write(reinterpret_cast<char*>(&v32), sizeof(v32));
-            os.write(ex.what(), len);
+            os.write(type_name.data(), type_name.size());
+            os.write(": ", 2);
+            os.write(message.data(), message.size());
             msg_id = -msg_id;
         }
 
