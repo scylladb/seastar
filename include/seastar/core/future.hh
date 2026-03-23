@@ -883,7 +883,10 @@ protected:
     void move_it(promise_base&& x) noexcept;
     promise_base(promise_base&& x) noexcept;
 
-    void clear() noexcept;
+    inline void clear() noexcept;
+
+    // clear_on_broken() handles the clear() slow path when the promise is unresolved.
+    void clear_on_broken() noexcept;
 
     // We never need to destruct this polymorphicly, so we can make it
     // protected instead of virtual
@@ -895,7 +898,16 @@ protected:
     promise_base& operator=(promise_base&& x) noexcept;
 
     template<urgent Urgent>
-    void make_ready() noexcept;
+    void make_ready() noexcept {
+        if (_task) {
+            assert_task_shard();
+            if constexpr (Urgent == urgent::yes) {
+                ::seastar::schedule_urgent(std::exchange(_task, nullptr));
+            } else {
+                ::seastar::schedule(std::exchange(_task, nullptr));
+            }
+        }
+    }
 
     template<typename T>
     void set_exception_impl(T&& val) noexcept {
@@ -1348,6 +1360,16 @@ protected:
 
     friend class promise_base;
 };
+
+inline void promise_base::clear() noexcept {
+    if (__builtin_expect(bool(_task) || (_future && !_state->available()), false)) {
+        clear_on_broken();
+        return;
+    }
+    if (_future) {
+        _future->detach_promise();
+    }
+}
 
 template <typename Func, typename... T>
 struct future_result  {

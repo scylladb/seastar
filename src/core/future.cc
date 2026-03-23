@@ -80,17 +80,14 @@ promise_base::promise_base(promise_base&& x) noexcept {
     move_it(std::move(x));
 }
 
-void promise_base::clear() noexcept {
-    if (__builtin_expect(bool(_task), false)) {
-        SEASTAR_ASSERT(_state && !_state->available());
-        set_to_broken_promise(*_state);
+void promise_base::clear_on_broken() noexcept {
+    SEASTAR_ASSERT(_state && !_state->available());
+    set_to_broken_promise(*_state);
+    if (_task) {
         ::seastar::schedule(std::exchange(_task, nullptr));
     }
     if (_future) {
         SEASTAR_ASSERT(_state);
-        if (!_state->available()) {
-            set_to_broken_promise(*_state);
-        }
         _future->detach_promise();
     }
 }
@@ -115,20 +112,6 @@ void promise_base::assert_task_shard() const noexcept {
 
 #endif
 
-template <promise_base::urgent Urgent>
-void promise_base::make_ready() noexcept {
-    if (_task) {
-        assert_task_shard();
-        if (Urgent == urgent::yes) {
-            ::seastar::schedule_urgent(std::exchange(_task, nullptr));
-        } else {
-            ::seastar::schedule(std::exchange(_task, nullptr));
-        }
-    }
-}
-
-template void promise_base::make_ready<promise_base::urgent::no>() noexcept;
-template void promise_base::make_ready<promise_base::urgent::yes>() noexcept;
 }
 
 template
