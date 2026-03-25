@@ -1079,6 +1079,14 @@ class NetPerfTuner(PerfTunerBase):
         """
         return self.__ethtool_i_parsed(iface).get('driver', '')
 
+    def __get_driver_version(self, iface):
+        """
+        :param iface: Interface to check
+        :return: driver version from ethtool or an empty string if driver version is not exposed in 'ethtool -i' for
+                 this interface.
+        """
+        return self.__ethtool_i_parsed(iface).get('version', '')
+
     def __learn_irqs_one(self, iface):
         """
         This is a slow method that is going to read from the system files. Never
