@@ -344,6 +344,73 @@ def check_sysfs_numa_topology_is_valid():
             return True
     return False
 
+@functools.total_ordering
+class Version:
+    """
+    Parse dotted numeric version strings for ordering (e.g. kernel or tool versions).
+
+    Extracts integer components in order; non-digit characters act as separators.
+    Examples: '5.15.0-89', 'v2.10.1', '1.0' compare as expected; 1.0 == 1.0.0.
+    """
+
+    def __init__(self, s):
+        if s is None:
+            raise ValueError("version string must not be None")
+        s = str(s).strip()
+        if not s:
+            raise ValueError("empty version string")
+        self.__raw = s
+        self.__parts = self.__parse_parts(s)
+
+    @staticmethod
+    def __parse_parts(s):
+        """
+        Parse a version string into a tuple of integer components.
+
+        Scans left to right: contiguous digits form one component; any
+        non-digit acts as a separator. A leading 'v' or 'V' is stripped first.
+        """
+        s = s.lstrip('vV').strip()
+        parts = []
+        cur = ''
+        for c in s:
+            if c.isdigit():
+                cur += c
+            else:
+                if cur:
+                    parts.append(int(cur))
+                    cur = ''
+        if cur:
+            parts.append(int(cur))
+        if not parts:
+            raise ValueError("no numeric components in version: {!r}".format(s))
+        return tuple(parts)
+
+    def __padded(self, other_parts):
+        """
+        Align this version's component tuple with another for ordering or equality.
+
+        Returns two tuples of equal length by right-padding the shorter one with
+        zeros (missing trailing components are treated as zero).
+        """
+        a, b = self.__parts, other_parts
+        n = max(len(a), len(b))
+        return a + (0,) * (n - len(a)), b + (0,) * (n - len(b))
+
+    def __eq__(self, other):
+        if not isinstance(other, Version):
+            other = Version(other)
+        pa, pb = self.__padded(other.__parts)
+        return pa == pb
+
+    def __lt__(self, other):
+        if not isinstance(other, Version):
+            other = Version(other)
+        return self.__padded(other.__parts)[0] < self.__padded(other.__parts)[1]
+
+    def __repr__(self):
+        return 'Version({!r})'.format(self.__raw)
+
 ################################################################################
 class PerfTunerBase(metaclass=abc.ABCMeta):
     def __init__(self, args):
