@@ -757,6 +757,11 @@ SEASTAR_THREAD_TEST_CASE(test_gauge_integrator_test) {
     fmt::print("done\n");
 }
 
+// The token bucket batches replenishments in bandwidth_threshold_in_blocks
+// (128 KiB) increments; the last batch in a measurement window may overshoot
+// the configured bandwidth+burst limit by up to one threshold unit.
+static constexpr size_t bw_slack = 128*1024;
+
 static future<size_t> run_and_check_bandwidth(io_queue_for_tests& tio, internal::priority_class pc, size_t bandwidth_goal, unsigned parallelizm = 1, size_t req_size = 128*1024) {
     fmt::print("Run {} workload\n", pc.id());
     bool keep_going = true;
@@ -849,7 +854,6 @@ SEASTAR_THREAD_TEST_CASE(test_class_group_bandwidth_throttler) {
 
     const size_t burst = 10*1024*1024;
     const size_t bandwidth = 100*1024*1024;
-
     auto ssg = create_scheduling_supergroup(100).get();
     auto sg = create_scheduling_group("a", "a", 100, ssg).get();
     auto pc = internal::priority_class(sg);
@@ -858,7 +862,7 @@ SEASTAR_THREAD_TEST_CASE(test_class_group_bandwidth_throttler) {
     background_drain drain(tio);
 
     auto bw = run_and_check_bandwidth(tio, pc, bandwidth * 0.9).get();
-    BOOST_REQUIRE_LE(bw, bandwidth + burst);
+    BOOST_REQUIRE_LE(bw, bandwidth + burst + bw_slack);
 
     drain.stop().get();
     destroy_scheduling_group(sg).get();
@@ -893,10 +897,10 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler) {
     auto bw1 = f1.get();
 
     // None of the classes must exceed its personal bandwidth
-    BOOST_REQUIRE_LE(bw0, bandwidth + burst);
-    BOOST_REQUIRE_LE(bw1, bandwidth + burst);
+    BOOST_REQUIRE_LE(bw0, bandwidth + burst + bw_slack);
+    BOOST_REQUIRE_LE(bw1, bandwidth + burst + bw_slack);
     // Both classes must not exceed the group bandwidth
-    BOOST_REQUIRE_LE(bw0 + bw1, group_bandwidth + burst);
+    BOOST_REQUIRE_LE(bw0 + bw1, group_bandwidth + burst + bw_slack);
 
     drain.stop().get();
     destroy_scheduling_group(sg1).get();
@@ -931,9 +935,9 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_1_unlimited) {
     auto bw1 = f1.get();
 
     // Limited class must not exceed its personal bandwidth
-    BOOST_REQUIRE_LE(bw0, bandwidth + burst);
+    BOOST_REQUIRE_LE(bw0, bandwidth + burst + bw_slack);
     // Both classes must not exceed the group bandwidth
-    BOOST_REQUIRE_LE(bw0 + bw1, group_bandwidth + burst);
+    BOOST_REQUIRE_LE(bw0 + bw1, group_bandwidth + burst + bw_slack);
 
     drain.stop().get();
     destroy_scheduling_group(sg1).get();
@@ -967,7 +971,7 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
     // Check that shares are roughly respected
     BOOST_REQUIRE_LE(float(bw0) / float(bw1), 4.05);
     BOOST_REQUIRE_GE(float(bw0) / float(bw1), 3.95);
-    BOOST_REQUIRE_LE(bw0 + bw1, bandwidth + burst);
+    BOOST_REQUIRE_LE(bw0 + bw1, bandwidth + burst + bw_slack);
 
     drain.stop().get();
     destroy_scheduling_group(sg1).get();
