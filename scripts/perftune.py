@@ -1048,25 +1048,36 @@ class NetPerfTuner(PerfTunerBase):
 
         return sys.maxsize
 
+    @functools.cache
+    def __ethtool_i_parsed(self, iface):
+        """
+        Run 'ethtool -i <iface>' and return a dictionary with the parsed output, where keys are the field names
+        (e.g. 'driver' or 'version') and values are the corresponding values for these fields.
+        """
+        ethtool_i_lines = run_ethtool(['-i', iface])
+        result = {}
+        for line in ethtool_i_lines:
+            # Skip empty lines
+            if not line:
+                continue
+
+            split_line = line.split(':', maxsplit=1)
+
+            # There may be either 2 or 1 entries in split_line
+            if len(split_line) == 2:
+                result[split_line[0].strip()] = split_line[1].strip()
+            else:
+                result[split_line[0].strip()] = None
+
+        return result
 
     def __get_driver_name(self, iface):
         """
         :param iface: Interface to check
-        :return: driver name from ethtool
+        :return: driver name from ethtool or an empty string if driver name is not exposed in 'ethtool -i' for this
+                 interface.
         """
-
-        driver_name = ''
-        ethtool_i_lines = run_ethtool(['-i', iface])
-        driver_re = re.compile("driver:")
-        driver_lines = list(filter(lambda one_line: driver_re.search(one_line), ethtool_i_lines))
-
-        if driver_lines:
-            if len(driver_lines) > 1:
-                raise Exception("More than one 'driver:' entries in the 'ethtool -i {}' output. Unable to continue.".format(iface))
-
-            driver_name = driver_lines[0].split()[1].strip()
-
-        return driver_name
+        return self.__ethtool_i_parsed(iface).get('driver', '')
 
     def __learn_irqs_one(self, iface):
         """
