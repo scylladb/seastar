@@ -1204,7 +1204,34 @@ class NetPerfTuner(PerfTunerBase):
         queue for each HW Rx queue. Each HW Rx queue should have an IRQ.
         Therefore the number of these files is equal to the number of fast path Rx IRQs for this interface.
         """
-        return glob.glob("/sys/class/net/{}/queues/*/rps_cpus".format(iface))
+        paths = glob.glob("/sys/class/net/{}/queues/*/rps_cpus".format(iface))
+
+        def rx_queue_index(path):
+            m = re.search(r"/rx-(\d+)/", path)
+            return int(m.group(1)) if m else 0
+
+        all_rps_cpus = sorted(paths, key=rx_queue_index)
+
+        # Take a special care of mlx5 devices: they double the number of RPS CPUs in kernel/driver versions 5.3-6.0
+        # in order to serve XSK by the higher RPS queues and RSS by the lower ones.
+        # The sanity was restored by this commit:
+        #
+        # commit 3db4c85cde7a514a5277070b32e776dbefcaa838
+        # Author: Maxim Mikityanskiy <maxtram95@gmail.com>
+        # Date:   Fri Sep 30 09:29:03 2022 -0700
+        #
+        #     net/mlx5e: xsk: Use queue indices starting from 0 for XSK queues
+        #
+        if self.__get_driver_name(iface).startswith("mlx5") and self.__get_driver_version(iface):
+            driver_version = Version(self.__get_driver_version(iface))
+            if Version("5.3") <= driver_version < Version("6.1"):
+                # We assume that for the impacted drivers the amount of RPS queues is always even
+                # (since the driver doubles the requested amount).
+                rss_queues_count = len(all_rps_cpus) // 2
+                all_rps_cpus = all_rps_cpus[0:rss_queues_count]
+
+        return all_rps_cpus
+
 
     def __set_rx_channels_count(self, iface, count):
         """
