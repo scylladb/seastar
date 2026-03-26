@@ -30,7 +30,7 @@ include(CMakeParseArguments)
 set (Boost_NO_BOOST_CMAKE ON)
 
 # for including the fix of https://github.com/boostorg/test/pull/252
-set (_seastar_boost_version 1.73.0)
+set (_seastar_boost_version 1.79.0)
 
 # This is the minimum version of Boost we need the CMake-bundled `FindBoost.cmake` to know about.
 find_package (Boost ${_seastar_boost_version})
