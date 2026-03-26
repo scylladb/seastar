@@ -870,7 +870,13 @@ class NetPerfTuner(PerfTunerBase):
 
     def __setup_rfs(self, iface):
         rps_limits = glob.glob("/sys/class/net/{}/queues/*/rps_flow_cnt".format(iface))
-        one_q_limit = int(self.__rfs_table_size / len(rps_limits))
+        sorted_rps_limits = sorted(rps_limits, key=NetPerfTuner.__rx_queue_index)
+
+        # Restrict the handled rps_limits indexes according to the number of Rx queues
+        num_rx_queues = self.__get_rx_queue_count(iface)
+        sorted_rps_limits = sorted_rps_limits[:num_rx_queues]
+
+        one_q_limit = int(self.__rfs_table_size / len(sorted_rps_limits))
 
         # If RFS feature is not present - get out
         try:
@@ -883,7 +889,7 @@ class NetPerfTuner(PerfTunerBase):
         run_one_command(['sysctl', '-w', 'net.core.rps_sock_flow_entries={}'.format(self.__rfs_table_size)])
 
         # Set each RPS queue limit
-        for rfs_limit_cnt in rps_limits:
+        for rfs_limit_cnt in sorted_rps_limits:
             msg = "Setting limit {} in {}".format(one_q_limit, rfs_limit_cnt)
             fwriteln(rfs_limit_cnt, "{}".format(one_q_limit), log_message=msg)
 
@@ -1242,6 +1248,20 @@ class NetPerfTuner(PerfTunerBase):
                 nic_irq_dict[nic] = self.__learn_irqs_one(nic)
         return nic_irq_dict
 
+    @staticmethod
+    def __rx_queue_index(path):
+        """
+        Retrieves an index from paths like /<something>/.../rx-N/<something else>/...,
+        e.g. /sys/class/net/<iface>/queues/rx-N/rps_cpus
+        where N is an integer.
+
+        For paths that don't match the pattern above a very big integer value is going to be returned.
+        This will result in matching paths to appear first and ordered if this function is used as a sorting key for
+        a list of paths.
+        """
+        m = re.search(r"/rx-(\d+)/", path)
+        return int(m.group(1)) if m else sys.maxsize
+
     def __get_rps_cpus(self, iface):
         """
         Returns all rps_cpus files names for the given HW interface.
@@ -1249,8 +1269,34 @@ class NetPerfTuner(PerfTunerBase):
         There is a single rps_cpus file for each RPS queue and there is a single RPS
         queue for each HW Rx queue. Each HW Rx queue should have an IRQ.
         Therefore, the number of these files is equal to the number of fast path Rx IRQs for this interface.
+
+        The only known exception is a Mellanox mlx5 driver that was breaking this invariant in kernel/driver versions
+        5.3-6.0 by doubling the number of RPS queues in order to serve XSK by the higher RPS queues and RSS by the lower
+        ones.
         """
-        return glob.glob("/sys/class/net/{}/queues/*/rps_cpus".format(iface))
+        all_rps_cpus = glob.glob("/sys/class/net/{}/queues/*/rps_cpus".format(iface))
+        sorted_rps_cpus = sorted(all_rps_cpus, key=NetPerfTuner.__rx_queue_index)
+
+        # Take a special care of mlx5 devices: they double the number of RPS CPUs in kernel/driver versions 5.3-6.0
+        # in order to serve XSK by the higher RPS queues and RSS by the lower ones.
+        # The RSS queues count corresponds to the used "combined" value returned by 'ethtool -l <iface>'.
+        #
+        # The sanity was restored by this commit:
+        #
+        # commit 3db4c85cde7a514a5277070b32e776dbefcaa838
+        # Author: Maxim Mikityanskiy <maxtram95@gmail.com>
+        # Date:   Fri Sep 30 09:29:03 2022 -0700
+        #
+        #     net/mlx5e: xsk: Use queue indices starting from 0 for XSK queues
+        #
+        if self.__get_driver_name(iface).startswith("mlx5"):
+            ethtool_l_data = self.__get_ethtool_l_info(iface)
+            if (ethtool_l_data.current_hardware_settings.combined is not None and
+                    ethtool_l_data.current_hardware_settings.combined * 2 == len(sorted_rps_cpus)):
+                sorted_rps_cpus = sorted_rps_cpus[:ethtool_l_data.current_hardware_settings.combined]
+
+        return sorted_rps_cpus
+
 
     def __set_rx_channels_count(self, iface, count):
         """
