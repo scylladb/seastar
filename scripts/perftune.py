@@ -1244,11 +1244,11 @@ class NetPerfTuner(PerfTunerBase):
 
     def __get_rps_cpus(self, iface):
         """
-        Prints all rps_cpus files names for the given HW interface.
+        Returns all rps_cpus files names for the given HW interface.
 
         There is a single rps_cpus file for each RPS queue and there is a single RPS
         queue for each HW Rx queue. Each HW Rx queue should have an IRQ.
-        Therefore the number of these files is equal to the number of fast path Rx IRQs for this interface.
+        Therefore, the number of these files is equal to the number of fast path Rx IRQs for this interface.
         """
         return glob.glob("/sys/class/net/{}/queues/*/rps_cpus".format(iface))
 
