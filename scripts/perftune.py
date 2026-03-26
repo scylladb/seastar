@@ -24,6 +24,7 @@ import shlex
 import psutil
 import mmap
 import datetime
+import dataclasses
 
 dry_run_mode = False
 def perftune_print(log_msg, *args, **kwargs):
@@ -625,6 +626,71 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
 
         self.__is_aws_i3_nonmetal_instance = False
 
+
+def _ethtool_label(label):
+    """
+    Field factory that attaches an ethtool output label to a dataclass field.
+    """
+    return dataclasses.field(metadata={'label': label})
+
+
+@dataclasses.dataclass
+class LabeledDataclass:
+    """
+    Base for dataclasses whose fields carry ``metadata={'label': ...}``.
+    Provides a class-level mapping from lowercased labels to field names.
+    """
+
+    @classmethod
+    def _validate_labels(cls):
+        """
+        Verify that every field has a ``'label'`` metadata entry.
+        Raises ``TypeError`` if any field is missing one.
+        """
+        unlabeled = [f.name for f in dataclasses.fields(cls) if 'label' not in f.metadata]
+        if unlabeled:
+            raise TypeError(f"{cls.__name__}: fields {unlabeled} are missing 'label' metadata")
+
+    @classmethod
+    def label_to_field_name(cls):
+        """
+        Return a dict mapping ``label.lower()`` → field name.
+        """
+        cls._validate_labels()
+        return {f.metadata['label'].lower(): f.name for f in dataclasses.fields(cls)}
+
+    @classmethod
+    def labels(cls):
+        """
+        Return the list of label strings in field-definition order.
+        """
+        cls._validate_labels()
+        return [f.metadata['label'] for f in dataclasses.fields(cls)]
+
+
+@dataclasses.dataclass
+class EthtoolChannelPropertiesValues(LabeledDataclass):
+    """
+    RX / TX / Other / Combined channel counts from a single ``ethtool -l``
+    section.  ``None`` means the device reported ``n/a``.
+    """
+
+    rx: int | None = _ethtool_label('RX')
+    tx: int | None = _ethtool_label('TX')
+    other: int | None = _ethtool_label('Other')
+    combined: int | None = _ethtool_label('Combined')
+
+
+@dataclasses.dataclass
+class EthtoolLChannelInfo(LabeledDataclass):
+    """
+    Both sections of ``ethtool -l`` output.
+    """
+
+    preset_maximums: EthtoolChannelPropertiesValues = _ethtool_label('Pre-set maximums')
+    current_hardware_settings: EthtoolChannelPropertiesValues = _ethtool_label('Current hardware settings')
+
+
 #################################################
 class NetPerfTuner(PerfTunerBase):
     def __init__(self, args):
@@ -644,6 +710,72 @@ class NetPerfTuner(PerfTunerBase):
 
 
 #### Public methods ############################
+    @staticmethod
+    def __get_ethtool_l_info(iface: str) -> EthtoolLChannelInfo:
+        """
+        Run ``ethtool -l <iface>`` and return its parsed output.
+
+        :param iface: network interface name
+        :return: :class:`EthtoolLChannelInfo`
+        :raises ValueError: on missing or malformed sections
+        """
+        lines = run_ethtool(['-l', iface])
+
+        # Example of the ``ethtool -l <iface>`` command output:
+        #
+        #         $ ethtool -l enP16753s1
+        #         Channel parameters for enP16753s1:
+        #         Pre-set maximums:
+        #         RX:		n/a
+        #         TX:		n/a
+        #         Other:		n/a
+        #         Combined:	16
+        #         Current hardware settings:
+        #         RX:		n/a
+        #         TX:		n/a
+        #         Other:		n/a
+        #         Combined:	2
+        #
+        # As we can see there are 2 sections: "Pre-set maximums" and "Current hardware settings".
+        # The structure of each of the two sections is exactly the same and values can be either "n/a" or an integer.
+
+        prop_label_to_field = EthtoolChannelPropertiesValues.label_to_field_name()
+        section_label_to_field = EthtoolLChannelInfo.label_to_field_name()
+
+        section_re = re.compile(rf'^({"|".join(re.escape(l) for l in EthtoolLChannelInfo.labels())})\s*:', re.I)
+        channel_re = re.compile(rf'^\s*({"|".join(EthtoolChannelPropertiesValues.labels())})\s*:\s*(.+?)\s*$', re.I)
+
+        def parse_value(raw):
+            return None if raw.strip().lower() == 'n/a' else int(raw)
+
+        def parse_block(start):
+            vals = {}
+            for line in lines[start:]:
+                if section_re.match(line):
+                    break
+                m = channel_re.match(line)
+                if m:
+                    vals[prop_label_to_field[m.group(1).lower()]] = parse_value(m.group(2))
+            missing = [l for l in EthtoolChannelPropertiesValues.labels() if prop_label_to_field[l.lower()] not in vals]
+            if missing:
+                raise ValueError(f"ethtool -l: missing channel keys {missing}")
+            return EthtoolChannelPropertiesValues(**vals)
+
+        section_starts = {}
+        for idx, line in enumerate(lines):
+            m = section_re.match(line)
+            if m:
+                section_starts[m.group(1).lower()] = idx + 1
+
+        missing_sections = [l for l in EthtoolLChannelInfo.labels() if l.lower() not in section_starts]
+        if missing_sections:
+            raise ValueError(f"ethtool -l: missing sections {missing_sections}")
+
+        return EthtoolLChannelInfo(**{
+            section_label_to_field[label]: parse_block(start)
+            for label, start in section_starts.items()
+        })
+
     def tune(self):
         """
         Tune the networking server configuration.
