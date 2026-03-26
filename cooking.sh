@@ -320,13 +320,14 @@ macro (project name)
 
       set (_cooking_ready_marker_file ${_cooking_dir}/ready.txt)
 
-      add_custom_command (
-        OUTPUT ${_cooking_ready_marker_file}
-        DEPENDS _cooking_ingredients
-        COMMAND ${CMAKE_COMMAND} -E touch ${_cooking_ready_marker_file})
-
+      # The marker file is NOT registered as an OUTPUT of add_custom_command
+      # because that causes ninja to delete it during "ninja clean". If the
+      # marker is missing when cmake is later re-triggered (e.g. after git
+      # checkout), the project() macro returns early and only cooking targets
+      # are generated — all real build targets vanish.
       add_custom_target (_cooking_ingredients_ready
-        DEPENDS ${_cooking_ready_marker_file})
+        COMMAND ${CMAKE_COMMAND} -E touch ${_cooking_ready_marker_file})
+      add_dependencies (_cooking_ingredients_ready _cooking_ingredients)
 
       set (_cooking_local_synchronize_marker_file ${Cooking_INGREDIENTS_DIR}/.cooking_local_synchronize)
 
