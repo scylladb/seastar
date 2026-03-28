@@ -785,7 +785,7 @@ void copy_str_to(char*& dst, const T& s) {
 }
 
 template <typename String = sstring, typename... Args>
-static String make_sstring(Args&&... args)
+String make_sstring(Args&&... args)
 {
     String ret = uninitialized_string<String>((str_len(args) + ...));
     auto dst = ret.data();
