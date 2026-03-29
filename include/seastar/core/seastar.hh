@@ -84,11 +84,9 @@ using udp_channel = class datagram_channel;
 
 }
 
-namespace experimental {
 // process.hh
 class process;
 struct spawn_parameters;
-}
 
 // Networking API
 
@@ -461,10 +459,9 @@ future<uint64_t> fs_free(std::string_view name) noexcept;
 /// \param name name of the file in the filesystem to inspect
 future<std::filesystem::space_info> file_system_space(std::string_view name) noexcept;
 
-namespace experimental {
 /// \defgroup interprocess-module Interprocess Communication
 ///
-/// Seastar provides a set of APIs for interprocess communicate
+/// Seastar provides a set of APIs for interprocess communication.
 
 /// \addtogroup interprocess-module
 /// @{
@@ -492,10 +489,16 @@ future<process> spawn_process(const std::filesystem::path& pathname,
 ///
 /// \return a process representing the spawned subprocess
 /// \note
-/// the this overload does not specify a \c params parameters for spawning the
+/// this overload does not specify a \c params parameter for spawning the
 /// subprocess. Instead, it uses the pathname for the \c argv[0] in the params.
 future<process> spawn_process(const std::filesystem::path& pathname);
 /// @}
+
+namespace experimental {
+/// \deprecated Use \c seastar::make_pipe instead
+using seastar::make_pipe;
+/// \deprecated Use \c seastar::spawn_process instead
+using seastar::spawn_process;
 }
 
 

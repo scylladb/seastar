@@ -4819,7 +4819,6 @@ void set_idle_cpu_handler(idle_cpu_handler&& handler) {
     engine().set_idle_cpu_handler(std::move(handler));
 }
 
-namespace experimental {
 future<std::tuple<file_desc, file_desc>> make_pipe() {
     return engine().make_pipe();
 }
@@ -4831,7 +4830,6 @@ future<process> spawn_process(const std::filesystem::path& pathname,
 
 future<process> spawn_process(const std::filesystem::path& pathname) {
     return process::spawn(pathname);
-}
 }
 
 static

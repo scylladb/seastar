@@ -25,7 +25,6 @@
 #include <seastar/util/process.hh>
 
 using namespace seastar;
-using namespace seastar::experimental;
 
 static seastar::logger testlog("testlog");
 
@@ -131,8 +130,8 @@ SEASTAR_TEST_CASE(test_spawn_kill) {
         return do_with(std::move(process), [](auto& p) {
             p.terminate();
             return p.wait();
-        }).then([start](experimental::process::wait_status wait_status) {
-            auto* wait_signaled = std::get_if<experimental::process::wait_signaled>(&wait_status);
+        }).then([start](process::wait_status wait_status) {
+            auto* wait_signaled = std::get_if<process::wait_signaled>(&wait_status);
             BOOST_REQUIRE(wait_signaled != nullptr);
             BOOST_CHECK_EQUAL(wait_signaled->terminating_signal, SIGTERM);
             auto end = std::chrono::high_resolution_clock::now();

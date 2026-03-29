@@ -36,7 +36,7 @@
 #include <seastar/core/posix.hh>
 #include <seastar/core/sstring.hh>
 
-namespace seastar::experimental {
+namespace seastar {
 
 /// The optional parameters for spawning a subprocess
 ///
@@ -105,4 +105,12 @@ private:
                                          spawn_parameters);
     friend future<process> spawn_process(const std::filesystem::path&);
 };
+
+namespace experimental {
+/// \deprecated Use \c seastar::process instead
+using seastar::process;
+/// \deprecated Use \c seastar::spawn_parameters instead
+using seastar::spawn_parameters;
+}
+
 }

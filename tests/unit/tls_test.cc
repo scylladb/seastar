@@ -268,10 +268,10 @@ SEASTAR_TEST_CASE(test_alpn_client_server) {
 class https_server {
     const sstring _cert;
     const std::string _addr = "127.0.0.1";
-    experimental::process _process;
+    process _process;
     uint16_t _port;
 
-    static experimental::process spawn(const std::string& addr, const sstring& key, const sstring& cert) {
+    static process spawn(const std::string& addr, const sstring& key, const sstring& cert) {
         auto httpd = boost::dll::program_location().parent_path() / "https-server.py";
         const std::vector<sstring> argv{
           "httpd",
@@ -279,13 +279,13 @@ class https_server {
           "--key", key,
           "--cert", cert,
         };
-        return experimental::spawn_process(httpd.string(), {.argv = argv}).get();
+        return spawn_process(httpd.string(), {.argv = argv}).get();
     }
 
     // https-server.py picks an available port and listens on it. when it is
     // ready to serve, it prints out the listening port. without hardwiring to
     // a fixed port, we are able to run multiple tests in parallel.
-    static uint16_t read_port(experimental::process& process) {
+    static uint16_t read_port(process& process) {
         using consumption_result_type = typename input_stream<char>::consumption_result_type;
         using stop_consuming_type = typename consumption_result_type::stop_consuming_type;
         using tmp_buf = stop_consuming_type::tmp_buf;

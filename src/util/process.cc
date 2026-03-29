@@ -28,7 +28,7 @@
 #include <seastar/util/process.hh>
 #include <seastar/util/assert.hh>
 
-namespace seastar::experimental {
+namespace seastar {
 
 namespace {
 class pipe_data_source_impl final : public data_source_impl {
