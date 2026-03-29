@@ -336,3 +336,20 @@ cooking_ingredient (lz4
     CONFIGURE_COMMAND <DISABLE>
     BUILD_COMMAND <DISABLE>
     INSTALL_COMMAND ${make_command} PREFIX=<INSTALL_DIR> install)
+
+cooking_ingredient (ngtcp2
+  REQUIRES GnuTLS
+  EXTERNAL_PROJECT_ARGS
+    URL https://github.com/ngtcp2/ngtcp2/releases/download/v1.22.0/ngtcp2-1.22.0.tar.xz
+    URL_HASH SHA256=75c1d6f5c7936b23bfab9c143c8e9f1cca1acf3ab66dba705306ec7dac6fe0f1
+  CMAKE_ARGS
+    -DENABLE_GNUTLS=ON
+    -DENABLE_OPENSSL=OFF
+    -DBUILD_TESTING=OFF)
+
+cooking_ingredient (nghttp3
+  EXTERNAL_PROJECT_ARGS
+    URL https://github.com/ngtcp2/nghttp3/releases/download/v1.15.0/nghttp3-1.15.0.tar.xz
+    URL_HASH SHA256=6da0cd06b428d32a54c58137838505d9dc0371a900bb8070a46b29e1ceaf2e0f
+  CMAKE_ARGS
+    -DBUILD_TESTING=OFF)

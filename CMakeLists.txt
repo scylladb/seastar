@@ -304,6 +304,10 @@ option (Seastar_IO_URING
   "Enable io_uring support."
   ON)
 
+option (Seastar_QUIC
+  "Enable QUIC and HTTP/3 support via ngtcp2 and nghttp3."
+  OFF)
+
 set (Seastar_JENKINS
   ""
   CACHE
@@ -1097,6 +1101,14 @@ if (Seastar_IO_URING)
     PRIVATE URING::uring)
 endif ()
 
+if (Seastar_QUIC)
+  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_QUIC)
+  target_link_libraries (seastar
+    PRIVATE
+      ngtcp2::ngtcp2_crypto_gnutls
+      nghttp3::nghttp3)
+endif ()
+
 if (Seastar_LD_FLAGS)
   target_link_options (seastar
     PRIVATE ${Seastar_LD_FLAGS})
@@ -1470,6 +1482,8 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findyaml-cpp.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/SeastarDependencies.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindLibUring.cmake
+      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindNghttp3.cmake
+      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindNgtcp2.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSystemTap-SDT.cmake
     DESTINATION ${install_cmakedir})
 
