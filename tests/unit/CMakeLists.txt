@@ -897,3 +897,11 @@ seastar_add_test (gate
 seastar_add_test (test_fixture
   SOURCES
     test_fixture_test.cc)
+
+if (Seastar_QUIC)
+  seastar_add_test (quic
+    DEPENDS testcrt
+    SOURCES quic_test.cc
+    LIBRARIES Boost::filesystem
+    WORKING_DIRECTORY ${Seastar_BINARY_DIR})
+endif ()

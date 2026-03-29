@@ -781,6 +781,7 @@ add_library (seastar
   src/net/packet.cc
   src/net/posix-stack.cc
   src/net/proxy.cc
+  src/net/quic.cc
   src/net/socket_address.cc
   src/net/stack.cc
   src/net/tcp.cc
