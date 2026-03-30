@@ -645,6 +645,7 @@ add_library (seastar
   include/seastar/http/short_streams.hh
   include/seastar/http/transformers.hh
   include/seastar/http/client.hh
+  include/seastar/http/http3.hh
   include/seastar/json/formatter.hh
   include/seastar/json/json_elements.hh
   include/seastar/net/api.hh
@@ -763,6 +764,7 @@ add_library (seastar
   src/http/url.cc
   src/http/client.cc
   src/http/request.cc
+  src/http/http3.cc
   src/http/retry_strategy.cc
   src/json/formatter.cc
   src/json/json_elements.cc
@@ -1104,6 +1106,7 @@ endif ()
 
 if (Seastar_QUIC)
   list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_QUIC)
+  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_NGHTTP3)
   target_link_libraries (seastar
     PRIVATE
       ngtcp2::ngtcp2_crypto_gnutls

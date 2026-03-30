@@ -904,4 +904,10 @@ if (Seastar_QUIC)
     SOURCES quic_test.cc
     LIBRARIES Boost::filesystem
     WORKING_DIRECTORY ${Seastar_BINARY_DIR})
+
+  seastar_add_test (http3
+    DEPENDS testcrt
+    SOURCES http3_test.cc
+    LIBRARIES Boost::filesystem nghttp3::nghttp3
+    WORKING_DIRECTORY ${Seastar_BINARY_DIR})
 endif ()
