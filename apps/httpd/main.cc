@@ -46,8 +46,7 @@ class handl : public httpd::handler_base {
 public:
     virtual future<std::unique_ptr<http::reply> > handle(const sstring& path,
             std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
-        rep->_content = "hello";
-        rep->done("html");
+        rep->write_body("html", sstring("hello"));
         return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
     }
 };
