@@ -22,10 +22,14 @@
 #pragma once
 
 #include <cstddef>
+#include <exception>
 #include <seastar/core/semaphore.hh>
 #include <seastar/util/assert.hh>
+#include <seastar/util/log.hh>
 
 namespace seastar {
+
+extern logger seastar_logger;
 
 /// \cond internal
 // lock / unlock semantics for rwlock, so it can be used with with_lock()
@@ -61,6 +65,15 @@ public:
 /// \addtogroup fiber-module
 /// @{
 
+/// Exception thrown when a \ref rwlock object has been closed
+/// by the \ref basic_rwlock::close() method.
+class lock_closed_exception : public std::exception {
+public:
+    virtual const char* what() const noexcept override {
+        return "lock closed";
+    }
+};
+
 /// Implements a read-write lock mechanism. Beware: this is not a cross-CPU
 /// lock, due to seastar's sharded architecture.
 /// Instead, it can be used to achieve rwlock semantics between two (or more)
@@ -74,6 +87,7 @@ class basic_rwlock : private rwlock_for_read<Clock>, rwlock_for_write<Clock> {
     static constexpr size_t max_ops = semaphore_type::max_counter();
 
     semaphore_type _sem;
+    bool _closing = false;
 public:
     basic_rwlock()
             : _sem(max_ops) {
@@ -197,6 +211,61 @@ public:
     /// Checks if any read or write locks are currently held.
     bool locked() const {
         return _sem.available_units() != max_ops;
+    }
+
+    /// Returns whether the rwlock is in the process of being closed or has
+    /// already been fully closed.
+    ///
+    /// This flag becomes \c true as soon as \ref close() is called, before the
+    /// underlying semaphore is actually broken and before the future returned
+    /// by \ref close() is resolved.
+    bool is_closed() const noexcept {
+        return _closing;
+    }
+
+    /// Closes the rwlock.
+    ///
+    /// Marks the rwlock as closing immediately (so \ref is_closed() starts
+    /// returning \c true), then waits for all current lock holders to release
+    /// their locks and finally breaks the underlying semaphore to permanently
+    /// prevent any new lock acquisitions.
+    ///
+    /// While the rwlock is in this closing state (after \ref close() is
+    /// invoked, but before the returned future is ready), new lock attempts
+    /// may still be enqueued and wait behind earlier operations.  When closing
+    /// completes and the semaphore is broken, all such pending and in-flight
+    /// lock attempts will complete exceptionally with a
+    /// \ref lock_closed_exception.
+    ///
+    /// After the rwlock has been fully closed (i.e., after the future
+    /// returned by \ref close() has become ready), all subsequent lock
+    /// attempts will fail immediately with a \ref lock_closed_exception, and
+    /// try-lock methods will return failure.
+    ///
+    /// Calling \ref close() more than once is allowed and idempotent: if the
+    /// rwlock is already closed, the returned future resolves immediately.
+    ///
+    /// \returns a future that becomes ready when all current lock holders
+    ///          have released their locks, the semaphore has been broken, and
+    ///          the rwlock is permanently closed.
+    ///
+    future<> close() noexcept {
+        _closing = true;
+        return _sem.wait(max_ops).then_wrapped([this] (future<> f) {
+            if (f.failed()) {
+                auto ep = f.get_exception();
+                try {
+                    std::rethrow_exception(ep);
+                } catch (const lock_closed_exception&) {
+                    // Idempotent: close() was already called and broke the
+                    // semaphore, so _sem.wait() failed with lock_closed_exception.
+                } catch (...) {
+                    seastar_logger.error("rwlock::close(): unexpected exception: {}", ep);
+                }
+                return;
+            }
+            _sem.broken(lock_closed_exception());
+        });
     }
 
     friend class rwlock_for_read<Clock>;

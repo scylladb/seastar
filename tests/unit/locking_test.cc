@@ -196,6 +196,183 @@ SEASTAR_THREAD_TEST_CASE(test_rwlock_hold) {
     BOOST_REQUIRE(!l.try_hold_write_lock());
 }
 
+SEASTAR_THREAD_TEST_CASE(test_rwlock_close_no_holders) {
+    rwlock l;
+
+    // close on an unlocked rwlock should return a ready future
+    l.close().get();
+    BOOST_REQUIRE(l.is_closed());
+
+    // all lock attempts should fail after close
+    BOOST_REQUIRE(!l.try_read_lock());
+    BOOST_REQUIRE(!l.try_write_lock());
+    BOOST_REQUIRE(!l.try_hold_read_lock());
+    BOOST_REQUIRE(!l.try_hold_write_lock());
+    BOOST_REQUIRE_THROW(l.read_lock().get(), lock_closed_exception);
+    BOOST_REQUIRE_THROW(l.write_lock().get(), lock_closed_exception);
+    BOOST_REQUIRE_THROW(l.hold_read_lock().get(), lock_closed_exception);
+    BOOST_REQUIRE_THROW(l.hold_write_lock().get(), lock_closed_exception);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_rwlock_close_with_read_lock) {
+    rwlock l;
+
+    l.read_lock().get();
+
+    // close should not return immediately since there is a reader
+    auto f = l.close();
+    BOOST_REQUIRE(!f.available());
+    BOOST_REQUIRE(l.is_closed());
+
+    // releasing the read lock should complete the close
+    l.read_unlock();
+    f.get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_rwlock_close_with_write_lock) {
+    rwlock l;
+
+    l.write_lock().get();
+
+    auto f = l.close();
+    BOOST_REQUIRE(!f.available());
+
+    // releasing the write lock should complete the close
+    l.write_unlock();
+    f.get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_rwlock_close_with_multiple_readers) {
+    rwlock l;
+
+    l.read_lock().get();
+    l.read_lock().get();
+
+    auto f = l.close();
+    BOOST_REQUIRE(!f.available());
+
+    // release one reader -- close should not yet complete
+    l.read_unlock();
+    BOOST_REQUIRE(!f.available());
+
+    // release the second reader -- close should complete
+    l.read_unlock();
+    f.get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_rwlock_close_breaks_pending_waiters) {
+    rwlock l;
+
+    // hold a write lock
+    l.write_lock().get();
+
+    // queue a reader -- it will be pending
+    auto read_f = l.read_lock();
+    BOOST_REQUIRE(!read_f.available());
+
+    // queue a writer -- it will be pending
+    auto write_f = l.write_lock();
+    BOOST_REQUIRE(!write_f.available());
+
+    // close queues behind the pending waiters, not available yet
+    auto close_f = l.close();
+    BOOST_REQUIRE(!close_f.available());
+
+    // release the write lock: this wakes the pending reader, which
+    // takes 1 unit; the pending writer and close are still waiting
+    l.write_unlock();
+
+    // the pending reader should have succeeded
+    BOOST_REQUIRE(read_f.available());
+    read_f.get();
+
+    // the pending writer and close are still waiting
+    BOOST_REQUIRE(!write_f.available());
+    BOOST_REQUIRE(!close_f.available());
+
+    // release the read lock: now the pending writer can proceed
+    l.read_unlock();
+
+    // the pending writer should have succeeded
+    BOOST_REQUIRE(write_f.available());
+    write_f.get();
+
+    // close is still waiting for the writer
+    BOOST_REQUIRE(!close_f.available());
+
+    // release the write lock: close can now acquire all units and break
+    l.write_unlock();
+    close_f.get();
+
+    // subsequent attempts should fail
+    BOOST_REQUIRE_THROW(l.read_lock().get(), lock_closed_exception);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_rwlock_close_with_holder) {
+    rwlock l;
+
+    auto h = l.hold_read_lock().get();
+
+    auto f = l.close();
+    BOOST_REQUIRE(!f.available());
+
+    // releasing the holder should complete the close
+    h.return_all();
+    f.get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_rwlock_close_with_write_holder) {
+    rwlock l;
+
+    auto h = l.hold_write_lock().get();
+
+    auto f = l.close();
+    BOOST_REQUIRE(!f.available());
+
+    // dropping the holder should complete the close
+    h = rwlock::holder();
+    f.get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_rwlock_close_with_holder_scope) {
+    rwlock l;
+
+    auto f = make_ready_future<>();
+    {
+        auto h = l.hold_read_lock().get();
+
+        f = l.close();
+        BOOST_REQUIRE(!f.available());
+
+        // holder goes out of scope here
+    }
+
+    f.get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_rwlock_close_idempotent) {
+    rwlock l;
+
+    // hold a write lock so close() blocks
+    l.write_lock().get();
+
+    auto f1 = l.close();
+    BOOST_REQUIRE(!f1.available());
+    BOOST_REQUIRE(l.is_closed());
+
+    // second close queues behind the first, also blocks
+    auto f2 = l.close();
+    BOOST_REQUIRE(!f2.available());
+
+    // release the write lock: both close futures should resolve
+    l.write_unlock();
+    f1.get();
+    f2.get();
+
+    // third close after fully closed should succeed immediately
+    l.close().get();
+}
+
 SEASTAR_THREAD_TEST_CASE(test_failed_with_lock) {
     struct test_lock {
         future<> lock() noexcept {
