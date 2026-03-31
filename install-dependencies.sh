@@ -96,6 +96,7 @@ redhat_packages=(
     make
     meson
     numactl-devel
+    openssl
     openssl-devel
     protobuf-compiler
     protobuf-devel
