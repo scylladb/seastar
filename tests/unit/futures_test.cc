@@ -1157,7 +1157,7 @@ SEASTAR_TEST_CASE(test_high_priority_task_runs_in_the_middle_of_loops) {
             BOOST_REQUIRE(*flag);
             return stop_iteration::yes;
         }
-        engine().add_high_priority_task(make_task([flag] {
+        reactor::test::add_high_priority_task(make_task([flag] {
             *flag = true;
         }));
         ++(*counter);
