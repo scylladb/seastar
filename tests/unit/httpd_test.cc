@@ -33,6 +33,8 @@
 #include <seastar/util/assert.hh>
 #include <seastar/util/later.hh>
 #include <seastar/util/short_streams.hh>
+#include <seastar/util/string_utils.hh>
+#include <seastar/http/internal/content_source.hh>
 #include <seastar/util/closeable.hh>
 #include <seastar/net/tls.hh>
 
@@ -454,100 +456,6 @@ SEASTAR_TEST_CASE(test_transformer) {
     });
 }
 
-struct http_consumer {
-    std::map<sstring, std::string> _headers;
-    std::string _body;
-    uint32_t _remain = 0;
-    std::string _current;
-    std::optional<char> last;
-    uint32_t _size = 0;
-    bool _concat = true;
-
-    enum class status_type {
-        READING_HEADERS,
-        CHUNK_SIZE,
-        CHUNK_BODY,
-        CHUNK_END,
-        READING_BODY_BY_SIZE,
-        DONE
-    };
-    status_type status = status_type::READING_HEADERS;
-
-    bool read(const temporary_buffer<char>& b) {
-        for (auto c : b) {
-            if (last && *last =='\r' && c == '\n') {
-                if (_current == "") {
-                    if (status == status_type::READING_HEADERS || (status == status_type::CHUNK_BODY && _remain == 0)) {
-                        if (status == status_type::READING_HEADERS && _headers.find("Content-Length") != _headers.end()) {
-                            _remain = stoi(_headers["Content-Length"], nullptr, 16);
-                            if (_remain == 0) {
-                                status = status_type::DONE;
-                                break;
-                            }
-                            status = status_type::READING_BODY_BY_SIZE;
-                        } else {
-                            status = status_type::CHUNK_SIZE;
-                        }
-                    } else if (status == status_type::CHUNK_END) {
-                        status = status_type::DONE;
-                        break;
-                    }
-                } else {
-                    switch (status) {
-                    case status_type::READING_HEADERS: add_header(_current);
-                    break;
-                    case status_type::CHUNK_SIZE: set_chunk(_current);
-                    break;
-                    default:
-                        break;
-                    }
-                    _current = "";
-                }
-                last = std::nullopt;
-            } else {
-                if (last) {
-                    if (status == status_type::CHUNK_BODY || status == status_type::READING_BODY_BY_SIZE) {
-                        if (_concat) {
-                            _body = _body + *last;
-                        }
-                        _size++;
-                        _remain--;
-                        if (_remain <= 1 && status == status_type::READING_BODY_BY_SIZE) {
-                            if (_concat) {
-                                _body = _body + c;
-                            }
-                            _size++;
-                            status = status_type::DONE;
-                            break;
-                        }
-                    } else {
-                        _current = _current + *last;
-                    }
-
-                }
-                last = c;
-            }
-        }
-        return status == status_type::DONE;
-    }
-
-    void set_chunk(const std::string& s) {
-        _remain = stoi(s, nullptr, 16);
-        if (_remain == 0) {
-            status = status_type::CHUNK_END;
-        } else {
-            status = status_type::CHUNK_BODY;
-        }
-    }
-
-    void add_header(const std::string& s) {
-        std::vector<std::string> strs;
-        boost::split(strs, s, boost::is_any_of(":"));
-        if (strs.size() > 1) {
-            _headers[strs[0]] = strs[1];
-        }
-    }
-};
 
 class test_client_server {
 public:
@@ -557,7 +465,32 @@ public:
         });
     }
 
-    static future<> run_test(json::json_return_type::body_writer_type&& write_func, std::function<bool(size_t, http_consumer&)> reader) {
+    static input_stream<char> make_response_body_stream(input_stream<char>& input, http::reply& resp) {
+        if (seastar::internal::case_insensitive_cmp()(resp.get_header("Transfer-Encoding"), "chunked")) {
+            return input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(
+                input, resp.chunk_extensions, resp.trailing_headers)));
+        }
+        return input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(
+            input, resp.content_length)));
+    }
+
+    static size_t response_body_size(input_stream<char>& input) {
+        http_response_parser parser;
+        parser.init();
+        input.consume(parser).get();
+        auto resp = parser.get_parsed_response();
+        resp->content_length = strtol(resp->get_header("Content-Length").c_str(), nullptr, 10);
+        auto body_stream = make_response_body_stream(input, *resp);
+        size_t body_size = 0;
+        body_stream.consume([&body_size] (temporary_buffer<char> buf) {
+            body_size += buf.size();
+            return make_ready_future<consumption_result<char>>(continue_consuming{});
+        }).get();
+        body_stream.close().get();
+        return body_size;
+    }
+
+    static future<> run_test(json::json_return_type::body_writer_type&& write_func, std::function<bool(size_t, size_t)> reader) {
         return do_with(loopback_connection_factory(1), foreign_ptr<shared_ptr<http_server>>(make_shared<http_server>("test")),
                 [reader, &write_func] (loopback_connection_factory& lcf, auto& server) {
             return do_with(loopback_socket_impl(lcf), [&server, &lcf, reader, &write_func](loopback_socket_impl& lsi) {
@@ -570,18 +503,9 @@ public:
                     bool more = true;
                     size_t count = 0;
                     while (more) {
-                        http_consumer htp;
-                        htp._concat = false;
-
                         write_request(output).get();
-                        repeat([&input, &htp] {
-                            return input.read().then([&htp](const temporary_buffer<char>& b) mutable {
-                                return (b.size() == 0 || htp.read(b)) ? make_ready_future<stop_iteration>(stop_iteration::yes) :
-                                        make_ready_future<stop_iteration>(stop_iteration::no);
-                            });
-                        }).get();
-                        std::cout << htp._body << std::endl;
-                        more = reader(count, htp);
+                        size_t body_size = response_body_size(input);
+                        more = reader(count, body_size);
                         count++;
                     }
                     if (input.eof()) {
@@ -633,16 +557,10 @@ public:
                     bool more = true;
                     size_t count = 0;
                     while (more) {
-                        http_consumer htp;
                         write_request(output).get();
-                        repeat([&input, &htp] {
-                            return input.read().then([&htp](const temporary_buffer<char>& b) mutable {
-                                return (b.size() == 0 || htp.read(b)) ? make_ready_future<stop_iteration>(stop_iteration::yes) :
-                                        make_ready_future<stop_iteration>(stop_iteration::no);
-                            });
-                        }).get();
+                        size_t body_size = response_body_size(input);
                         if (std::get<bool>(tests[count])) {
-                            BOOST_REQUIRE_EQUAL(htp._body.length(), std::get<size_t>(tests[count]));
+                            BOOST_REQUIRE_EQUAL(body_size, std::get<size_t>(tests[count]));
                         } else {
                             BOOST_REQUIRE_EQUAL(input.eof(), true);
                             more = false;
@@ -805,8 +723,8 @@ SEASTAR_TEST_CASE(json_stream) {
     for (size_t i = 0; i < num_objects; i++) {
         vec.emplace_back(1000000);
     }
-    return test_client_server::run_test(json::stream_object(vec), [total_size](size_t s, http_consumer& h) {
-        BOOST_REQUIRE_EQUAL(h._size, total_size);
+    return test_client_server::run_test(json::stream_object(vec), [total_size](size_t s, size_t body_size) {
+        BOOST_REQUIRE_EQUAL(body_size, total_size);
         return false;
     });
 }
@@ -819,8 +737,8 @@ SEASTAR_TEST_CASE(dont_abort) {
         co_await stream.write(seastar::temporary_buffer<char>{3});
         co_await stream.close();
     }
-    , [](size_t s, http_consumer& h) {
-        BOOST_REQUIRE_EQUAL(h._size, 3);
+    , [](size_t s, size_t body_size) {
+        BOOST_REQUIRE_EQUAL(body_size, 3);
         return false;
     });
 
