@@ -1772,15 +1772,6 @@ SEASTAR_TEST_CASE(test_not_implemented_encoding) {
 }
 
 
-SEASTAR_TEST_CASE(test_bad_chunk_length) {
-    return check_http_reply({
-        "GET /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n",
-        "a\r\n1234567890\r\n",
-        "aX\r\n1234521345\r\n",
-        "0\r\n\r\n"
-    }, {"400 Bad Request", "Can't parse chunk size and extensions"}, true, new echo_stream_handler());
-}
-
 SEASTAR_TEST_CASE(test_close_response) {
     return check_http_reply({
         "GET /test HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n"

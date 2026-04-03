@@ -264,3 +264,22 @@ SEASTAR_TEST_CASE(test_too_long_chunk) {
             });
     });
 }
+
+SEASTAR_TEST_CASE(test_bad_chunk_length) {
+    return seastar::async([] {
+        // Second chunk size contains an invalid hex character 'X'
+        auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring(
+            "a\r\n1234567890\r\naX\r\n1234521345\r\n0\r\n\r\n"))));
+        std::unordered_map<sstring, sstring> chunk_extensions;
+        std::unordered_map<sstring, sstring> trailing_headers;
+        auto content_stream = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, chunk_extensions, trailing_headers)));
+        // Read first chunk successfully
+        auto buf = content_stream.read_exactly(10).get();
+        BOOST_REQUIRE_EQUAL(sstring(buf.get(), buf.size()), sstring("1234567890"));
+        // Next read tries to parse 'aX' as chunk size and must throw
+        BOOST_REQUIRE_EXCEPTION(content_stream.read().get(), httpd::bad_request_exception,
+            [] (const httpd::bad_request_exception& e) {
+                return sstring(e.what()).find("Can't parse chunk size and extensions") != sstring::npos;
+            });
+    });
+}
