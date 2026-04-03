@@ -24,6 +24,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/http/internal/content_source.hh>
+#include <seastar/http/exception.hh>
 #include <seastar/testing/test_case.hh>
 #include <tuple>
 
@@ -209,5 +210,19 @@ SEASTAR_TEST_CASE(test_full_chunk_format) {
         BOOST_REQUIRE_EQUAL(chunk_extensions[sstring("a0-!#$%&'*+.^_`|~")], sstring("quoted string obstext\x80\x81\xff quoted_pair: a"));
         BOOST_REQUIRE_EQUAL(trailing_headers[sstring("a")], sstring("b"));
         BOOST_REQUIRE_EQUAL(trailing_headers[sstring("~|`_^.+*'&%$#!-0a")], sstring("~!@#$%^&*()_+\x80\x81\xff obs fold"));
+    });
+}
+
+SEASTAR_TEST_CASE(test_chunk_extension_parser_fail) {
+    return seastar::async([] {
+        // Space after semicolon with no extension name is invalid
+        auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("7; \r\nnoparse\r\n0\r\n\r\n"))));
+        std::unordered_map<sstring, sstring> chunk_extensions;
+        std::unordered_map<sstring, sstring> trailing_headers;
+        auto content_stream = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, chunk_extensions, trailing_headers)));
+        BOOST_REQUIRE_EXCEPTION(content_stream.read().get(), httpd::bad_request_exception,
+            [] (const httpd::bad_request_exception& e) {
+                return sstring(e.what()).find("Can't parse chunk size and extensions") != sstring::npos;
+            });
     });
 }

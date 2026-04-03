@@ -1772,14 +1772,6 @@ SEASTAR_TEST_CASE(test_not_implemented_encoding) {
 }
 
 
-SEASTAR_TEST_CASE(test_chunk_extension_parser_fail) {
-    return check_http_reply({
-        "GET /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n",
-        "7; \r\nnoparse\r\n",
-        "0\r\n\r\n"
-    }, {"400 Bad Request", "Can't parse chunk size and extensions"}, false, new echo_string_handler());
-}
-
 SEASTAR_TEST_CASE(test_trailer_part_parser_fail) {
     return check_http_reply({
         "GET /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n",
