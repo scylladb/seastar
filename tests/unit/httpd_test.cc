@@ -1772,15 +1772,6 @@ SEASTAR_TEST_CASE(test_not_implemented_encoding) {
 }
 
 
-SEASTAR_TEST_CASE(test_too_long_chunk) {
-    return check_http_reply({
-        "GET /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n",
-        "a\r\n1234567890\r\n",
-        "a\r\n1234521345X\r\n",
-        "0\r\n\r\n"
-    }, {"400 Bad Request", "The actual chunk length exceeds the specified length"}, true, new echo_stream_handler());
-}
-
 SEASTAR_TEST_CASE(test_bad_chunk_length) {
     return check_http_reply({
         "GET /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n",

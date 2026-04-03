@@ -245,3 +245,22 @@ SEASTAR_TEST_CASE(test_trailer_part_parser_fail) {
             });
     });
 }
+
+SEASTAR_TEST_CASE(test_too_long_chunk) {
+    return seastar::async([] {
+        // Second chunk declares 10 bytes but has an extra 'X' after them
+        auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring(
+            "a\r\n1234567890\r\na\r\n1234521345X\r\n0\r\n\r\n"))));
+        std::unordered_map<sstring, sstring> chunk_extensions;
+        std::unordered_map<sstring, sstring> trailing_headers;
+        auto content_stream = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, chunk_extensions, trailing_headers)));
+        // Read both chunk bodies in one call
+        auto buf = content_stream.read_exactly(20).get();
+        BOOST_REQUIRE_EQUAL(sstring(buf.get(), buf.size()), sstring("12345678901234521345"));
+        // Next read finds 'X' where '\r' is expected and must throw
+        BOOST_REQUIRE_EXCEPTION(content_stream.read().get(), httpd::bad_chunk_exception,
+            [] (const httpd::bad_chunk_exception& e) {
+                return sstring(e.what()).find("The actual chunk length exceeds the specified length") != sstring::npos;
+            });
+    });
+}
