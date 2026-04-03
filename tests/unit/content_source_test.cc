@@ -184,3 +184,30 @@ SEASTAR_TEST_CASE(test_fragmented_chunks) {
         BOOST_REQUIRE(trailing_headers[sstring("trailer")] == sstring("part"));
     });
 }
+
+SEASTAR_TEST_CASE(test_full_chunk_format) {
+    return seastar::async([] {
+        // Two data chunks with complex extensions and trailing headers
+        auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring(
+            "a;abc-def;hello=world;aaaa\r\n1234567890\r\n"
+            "a;a0-!#$%&'*+.^_`|~=\"quoted string obstext\x80\x81\xff quoted_pair: \\a\"\r\n1234521345\r\n"
+            "0\r\na:b\r\n~|`_^.+*'&%$#!-0a:  ~!@#$%^&*()_+\x80\x81\xff\r\n  obs fold  \r\n\r\n"))));
+        std::unordered_map<sstring, sstring> chunk_extensions;
+        std::unordered_map<sstring, sstring> trailing_headers;
+        auto content_stream = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, chunk_extensions, trailing_headers)));
+
+        sstring decoded_body;
+        content_stream.consume([&decoded_body] (temporary_buffer<char> buf) {
+            decoded_body += sstring(buf.get(), buf.size());
+            return make_ready_future<consumption_result<char>>(continue_consuming{});
+        }).get();
+
+        BOOST_REQUIRE_EQUAL(decoded_body, sstring("12345678901234521345"));
+        BOOST_REQUIRE_EQUAL(chunk_extensions[sstring("abc-def")], sstring(""));
+        BOOST_REQUIRE_EQUAL(chunk_extensions[sstring("hello")], sstring("world"));
+        BOOST_REQUIRE_EQUAL(chunk_extensions[sstring("aaaa")], sstring(""));
+        BOOST_REQUIRE_EQUAL(chunk_extensions[sstring("a0-!#$%&'*+.^_`|~")], sstring("quoted string obstext\x80\x81\xff quoted_pair: a"));
+        BOOST_REQUIRE_EQUAL(trailing_headers[sstring("a")], sstring("b"));
+        BOOST_REQUIRE_EQUAL(trailing_headers[sstring("~|`_^.+*'&%$#!-0a")], sstring("~!@#$%^&*()_+\x80\x81\xff obs fold"));
+    });
+}

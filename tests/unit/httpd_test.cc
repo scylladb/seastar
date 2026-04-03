@@ -1771,16 +1771,6 @@ SEASTAR_TEST_CASE(test_not_implemented_encoding) {
     }, {"501 Not Implemented", "Encodings other than \"chunked\" are not implemented (received encoding: \"gzip, chunked\")"}, false, new echo_string_handler());
 }
 
-SEASTAR_TEST_CASE(test_full_chunk_format) {
-    return check_http_reply({
-        "GET /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n",
-        "a;abc-def;hello=world;aaaa\r\n1234567890\r\n",
-        "a;a0-!#$%&'*+.^_`|~=\"quoted string obstext\x80\x81\xff quoted_pair: \\a\"\r\n1234521345\r\n",
-        "0\r\na:b\r\n~|`_^.+*'&%$#!-0a:  ~!@#$%^&*()_+\x80\x81\xff\r\n  obs fold  \r\n\r\n"
-    }, {"12345678901234521345", "abc-def", "hello=world", "aaaa", "a0-!#$%&'*+.^_`|~=quoted string obstext\x80\x81\xff quoted_pair: a",
-        "a: b", "~|`_^.+*'&%$#!-0a: ~!@#$%^&*()_+\x80\x81\xff obs fold"
-    }, false, new echo_string_handler());
-}
 
 SEASTAR_TEST_CASE(test_chunk_extension_parser_fail) {
     return check_http_reply({
