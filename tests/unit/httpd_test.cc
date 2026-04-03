@@ -1772,14 +1772,6 @@ SEASTAR_TEST_CASE(test_not_implemented_encoding) {
 }
 
 
-SEASTAR_TEST_CASE(test_trailer_part_parser_fail) {
-    return check_http_reply({
-        "GET /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n",
-        "8\r\nparsable\r\n",
-        "0\r\ngood:header\r\nbad=header\r\n\r\n"
-    }, {"400 Bad Request", "Can't parse chunked request trailer"}, false, new echo_string_handler());
-}
-
 SEASTAR_TEST_CASE(test_too_long_chunk) {
     return check_http_reply({
         "GET /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n",

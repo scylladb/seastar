@@ -226,3 +226,22 @@ SEASTAR_TEST_CASE(test_chunk_extension_parser_fail) {
             });
     });
 }
+
+SEASTAR_TEST_CASE(test_trailer_part_parser_fail) {
+    return seastar::async([] {
+        // Valid data chunk followed by a trailer with invalid syntax (= instead of :)
+        auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring(
+            "8\r\nparsable\r\n0\r\ngood:header\r\nbad=header\r\n\r\n"))));
+        std::unordered_map<sstring, sstring> chunk_extensions;
+        std::unordered_map<sstring, sstring> trailing_headers;
+        auto content_stream = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, chunk_extensions, trailing_headers)));
+        // Read the data chunk successfully first
+        auto buf = content_stream.read().get();
+        BOOST_REQUIRE_EQUAL(sstring(buf.get(), buf.size()), sstring("parsable"));
+        // Next read triggers trailer parsing and must throw
+        BOOST_REQUIRE_EXCEPTION(content_stream.read().get(), httpd::bad_request_exception,
+            [] (const httpd::bad_request_exception& e) {
+                return sstring(e.what()).find("Can't parse chunked request trailer") != sstring::npos;
+            });
+    });
+}
