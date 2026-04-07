@@ -20,10 +20,6 @@
  * Copyright 2024 Redpanda Data
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
-
 #include <boost/algorithm/string/trim.hpp>
 #include <fmt/ostream.h>
 #include <fmt/ranges.h>
@@ -54,9 +50,6 @@ module;
 
 #include <netinet/in.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/gate.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/sstring.hh>
@@ -69,7 +62,6 @@ module seastar;
 
 #include "tls-impl.hh"
 #include "tls_openssl.hh"
-#endif
 
 namespace seastar::tls {
 class openssl_session;
