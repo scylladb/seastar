@@ -72,7 +72,7 @@ static auto random_seed = std::chrono::duration_cast<std::chrono::microseconds>(
 static thread_local std::default_random_engine random_generator(random_seed);
 
 class context;
-enum class request_type { seqread, overwrite, randread, randwrite, append, cpu, unlink };
+enum class request_type { seqread, overwrite, randread, randwrite, append, cpu, unlink, fstat };
 
 namespace std {
 
@@ -453,6 +453,7 @@ protected:
             { request_type::append , "APPEND" },
             { request_type::cpu , "CPU" },
             { request_type::unlink, "UNLINK" },
+            { request_type::fstat, "FSTAT" },
         }[_config.type];
         if (_config.shard_info.vectorized) {
             return format("{} (vectorized, {} iovecs)", base, _config.shard_info.iov_count);
@@ -929,6 +930,97 @@ private:
     }
 };
 
+/// Job type that creates files_count files at startup and repeatedly fstats
+/// them, cycling through files round-robin across the parallelism fibers.
+class fstat_class_data : public class_data {
+private:
+    sstring _dir_path{};
+    std::vector<file_desc> _fds;
+    std::uniform_int_distribution<uint64_t> _fd_distribution;
+
+public:
+    fstat_class_data(job_config cfg) : class_data(std::move(cfg)) {
+        if (!_config.files_count.has_value()) {
+            throw std::runtime_error("request_type::fstat requires specifying 'files_count'");
+        }
+    }
+
+    future<> do_start(sstring path, directory_entry_type type) override {
+        if (type == directory_entry_type::directory) {
+            return do_start_on_directory(path);
+        }
+        throw std::runtime_error(format("Unsupported storage. {} should be directory", path));
+    }
+
+    future<size_t> issue_request(char *buf, io_intent* intent) override {
+        auto& fd = _fds[_fd_distribution(random_generator)];
+        struct stat st;
+        auto r = ::fstat(fd.get(), &st);
+        throw_system_error_on(r == -1, "fstat");
+        return make_ready_future<size_t>(0u);
+    }
+
+    void emit_results(YAML::Emitter& out) override {
+        const auto iops = requests() / total_duration().count();
+        out << YAML::Key << "IOPS" << YAML::Value << iops;
+        out << YAML::Key << "latencies" << YAML::Comment("usec");
+        out << YAML::BeginMap;
+        out << YAML::Key << "average" << YAML::Value << average_latency();
+        for (auto& q: quantiles) {
+            out << YAML::Key << fmt::format("p{}", q) << YAML::Value << quantile_latency(q);
+        }
+        out << YAML::Key << "max" << YAML::Value << max_latency();
+        out << YAML::EndMap;
+        out << YAML::Key << "stats" << YAML::BeginMap;
+        out << YAML::Key << "total_requests" << YAML::Value << requests();
+        out << YAML::EndMap;
+    }
+
+private:
+    future<> stop_hook() override {
+        _fds.clear();
+        if (keep_files) {
+            return make_ready_future<>();
+        }
+        return max_concurrent_for_each(std::views::iota(UINT64_C(0), files_count()), max_concurrency(), [this] (uint64_t file_id) {
+            return remove_file(get_filename(file_id));
+        });
+    }
+
+    uint64_t files_count() const {
+        return *_config.files_count;
+    }
+
+    uint64_t max_concurrency() const {
+        return static_cast<uint64_t>((1024u / smp::count) * 0.8);
+    }
+
+    sstring get_filename(uint64_t file_id) const {
+        return format("{}/test-{}-shard-{:d}-file-{}", _dir_path, name(), this_shard_id(), file_id);
+    }
+
+    future<> do_start_on_directory(sstring path) {
+        _dir_path = std::move(path);
+
+        return max_concurrent_for_each(std::views::iota(UINT64_C(0), files_count()), max_concurrency(), [this] (uint64_t file_id) {
+            const auto fname = get_filename(file_id);
+            const auto fsize = align_up<uint64_t>(_config.file_size / files_count(), extent_size_hint_alignment);
+            const auto flags = open_flags::rw | open_flags::create;
+
+            file_open_options options;
+            options.extent_allocation_size_hint = _config.options.extent_allocation_size_hint.value_or(fsize);
+            options.append_is_unlikely = true;
+
+            return create_and_fill_file(fname, fsize, flags, options, true, false).then([this, fname](file f) {
+                _fds.push_back(file_desc::open(fname, O_RDONLY));
+                return f.close();
+            });
+        }).then([this] {
+            _fd_distribution = std::uniform_int_distribution<uint64_t>(0, files_count() - 1);
+        });
+    }
+};
+
 class cpu_class_data : public class_data {
 public:
     cpu_class_data(job_config cfg) : class_data(std::move(cfg)) {}
@@ -958,6 +1050,8 @@ std::unique_ptr<class_data> job_config::gen_class_data() {
         return std::make_unique<cpu_class_data>(*this);
     } else if (type == request_type::unlink) {
         return std::make_unique<unlink_class_data>(*this);
+    } else if (type == request_type::fstat) {
+        return std::make_unique<fstat_class_data>(*this);
     } else if ((type == request_type::seqread) || (type == request_type::randread)) {
         if (shard_info.vectorized) {
             return std::make_unique<vectorized_read_io_class_data>(*this);
@@ -1046,6 +1140,7 @@ struct convert<request_type> {
             { "append", request_type::append},
             { "cpu", request_type::cpu},
             { "unlink", request_type::unlink },
+            { "fstat", request_type::fstat },
         };
         auto reqstr = node.as<std::string>();
         if (!mappings.count(reqstr)) {
