@@ -9,6 +9,7 @@
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/http/response_parser.hh>
 #include <seastar/util/defer.hh>
+#include <seastar/util/memory-data-source.hh>
 #include "loopback_socket.hh"
 
 using namespace seastar;
@@ -184,21 +185,6 @@ SEASTAR_TEST_CASE(test_websocket_handler_registration_no_subprotocol) {
 }
 
 // Simple wrapper to help create a testable input_stream.
-class test_source_impl : public data_source_impl {
-    std::vector<temporary_buffer<char>> _bufs{};
-    size_t _idx = 0;
-public:
-    void push_back(std::string s) {
-        auto buf = temporary_buffer<char>::copy_of(s);
-        _bufs.emplace_back(std::move(buf));
-    }
-    virtual future<temporary_buffer<char>> get() override {
-        if (_idx < _bufs.size()) {
-            return make_ready_future<temporary_buffer<char>>(_bufs[_idx++].share());
-        }
-        return make_ready_future<temporary_buffer<char>>(temporary_buffer<char>{});
-    }
-};
 
 SEASTAR_TEST_CASE(test_websocket_parser_split) {
     return seastar::async([] {
@@ -217,16 +203,16 @@ SEASTAR_TEST_CASE(test_websocket_parser_split) {
         for (unsigned split_i = 0; split_i < ws_frames.size() - 1; ++split_i) {
             websocket::websocket_parser parser;
 
-            auto source = std::make_unique<test_source_impl>();
+            auto bufs = std::vector<temporary_buffer<char>>{};
 
             if (split_i == 0) {
-                source->push_back(ws_frames);
+                bufs.push_back(temporary_buffer<char>::copy_of(ws_frames));
             } else {
-                source->push_back(ws_frames.substr(0, split_i));
-                source->push_back(ws_frames.substr(split_i));
+                bufs.push_back(temporary_buffer<char>::copy_of(ws_frames.substr(0, split_i)));
+                bufs.push_back(temporary_buffer<char>::copy_of(ws_frames.substr(split_i)));
             }
 
-            input_stream<char> in{data_source{std::move(source)}};
+            input_stream<char> in = util::as_input_stream(std::move(bufs));
 
             std::vector<sstring> results;
 
