@@ -25,30 +25,15 @@
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/http/internal/content_source.hh>
 #include <seastar/testing/test_case.hh>
+#include <seastar/util/memory-data-source.hh>
 #include <tuple>
 
 using namespace seastar;
 
-class buf_source_impl : public data_source_impl {
-    temporary_buffer<char> _tmp;
-public:
-    buf_source_impl(sstring str) : _tmp(str.c_str(), str.size()) {};
-    virtual future<temporary_buffer<char>> get() override {
-        if (_tmp.empty()) {
-            return make_ready_future<temporary_buffer<char>>();
-        }
-        return make_ready_future<temporary_buffer<char>>(std::move(_tmp));
-    }
-    virtual future<temporary_buffer<char>> skip(uint64_t n) override {
-        _tmp.trim_front(std::min(_tmp.size(), n));
-        return make_ready_future<temporary_buffer<char>>();
-    }
-};
-
 SEASTAR_TEST_CASE(test_incomplete_content) {
     return seastar::async([] {
       {
-        auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("asdfghjkl;"))));
+        auto inp = util::as_input_stream(temporary_buffer<char>::copy_of("asdfghjkl;"));
         auto content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(inp, 20)));
 
         auto content1 = content_strm.read().get();
@@ -60,7 +45,7 @@ SEASTAR_TEST_CASE(test_incomplete_content) {
       }
 
       {
-        auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("4\r\n132"))));
+        auto inp = util::as_input_stream(temporary_buffer<char>::copy_of("4\r\n132"));
         std::unordered_map<sstring, sstring> tmp, tmp2;
         auto content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, tmp, tmp2)));
 
@@ -76,7 +61,7 @@ SEASTAR_TEST_CASE(test_incomplete_content) {
 SEASTAR_TEST_CASE(test_complete_content) {
     return seastar::async([] {
       {
-        auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("asdfghjkl;1234567890"))));
+        auto inp = util::as_input_stream(temporary_buffer<char>::copy_of("asdfghjkl;1234567890"));
         auto content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(inp, 20)));
 
         auto content1 = content_strm.read().get();
@@ -87,7 +72,7 @@ SEASTAR_TEST_CASE(test_complete_content) {
       }
 
       {
-        auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("4\r\n1324\r\n0\r\n\r\n"))));
+        auto inp = util::as_input_stream(temporary_buffer<char>::copy_of("4\r\n1324\r\n0\r\n\r\n"));
         std::unordered_map<sstring, sstring> tmp, tmp2;
         auto content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, tmp, tmp2)));
 
@@ -103,7 +88,7 @@ SEASTAR_TEST_CASE(test_complete_content) {
 SEASTAR_TEST_CASE(test_more_than_requests_content) {
     return seastar::async([] {
       {
-        auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("asdfghjkl;1234567890xyz"))));
+        auto inp = util::as_input_stream(temporary_buffer<char>::copy_of("asdfghjkl;1234567890xyz"));
         auto content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(inp, 20)));
 
         auto content1 = content_strm.read().get();
@@ -116,7 +101,7 @@ SEASTAR_TEST_CASE(test_more_than_requests_content) {
       }
 
       {
-        auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("4\r\n1324\r\n0\r\n\r\nxyz"))));
+        auto inp = util::as_input_stream(temporary_buffer<char>::copy_of("4\r\n1324\r\n0\r\n\r\nxyz"));
         std::unordered_map<sstring, sstring> tmp, tmp2;
         auto content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, tmp, tmp2)));
 
