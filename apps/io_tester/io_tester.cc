@@ -594,8 +594,12 @@ public:
 
 private:
     void update_queue_length() {
-        unsigned qlen = get_one_metrics("io_queue_disk_queue_length").value();
-        _disk_queue_lengths(qlen);
+        // The metric may not exist yet: io_queue lazily registers per-class
+        // metrics on the first I/O request from a scheduling group, but this
+        // timer is armed during file setup before any I/O is issued.
+        if (auto val = get_one_metrics("io_queue_disk_queue_length")) {
+            _disk_queue_lengths(static_cast<unsigned>(*val));
+        }
     }
 
     future<> do_start_path(sstring path, directory_entry_type type) {
