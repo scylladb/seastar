@@ -1962,14 +1962,16 @@ reactor::remove_file(std::string_view pathname_view) noexcept {
 }
 
 future<>
-reactor::rename_file(std::string_view old_pathname_view, std::string_view new_pathname_view) noexcept {
+reactor::rename_file(std::string_view old_pathname_view, std::string_view new_pathname_view, rename_flags flags) noexcept {
     auto old_pathname = sstring(old_pathname_view);
     auto new_pathname = sstring(new_pathname_view);
+    auto raw_flags = std::underlying_type_t<rename_flags>(flags);
     syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
-            internal::thread_pool_submit_reason::file_operation, [old_pathname, new_pathname] {
-        return wrap_syscall<int>(::rename(old_pathname.c_str(), new_pathname.c_str()));
+            internal::thread_pool_submit_reason::file_operation, [old_pathname, new_pathname, raw_flags] {
+        return wrap_syscall<int>(static_cast<int>(
+                ::syscall(SYS_renameat2, AT_FDCWD, old_pathname.c_str(), AT_FDCWD, new_pathname.c_str(), raw_flags)));
     });
-    sr.throw_fs_exception_if_error("rename failed",  old_pathname, new_pathname);
+    sr.throw_fs_exception_if_error("rename failed", old_pathname, new_pathname);
 }
 
 future<>

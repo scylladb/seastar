@@ -334,11 +334,12 @@ future<> remove_file(std::string_view name) noexcept;
 ///
 /// \param old_name existing file name
 /// \param new_name new file name
+/// \param flags \c renameat2 flags - see man page for renameat2 and \ref rename_flags.
 ///
 /// \note
 /// The rename is not guaranteed to be stable on disk, unless the
 /// both containing directories are sync'ed.
-future<> rename_file(std::string_view old_name, std::string_view new_name) noexcept;
+future<> rename_file(std::string_view old_name, std::string_view new_name, rename_flags flags = rename_flags::none) noexcept;
 
 struct follow_symlink_tag { };
 using follow_symlink = bool_class<follow_symlink_tag>;

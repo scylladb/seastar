@@ -349,6 +349,7 @@ using seastar::file_open_options;
 using seastar::open_flags;
 using seastar::access_flags;
 using seastar::file_permissions;
+using seastar::rename_flags;
 using seastar::follow_symlink;
 using seastar::directory_entry_type;
 using seastar::directory_entry;

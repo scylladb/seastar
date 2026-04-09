@@ -21,9 +21,11 @@
 
 #pragma once
 
+#include <cstdio>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <linux/fs.h>
 #include <type_traits>
 
 #include <seastar/util/bool_class.hh>
@@ -194,6 +196,31 @@ inline void operator&=(mmap_prot& a, mmap_prot b) {
 ///
 /// \see file::mmap()
 using mmap_private = bool_class<struct mmap_private_tag>;
+
+/// Flags for the rename_file() operation.
+///
+/// \see rename_file()
+enum class rename_flags {
+    none = 0,
+    /// Don't overwrite the target if it already exists; instead, fail with EEXIST.
+    noreplace = RENAME_NOREPLACE,
+    /// Atomically exchange the source and destination paths.
+    ///
+    /// See RENAME_EXCHANGE
+    exchange = RENAME_EXCHANGE,
+    /// Create a whiteout at the source (for overlayfs/union mounts).
+    ///
+    /// See RENAME_WHITEOUT
+    whiteout = RENAME_WHITEOUT,
+};
+
+inline constexpr rename_flags operator|(rename_flags a, rename_flags b) {
+    return rename_flags(std::underlying_type_t<rename_flags>(a) | std::underlying_type_t<rename_flags>(b));
+}
+
+inline constexpr rename_flags operator&(rename_flags a, rename_flags b) {
+    return rename_flags(std::underlying_type_t<rename_flags>(a) & std::underlying_type_t<rename_flags>(b));
+}
 
 /// @}
 

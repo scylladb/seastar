@@ -1286,3 +1286,24 @@ SEASTAR_THREAD_TEST_CASE(test_posix_file_dma_read_bulk) {
         }
     }
 }
+
+SEASTAR_TEST_CASE(test_rename) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        sstring filename1 = (t.get_path() / "testfile1.tmp").native();
+        sstring filename2 = (t.get_path() / "testfile2.tmp").native();
+        sstring filename3 = (t.get_path() / "testfile3.tmp").native();
+        auto f = open_file_dma(filename1, default_create_open_flags).get();
+        f.close().get();
+        f = open_file_dma(filename3, default_create_open_flags).get();
+        f.close().get();
+        rename_file(filename1, filename2).get();
+        BOOST_REQUIRE(file_exists(filename2).get());
+        BOOST_REQUIRE(!file_exists(filename1).get());
+        BOOST_REQUIRE_THROW(rename_file(filename3, filename2, rename_flags::noreplace).get(), std::system_error);
+        BOOST_REQUIRE(file_exists(filename3).get());
+        rename_file(filename3, filename1, rename_flags::noreplace).get();
+        BOOST_REQUIRE(file_exists(filename1).get());
+        BOOST_REQUIRE(file_exists(filename2).get());
+        BOOST_REQUIRE(!file_exists(filename3).get());
+    });
+}

@@ -552,7 +552,7 @@ public:
     future<std::filesystem::space_info> file_system_space(std::string_view pathname) noexcept;
     future<struct statvfs> statvfs(std::string_view pathname) noexcept;
     future<> remove_file(std::string_view pathname) noexcept;
-    future<> rename_file(std::string_view old_pathname, std::string_view new_pathname) noexcept;
+    future<> rename_file(std::string_view old_pathname, std::string_view new_pathname, rename_flags flags = rename_flags::none) noexcept;
     future<> link_file(std::string_view oldpath, std::string_view newpath) noexcept;
     future<> chmod(std::string_view name, file_permissions permissions) noexcept;
 
