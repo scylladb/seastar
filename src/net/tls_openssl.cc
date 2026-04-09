@@ -2228,9 +2228,9 @@ bio_method_ptr create_bio_method() {
 } // namespace tls
 
 BIO_METHOD* get_method() {
-    static thread_local bio_method_ptr method_ptr = [] {
-        return tls::create_bio_method();
-    }();
+    // shared across shards (no actual state) to avoid running into 127 BIO
+    // index limit in openssl on larger shard count machines
+    const static bio_method_ptr method_ptr = tls::create_bio_method();
 
     return method_ptr.get();
 }
