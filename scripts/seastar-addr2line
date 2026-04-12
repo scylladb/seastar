@@ -146,7 +146,7 @@ class TestStringMethods(unittest.TestCase):
     def test_reactor_stall_reports(self):
         data: TestList = [
             (
-                'Reactor stalled on shard 1. Backtrace: 0x12f34',
+                'Reactor stalled on shard 1. Backtrace: 0x12f34 (BuildId: 2d4295e82afee91a64c6dffbb1935537e002df2d)',
                 {
                     'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
                     'prefix': 'Reactor stalled on shard 1. Backtrace:',
@@ -154,7 +154,7 @@ class TestStringMethods(unittest.TestCase):
                 },
             ),
             (
-                'Reactor stalled on shard 1. Backtrace: 0xa1234 0xb5678',
+                'Reactor stalled on shard 1. Backtrace: 0xa1234 0xb5678 (BuildId: 2d4295e82afee91a64c6dffbb1935537e002df2d)',
                 {
                     'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
                     'prefix': 'Reactor stalled on shard 1. Backtrace:',
@@ -165,7 +165,7 @@ class TestStringMethods(unittest.TestCase):
                 },
             ),
             (
-                'Reactor stalled on shard 1. Backtrace: /my/path+0xabcd',
+                'Reactor stalled on shard 1. Backtrace: /my/path+0xabcd (BuildId: 2d4295e82afee91a64c6dffbb1935537e002df2d)',
                 {
                     'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
                     'prefix': 'Reactor stalled on shard 1. Backtrace:',
@@ -191,7 +191,7 @@ class TestStringMethods(unittest.TestCase):
     def test_boost_failure(self):
         data: TestList = [
             (
-                'Expected partition_end(), but got end of stream, at 0xa1234 0xb5678 /my/path+0xabcd',
+                'Expected partition_end(), but got end of stream, at 0xa1234 0xb5678 /my/path+0xabcd (BuildId: 2d4295e82afee91a64c6dffbb1935537e002df2d)',
                 {
                     'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
                     'prefix': 'Expected partition_end(), but got end of stream, at',

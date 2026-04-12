@@ -27,6 +27,7 @@
 #include <seastar/testing/random.hh>
 #include <seastar/testing/test_runner.hh>
 #include <seastar/util/assert.hh>
+#include <seastar/util/internal/build_id.hh>
 
 namespace seastar {
 
@@ -86,6 +87,7 @@ bool test_runner::start_thread(int ac, char** av) {
                 });
             };
 
+            std::cout << fmt::format("build_id={}", internal::get_build_id()) << std::endl;
             return init().then([this] {
               return do_until([this] { return _done; }, [this] {
                 // this will block the reactor briefly, but we don't care

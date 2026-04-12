@@ -240,6 +240,7 @@ class BacktraceResolver:
             addr = "0x[0-9a-f]+"
             path = r"\S+"
             token = fr"(?:{path}\+)?{addr}"
+            build_id = r"\(BuildId: [0-9a-fA-F]+\)"
             full_addr_match = fr"(?:(?P<path>{path})\s*\+\s*)?(?P<addr>{addr})"
             ignore_addr_match = fr"(?:(?P<path>{path})\s*\+\s*)?(?:{addr})"
 
@@ -249,7 +250,7 @@ class BacktraceResolver:
             # All of the below except for separator_re must only match lines containing 0x in them
             # as we use that as a quick first filter
             self.oneline_re = re.compile(
-                fr"^((?:.*(?:(?:at|backtrace):?|:))?(?:\s+))?({token}(?:\s+{token})*)(?:\).*|\s*)$",
+                fr"^((?:.*(?:(?:at|backtrace):?|:))?(?:\s+))?({token}(?:\s+{token})*)(\s+{build_id})?(?:\).*|\s*)$",
                 flags=re.IGNORECASE,
             )
             self.address_re = re.compile(full_addr_match, flags=re.IGNORECASE)
@@ -259,7 +260,7 @@ class BacktraceResolver:
             )
             self.kernel_re = re.compile(fr'^.*kernel callstack: (?P<addrs>(?:{addr}\s*)+)$')
             self.asan_re = re.compile(
-                fr"^(?:.*\s+)\({full_addr_match}\)(\s+\(BuildId: [0-9a-fA-F]+\))?$",
+                fr"^(?:.*\s+)\({full_addr_match}\)(\s+{build_id})?$",
                 flags=re.IGNORECASE,
             )
             self.generic_re = re.compile(fr"^(?:.*\s+){full_addr_match}\s*$", flags=re.IGNORECASE)

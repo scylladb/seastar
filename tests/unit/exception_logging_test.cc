@@ -32,6 +32,18 @@
 
 using namespace seastar;
 
+#ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
+static void check_regex_match(const std::string& msg, const std::string& regex_str) {
+    std::regex re(regex_str, std::regex_constants::ECMAScript | std::regex_constants::icase);
+    if (!std::regex_search(msg, re)) {
+        BOOST_TEST_MESSAGE("Regex mismatch");
+        BOOST_TEST_MESSAGE("  msg:   " + msg);
+        BOOST_TEST_MESSAGE("  regex: " + regex_str);
+    }
+    BOOST_REQUIRE(std::regex_search(msg, re));
+}
+#endif
+
 // a class which is not derived from std::exception
 // to play the part of the unknown object in the logging
 // function.
@@ -210,9 +222,8 @@ BOOST_AUTO_TEST_CASE(throw_with_backtrace_exception_logging) {
     }
 
 #ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
-    auto regex_str = "backtraced<std::runtime_error> \\(throw_with_backtrace_exception_logging Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+\\)";
-    std::regex expected_msg_re(regex_str, std::regex_constants::ECMAScript | std::regex_constants::icase);
-    BOOST_REQUIRE(std::regex_search(log_msg.str(), expected_msg_re));
+    auto regex_str = "backtraced<std::runtime_error> \\(throw_with_backtrace_exception_logging Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?\\)";
+    check_regex_match(log_msg.str(), regex_str);
 #endif
 }
 
@@ -229,9 +240,8 @@ BOOST_AUTO_TEST_CASE(throw_with_backtrace_nested_exception_logging) {
     }
 
 #ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
-    auto regex_str = "std::_Nested_exception<unknown_obj>.*backtraced<std::runtime_error> \\(outer Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+\\)";
-    std::regex expected_msg_re(regex_str, std::regex_constants::ECMAScript | std::regex_constants::icase);
-    BOOST_REQUIRE(std::regex_search(log_msg.str(), expected_msg_re));
+    auto regex_str = "std::_Nested_exception<unknown_obj>.*backtraced<std::runtime_error> \\(outer Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?\\)";
+    check_regex_match(log_msg.str(), regex_str);
 #endif
 }
 
@@ -254,10 +264,9 @@ BOOST_AUTO_TEST_CASE(throw_with_backtrace_seastar_nested_exception_logging) {
     }
 
 #ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
-    auto regex_str = "seastar::nested_exception:.*backtraced<std::runtime_error> \\(inner Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+\\)"
+    auto regex_str = "seastar::nested_exception:.*backtraced<std::runtime_error> \\(inner Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?\\)"
             " \\(while cleaning up after unknown_obj\\)";
-    std::regex expected_msg_re(regex_str, std::regex_constants::ECMAScript | std::regex_constants::icase);
-    BOOST_REQUIRE(std::regex_search(log_msg.str(), expected_msg_re));
+    check_regex_match(log_msg.str(), regex_str);
 #endif
 }
 
@@ -278,11 +287,11 @@ BOOST_AUTO_TEST_CASE(double_throw_with_backtrace_seastar_nested_exception_loggin
             }
         }
     }
+    BOOST_TEST_MESSAGE(log_msg.str());
 
 #ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
-    auto regex_str = "seastar::nested_exception:.*backtraced<std::runtime_error> \\(inner Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+\\)"
-            " \\(while cleaning up after .*backtraced<std::runtime_error> \\(outer Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+\\)\\)";
-    std::regex expected_msg_re(regex_str, std::regex_constants::ECMAScript | std::regex_constants::icase);
-    BOOST_REQUIRE(std::regex_search(log_msg.str(), expected_msg_re));
+    auto regex_str = "seastar::nested_exception:.*backtraced<std::runtime_error> \\(inner Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?\\)"
+            " \\(while cleaning up after .*backtraced<std::runtime_error> \\(outer Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?\\)\\)";
+    check_regex_match(log_msg.str(), regex_str);
 #endif
 }

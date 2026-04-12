@@ -165,6 +165,7 @@
 #include <seastar/util/spinlock.hh>
 #include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/util/internal/magic.hh>
+#include <seastar/util/internal/build_id.hh>
 #include "core/crypto.hh"
 #include "core/reactor_backend.hh"
 #include "core/syscall_result.hh"
@@ -882,6 +883,9 @@ public:
             append("0x");
             append_hex(f.addr);
         }, _immediate);
+        append(" (BuildId: ");
+        append(internal::get_build_id());
+        append(")");
     }
 };
 

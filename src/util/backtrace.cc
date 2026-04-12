@@ -35,6 +35,7 @@
 #include <fmt/ranges.h>
 
 #include <seastar/util/backtrace.hh>
+#include <seastar/util/internal/build_id.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/reactor.hh>
@@ -191,7 +192,7 @@ auto formatter<seastar::frame>::format(const seastar::frame& f, format_context& 
 
 auto formatter<seastar::simple_backtrace>::format(const seastar::simple_backtrace& b, format_context& ctx) const
     -> decltype(ctx.out()) {
-    return fmt::format_to(ctx.out(), "{}", fmt::join(b._frames, " "));
+    return fmt::format_to(ctx.out(), "{} (BuildId: {})", fmt::join(b._frames, " "), seastar::internal::get_build_id());
 }
 
 auto formatter<seastar::tasktrace>::format(const seastar::tasktrace& b, format_context& ctx) const
