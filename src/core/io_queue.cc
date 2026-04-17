@@ -194,6 +194,100 @@ struct io_queue::priority_class_group_data final : public io_queue::priority_ent
     bool is_dispatchable() const noexcept override { return _active_children_shares > 0; }
 };
 
+class io_desc_read_write final : public io_completion {
+    io_queue& _ioq;
+    io_queue::priority_class_data& _pclass;
+    io_queue::clock_type::time_point _ts;
+    const stream_id _stream;
+    const io_direction_and_length _dnl;
+    const fair_queue_entry::capacity_t _fq_capacity;
+    promise<size_t> _pr;
+    iovec_keeper _iovs;
+    uint64_t _dispatched_polls;
+
+public:
+    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_entry::capacity_t cap, iovec_keeper iovs)
+        : _ioq(ioq)
+        , _pclass(pc)
+        , _ts(io_queue::clock_type::now())
+        , _stream(stream)
+        , _dnl(dnl)
+        , _fq_capacity(cap)
+        , _iovs(std::move(iovs))
+    {
+        io_log.trace("dev {} : req {} queue  len {} capacity {}", _ioq.id(), fmt::ptr(this), _dnl.length(), _fq_capacity);
+    }
+
+    virtual void set_exception(std::exception_ptr eptr) noexcept override;
+    virtual void complete(size_t res) noexcept override;
+    void cancel() noexcept;
+    void dispatch() noexcept;
+
+    future<size_t> get_future() {
+        return _pr.get_future();
+    }
+
+    fair_queue_entry::capacity_t capacity() const noexcept { return _fq_capacity; }
+    stream_id stream() const noexcept { return _stream; }
+    uint64_t polls() const noexcept { return _dispatched_polls; }
+};
+
+class queued_io_request : private internal::io_request {
+    io_queue& _ioq;
+    const stream_id _stream;
+    fair_queue_entry _fq_entry;
+    internal::cancellable_queue::link _intent;
+    std::unique_ptr<io_desc_read_write> _desc;
+
+    bool is_cancelled() const noexcept { return !_desc; }
+
+public:
+    queued_io_request(internal::io_request req, io_queue& q, fair_queue_entry::capacity_t cap, io_queue::priority_class_data& pc, io_direction_and_length dnl, iovec_keeper iovs)
+        : io_request(std::move(req))
+        , _ioq(q)
+        , _stream(_ioq.request_stream(dnl))
+        , _fq_entry(cap)
+        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, cap, std::move(iovs)))
+    {
+    }
+
+    queued_io_request(queued_io_request&&) = delete;
+
+    void dispatch() noexcept {
+        if (is_cancelled()) {
+            _ioq.complete_cancelled_request(*this);
+            delete this;
+            return;
+        }
+
+        _intent.maybe_dequeue();
+        _desc->dispatch();
+        _ioq.submit_request(_desc.release(), std::move(*this));
+        delete this;
+    }
+
+    void cancel() noexcept {
+        _ioq.cancel_request(*this);
+        _desc.release()->cancel();
+    }
+
+    void set_intent(internal::cancellable_queue& cq) noexcept {
+        _intent.enqueue(cq);
+    }
+
+    future<size_t> get_future() noexcept { return _desc->get_future(); }
+    fair_queue_entry& queue_entry() noexcept { return _fq_entry; }
+    stream_id stream() const noexcept { return _stream; }
+
+    static queued_io_request& from_fq_entry(fair_queue_entry& ent) noexcept {
+        return *boost::intrusive::get_parent_from_member(&ent, &queued_io_request::_fq_entry);
+    }
+
+    static queued_io_request& from_cq_link(internal::cancellable_queue::link& link) noexcept {
+        return *boost::intrusive::get_parent_from_member(&link, &queued_io_request::_intent);
+    }
+};
+
 class io_queue::priority_class_data final : public io_queue::priority_entity {
     io_queue& _queue;
     const internal::priority_class _pc;
@@ -364,126 +458,37 @@ public:
     metrics::metric_groups metric_groups;
 };
 
-class io_desc_read_write final : public io_completion {
-    io_queue& _ioq;
-    io_queue::priority_class_data& _pclass;
-    io_queue::clock_type::time_point _ts;
-    const stream_id _stream;
-    const io_direction_and_length _dnl;
-    const fair_queue_entry::capacity_t _fq_capacity;
-    promise<size_t> _pr;
-    iovec_keeper _iovs;
-    uint64_t _dispatched_polls;
+void io_desc_read_write::set_exception(std::exception_ptr eptr) noexcept {
+    io_log.trace("dev {} : req {} error", _ioq.id(), fmt::ptr(this));
+    _pclass.on_error();
+    _ioq.complete_request(*this, std::chrono::duration<double>(0.0));
+    _pr.set_exception(eptr);
+    delete this;
+}
 
-public:
-    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_entry::capacity_t cap, iovec_keeper iovs)
-        : _ioq(ioq)
-        , _pclass(pc)
-        , _ts(io_queue::clock_type::now())
-        , _stream(stream)
-        , _dnl(dnl)
-        , _fq_capacity(cap)
-        , _iovs(std::move(iovs))
-    {
-        io_log.trace("dev {} : req {} queue  len {} capacity {}", _ioq.id(), fmt::ptr(this), _dnl.length(), _fq_capacity);
-    }
+void io_desc_read_write::complete(size_t res) noexcept {
+    io_log.trace("dev {} : req {} complete", _ioq.id(), fmt::ptr(this));
+    auto now = io_queue::clock_type::now();
+    auto delay = std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts);
+    _pclass.on_complete(delay);
+    _ioq.complete_request(*this, delay);
+    _pr.set_value(res);
+    delete this;
+}
 
-    virtual void set_exception(std::exception_ptr eptr) noexcept override {
-        io_log.trace("dev {} : req {} error", _ioq.id(), fmt::ptr(this));
-        _pclass.on_error();
-        _ioq.complete_request(*this, std::chrono::duration<double>(0.0));
-        _pr.set_exception(eptr);
-        delete this;
-    }
+void io_desc_read_write::cancel() noexcept {
+    _pclass.on_cancel();
+    _pr.set_exception(std::make_exception_ptr(default_io_exception_factory::cancelled()));
+    delete this;
+}
 
-    virtual void complete(size_t res) noexcept override {
-        io_log.trace("dev {} : req {} complete", _ioq.id(), fmt::ptr(this));
-        auto now = io_queue::clock_type::now();
-        auto delay = std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts);
-        _pclass.on_complete(delay);
-        _ioq.complete_request(*this, delay);
-        _pr.set_value(res);
-        delete this;
-    }
-
-    void cancel() noexcept {
-        _pclass.on_cancel();
-        _pr.set_exception(std::make_exception_ptr(default_io_exception_factory::cancelled()));
-        delete this;
-    }
-
-    void dispatch() noexcept {
-        io_log.trace("dev {} : req {} submit", _ioq.id(), fmt::ptr(this));
-        auto now = io_queue::clock_type::now();
-        _pclass.on_dispatch(_dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
-        _ts = now;
-        _dispatched_polls = engine().polls();
-    }
-
-    future<size_t> get_future() {
-        return _pr.get_future();
-    }
-
-    fair_queue_entry::capacity_t capacity() const noexcept { return _fq_capacity; }
-    stream_id stream() const noexcept { return _stream; }
-    uint64_t polls() const noexcept { return _dispatched_polls; }
-};
-
-class queued_io_request : private internal::io_request {
-    io_queue& _ioq;
-    const stream_id _stream;
-    fair_queue_entry _fq_entry;
-    internal::cancellable_queue::link _intent;
-    std::unique_ptr<io_desc_read_write> _desc;
-
-    bool is_cancelled() const noexcept { return !_desc; }
-
-public:
-    queued_io_request(internal::io_request req, io_queue& q, fair_queue_entry::capacity_t cap, io_queue::priority_class_data& pc, io_direction_and_length dnl, iovec_keeper iovs)
-        : io_request(std::move(req))
-        , _ioq(q)
-        , _stream(_ioq.request_stream(dnl))
-        , _fq_entry(cap)
-        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, cap, std::move(iovs)))
-    {
-    }
-
-    queued_io_request(queued_io_request&&) = delete;
-
-    void dispatch() noexcept {
-        if (is_cancelled()) {
-            _ioq.complete_cancelled_request(*this);
-            delete this;
-            return;
-        }
-
-        _intent.maybe_dequeue();
-        _desc->dispatch();
-        _ioq.submit_request(_desc.release(), std::move(*this));
-        delete this;
-    }
-
-    void cancel() noexcept {
-        _ioq.cancel_request(*this);
-        _desc.release()->cancel();
-    }
-
-    void set_intent(internal::cancellable_queue& cq) noexcept {
-        _intent.enqueue(cq);
-    }
-
-    future<size_t> get_future() noexcept { return _desc->get_future(); }
-    fair_queue_entry& queue_entry() noexcept { return _fq_entry; }
-    stream_id stream() const noexcept { return _stream; }
-
-    static queued_io_request& from_fq_entry(fair_queue_entry& ent) noexcept {
-        return *boost::intrusive::get_parent_from_member(&ent, &queued_io_request::_fq_entry);
-    }
-
-    static queued_io_request& from_cq_link(internal::cancellable_queue::link& link) noexcept {
-        return *boost::intrusive::get_parent_from_member(&link, &queued_io_request::_intent);
-    }
-};
+void io_desc_read_write::dispatch() noexcept {
+    io_log.trace("dev {} : req {} submit", _ioq.id(), fmt::ptr(this));
+    auto now = io_queue::clock_type::now();
+    _pclass.on_dispatch(_dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
+    _ts = now;
+    _dispatched_polls = engine().polls();
+}
 
 namespace internal {
 
