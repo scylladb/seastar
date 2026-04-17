@@ -75,9 +75,11 @@ class io_queue {
 public:
     class priority_entity;
     class priority_class_data;
+    struct priority_class_group_data;
     using clock_type = std::chrono::steady_clock;
 
 private:
+    std::vector<std::unique_ptr<priority_class_group_data>> _priority_groups;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     io_group_ptr _group;
     const unsigned _id;
@@ -135,6 +137,7 @@ private:
     friend const io_throttler& internal::get_throttler(const io_queue& ioq, unsigned stream);
 
     priority_class_data& find_or_create_class(internal::priority_class pc);
+    priority_class_group_data& find_or_create_class_group(unsigned index, uint32_t shares);
     future<size_t> queue_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
     future<size_t> queue_one_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
 
