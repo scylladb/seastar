@@ -194,30 +194,57 @@ public:
 
 class io_queue::priority_entity {
 protected:
+    priority_entity* _parent;
     uint32_t _shares;
+    std::vector<priority_entity*> _children;
+    uint32_t _active_children_demand{0};
 
-    explicit priority_entity(uint32_t shares) noexcept
-            : _shares(std::max(shares, 1u))
+    priority_entity(priority_entity* parent, uint32_t shares) noexcept
+            : _parent(parent)
+            , _shares(std::max(shares, 1u))
     {}
 
 public:
+    priority_entity* parent() const noexcept { return _parent; }
     uint32_t shares() const noexcept { return _shares; }
+    // What the entity asks for when tokens are split between siblings and,
+    // summed up the tree, what the shard asks the disk for. For now it's
+    // just the configured shares.
+    uint32_t demand() const noexcept { return _shares; }
 
     void update_shares(uint32_t shares) noexcept {
         _shares = std::max(shares, 1u);
     }
+
+    void add_child(priority_entity& child) noexcept {
+        _children.push_back(&child);
+    }
+
+    void remove_child(priority_entity& child) noexcept {
+        auto it = std::find(_children.begin(), _children.end(), &child);
+        _children.erase(it);
+    }
+
+    virtual void child_started_dispatching(priority_entity& child) noexcept = 0;
+    virtual void child_stopped_dispatching(priority_entity& child) noexcept = 0;
+    virtual void child_demand_changed(priority_entity& child, uint32_t old_demand) noexcept = 0;
+    virtual bool is_dispatchable() const noexcept = 0;
+
+protected:
+    ~priority_entity() = default;
 };
 
 // Shard-local mirror of a scheduling supergroup, the way priority_class_data
 // is one of a scheduling group. Classes that belong to a supergroup point at
 // the respective entry of the io_queue::_priority_groups vector.
-struct io_queue::priority_class_group_data {
+struct io_queue::priority_class_group_data final : public io_queue::priority_entity {
     const scheduling_supergroup _ssg;
     io_queue& _queue;
     bandwidth_throttler<priority_class_group_data> _bw;
 
     priority_class_group_data(scheduling_supergroup ssg, io_queue& q, io_group::priority_class_group_data& gpg) noexcept
-        : _ssg(ssg)
+        : priority_entity(nullptr, ssg.get_shares())
+        , _ssg(ssg)
         , _queue(q)
         , _bw(gpg.tb, *this)
     {
@@ -233,6 +260,26 @@ struct io_queue::priority_class_group_data {
 
     // Account tokens dispatched by a member class against the group cap
     void grab(uint64_t tokens) noexcept { _bw.grab(tokens); }
+
+    void child_started_dispatching(priority_entity& child) noexcept override {
+        if (_active_children_demand == 0 && _parent) {
+            _parent->child_started_dispatching(*this);
+        }
+        _active_children_demand += child.demand();
+    }
+
+    void child_stopped_dispatching(priority_entity& child) noexcept override {
+        _active_children_demand -= child.demand();
+        if (_active_children_demand == 0 && _parent) {
+            _parent->child_stopped_dispatching(*this);
+        }
+    }
+
+    void child_demand_changed(priority_entity& child, uint32_t old_demand) noexcept override {
+        _active_children_demand = _active_children_demand - old_demand + child.demand();
+    }
+
+    bool is_dispatchable() const noexcept override { return _active_children_demand > 0; }
 };
 
 class io_queue::priority_class_data final : public io_queue::priority_entity {
@@ -262,7 +309,7 @@ class io_queue::priority_class_data final : public io_queue::priority_entity {
 
 public:
     priority_class_data(scheduling_group sg, uint32_t shares, io_queue& q, io_group::priority_class_data& pg, priority_class_group_data* pcg)
-        : priority_entity(shares)
+        : priority_entity(pcg, shares)
         , _queue(q)
         , _sg(sg)
         , _nr_queued(0)
@@ -274,6 +321,9 @@ public:
         , _bw(pg.tb, *this)
         , _pcg(pcg)
     {
+        if (_parent != nullptr) {
+            _parent->add_child(*this);
+        }
     }
     priority_class_data(const priority_class_data&) = delete;
     priority_class_data(priority_class_data&&) = delete;
@@ -281,10 +331,18 @@ public:
     ~priority_class_data() {
         SEASTAR_ASSERT(_nr_queued == 0);
         SEASTAR_ASSERT(_nr_executing == 0);
+        if (_parent != nullptr) {
+            _parent->remove_child(*this);
+        }
     }
 
     void throttle() noexcept { _queue.throttle_priority_class(*this); }
     void unthrottle() noexcept { _queue.unthrottle_priority_class(*this); }
+
+    void child_started_dispatching(priority_entity&) noexcept override { abort(); }
+    void child_stopped_dispatching(priority_entity&) noexcept override { abort(); }
+    void child_demand_changed(priority_entity&, uint32_t) noexcept override { abort(); }
+    bool is_dispatchable() const noexcept override { return _nr_queued.value() > 0; }
 
     void on_queue() noexcept {
         _nr_queued++;
@@ -928,10 +986,12 @@ io_queue::priority_class_group_data& io_queue::find_or_create_class_group(schedu
     for (auto&& s : _streams) {
         s.fq.ensure_priority_group(ssg.index(), ssg.get_shares());
     }
-    return find_or_create(_priority_groups, ssg.index(), [this, ssg] {
+    auto& pcg = find_or_create(_priority_groups, ssg.index(), [this, ssg] {
         auto& gpg = _group->find_or_create_class_group(ssg);
         return std::make_unique<priority_class_group_data>(ssg, *this, gpg);
     });
+    pcg.update_shares(ssg.get_shares());
+    return pcg;
 }
 
 io_queue::priority_class_data& io_queue::find_or_create_class(scheduling_group sg) {
