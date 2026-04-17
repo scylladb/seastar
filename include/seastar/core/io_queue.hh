@@ -27,7 +27,6 @@
 #include <vector>
 #include <sys/uio.h>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/fair_queue.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/internal/io_request.hh>
@@ -77,57 +76,22 @@ public:
     class priority_class_data;
     struct priority_class_group_data;
     using clock_type = std::chrono::steady_clock;
+    using capacity_t = uint64_t;
 
 private:
+    // The shard root entity: top of the per-shard dispatch tree. All root-level
+    // classes and groups are its children. Defined in io_queue.cc.
+    // Declared first so it is destroyed last (after classes and groups).
+    struct dispatch_root;
+    std::unique_ptr<dispatch_root> _root;
     std::vector<std::unique_ptr<priority_class_group_data>> _priority_groups;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     io_group_ptr _group;
     const unsigned _id;
     struct stream {
-        using capacity_t = fair_queue_entry::capacity_t;
-        fair_queue fq;
-        clock_type::time_point replenish;
         io_throttler& out;
-        // _pending represents a reservation of tokens from the bucket.
-        //
-        // In the "dispatch timeline" defined by the growing bucket head of the group,
-        // tokens in the range [_pending.head - cap, _pending.head) belong
-        // to this queue.
-        //
-        // For example, if:
-        //    _group._token_bucket.head == 300
-        //    _pending.head == 700
-        //    _pending.cap == 500
-        // then the reservation is [200, 700), 100 tokens are ready to be dispatched by this queue,
-        // and another 400 tokens are going to be appear soon. (And after that, this queue
-        // will be able to make its next reservation).
-        struct pending {
-            capacity_t head = 0;
-            capacity_t cap = 0;
-        };
-        pending _pending;
-        stream(io_throttler& t, fair_queue::config cfg)
-            : fq(std::move(cfg))
-            , replenish(clock_type::now())
-            , out(t)
-        {}
-
-        // Shaves off the fulfilled frontal part from `_pending` (if any),
-        // and returns the fulfilled tokens in `ready_tokens`.
-        // Sets `our_turn_has_come` to the truth value of "`_pending` is empty or
-        // there are no unfulfilled reservations (from other shards) earlier than `_pending`".
-        //
-        // Assumes that `_group.maybe_replenish_capacity()` was called recently.
-        struct reap_result {
-            capacity_t ready_tokens;
-            bool our_turn_has_come;
-        };
-        enum class grab_result { ok, stop, again };
-
-        clock_type::time_point next_pending_aio() const noexcept;
-        reap_result reap_pending_capacity() noexcept;
-        grab_result grab_capacity(capacity_t cap, reap_result& available);
-
+        sstring _label;
+        stream(io_throttler& t, sstring label) noexcept : out(t), _label(std::move(label)) {}
         std::vector<seastar::metrics::impl::metric_definition_impl> metrics(const priority_class_data&);
     };
     boost::container::static_vector<stream, 2> _streams;
@@ -216,21 +180,21 @@ public:
     void poll_io_queue();
 
     clock_type::time_point next_pending_aio() const noexcept;
-    fair_queue_entry::capacity_t request_capacity(internal::io_direction_and_length dnl) const noexcept;
+    capacity_t request_capacity(internal::io_direction_and_length dnl) const noexcept;
 
     sstring mountpoint() const;
     unsigned id() const noexcept { return _id; }
 
     void update_shares_for_class(internal::priority_class pc, size_t new_shares);
     void update_shares_for_class_group(unsigned index, size_t new_shares);
-    future<> update_bandwidth_for_class(internal::priority_class pc, uint64_t new_bandwidth);
-    future<> update_bandwidth_for_class_group(unsigned group_index, uint64_t new_bandwidth);
-    void rename_priority_class(internal::priority_class pc, sstring new_name);
-    void destroy_priority_class(internal::priority_class pc) noexcept;
     void throttle_priority_class(const priority_class_data& pc) noexcept;
     void unthrottle_priority_class(const priority_class_data& pc) noexcept;
     void throttle_priority_class_group(unsigned group) noexcept;
     void unthrottle_priority_class_group(unsigned group) noexcept;
+    future<> update_bandwidth_for_class(internal::priority_class pc, uint64_t new_bandwidth);
+    future<> update_bandwidth_for_class_group(unsigned group_index, uint64_t new_bandwidth);
+    void rename_priority_class(internal::priority_class pc, sstring new_name);
+    void destroy_priority_class(internal::priority_class pc) noexcept;
 
     struct request_limits {
         size_t max_read;
@@ -246,7 +210,6 @@ public:
     internal::io_sink& sink() noexcept { return _sink; }
 
 private:
-    static fair_queue::config make_fair_queue_config(const config& cfg, sstring label);
     void register_stats(sstring name, priority_class_data& pc);
 };
 
@@ -262,7 +225,7 @@ private:
 /// the given time frame exceeds the disk throughput.
 class io_throttler {
 public:
-    using capacity_t = fair_queue_entry::capacity_t;
+    using capacity_t = io_queue::capacity_t;
     using clock_type = std::chrono::steady_clock;
 
     /*
@@ -316,7 +279,9 @@ public:
 
     static constexpr float fixed_point_factor = float(1 << 24);
     using rate_resolution = std::milli;
-    using token_bucket_t = internal::shared_token_bucket<capacity_t, rate_resolution, internal::capped_release::no>;
+    using token_bucket_t = internal::shard_aware_token_bucket<capacity_t, rate_resolution>;
+    using consumer = token_bucket_t::consumer;
+    using tokens = token_bucket_t::tokens;
 
 private:
 
@@ -340,7 +305,6 @@ private:
      */
 
     token_bucket_t _token_bucket;
-    const capacity_t _per_tick_threshold;
 
 public:
 
@@ -370,26 +334,21 @@ public:
         double min_tokens = 0.0;
         double limit_min_tokens = 0.0;
         std::chrono::duration<double> rate_limit_duration = std::chrono::milliseconds(1);
+        std::chrono::microseconds tau = {};
     };
 
     explicit io_throttler(config cfg, unsigned nr_queues);
     io_throttler(io_throttler&&) = delete;
 
     capacity_t maximum_capacity() const noexcept { return _token_bucket.limit(); }
-    capacity_t per_tick_grab_threshold() const noexcept { return _per_tick_threshold; }
-    capacity_t grab_capacity(capacity_t cap) noexcept;
-    clock_type::time_point replenished_ts() const noexcept { return _token_bucket.replenished_ts(); }
-    void refund_tokens(capacity_t) noexcept;
     void replenish_capacity(clock_type::time_point now) noexcept;
-    void maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept;
-
-    capacity_t capacity_deficiency(capacity_t from) const noexcept;
 
     std::chrono::duration<double> rate_limit_duration() const noexcept {
         std::chrono::duration<double, rate_resolution> dur((double)_token_bucket.limit() / _token_bucket.rate());
         return std::chrono::duration_cast<std::chrono::duration<double>>(dur);
     }
 
+    token_bucket_t& token_bucket() noexcept { return _token_bucket; }
     const token_bucket_t& token_bucket() const noexcept { return _token_bucket; }
 };
 
