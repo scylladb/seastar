@@ -130,18 +130,69 @@ struct io_group::priority_class_data {
 
 class io_queue::priority_entity {
 protected:
+    priority_entity* _parent;
     uint32_t _shares;
+    std::vector<priority_entity*> _children;
+    uint32_t _active_children_shares{0};
 
-    explicit priority_entity(uint32_t shares) noexcept
-            : _shares(std::max(shares, 1u))
+    priority_entity(priority_entity* parent, uint32_t shares) noexcept
+            : _parent(parent)
+            , _shares(std::max(shares, 1u))
     {}
 
 public:
+    priority_entity* parent() const noexcept { return _parent; }
     uint32_t shares() const noexcept { return _shares; }
 
     void update_shares(uint32_t shares) noexcept {
         _shares = std::max(shares, 1u);
     }
+
+    void add_child(priority_entity& child) noexcept {
+        _children.push_back(&child);
+    }
+
+    void remove_child(priority_entity& child) noexcept {
+        auto it = std::find(_children.begin(), _children.end(), &child);
+        _children.erase(it);
+    }
+
+    virtual void child_started_dispatching(priority_entity& child) noexcept = 0;
+    virtual void child_stopped_dispatching(priority_entity& child) noexcept = 0;
+    virtual void child_shares_changed(priority_entity& child, uint32_t old_shares) noexcept = 0;
+    virtual bool is_dispatchable() const noexcept = 0;
+
+protected:
+    ~priority_entity() = default;
+};
+
+struct io_queue::priority_class_group_data final : public io_queue::priority_entity {
+    const unsigned _index;
+
+    priority_class_group_data(unsigned index, uint32_t shares) noexcept
+        : priority_entity(nullptr, shares)
+        , _index(index)
+    {}
+
+    void child_started_dispatching(priority_entity& child) noexcept override {
+        if (_active_children_shares == 0 && _parent) {
+            _parent->child_started_dispatching(*this);
+        }
+        _active_children_shares += child.shares();
+    }
+
+    void child_stopped_dispatching(priority_entity& child) noexcept override {
+        _active_children_shares -= child.shares();
+        if (_active_children_shares == 0 && _parent) {
+            _parent->child_stopped_dispatching(*this);
+        }
+    }
+
+    void child_shares_changed(priority_entity& child, uint32_t old_shares) noexcept override {
+        _active_children_shares = _active_children_shares - old_shares + child.shares();
+    }
+
+    bool is_dispatchable() const noexcept override { return _active_children_shares > 0; }
 };
 
 class io_queue::priority_class_data final : public io_queue::priority_entity {
@@ -219,8 +270,8 @@ class io_queue::priority_class_data final : public io_queue::priority_entity {
     boost::container::static_vector<bandwidth_throttler, 2> _bw;
 
 public:
-    priority_class_data(internal::priority_class pc, uint32_t shares, io_queue& q, io_group::priority_class_data& pg, std::optional<unsigned> group_index)
-        : priority_entity(shares)
+    priority_class_data(internal::priority_class pc, uint32_t shares, io_queue& q, io_group::priority_class_data& pg, std::optional<unsigned> group_index, priority_class_group_data* pcg)
+        : priority_entity(pcg, shares)
         , _queue(q)
         , _pc(pc)
         , _nr_queued(0)
@@ -234,6 +285,9 @@ public:
         if (pg.parent != nullptr) {
             _bw.emplace_back(*pg.parent, *this, group_index);
         }
+        if (_parent != nullptr) {
+            _parent->add_child(*this);
+        }
     }
     priority_class_data(const priority_class_data&) = delete;
     priority_class_data(priority_class_data&&) = delete;
@@ -241,7 +295,15 @@ public:
     ~priority_class_data() {
         SEASTAR_ASSERT(_nr_queued == 0);
         SEASTAR_ASSERT(_nr_executing == 0);
+        if (_parent != nullptr) {
+            _parent->remove_child(*this);
+        }
     }
+
+    void child_started_dispatching(priority_entity&) noexcept override { abort(); }
+    void child_stopped_dispatching(priority_entity&) noexcept override { abort(); }
+    void child_shares_changed(priority_entity&, uint32_t) noexcept override { abort(); }
+    bool is_dispatchable() const noexcept override { return _nr_queued.value() > 0; }
 
     void on_queue() noexcept {
         _nr_queued++;
@@ -881,6 +943,16 @@ void io_queue::register_stats(sstring name, priority_class_data& pc) {
     pc.metric_groups = std::exchange(new_metrics, {});
 }
 
+io_queue::priority_class_group_data& io_queue::find_or_create_class_group(unsigned index, uint32_t shares) {
+    if (index >= _priority_groups.size()) {
+        _priority_groups.resize(index + 1);
+    }
+    if (!_priority_groups[index]) {
+        _priority_groups[index] = std::make_unique<priority_class_group_data>(index, shares);
+    }
+    return *_priority_groups[index];
+}
+
 io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority_class pc) {
     auto id = pc.id();
     if (id >= _priority_classes.size()) {
@@ -905,9 +977,11 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by shard)
 
+        priority_class_group_data* pcg = nullptr;
         std::optional<unsigned> group_index;
         if (!ssg.is_root()) {
             group_index = ssg.index();
+            pcg = &find_or_create_class_group(*group_index, ssg.get_shares());
             for (auto&& s : _streams) {
                 s.fq.ensure_priority_group(*group_index, ssg.get_shares());
             }
@@ -916,7 +990,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
         auto& pg = _group->find_or_create_class(pc, group_index);
 
         auto shares = sg.get_shares();
-        auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg, group_index);
+        auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg, group_index, pcg);
         for (auto&& s : _streams) {
             s.fq.register_priority_class(pc_data->fq_class(), shares, group_index);
         }
