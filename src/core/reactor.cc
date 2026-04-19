@@ -2430,7 +2430,10 @@ reactor::open_directory(std::string_view name_view) noexcept {
         return wrap_syscall(fd, st);
     });
     sr.throw_fs_exception_if_error("open failed", name);
-    shared_ptr<file_impl> file_impl = co_await make_file_impl(sr.result, file_open_options(), oflags, sr.extra);
+    auto options = file_open_options{
+        .durable = !_cfg.bypass_fsync,
+    };
+    shared_ptr<file_impl> file_impl = co_await make_file_impl(sr.result, options, oflags, sr.extra);
     co_return file(std::move(file_impl));
 }
 
