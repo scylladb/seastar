@@ -589,6 +589,15 @@ SEASTAR_THREAD_TEST_CASE(test_tb_params) {
         BOOST_CHECK((d.write_req_rate - iops_write) / d.write_req_rate < error_margin);
         BOOST_CHECK((d.read_bytes_rate - bandwidth_read) / d.read_bytes_rate < error_margin);
         BOOST_CHECK((d.write_bytes_rate - bandwidth_write) / d.write_bytes_rate < error_margin);
+
+        // Verify the no-deadlock invariant: the max_request_length chosen
+        // by the io_group must be small enough that its capacity cost never
+        // exceeds the burst limit.  If violated, a split piece could never
+        // accumulate enough tokens and would stall indefinitely.
+        auto max_len = tio.max_request_length(internal::io_direction_and_length::write_idx);
+        auto cap_max_len = tio.queue.request_capacity(
+            internal::io_direction_and_length(internal::io_direction_and_length::write_idx, max_len));
+        BOOST_REQUIRE_LE(cap_max_len, fg.maximum_capacity());
     }
 }
 
