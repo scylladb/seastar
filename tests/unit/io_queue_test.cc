@@ -723,6 +723,7 @@ static future<size_t> run_and_check_bandwidth(io_queue_for_tests& tio, internal:
 
     auto start = std::chrono::steady_clock::now();
     auto stop = start + std::chrono::seconds(60);
+    auto min_duration = std::chrono::seconds(5);
     size_t real_bandwidth = 0;
 
     while (true) {
@@ -730,7 +731,7 @@ static future<size_t> run_and_check_bandwidth(io_queue_for_tests& tio, internal:
         auto now = std::chrono::steady_clock::now();
         real_bandwidth = (nr_requests * req_size) / std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
         fmt::print("Measured for {} {} MB/s, goal {} MB/s\n", pc.id(), real_bandwidth >> 20, bandwidth_goal >> 20);
-        if (real_bandwidth >= bandwidth_goal || now >= stop) {
+        if ((now - start >= min_duration && real_bandwidth >= bandwidth_goal) || now >= stop) {
             break;
         }
     }
