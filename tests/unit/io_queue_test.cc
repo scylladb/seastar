@@ -175,21 +175,24 @@ static void do_test_large_request_flow(part_flaw flaw) {
         BOOST_REQUIRE_EQUAL(len, expected);
     });
 
-    for (int i = 0; i < 3; i++) {
+    int req_idx = 0;
+    while (req_idx < 3) {
         seastar::sleep(std::chrono::milliseconds(500)).get();
         tio.queue.poll_io_queue();
-        tio.sink.drain([&file, i, flaw] (const internal::io_request& rq, io_completion* desc) -> bool {
-            if (i == 1) {
+        tio.sink.drain([&file, &req_idx, flaw] (const internal::io_request& rq, io_completion* desc) -> bool {
+            if (req_idx == 1) {
                 if (flaw == part_flaw::partial) {
                     const auto& op = rq.as<internal::io_request::operation::writev>();
                     op.iovec[0].iov_len /= 2;
                 }
                 if (flaw == part_flaw::error) {
                     desc->complete_with(-EIO);
+                    req_idx++;
                     return true;
                 }
             }
             file.execute_writev_req(rq, desc);
+            req_idx++;
             return true;
         });
     }
