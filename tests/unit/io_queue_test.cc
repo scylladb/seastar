@@ -727,9 +727,9 @@ static size_t combined_bandwidth(const bandwidth_measurement& a, const bandwidth
 // accounts for ~9% of the bytes seen, and it shrinks as 1/window from there. A
 // caller that compares two of these against each other wants a window long
 // enough that the burst no longer dominates the comparison; min_window puts a
-// floor on the measured interval for those. The default preserves the
-// historical behaviour of returning on the first sample that meets the goal.
-static future<bandwidth_measurement> run_and_check_bandwidth(io_queue_for_tests& tio, scheduling_group sg, size_t bandwidth_goal, unsigned parallelizm = 1, std::chrono::seconds min_window = std::chrono::seconds(1), size_t req_size = 128*1024) {
+// floor on the measured interval for those. The default of 5 seconds dilutes
+// the burst enough for the plain "reaches the goal" checks.
+static future<bandwidth_measurement> run_and_check_bandwidth(io_queue_for_tests& tio, scheduling_group sg, size_t bandwidth_goal, unsigned parallelizm = 1, std::chrono::seconds min_window = std::chrono::seconds(5), size_t req_size = 128*1024) {
     fmt::print("Run {} workload\n", internal::scheduling_group_index(sg));
     bool keep_going = true;
     uint64_t nr_requests = 0;
