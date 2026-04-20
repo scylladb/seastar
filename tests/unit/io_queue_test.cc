@@ -920,6 +920,56 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
     destroy_scheduling_supergroup(ssg).get();
 }
 
+// Verify the end-to-end disk-level rate limiting: generate_config() correctly
+// translates disk_params into token costs, and the io_queue dispatch actually
+// honours those limits at runtime.
+SEASTAR_THREAD_TEST_CASE(test_disk_level_rate_limiting) {
+    internal::disk_config_params disk_config(1);
+
+    // Part 1: bandwidth-only limit.  With only read_bytes_rate configured the
+    // throughput should be capped at that value regardless of the (unconfigured)
+    // IOPS dimension.  Use a small request size (4 KiB) that is guaranteed to
+    // stay below max_request_length so that no splitting occurs.
+    {
+        const size_t bw_limit = 50 << 20;  // 50 MB/s
+        constexpr size_t req_size = 4096;
+        internal::disk_params d;
+        d.read_bytes_rate = bw_limit;
+        d.write_bytes_rate = bw_limit;
+
+        auto io_config = disk_config.generate_config(d, 0, 1);
+        io_config.mountpoint = "bw-test";
+        io_queue_for_tests tio(io_config);
+        background_drain drain(tio);
+
+        auto bw = run_and_check_bandwidth(tio, get_default_pc(), bw_limit * 0.9, 4, req_size).get();
+        BOOST_REQUIRE_LE(bw, bw_limit + bw_slack);
+
+        drain.stop().get();
+    }
+
+    // Part 2: IOPS-only limit.  Small (512 B) requests are IOPS-dominated,
+    // so with only read_req_rate configured the request rate should be capped.
+    // run_and_check_bandwidth measures bytes/s; dividing by req_size gives IOPS.
+    {
+        const size_t iops_limit = 5000;
+        constexpr size_t req_size = 512;
+        internal::disk_params d;
+        d.read_req_rate = iops_limit;
+        d.write_req_rate = iops_limit;
+
+        auto io_config = disk_config.generate_config(d, 0, 1);
+        io_config.mountpoint = "iops-test";
+        io_queue_for_tests tio(io_config);
+        background_drain drain(tio);
+
+        auto iops_as_bw = run_and_check_bandwidth(tio, get_default_pc(), iops_limit * req_size * 0.9, 8, req_size).get();
+        BOOST_REQUIRE_LE(iops_as_bw / req_size, iops_limit * 1.1);
+
+        drain.stop().get();
+    }
+}
+
 SEASTAR_THREAD_TEST_CASE(test_get_all_io_queues) {
     auto queues = engine().get_all_io_queues();
     // The test environment should have at least one io_queue configured
