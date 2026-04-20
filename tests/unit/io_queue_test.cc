@@ -921,8 +921,8 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
     // in how it lands between the two classes moves the ratio further than the
     // check allows. Four seconds dilutes the burst term, and the quantisation of
     // the measurement itself, by 4x.
-    auto f0 = run_and_check_bandwidth(tio, pc0, bandwidth * 0.8 * 0.95, 4, std::chrono::seconds(4));
-    auto f1 = run_and_check_bandwidth(tio, pc1, bandwidth * 0.2 * 0.95, 4, std::chrono::seconds(4));
+    auto f0 = run_and_check_bandwidth(tio, pc0, bandwidth * 0.8 * 0.95, 8, std::chrono::seconds(4));
+    auto f1 = run_and_check_bandwidth(tio, pc1, bandwidth * 0.2 * 0.95, 8, std::chrono::seconds(4));
     auto bw0 = f0.get();
     auto bw1 = f1.get();
 
