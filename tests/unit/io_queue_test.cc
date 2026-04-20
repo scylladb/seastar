@@ -592,6 +592,15 @@ SEASTAR_THREAD_TEST_CASE(test_tb_params) {
         BOOST_CHECK(within_margin(iops_write, d.write_req_rate));
         BOOST_CHECK(within_margin(bandwidth_read, d.read_bytes_rate));
         BOOST_CHECK(within_margin(bandwidth_write, d.write_bytes_rate));
+
+        // Verify the no-deadlock invariant: the max_request_length chosen
+        // by the io_group must be small enough that its capacity cost never
+        // exceeds the burst limit.  If violated, a split piece could never
+        // accumulate enough tokens and would stall indefinitely.
+        auto max_len = tio.max_request_length(internal::io_direction_and_length::write_idx);
+        auto cap_max_len = tio.queue.request_capacity(
+            internal::io_direction_and_length(internal::io_direction_and_length::write_idx, max_len));
+        BOOST_REQUIRE_LE(cap_max_len, fg.maximum_capacity());
     }
 }
 
@@ -910,6 +919,52 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_1_unlimited) {
     BOOST_REQUIRE_LE(combined_bandwidth(m0, m1), group_bandwidth + burst + bw_slack);
 }
 
+SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_1_idle) {
+    io_queue_for_tests tio;
+
+    const size_t burst = 10*1024*1024;
+    const size_t group_bandwidth = 100*1024*1024;
+    const size_t req_size = 128*1024;
+    const unsigned parallelism = 16;
+
+    // The idle class is created first so that it dispatches before the
+    // saturating one within a poll
+    auto ssg = create_scheduling_supergroup(100).get();
+    auto sg_idle = create_scheduling_group("i", "i", 100, ssg).get();
+    auto sg_sat = create_scheduling_group("s", "s", 100, ssg).get();
+    auto destroy_groups = defer([&] () noexcept {
+        destroy_scheduling_group(sg_sat).get();
+        destroy_scheduling_group(sg_idle).get();
+        destroy_scheduling_supergroup(ssg).get();
+    });
+
+    tio.queue.update_bandwidth_for_class_group(ssg, group_bandwidth).get();
+
+    background_drain drain(tio);
+    auto stop = defer([&] () noexcept {
+        drain.stop().get();
+    });
+
+    // sg_sat saturates the group alone, so the group is throttled on its
+    // dispatch and plugged back by the throttler timer, over and over.
+    // Once, sg_idle drops a burst of requests that are dispatched in the
+    // same pass as sg_sat's ones (siblings keep dispatching within the
+    // pass after one of them throttles the group). sg_sat must still be
+    // held to the group bandwidth after that, with sg_idle gone idle.
+    // Measure for 5 seconds to dilute the 10MB burst
+    auto f = run_and_check_bandwidth(tio, sg_sat, group_bandwidth * 0.9, parallelism, std::chrono::seconds(5));
+    seastar::sleep(std::chrono::seconds(1)).get();
+    parallel_for_each(std::views::iota(0u, parallelism), [&] (auto i) {
+        return tio.queue_request(sg_idle,
+            internal::io_direction_and_length(internal::io_direction_and_length::read_idx, req_size),
+            internal::io_request::make_write(0, 0, nullptr, req_size, false),
+            nullptr, {}).discard_result();
+    }).get();
+    auto m = f.get();
+
+    BOOST_REQUIRE_LE(m.bandwidth(), group_bandwidth + burst + bw_slack);
+}
+
 SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
     const size_t burst = 10*1024*1024;
     const size_t bandwidth = 100*1024*1024;
@@ -951,6 +1006,56 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
     BOOST_REQUIRE_LE(float(bw0) / float(bw1), 4.05);
     BOOST_REQUIRE_GE(float(bw0) / float(bw1), 3.95);
     BOOST_REQUIRE_LE(combined_bandwidth(m0, m1), bandwidth + burst + bw_slack);
+}
+
+// Verify the end-to-end disk-level rate limiting: generate_config() correctly
+// translates disk_params into token costs, and the io_queue dispatch actually
+// honours those limits at runtime.
+SEASTAR_THREAD_TEST_CASE(test_disk_level_rate_limiting) {
+    internal::disk_config_params disk_config(1);
+
+    // Part 1: bandwidth-only limit.  With only read_bytes_rate configured the
+    // throughput should be capped at that value regardless of the (unconfigured)
+    // IOPS dimension.  Use a small request size (4 KiB) that is guaranteed to
+    // stay below max_request_length so that no splitting occurs.
+    {
+        const size_t bw_limit = 50 << 20;  // 50 MB/s
+        constexpr size_t req_size = 4096;
+        internal::disk_params d;
+        d.read_bytes_rate = bw_limit;
+        d.write_bytes_rate = bw_limit;
+
+        auto io_config = disk_config.generate_config(d, 0, 1);
+        io_config.mountpoint = "bw-test";
+        io_queue_for_tests tio(io_config);
+        background_drain drain(tio);
+
+        auto bw = run_and_check_bandwidth(tio, get_default_pc(), bw_limit * 0.9, 4, std::chrono::seconds(5), req_size).get().bandwidth();
+        BOOST_REQUIRE_LE(bw, bw_limit + bw_slack);
+
+        drain.stop().get();
+    }
+
+    // Part 2: IOPS-only limit.  Small (512 B) requests are IOPS-dominated,
+    // so with only read_req_rate configured the request rate should be capped.
+    // run_and_check_bandwidth measures bytes/s; dividing by req_size gives IOPS.
+    {
+        const size_t iops_limit = 5000;
+        constexpr size_t req_size = 512;
+        internal::disk_params d;
+        d.read_req_rate = iops_limit;
+        d.write_req_rate = iops_limit;
+
+        auto io_config = disk_config.generate_config(d, 0, 1);
+        io_config.mountpoint = "iops-test";
+        io_queue_for_tests tio(io_config);
+        background_drain drain(tio);
+
+        auto iops_as_bw = run_and_check_bandwidth(tio, get_default_pc(), iops_limit * req_size * 0.9, 8, std::chrono::seconds(5), req_size).get().bandwidth();
+        BOOST_REQUIRE_LE(iops_as_bw / req_size, iops_limit * 1.1);
+
+        drain.stop().get();
+    }
 }
 
 SEASTAR_THREAD_TEST_CASE(test_get_all_io_queues) {
