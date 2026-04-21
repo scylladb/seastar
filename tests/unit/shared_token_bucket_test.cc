@@ -37,10 +37,12 @@ using satb = internal::shard_aware_token_bucket<T, Period, manual_clock>;
 SEASTAR_TEST_CASE(test_satb_single_class) {
     // rate=10 tokens/s, burst=10, threshold=1; one class owns all shares
     satb<> tb(10, 10, 1, false);
-    satb<>::consumer cs(tb, 100);
+    satb<>::local_publisher pub(tb);
+    satb<>::consumer cs(pub, 100);
     satb<>::tokens pouch(tb.limit());
 
     cs.activate();
+    pub.flush();
     pouch.refill(cs.accrued());
     BOOST_REQUIRE_EQUAL(pouch.available(), 0u);
 
@@ -61,13 +63,16 @@ SEASTAR_TEST_CASE(test_satb_single_class) {
 SEASTAR_TEST_CASE(test_satb_equal_shares) {
     // Two classes with equal shares should each receive half the tokens
     satb<> tb(10, 10, 1, false);
-    satb<>::consumer cs1(tb, 100);
-    satb<>::consumer cs2(tb, 100);
+    satb<>::local_publisher pub(tb);
+    satb<>::consumer cs1(pub, 100);
+    satb<>::consumer cs2(pub, 100);
     satb<>::tokens p1(tb.limit());
     satb<>::tokens p2(tb.limit());
 
     cs1.activate();
     cs2.activate();
+    // Flush both contributions before either accrues, so total_shares = 200.
+    pub.flush();
     manual_clock::advance(1s);
     tb.replenish(manual_clock::now());
 
@@ -83,13 +88,15 @@ SEASTAR_TEST_CASE(test_satb_equal_shares) {
 SEASTAR_TEST_CASE(test_satb_unequal_shares) {
     // Class A has 1/3 of shares, class B has 2/3
     satb<> tb(9, 9, 1, false);
-    satb<>::consumer cs_a(tb, 100);
-    satb<>::consumer cs_b(tb, 200);
+    satb<>::local_publisher pub(tb);
+    satb<>::consumer cs_a(pub, 100);
+    satb<>::consumer cs_b(pub, 200);
     satb<>::tokens p_a(tb.limit());
     satb<>::tokens p_b(tb.limit());
 
     cs_a.activate();
     cs_b.activate();
+    pub.flush();
     manual_clock::advance(1s);
     tb.replenish(manual_clock::now());
 
@@ -105,10 +112,12 @@ SEASTAR_TEST_CASE(test_satb_unequal_shares) {
 SEASTAR_TEST_CASE(test_satb_burst_cap) {
     // Class doesn't poll for many seconds -- should be capped at burst limit on wakeup
     satb<> tb(10, 10, 1, false);
-    satb<>::consumer cs(tb, 100);
+    satb<>::local_publisher pub(tb);
+    satb<>::consumer cs(pub, 100);
     satb<>::tokens pouch(tb.limit());
 
     cs.activate();
+    pub.flush();
     // 10 seconds without pouch.refill() -- far more tokens than burst
     for (int i = 0; i < 10; i++) {
         manual_clock::advance(1s);
@@ -128,13 +137,15 @@ SEASTAR_TEST_CASE(test_satb_stuck_shard) {
     // A should get exactly its burst cap when it finally wakes up;
     // B should not be affected by A's inactivity.
     satb<> tb(10, 10, 1, false);
-    satb<>::consumer cs_a(tb, 100);  // shard A -- stuck
-    satb<>::consumer cs_b(tb, 100);  // shard B -- active
+    satb<>::local_publisher pub(tb);
+    satb<>::consumer cs_a(pub, 100);  // shard A -- stuck
+    satb<>::consumer cs_b(pub, 100);  // shard B -- active
     satb<>::tokens p_a(tb.limit());
     satb<>::tokens p_b(tb.limit());
 
     cs_a.activate();
     cs_b.activate();
+    pub.flush();
     for (int i = 0; i < 5; i++) {
         manual_clock::advance(1s);
         tb.replenish(manual_clock::now());
@@ -157,24 +168,36 @@ SEASTAR_TEST_CASE(test_satb_stuck_shard) {
 
 SEASTAR_TEST_CASE(test_satb_total_shares_tracking) {
     satb<> tb(10, 10, 1, false);
+    satb<>::local_publisher pub(tb);
     BOOST_REQUIRE_EQUAL(tb.total_shares(), 0u);
     {
-        satb<>::consumer cs1(tb, 100);
+        satb<>::consumer cs1(pub, 100);
         // inactive by default
         BOOST_REQUIRE_EQUAL(tb.total_shares(), 0u);
         cs1.activate();
+        // deferred: total_shares stays 0 until flush()
+        BOOST_REQUIRE_EQUAL(tb.total_shares(), 0u);
+        pub.flush();
         BOOST_REQUIRE_EQUAL(tb.total_shares(), 100u);
         {
-            satb<>::consumer cs2(tb, 200);
+            satb<>::consumer cs2(pub, 200);
             cs2.activate();
+            // deferred
+            BOOST_REQUIRE_EQUAL(tb.total_shares(), 100u);
+            pub.flush();
             BOOST_REQUIRE_EQUAL(tb.total_shares(), 300u);
             cs2.update_shares(400);
+            // deferred as well
+            BOOST_REQUIRE_EQUAL(tb.total_shares(), 300u);
+            pub.flush();
             BOOST_REQUIRE_EQUAL(tb.total_shares(), 500u);
-            // destructor deactivates cs2
+            // destructor queues cs2's rollback into pub
         }
+        pub.flush();
         BOOST_REQUIRE_EQUAL(tb.total_shares(), 100u);
-        // destructor deactivates cs1
+        // destructor queues cs1's rollback into pub
     }
+    pub.flush();
     BOOST_REQUIRE_EQUAL(tb.total_shares(), 0u);
 
     return make_ready_future<>();
@@ -185,10 +208,12 @@ SEASTAR_TEST_CASE(test_satb_tau_forgiveness) {
     // After consuming all tokens and idling for 10s, on re-activation the class
     // should only receive credit for tau=2s worth of tokens, not all 10s.
     satb<> tb(100, 1000, 1, false, 2s);
-    satb<>::consumer cs(tb, 100);
+    satb<>::local_publisher pub(tb);
+    satb<>::consumer cs(pub, 100);
     satb<>::tokens pouch(tb.limit());
 
     cs.activate();
+    pub.flush();
     manual_clock::advance(1s);
     tb.replenish(manual_clock::now());
     // consume everything
@@ -197,6 +222,7 @@ SEASTAR_TEST_CASE(test_satb_tau_forgiveness) {
     BOOST_REQUIRE_EQUAL(pouch.available(), 0u);
 
     cs.deactivate();
+    pub.flush();
 
     // idle for 10 seconds, polling accrued() every second the way
     // io_queue's dispatch root does; the idle consumer must not advance
@@ -208,6 +234,7 @@ SEASTAR_TEST_CASE(test_satb_tau_forgiveness) {
     }
 
     cs.activate();
+    pub.flush();
     // tau=2s => at most 200 tokens of global credit, gain = 200*100/100 = 200
     // burst cap = 1000; so result is 200, not 1000
     pouch.refill(cs.accrued());
@@ -223,12 +250,15 @@ SEASTAR_TEST_CASE(test_satb_idle_consumer_accrues_nothing) {
     // idle -- its shares are not in total_shares, so anything it took
     // would be tokens B already owns.
     satb<> tb(100, 1000, 1, false);
-    satb<>::consumer cs_a(tb, 100);
-    satb<>::consumer cs_b(tb, 100);
+    satb<>::local_publisher pub_a(tb);
+    satb<>::local_publisher pub_b(tb);
+    satb<>::consumer cs_a(pub_a, 100);
+    satb<>::consumer cs_b(pub_b, 100);
     satb<>::tokens p_a(tb.limit());
     satb<>::tokens p_b(tb.limit());
 
     cs_a.activate();
+    pub_a.flush();
     manual_clock::advance(1s);
     tb.replenish(manual_clock::now());
     p_a.refill(cs_a.accrued());
@@ -236,7 +266,9 @@ SEASTAR_TEST_CASE(test_satb_idle_consumer_accrues_nothing) {
     BOOST_REQUIRE_EQUAL(p_a.available(), 0u);
 
     cs_a.deactivate();
+    pub_a.flush();
     cs_b.activate();
+    pub_b.flush();
 
     for (int i = 0; i < 10; i++) {
         manual_clock::advance(1s);
