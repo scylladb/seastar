@@ -471,6 +471,10 @@ class io_queue::priority_class_data final : public io_queue::priority_entity {
     boost::container::static_vector<bandwidth_throttler, 2> _bw;
     // Per-stream pending request queues.
     boost::container::static_vector<queued_io_request::list_t, 2> _queues;
+    // Per-stream running total of capacity consumed by this class when its
+    // requests succeed at try_consume() in the dispatch pass.  Exposed via
+    // the "consumption" metric.
+    boost::container::static_vector<capacity_t, 2> _consumption;
 
     void start_dispatching() noexcept {
         _parent->child_started_dispatching(*this);
@@ -552,6 +556,9 @@ public:
         return _queues[stream_idx];
     }
 
+    capacity_t consumption(stream_id s) const noexcept { return _consumption[s]; }
+    void account_consumption(stream_id s, capacity_t cost) noexcept { _consumption[s] += cost; }
+
     priority_class_data(internal::priority_class pc, uint32_t shares, io_queue& q,
                         io_group::priority_class_data& pg, std::optional<unsigned> group_index, priority_entity& parent)
         : priority_entity(&parent, shares, q._streams)
@@ -571,6 +578,7 @@ public:
         unsigned nr_streams = q._streams.size();
         for (unsigned i = 0; i < nr_streams; i++) {
             _queues.emplace_back();
+            _consumption.emplace_back(0);
         }
         parent.add_child(*this);
     }
@@ -1168,8 +1176,9 @@ void io_queue::register_stats(sstring name, priority_class_data& pc) {
         metrics.emplace_back(std::move(m));
     }
 
-    for (auto&& s : _streams) {
-        for (auto&& m : s.metrics(pc)) {
+    for (stream_id si = 0; si < _streams.size(); si++) {
+        auto& s = _streams[si];
+        for (auto&& m : s.metrics(pc, si)) {
             m(owner_l)(mnt_l)(class_l)(group_l)(sm::label("stream")(s._label));
             metrics.emplace_back(std::move(m));
         }
@@ -1469,10 +1478,12 @@ void io_queue::poll_io_queue() {
             }
             while (!q.empty() && pc->plugged_self()) {
                 auto& req = q.front();
-                if (!pc->try_consume(si, req.capacity())) {
+                auto cost = req.capacity();
+                if (!pc->try_consume(si, cost)) {
                     break;
                 }
                 q.pop_front();
+                pc->account_consumption(si, cost);
                 req.dispatch();
             }
         }
@@ -1587,11 +1598,11 @@ void io_queue::unthrottle_priority_class_group(unsigned group) noexcept {
 }
 
 
-std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::stream::metrics(const priority_class_data&) {
+std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::stream::metrics(const priority_class_data& pc, stream_id si) {
     namespace sm = seastar::metrics;
     return std::vector<sm::impl::metric_definition_impl>({
             sm::make_counter("consumption",
-                    [] { return 0; },
+                    [&pc, si] { return io_throttler::capacity_tokens(pc.consumption(si)); },
                     sm::description("Accumulated disk capacity units consumed by this class; an increment per-second rate indicates full utilization")),
             sm::make_counter("activations",
                     [] { return 0; },
