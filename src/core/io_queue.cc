@@ -128,10 +128,25 @@ struct io_group::priority_class_data {
     }
 };
 
-class io_queue::priority_class_data {
+class io_queue::priority_entity {
+protected:
+    uint32_t _shares;
+
+    explicit priority_entity(uint32_t shares) noexcept
+            : _shares(std::max(shares, 1u))
+    {}
+
+public:
+    uint32_t shares() const noexcept { return _shares; }
+
+    void update_shares(uint32_t shares) noexcept {
+        _shares = std::max(shares, 1u);
+    }
+};
+
+class io_queue::priority_class_data final : public io_queue::priority_entity {
     io_queue& _queue;
     const internal::priority_class _pc;
-    uint32_t _shares;
     struct {
         size_t bytes = 0;
         uint64_t ops = 0;
@@ -204,14 +219,10 @@ class io_queue::priority_class_data {
     boost::container::static_vector<bandwidth_throttler, 2> _bw;
 
 public:
-    void update_shares(uint32_t shares) noexcept {
-        _shares = std::max(shares, 1u);
-    }
-
     priority_class_data(internal::priority_class pc, uint32_t shares, io_queue& q, io_group::priority_class_data& pg, std::optional<unsigned> group_index)
-        : _queue(q)
+        : priority_entity(shares)
+        , _queue(q)
         , _pc(pc)
-        , _shares(shares)
         , _nr_queued(0)
         , _nr_executing(0)
         , _queue_time(0)
