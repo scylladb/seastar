@@ -424,6 +424,31 @@ class io_queue::priority_class_data final : public io_queue::priority_entity {
                 , _replenish([this] { try_to_replenish(); })
         {}
 
+        void maybe_throttle(uint64_t ph) noexcept {
+            if (_replenish.armed()) {
+                return;
+            }
+            auto delta = _tb.deficiency(ph);
+            if (delta == 0) {
+                return;
+            }
+            auto dur = std::chrono::duration_cast<std::chrono::microseconds>(_tb.duration_for(delta));
+            if (dur.count() <= 1) {
+                // A sub-microsecond deficiency means the bucket's head just
+                // hasn't been refreshed recently -- typical for classes with
+                // no explicit bw cap, whose head stays put until the first
+                // throttle event.  Replenish on the spot and retry instead
+                // of going through a throttle/timer/unthrottle blip.
+                // Safe to recurse: the tail (ph) doesn't move, and a single
+                // replenish() advances the head enough to either clear the
+                // deficiency or bring it above the sub-usec range.
+                _tb.replenish(io_queue::clock_type::now());
+                return maybe_throttle(ph);
+            }
+            throttle();
+            _replenish.arm(dur);
+        }
+
         void grab(uint64_t tokens) noexcept {
             auto ph = _tb.grab(tokens);
             // _replenish_head must track the latest grabbed head, not just
@@ -439,14 +464,7 @@ class io_queue::priority_class_data final : public io_queue::priority_entity {
             // overshoot of one request per cycle.  Bucket tails are monotonic
             // (fetch_add-only) so plain assignment suffices.
             _replenish_head = ph;
-            if (_replenish.armed()) {
-                return;
-            }
-            auto delta = _tb.deficiency(ph);
-            if (delta > 0) {
-                throttle();
-                _replenish.arm(std::chrono::duration_cast<std::chrono::microseconds>(_tb.duration_for(delta)));
-            }
+            maybe_throttle(ph);
         }
     };
 
