@@ -73,6 +73,7 @@ public:
 
 class io_queue {
 public:
+    class priority_entity;
     class priority_class_data;
     using clock_type = std::chrono::steady_clock;
 
