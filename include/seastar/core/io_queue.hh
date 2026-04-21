@@ -92,7 +92,7 @@ private:
         io_throttler& out;
         sstring _label;
         stream(io_throttler& t, sstring label) noexcept : out(t), _label(std::move(label)) {}
-        std::vector<seastar::metrics::impl::metric_definition_impl> metrics(const priority_class_data&);
+        std::vector<seastar::metrics::impl::metric_definition_impl> metrics(const priority_class_data&, stream_id);
     };
     boost::container::static_vector<stream, 2> _streams;
     internal::io_sink& _sink;
