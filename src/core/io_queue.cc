@@ -145,6 +145,22 @@ struct io_group::priority_class_data {
     }
 };
 
+class io_queue::priority_entity {
+protected:
+    uint32_t _shares;
+
+    explicit priority_entity(uint32_t shares) noexcept
+            : _shares(std::max(shares, 1u))
+    {}
+
+public:
+    uint32_t shares() const noexcept { return _shares; }
+
+    void update_shares(uint32_t shares) noexcept {
+        _shares = std::max(shares, 1u);
+    }
+};
+
 // Shard-local mirror of a scheduling supergroup, the way priority_class_data
 // is one of a scheduling group. Classes that belong to a supergroup point at
 // the respective entry of the io_queue::_priority_groups vector.
@@ -162,10 +178,9 @@ struct io_queue::priority_class_group_data {
     unsigned fq_group() const noexcept { return _ssg.index(); }
 };
 
-class io_queue::priority_class_data {
+class io_queue::priority_class_data final : public io_queue::priority_entity {
     io_queue& _queue;
     const scheduling_group _sg;
-    uint32_t _shares;
     struct {
         size_t bytes = 0;
         uint64_t ops = 0;
@@ -240,14 +255,10 @@ class io_queue::priority_class_data {
     boost::container::static_vector<bandwidth_throttler, 2> _bw;
 
 public:
-    void update_shares(uint32_t shares) noexcept {
-        _shares = std::max(shares, 1u);
-    }
-
     priority_class_data(scheduling_group sg, uint32_t shares, io_queue& q, io_group::priority_class_data& pg, priority_class_group_data* pcg)
-        : _queue(q)
+        : priority_entity(shares)
+        , _queue(q)
         , _sg(sg)
-        , _shares(shares)
         , _nr_queued(0)
         , _nr_executing(0)
         , _queue_time(0)

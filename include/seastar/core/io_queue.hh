@@ -64,6 +64,7 @@ using iovec_keeper = std::vector<::iovec>;
 
 class io_queue {
 public:
+    class priority_entity;
     class priority_class_data;
     struct priority_class_group_data;
     using clock_type = std::chrono::steady_clock;
