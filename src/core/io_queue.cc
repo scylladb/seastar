@@ -666,7 +666,7 @@ struct io_queue::dispatch_root final : public io_queue::priority_entity {
         : priority_entity(nullptr, 1, streams)
     {
         for (auto& st : streams) {
-            _consumers.emplace_back(st.out.token_bucket(), capacity_t(0));
+            _consumers.emplace_back(st.publisher, capacity_t(0));
         }
     }
 
@@ -1446,10 +1446,11 @@ void io_queue::poll_io_queue() {
 
     auto now = clock_type::now();
 
-    // Phase 1: replenish global bucket, pull tokens into root, redistribute
-    // down the tree.
+    // Phase 1: replenish global bucket, flush pending share updates, pull
+    // tokens into root, redistribute down the tree.
     for (auto& st : _streams) {
         st.out.replenish_capacity(now);
+        st.publisher.flush();
     }
     _root->refill();
     _root->redistribute();
@@ -1597,6 +1598,9 @@ void io_queue::unthrottle_priority_class_group(unsigned group) noexcept {
     }
 }
 
+
+io_queue::stream::stream(io_throttler& t, sstring label) noexcept
+    : out(t), _label(std::move(label)), publisher(t.token_bucket()) {}
 
 std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::stream::metrics(const priority_class_data& pc, stream_id si) {
     namespace sm = seastar::metrics;

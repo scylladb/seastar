@@ -396,6 +396,46 @@ public:
     };
 
     /*
+     * Per-shard accumulator for pending contributions to _total_shares.
+     *
+     * A consumer's activate()/deactivate()/update_shares() no longer RMW the
+     * shared _total_shares atomic directly; instead they add a signed delta
+     * to a local_publisher's shard-local _pending counter (plain integer
+     * arithmetic, no cacheline contention).  Once per poll the owner calls
+     * flush(), which turns the whole pending delta into a single atomic RMW
+     * on the shared cacheline regardless of how many consumers flipped or
+     * how many times they flipped.
+     */
+    class local_publisher {
+        shard_aware_token_bucket& _bucket;
+        std::make_signed_t<T> _pending{0};
+
+    public:
+        explicit local_publisher(shard_aware_token_bucket& bucket) noexcept
+            : _bucket(bucket) {}
+
+        local_publisher(const local_publisher&) = delete;
+        local_publisher(local_publisher&&) = delete;
+
+        shard_aware_token_bucket& bucket() const noexcept { return _bucket; }
+
+        void apply(std::make_signed_t<T> delta) noexcept { _pending += delta; }
+
+        /* Commit accumulated delta to the shared _total_shares atomic. */
+        void flush() noexcept {
+            if (_pending == 0) {
+                return;
+            }
+            if (_pending > 0) {
+                _bucket._total_shares.fetch_add(T(_pending), std::memory_order_relaxed);
+            } else {
+                _bucket._total_shares.fetch_sub(T(-_pending), std::memory_order_relaxed);
+            }
+            _pending = 0;
+        }
+    };
+
+    /*
      * Per-class, shard-local share/generation bookkeeping. Not thread-safe on
      * its own; intended to be owned and accessed by a single shard.
      *
@@ -407,7 +447,7 @@ public:
      * compute them and feed the result into an externally-owned tokens pouch.
      */
     class consumer {
-        shard_aware_token_bucket& _bucket;
+        local_publisher& _publisher;
         T _shares;
         // Per-consumer watermark into _tokens_generated (see above).
         // accrued() computes gain as (generated - _last_seen) * _shares
@@ -417,11 +457,13 @@ public:
         T _last_seen;
         bool _active{false};
 
+        shard_aware_token_bucket& bucket() const noexcept { return _publisher.bucket(); }
+
     public:
-        consumer(shard_aware_token_bucket& bucket, T shares) noexcept
-            : _bucket(bucket)
+        consumer(local_publisher& publisher, T shares) noexcept
+            : _publisher(publisher)
             , _shares(shares)
-            , _last_seen(bucket._tokens_generated.load(std::memory_order_relaxed))
+            , _last_seen(publisher.bucket()._tokens_generated.load(std::memory_order_relaxed))
         {}
 
         consumer(const consumer&) = delete;
@@ -434,8 +476,9 @@ public:
         }
 
         /*
-         * Mark this class as actively competing for tokens. Contributes _shares
-         * to total_shares until deactivate() is called.
+         * Mark this class as actively competing for tokens.  The contribution
+         * to total_shares is accumulated into the publisher's pending delta
+         * and flushed to the shared atomic by the owner once per poll.
          *
          * On re-activation after idle, the class receives credit for at most
          * tau_tokens worth of global generation (the forgiveness window). This
@@ -445,21 +488,22 @@ public:
         void activate() noexcept {
             SEASTAR_ASSERT(!_active);
             _active = true;
-            auto gen = _bucket._tokens_generated.load(std::memory_order_relaxed);
-            auto tau = _bucket._tau_tokens;
+            auto& b = bucket();
+            auto gen = b._tokens_generated.load(std::memory_order_relaxed);
+            auto tau = b._tau_tokens;
             if (tau > 0 && gen >= tau) {
                 _last_seen = std::max(_last_seen, gen - tau);
             } else if (tau == 0) {
                 _last_seen = gen;
             }
-            _bucket._total_shares.fetch_add(_shares, std::memory_order_relaxed);
+            _publisher.apply(std::make_signed_t<T>(_shares));
         }
 
         /* Remove this class from active competition. */
         void deactivate() noexcept {
             SEASTAR_ASSERT(_active);
             _active = false;
-            _bucket._total_shares.fetch_sub(_shares, std::memory_order_relaxed);
+            _publisher.apply(-std::make_signed_t<T>(_shares));
         }
 
         bool is_active() const noexcept { return _active; }
@@ -470,32 +514,34 @@ public:
          * advance the internal watermark. The caller is expected to feed the
          * result into a tokens pouch via tokens::refill().
          *
+         * The caller must have flushed the shard's local_publisher at least
+         * once in this poll before calling accrued(), so that _total_shares
+         * reflects the full shard-local active set.
+         *
          * Fairness is preserved by the proportional gain formula; no capping
          * is applied here -- the pouch's burst_limit caps accumulation.
          */
         T accrued() noexcept {
-            auto gen = _bucket._tokens_generated.load(std::memory_order_relaxed);
+            auto& b = bucket();
+            auto gen = b._tokens_generated.load(std::memory_order_relaxed);
             auto delta = gen - _last_seen;
             if (delta == 0) {
                 return T(0);
             }
             _last_seen = gen;
-            auto total = _bucket._total_shares.load(std::memory_order_relaxed);
+            auto total = b._total_shares.load(std::memory_order_relaxed);
             if (total == 0) {
                 return T(0);
             }
             return T(double(delta) * _shares / total);
         }
 
-        /* Update shares; adjusts total_shares immediately if currently active. */
+        /* Update shares.  The difference is accumulated into the publisher. */
         void update_shares(T new_shares) noexcept {
             if (_active) {
-                _bucket._total_shares.fetch_sub(_shares, std::memory_order_relaxed);
+                _publisher.apply(std::make_signed_t<T>(new_shares) - std::make_signed_t<T>(_shares));
             }
             _shares = new_shares;
-            if (_active) {
-                _bucket._total_shares.fetch_add(new_shares, std::memory_order_relaxed);
-            }
         }
 
         T shares() const noexcept { return _shares; }
