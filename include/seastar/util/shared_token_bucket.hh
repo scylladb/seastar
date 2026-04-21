@@ -398,6 +398,46 @@ public:
     };
 
     /*
+     * Per-shard accumulator for pending contributions to _total_demand.
+     *
+     * A consumer's activate()/deactivate()/update_demand() no longer RMW the
+     * shared _total_demand atomic directly; instead they add a signed delta
+     * to a local_publisher's shard-local _pending counter (plain integer
+     * arithmetic, no cacheline contention).  Once per poll the owner calls
+     * flush(), which turns the whole pending delta into a single atomic RMW
+     * on the shared cacheline regardless of how many consumers flipped or
+     * how many times they flipped.
+     */
+    class local_publisher {
+        shard_aware_token_bucket& _bucket;
+        std::make_signed_t<T> _pending{0};
+
+    public:
+        explicit local_publisher(shard_aware_token_bucket& bucket) noexcept
+            : _bucket(bucket) {}
+
+        local_publisher(const local_publisher&) = delete;
+        local_publisher(local_publisher&&) = delete;
+
+        shard_aware_token_bucket& bucket() const noexcept { return _bucket; }
+
+        void apply(std::make_signed_t<T> delta) noexcept { _pending += delta; }
+
+        /* Commit accumulated delta to the shared _total_demand atomic. */
+        void flush() noexcept {
+            if (_pending == 0) {
+                return;
+            }
+            if (_pending > 0) {
+                _bucket._total_demand.fetch_add(T(_pending), std::memory_order_relaxed);
+            } else {
+                _bucket._total_demand.fetch_sub(T(-_pending), std::memory_order_relaxed);
+            }
+            _pending = 0;
+        }
+    };
+
+    /*
      * Per-class, shard-local demand/generation bookkeeping. Not thread-safe on
      * its own; intended to be owned and accessed by a single shard.
      *
@@ -409,7 +449,7 @@ public:
      * compute them and feed the result into an externally-owned tokens pouch.
      */
     class consumer {
-        shard_aware_token_bucket& _bucket;
+        local_publisher& _publisher;
         T _demand;
         // Per-consumer watermark into _tokens_generated (see above).
         // accrued() computes gain as (generated - _last_seen) * _demand
@@ -419,11 +459,13 @@ public:
         T _last_seen;
         bool _active{false};
 
+        shard_aware_token_bucket& bucket() const noexcept { return _publisher.bucket(); }
+
     public:
-        consumer(shard_aware_token_bucket& bucket, T demand) noexcept
-            : _bucket(bucket)
+        consumer(local_publisher& publisher, T demand) noexcept
+            : _publisher(publisher)
             , _demand(demand)
-            , _last_seen(bucket._tokens_generated.load(std::memory_order_relaxed))
+            , _last_seen(publisher.bucket()._tokens_generated.load(std::memory_order_relaxed))
         {}
 
         consumer(const consumer&) = delete;
@@ -436,8 +478,9 @@ public:
         }
 
         /*
-         * Mark this class as actively competing for tokens. Contributes _demand
-         * to total_demand until deactivate() is called.
+         * Mark this class as actively competing for tokens.  The contribution
+         * to total_demand is accumulated into the publisher's pending delta
+         * and flushed to the shared atomic by the owner once per poll.
          *
          * On re-activation after idle, the class receives credit for at most
          * tau_tokens worth of global generation (the forgiveness window). This
@@ -447,21 +490,22 @@ public:
         void activate() noexcept {
             SEASTAR_ASSERT(!_active);
             _active = true;
-            auto gen = _bucket._tokens_generated.load(std::memory_order_relaxed);
-            auto tau = _bucket._tau_tokens;
+            auto& b = bucket();
+            auto gen = b._tokens_generated.load(std::memory_order_relaxed);
+            auto tau = b._tau_tokens;
             if (tau > 0 && gen >= tau) {
                 _last_seen = std::max(_last_seen, gen - tau);
             } else if (tau == 0) {
                 _last_seen = gen;
             }
-            _bucket._total_demand.fetch_add(_demand, std::memory_order_relaxed);
+            _publisher.apply(std::make_signed_t<T>(_demand));
         }
 
         /* Remove this class from active competition. */
         void deactivate() noexcept {
             SEASTAR_ASSERT(_active);
             _active = false;
-            _bucket._total_demand.fetch_sub(_demand, std::memory_order_relaxed);
+            _publisher.apply(-std::make_signed_t<T>(_demand));
         }
 
         bool is_active() const noexcept { return _active; }
@@ -471,6 +515,10 @@ public:
          * since the previous call (or since construction / reactivation), and
          * advance the internal watermark. The caller is expected to feed the
          * result into a tokens pouch via tokens::refill().
+         *
+         * The caller must have flushed the shard's local_publisher at least
+         * once in this poll before calling accrued(), so that _total_demand
+         * reflects the full shard-local active set.
          *
          * Fairness is preserved by the proportional gain formula; no capping
          * is applied here -- the pouch's burst_limit caps accumulation.
@@ -484,27 +532,24 @@ public:
             if (!_active) {
                 return T(0);
             }
-            auto gen = _bucket._tokens_generated.load(std::memory_order_relaxed);
+            auto& b = bucket();
+            auto gen = b._tokens_generated.load(std::memory_order_relaxed);
             auto delta = gen - _last_seen;
             if (delta == 0) {
                 return T(0);
             }
             _last_seen = gen;
-            auto total = _bucket._total_demand.load(std::memory_order_relaxed);
+            auto total = b._total_demand.load(std::memory_order_relaxed);
             if (total == 0) {
                 return T(0);
             }
             return T(double(delta) * _demand / total);
         }
 
-        /* Update demand; adjusts total_demand immediately if currently active. */
+        /* Update demand.  The difference is accumulated into the publisher. */
         void update_demand(T new_demand) noexcept {
             if (_active) {
-                if (new_demand >= _demand) {
-                    _bucket._total_demand.fetch_add(new_demand - _demand, std::memory_order_relaxed);
-                } else {
-                    _bucket._total_demand.fetch_sub(_demand - new_demand, std::memory_order_relaxed);
-                }
+                _publisher.apply(std::make_signed_t<T>(new_demand) - std::make_signed_t<T>(_demand));
             }
             _demand = new_demand;
         }
