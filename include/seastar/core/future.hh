@@ -1305,7 +1305,7 @@ template <typename Func, typename T>
 using future_result_t = typename future_result<Func, T>::type;
 
 template <typename Func, typename T>
-auto future_invoke(Func&& func, T&& v) {
+decltype(auto) future_invoke(Func&& func, T&& v) {
     if constexpr (std::is_same_v<T, monostate>) {
         return std::invoke(std::forward<Func>(func));
     } else {
@@ -1624,7 +1624,7 @@ private:
             if (state.failed()) {
                 pr.set_exception(static_cast<future_state_base&&>(std::move(state)));
             } else {
-                futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
+                futurator::satisfy_with_result_of(std::move(pr), [&func, &state]() -> decltype(auto) {
                     // clang thinks that "state" is not used, below, for future<>.
                     // Make it think it is used to avoid an unused-lambda-capture warning.
                     (void)state;
@@ -2077,11 +2077,7 @@ struct futurize : public internal::futurize_base<T> {
 
     /// Convert the tuple representation into a future
     static type from_tuple(value_type&& value) {
-        return type(set_ready_future_marker(), std::move(value));
-    }
-    /// Convert the tuple representation into a future
-    static type from_tuple(const value_type& value) {
-        return type(set_ready_future_marker(), value);
+        return type(set_ready_future_marker(), std::forward<value_type>(value));
     }
 private:
     /// Forwards the result of, or exception thrown by, func() to the

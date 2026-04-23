@@ -1575,6 +1575,39 @@ SEASTAR_TEST_CASE(test_futurize_from_tuple) {
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(test_futurize_from_tuple_const_ref) {
+    // Regression test for `from_tuple(const value_type&)` conflicting with
+    // `from_tuple(value_type&&)`.
+    //
+    // In addition, when returning an lvalue reference, the type should not
+    // be moved with `std::move` somewhere deep in the implementation.
+    //
+    // The point of declaring move and copy operations is to assert that
+    // even if an object is movable and copyable, it is not moved or copied
+    // when returned as an lvalue reference from a `then` callback.
+    struct unmovable_object {
+        int v;
+        explicit unmovable_object(int v) : v(v) {}
+        unmovable_object(const unmovable_object&) { BOOST_FAIL("unmovable_object should not be copied"); }
+        unmovable_object& operator=(const unmovable_object&) { BOOST_FAIL("unmovable_object should not be copied"); return *this; }
+        unmovable_object(unmovable_object&&) { BOOST_FAIL("unmovable_object should not be moved"); }
+        unmovable_object& operator=(unmovable_object&&) { BOOST_FAIL("unmovable_object should not be moved"); return *this; }
+        ~unmovable_object() { BOOST_REQUIRE_EQUAL(v, 5); }
+    };
+    unmovable_object n{5};
+
+    // Ensure the support through `make_ready_future` as well.
+    BOOST_REQUIRE_EQUAL(make_ready_future<unmovable_object&>(n).get().v, 5);
+
+    auto f = make_ready_future<>();
+    f = std::move(f).then([&]() -> unmovable_object& { return n; }).then([](unmovable_object& x) { BOOST_REQUIRE_EQUAL(x.v, 5); });
+    f = std::move(f).then([&]() -> const unmovable_object& { return n; }).then([](const unmovable_object& x) { BOOST_REQUIRE_EQUAL(x.v, 5); });
+    // Without the annotation, it would be pass-by-value or moved
+    f = std::move(f).then([]() { int x = 1; return x; }).then([](int x) { BOOST_REQUIRE_EQUAL(x, 1); });
+    f = std::move(f).then([x = n.v] { return x; }).then([](int x) { BOOST_REQUIRE_EQUAL(x, 5); });
+    co_await std::move(f);
+}
+
 SEASTAR_TEST_CASE(test_repeat_until_value) {
     return do_with(int(), [] (int& counter) {
         return repeat_until_value([&counter] () -> future<std::optional<int>> {
