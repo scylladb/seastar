@@ -198,6 +198,7 @@ public:
         if (!CheckPreempt || !_future.available()) {
             _future.set_coroutine(hndl.promise());
         } else {
+            task_profiler::mark_completion(hndl.promise());
             schedule(&hndl.promise());
         }
     }
@@ -224,6 +225,7 @@ public:
         if (!CheckPreempt || !_future.available()) {
             _future.set_coroutine(hndl.promise());
         } else {
+            task_profiler::mark_completion(hndl.promise());
             schedule(&hndl.promise());
         }
     }

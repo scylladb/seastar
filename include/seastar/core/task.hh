@@ -24,21 +24,29 @@
 #include <seastar/core/scheduling.hh>
 #include <seastar/util/backtrace.hh>
 
+#include <cstdint>
 #include <utility>
 #include <source_location>
 
 namespace seastar {
+
+class task_profiler;
 
 class task {
     std::source_location _resume_point = {};
 
 protected:
     scheduling_group _sg;
+    // Index into task_profiler's entries vector. UINT32_MAX means the
+    // task is not tracked. Placed right after _sg (both 4 bytes) to
+    // fill the padding gap — zero per-task memory overhead.
+    uint32_t _prof_idx = UINT32_MAX;
 
 private:
 #ifdef SEASTAR_TASK_BACKTRACE
     shared_backtrace _bt;
 #endif
+
 protected:
     // Task destruction is performed by run_and_dispose() via a concrete type,
     // so no need for a virtual destructor here. Derived classes that implement
@@ -64,6 +72,8 @@ public:
     void make_backtrace() noexcept {}
     shared_backtrace get_backtrace() const { return {}; }
 #endif
+
+    friend class task_profiler;
 };
 
 
