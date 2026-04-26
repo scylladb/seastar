@@ -43,37 +43,43 @@ jobs:
   test:
     timeout-minutes: 60
     runs-on: ubuntu-24.04
+    container:
+      image: docker.io/fedora:44
     steps:
+      - run: |
+          dnf -y upgrade
+
+      - name: Install git
+        run: |
+          dnf install -y git
+
       - uses: actions/checkout@v4
         with:
           submodules: "${{ contains(inputs.enables, 'dpdk') }}"
 
-      - run: |
-          sudo apt-get update
-
       - name: Install build dependencies
         run: |
-          sudo ./install-dependencies.sh
+          ./install-dependencies.sh
 
       - name: Install clang++
         if: ${{ inputs.compiler == 'clang++' }}
         run: |
-          sudo apt-get -y install clang-20
+          dnf install -y clang
 
       - name: Install clang-scan-deps
         if: ${{ contains(inputs.enables, 'cxx-modules') }}
         run: |
-          sudo apt-get -y install clang-tools-20
+          dnf install -y clang-tools-extra
 
       - name: Install g++
         if: ${{ inputs.compiler == 'g++' }}
         run: |
-          sudo apt-get -y install gcc-14 g++-14
+          dnf install -y gcc gcc-c++
 
       - name: Install ccache
         if: ${{ inputs.enable-ccache }}
         run: |
-          sudo apt-get -y install ccache
+          dnf install -y ccache
 
       - name: Setup ccache
         if: ${{ inputs.enable-ccache }}
@@ -84,11 +90,11 @@ jobs:
       - name: Configure
         run: |
           if [ ${{ inputs.compiler }} = "clang++" ]; then
-            CC=clang-20
-            CPP=clang++-20
+            CC=clang
+            CPP=clang++
           else
-            CC=gcc-14
-            CPP=g++-14
+            CC=gcc
+            CPP=g++
           fi
           if ${{ inputs.enable-ccache }}; then
             MAYBE_CCACHE_OPT="--compiler-cache=ccache"

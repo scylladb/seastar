@@ -22,6 +22,10 @@ jobs:
         compiler: [clang++, g++]
         standard: [20, 23]
         mode: [dev, debug, release]
+        exclude:
+          # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=124584
+          - compiler: g++
+            mode: debug
     with:
       compiler: ${{ matrix.compiler }}
       standard: ${{ matrix.standard }}
