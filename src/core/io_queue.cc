@@ -628,7 +628,6 @@ void
 io_queue::complete_request(io_desc_read_write& desc, std::chrono::duration<double> delay) noexcept {
     _requests_executing--;
     _requests_completed++;
-    _streams[desc.stream()].fq.notify_request_finished(desc.capacity());
 
     if (delay > _stall_threshold) {
         _stall_threshold *= 2;
@@ -1179,7 +1178,6 @@ void io_queue::cancel_request(queued_io_request& req) noexcept {
 }
 
 void io_queue::complete_cancelled_request(queued_io_request& req) noexcept {
-    _streams[req.stream()].fq.notify_request_finished(req.queue_entry().capacity());
 }
 
 io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {

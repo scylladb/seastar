@@ -301,9 +301,6 @@ public:
     void plug_class_group(unsigned index) noexcept;
     void unplug_class_group(unsigned index) noexcept;
 
-    /// Notifies that ont request finished
-    /// \param desc an instance of \c fair_queue_ticket structure describing the request that just finished.
-    void notify_request_finished(fair_queue_entry::capacity_t cap) noexcept;
     void notify_request_cancelled(fair_queue_entry& ent) noexcept;
 
     fair_queue_entry* top();

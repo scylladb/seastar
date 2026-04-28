@@ -109,7 +109,6 @@ public:
             for (auto& req : curr) {
                 processed++;
                 _results[req.index]++;
-                _fq.notify_request_finished(req.fqent.capacity());
             }
         }
         return processed;
@@ -143,7 +142,6 @@ public:
             } catch (...) {
                 auto eptr = std::current_exception();
                 _exceptions[index].push_back(eptr);
-                _fq.notify_request_finished(req.fqent.capacity());
             }
         });
 

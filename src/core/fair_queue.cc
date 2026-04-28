@@ -262,9 +262,6 @@ void fair_queue::queue(class_id id, fair_queue_entry& ent) noexcept {
     _queued_capacity += ent.capacity();
 }
 
-void fair_queue::notify_request_finished(fair_queue_entry::capacity_t cap) noexcept {
-}
-
 void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
     _queued_capacity -= ent._capacity;
     ent._capacity = 0;
