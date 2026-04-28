@@ -724,6 +724,9 @@ posix_server_socket_impl::accept() {
         case server_socket::load_balancing_algorithm::fixed:
             cth = _conntrack.get_handle(_fixed_cpu);
             break;
+        case server_socket::load_balancing_algorithm::round_robin:
+            cth = _conntrack.get_handle_rr();
+            break;
         default: abort();
         }
 
