@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <functional>
 #include <limits>
 #include <cctype>
 #include <vector>
@@ -37,6 +38,7 @@
 #include <seastar/http/routes.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/core/shared_ptr.hh>
+#include <seastar/core/scheduling.hh>
 
 namespace seastar {
 
@@ -100,6 +102,7 @@ public:
     ~connection();
     void on_new_connection();
 
+    future<> prepare();
     future<> process();
     void shutdown();
     future<> read();
@@ -136,6 +139,7 @@ class http_server {
     bool _generate_date_header = true;
     gate _task_gate;
     std::optional<net::keepalive_params> _keepalive_params;
+    std::optional<scheduling_group> _request_scheduling_group;
 public:
     routes _routes;
     using connection = seastar::httpd::connection;
@@ -199,6 +203,15 @@ public:
     /// When set to false the periodic date-update timer is also stopped.
     void set_generate_date_header(bool b);
 
+    /// Sets the scheduling group used for request processing.
+    ///
+    /// Connection setup (including TLS handshake when enabled) runs in the
+    /// scheduling group of the accept loop. After setup completes, the
+    /// connection switches to the configured group before processing requests.
+    /// Without this setting, request processing continues in the accept loop
+    /// scheduling group.
+    void set_request_scheduling_group(scheduling_group sg);
+
     future<> listen(socket_address addr, server_credentials_ptr credentials);
     future<> listen(socket_address addr, listen_options lo, server_credentials_ptr credentials);
     future<> listen(socket_address addr, listen_options lo);
@@ -219,6 +232,7 @@ public:
     static sstring http_date();
 private:
     future<> do_accept_one(int which, bool with_tls);
+    future<> do_process_connection(connected_socket conn_fd, socket_address remote_address, bool tls);
     boost::intrusive::list<connection> _connections;
     friend class seastar::httpd::connection;
     friend class http_server_tester;
