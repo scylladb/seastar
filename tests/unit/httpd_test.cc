@@ -17,6 +17,7 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/core/scheduling.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/units.hh>
 #include <seastar/testing/test_case.hh>
@@ -2529,4 +2530,92 @@ SEASTAR_TEST_CASE(test_http_reply_formatting) {
     BOOST_REQUIRE_EQUAL(parts[4], "body-content");
 
     return make_ready_future<>();
+}
+
+// Verify that when set_request_scheduling_group() is configured,
+// the request handler runs in the designated scheduling group.
+SEASTAR_TEST_CASE(test_request_scheduling_group) {
+    return seastar::async([] {
+        auto sg = create_scheduling_group("test-httpd-sg", 100).get();
+        std::exception_ptr ex;
+
+        try {
+            scheduling_group observed_handler_sg;
+
+            static const char test_cert[] =
+                "-----BEGIN CERTIFICATE-----\n"
+                "MIIBzDCCAXOgAwIBAgIULUjD6YNpUtkaibrj8Z5pMg/bQlEwCgYIKoZIzj0EAwIw\n"
+                "FDESMBAGA1UEAwwJbG9jYWxob3N0MCAXDTI2MDMxOTA4Mjg0NloYDzIxMjYwMjIz\n"
+                "MDgyODQ2WjAUMRIwEAYDVQQDDAlsb2NhbGhvc3QwWTATBgcqhkjOPQIBBggqhkjO\n"
+                "PQMBBwNCAATsDbUqgqgR3llGWbVnz3jcY16/ZUWZT4kaIneoRbjTlMgr/Z5cBM2H\n"
+                "ZaN7zY6yuLFPkf/yRNCki9Q565EqqIzRo4GgMIGdMB0GA1UdDgQWBBTDUmIk5BxS\n"
+                "nWiOWNucItd2PWCL3jBPBgNVHSMESDBGgBTDUmIk5BxSnWiOWNucItd2PWCL3qEY\n"
+                "pBYwFDESMBAGA1UEAwwJbG9jYWxob3N0ghQtSMPpg2lS2RqJuuPxnmkyD9tCUTAP\n"
+                "BgNVHRMBAf8EBTADAQH/MBoGA1UdEQQTMBGCCWxvY2FsaG9zdIcEfwAAATAKBggq\n"
+                "hkjOPQQDAgNHADBEAiBVsdCtlAEz0bqR73UViNXOKln5KCEon77KdjKHsDI1gAIg\n"
+                "da4opFU4dPGt3kKOe2UNTIxre0rdIuQmv4sidCTBfx4=\n"
+                "-----END CERTIFICATE-----\n";
+            static const char test_key[] =
+                "-----BEGIN PRIVATE KEY-----\n"
+                "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPJLOJNZ40LFhA4h4\n"
+                "DD+iARBzBUVEHY18F04UNcm/FNihRANCAATsDbUqgqgR3llGWbVnz3jcY16/ZUWZ\n"
+                "T4kaIneoRbjTlMgr/Z5cBM2HZaN7zY6yuLFPkf/yRNCki9Q565EqqIzR\n"
+                "-----END PRIVATE KEY-----\n";
+
+            auto server_creds = ::make_shared<tls::server_credentials>(::make_shared<tls::dh_params>());
+            server_creds->set_x509_key(
+                    tls::blob(test_cert, sizeof(test_cert) - 1),
+                    tls::blob(test_key, sizeof(test_key) - 1),
+                    tls::x509_crt_format::PEM);
+
+            tls::credentials_builder client_builder;
+            client_builder.set_x509_trust(tls::blob(test_cert, sizeof(test_cert) - 1), tls::x509_crt_format::PEM);
+            auto client_creds = client_builder.build_certificate_credentials();
+
+            auto addr = socket_address(ipv4_addr("127.0.0.1", 0));
+            listen_options lo;
+            lo.reuse_address = true;
+            lo.set_fixed_cpu(this_shard_id());
+
+            http_server server("test");
+            server.set_request_scheduling_group(sg);
+            server._routes.put(GET, "/test", new function_handler([&observed_handler_sg](const_req req) {
+                observed_handler_sg = current_scheduling_group();
+                return "";
+            }, "txt"));
+
+            server.listen(addr, lo, server_creds).get();
+            auto actual_addr = http_server_tester::listeners(server)[0].local_address();
+
+            // Run the client in a separate fiber so the reactor can
+            // interleave client and server TLS handshake progress.
+            future<> client = seastar::async([&] {
+                auto c_socket = tls::connect(client_creds, actual_addr,
+                        tls::tls_options{.server_name = sstring("localhost")}).get();
+                auto input = c_socket.input();
+                auto output = c_socket.output();
+                auto close_in = deferred_close(input);
+                auto close_out = deferred_close(output);
+
+                output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\n\r\n")).get();
+                output.flush().get();
+                auto resp = input.read().get();
+                BOOST_REQUIRE_NE(resp.size(), 0u);
+                BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("200 OK"), std::string::npos);
+            });
+
+            client.get();
+
+            BOOST_REQUIRE(observed_handler_sg == sg);
+
+            server.stop().get();
+        } catch (...) {
+            ex = std::current_exception();
+        }
+
+        destroy_scheduling_group(sg).get();
+        if (ex) {
+            std::rethrow_exception(std::move(ex));
+        }
+    });
 }

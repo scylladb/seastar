@@ -47,6 +47,7 @@
 #include <seastar/util/short_streams.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/string_utils.hh>
+#include <seastar/coroutine/switch_to.hh>
 
 
 using namespace std::chrono_literals;
@@ -306,6 +307,13 @@ future<> connection::process() {
         });
     });
 }
+
+future<> connection::prepare() {
+    if (_tls) {
+        co_await tls::get_protocol_version(_fd);
+    }
+}
+
 void connection::shutdown() {
     _fd.shutdown_input();
     _fd.shutdown_output();
@@ -401,6 +409,10 @@ void http_server::set_generate_date_header(bool b) {
     }
 }
 
+void http_server::set_request_scheduling_group(scheduling_group sg) {
+    _request_scheduling_group = sg;
+}
+
 future<> http_server::listen(socket_address addr, listen_options lo,
             server_credentials_ptr listener_credentials) {
     if (listener_credentials) {
@@ -476,14 +488,37 @@ future<> http_server::do_accept_one(int which, bool tls) {
         ar.connection.set_keepalive(true);
         ar.connection.set_keepalive_parameters(_keepalive_params.value());
     }
-    auto local_address = ar.connection.local_address();
-    auto conn = std::make_unique<connection>(*this, std::move(ar.connection),
-            std::move(ar.remote_address), std::move(local_address), tls);
-    (void)try_with_gate(_task_gate, [conn = std::move(conn)]() mutable {
-        return conn->process().handle_exception([conn = std::move(conn)] (std::exception_ptr ex) {
-            hlogger.error("request error: {}", ex);
-        });
+    // The lambda passed to try_with_gate must not be a coroutine,
+    // because try_with_gate invokes it but does not store it: a coroutine
+    // lambda would be destroyed while its frame is still running.
+    (void)try_with_gate(_task_gate,
+            [this, conn_fd = std::move(ar.connection),
+             remote_address = std::move(ar.remote_address), tls]() mutable {
+        return do_process_connection(std::move(conn_fd), std::move(remote_address), tls);
     }).handle_exception_type([] (const gate_closed_exception& e) {});
+}
+
+// Named member coroutine for per-connection processing, called from the
+// non-coroutine lambda in try_with_gate inside do_accept_one(). Parameters
+// are passed by value so they live safely in the coroutine frame.
+future<> http_server::do_process_connection(connected_socket conn_fd, socket_address remote_address, bool tls) {
+    auto local_address = conn_fd.local_address();
+    auto conn = std::make_unique<connection>(*this, std::move(conn_fd),
+            std::move(remote_address), std::move(local_address), tls);
+    try {
+        co_await conn->prepare();
+    } catch (...) {
+        hlogger.debug("connection preparation failed: {}", std::current_exception());
+        co_return;
+    }
+    if (_request_scheduling_group) {
+        co_await coroutine::switch_to(*_request_scheduling_group);
+    }
+    try {
+        co_await conn->process();
+    } catch (...) {
+        hlogger.error("request error: {}", std::current_exception());
+    }
 }
 
 uint64_t http_server::total_connections() const {
