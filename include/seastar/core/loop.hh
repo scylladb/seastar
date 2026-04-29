@@ -28,7 +28,7 @@
 #include <memory>
 #include <optional>
 #include <type_traits>
-#include <vector>
+#include <boost/container/small_vector.hpp>
 #include <seastar/core/future.hh>
 #include <seastar/core/task.hh>
 #include <seastar/util/assert.hh>
@@ -531,7 +531,7 @@ iterator_range_estimate_vector_capacity(Iterator begin, Sentinel end) {
 /// \cond internal
 
 class parallel_for_each_state final : private continuation_base<> {
-    std::vector<future<>> _incomplete;
+    boost::container::small_vector<future<>, 5> _incomplete;
     promise<> _result;
     std::exception_ptr _ex;
 private:
