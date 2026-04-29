@@ -323,6 +323,7 @@ private:
         bool active() const noexcept;
         void activate(sched_entity*);
     private:
+        bool run_tasks_impl(sched_clock::time_point t_initial);
         void insert_active_entity(sched_entity*);
         sched_entity* pop_active_entity(sched_clock::time_point now);
         void insert_activating_entities();

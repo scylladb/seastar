@@ -1348,7 +1348,7 @@ void cpu_stall_detector::start_task_run(sched_clock::time_point now) {
     std::atomic_signal_fence(std::memory_order_release); // Don't delay this write, so the signal handler can see it
 }
 
-void cpu_stall_detector::end_task_run(sched_clock::time_point now) {
+void cpu_stall_detector::end_task_run() {
     std::atomic_signal_fence(std::memory_order_acquire); // Don't hoist this write, so the signal handler can see it
     _last_tasks_processed_seen.store(0, std::memory_order_relaxed);
 }
@@ -3217,19 +3217,21 @@ reactor::task_queue_group::run_some_tasks() {
     lowres_clock::update();
 
     STAP_PROBE(seastar, reactor_run_tasks_start);
-    r._cpu_stall_detector->start_task_run(now());
-
-    run_tasks();
-
-    r._cpu_stall_detector->end_task_run(now());
+    auto t = now();
+    r._cpu_stall_detector->start_task_run(t);
+    run_tasks_impl(t);
+    r._cpu_stall_detector->end_task_run();
     STAP_PROBE(seastar, reactor_run_tasks_end);
     *internal::current_scheduling_group_ptr() = default_scheduling_group(); // Prevent inheritance from last group run
 }
 
 bool reactor::task_queue_group::run_tasks() {
+    return run_tasks_impl(now());
+}
+
+bool reactor::task_queue_group::run_tasks_impl(sched_clock::time_point t_run_completed) {
     reactor& r = engine();
 
-    sched_clock::time_point t_run_completed = now();
     while (active()) {
         auto t_run_started = t_run_completed;
         insert_activating_entities();
