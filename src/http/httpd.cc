@@ -462,7 +462,9 @@ future<> http_server::accept_loop(int which, bool tls) {
 future<> http_server::do_accepts(int which, bool tls) {
     (void)try_with_gate(_task_gate, [this, which, tls] {
         return accept_loop(which, tls);
-    }).handle_exception_type([](const gate_closed_exception&) {});
+    }).handle_exception_type([which, tls] (const gate_closed_exception& e) {
+        hlogger.warn("In http_server::do_accepts(), try_with_gate(which={}, tls={}): {}", which, tls, e.what());
+    });
     return make_ready_future<>();
 }
 
