@@ -309,6 +309,9 @@ def configure_mode(mode):
         tr(args.debug_shared_ptr, 'DEBUG_SHARED_PTR', value_when_none='default'),
     ]
 
+    if not which('ninja-build') and which('ninja'):
+        TRANSLATED_ARGS.append('-DCMAKE_MAKE_PROGRAM=ninja')
+
     ingredients_to_cook = set(args.cook)
 
     if ingredients_to_cook:
