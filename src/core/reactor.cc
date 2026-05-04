@@ -4260,6 +4260,8 @@ static void sigsegv_action(siginfo_t *info, ucontext_t* uc) noexcept {
         ip = uc->uc_mcontext.gregs[REG_RIP];
 #elif defined(__aarch64__)
         ip = uc->uc_mcontext.pc;
+#elif defined(__riscv)
+        ip = uc->uc_mcontext.__gregs[REG_PC];
 #else
         ip = 0xBAD;
 #endif

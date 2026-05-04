@@ -64,6 +64,16 @@ inline void cpu_relax() {
     __asm__ volatile("yield");
 }
 
+#elif defined(__riscv)
+
+[[gnu::always_inline]]
+inline void cpu_relax() {
+    // Zihintpause `pause` hint, encoded directly so old assemblers without
+    // Zihintpause support still build. On cores that don't implement the hint
+    // it decodes as a NOP.
+    __asm__ volatile(".int 0x0100000F" : : : "memory");
+}
+
 #else
 
 [[gnu::always_inline]]

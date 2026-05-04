@@ -300,6 +300,8 @@ thread_context::main() {
     asm(".cfi_undefined x30");
 #elif defined(__s390x__)
     asm(".cfi_undefined %r14");
+#elif defined(__riscv)
+    asm(".cfi_undefined ra");
 #else
     #warning "Backtracing from seastar threads may be broken"
 #endif
