@@ -24,6 +24,8 @@
 #include <seastar/core/aligned_buffer.hh>
 #include <seastar/util/assert.hh>
 #include <memory>
+#include <cstdint>
+#include <cstdlib>
 
 namespace seastar {
 
