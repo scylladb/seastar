@@ -137,6 +137,8 @@ constexpr inline size_t huge_page_size =
     1 << 21; // 2M
 #elif defined(__PPC__)
     1 << 24; // 16M
+#elif defined(__riscv)
+    1 << 21; // 2M
 #else
 #error "Huge page size is not defined for this architecture"
 #endif

@@ -36,6 +36,8 @@ constexpr size_t cache_line_size =
     128;
 #elif defined(__aarch64__)
     128; // from Linux, may vary among different microarchitetures?
+#elif defined(__riscv)
+    64;
 #else
 #error "cache_line_size not defined for this architecture"
 #endif
