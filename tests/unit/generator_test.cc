@@ -21,6 +21,7 @@
 
 #include <seastar/core/circular_buffer_fixed_capacity.hh>
 #include <seastar/core/coroutine.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/generator.hh>
 #include <seastar/coroutine/exception.hh>
@@ -545,4 +546,23 @@ SEASTAR_TEST_CASE(test_batch_generator_partial_last_batch) {
     }
     auto exhausted = co_await gen();
     BOOST_REQUIRE(!exhausted.has_value());
+}
+
+// Reproduces issue #3380
+SEASTAR_TEST_CASE(test_generator_waiting_task_no_infinite_loop) {
+    auto gen = [&]() -> coroutine::experimental::generator<int> {
+        co_yield 0;
+        co_await parallel_for_each(std::views::iota(0, 10000), [](int) {
+            return yield();
+        });
+        co_yield 1;
+    }();
+    // First yield would set the generator's waiting task to itself
+    auto val = co_await gen();
+    BOOST_REQUIRE_EQUAL(*val, 0);
+    // To reach the second yield, the generator must finish a large number of concurrent tasks, which should
+    // cause a dump of tasks in the task queue. If the generator's waiting task was set to itself,
+    // the dump would never finish.
+    auto val2 = co_await gen();
+    BOOST_REQUIRE_EQUAL(*val2, 1);
 }
