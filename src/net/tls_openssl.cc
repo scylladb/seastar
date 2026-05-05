@@ -1826,6 +1826,15 @@ private:
         // invalid Ciphersuites value in the system openssl.cnf).
         // See https://github.com/openssl/openssl/issues/30760
         clear_stale_ssl_errors("SSL_CTX_new");
+
+        // Certificate compression allocates 350k, not worth it (#3364)
+#ifdef SSL_OP_NO_TX_CERTIFICATE_COMPRESSION
+        SSL_CTX_set_options(ssl_ctx.get(), SSL_OP_NO_TX_CERTIFICATE_COMPRESSION);
+#endif
+#ifdef SSL_OP_NO_RX_CERTIFICATE_COMPRESSION
+        SSL_CTX_set_options(ssl_ctx.get(), SSL_OP_NO_RX_CERTIFICATE_COMPRESSION);
+#endif
+
         const auto& ck_pair = _creds->get_certkey_pair();
         if (type == session_type::SERVER) {
             if (!ck_pair) {
