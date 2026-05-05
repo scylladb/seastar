@@ -163,15 +163,21 @@ future<> connection::send_buffer(snd_buf buf) {
 
 future<> connection::send_entry(outgoing_entry& d) noexcept {
     return futurize_invoke([this, &d] {
+        auto expire = d.t.get_timeout();
+        // left_ms is 0 when no timer is set (server treats 0 as "no timeout").
+        // When a timer is set, drop the entry if already expired; otherwise send
+        // the remaining time so the server can honour the deadline too.
+        uint64_t left_ms = 0;
+        if (expire != typename timer<rpc_clock_type>::time_point()) {
+            left_ms = std::chrono::duration_cast<std::chrono::milliseconds>(expire - timer<rpc_clock_type>::clock::now()).count();
+            if (int64_t(left_ms) <= 0) {
+                return make_ready_future<>();
+            }
+        }
         if (d.buf.size && _propagate_timeout) {
             static_assert(snd_buf::chunk_size >= sizeof(uint64_t), "send buffer chunk size is too small");
             if (_timeout_negotiated) {
-                auto expire = d.t.get_timeout();
-                uint64_t left = 0;
-                if (expire != typename timer<rpc_clock_type>::time_point()) {
-                    left = std::chrono::duration_cast<std::chrono::milliseconds>(expire - timer<rpc_clock_type>::clock::now()).count();
-                }
-                write_le<uint64_t>(d.buf.front().get_write(), left);
+                write_le<uint64_t>(d.buf.front().get_write(), left_ms);
             } else {
                 d.buf.front().trim_front(sizeof(uint64_t));
                 d.buf.size -= sizeof(uint64_t);
