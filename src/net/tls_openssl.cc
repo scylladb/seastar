@@ -171,8 +171,12 @@ std::system_error make_openssl_error(const std::string & msg) {
     return make_openssl_error(msg, get_all_openssl_errors());
 }
 
+std::runtime_error make_unknown_openssl_error(const std::string & msg, std::vector<openssl_errc> error_codes) {
+    return std::runtime_error(fmt::format("{}: {}", msg, error_codes));
+}
+
 std::runtime_error make_unknown_openssl_error(const std::string & msg) {
-    return std::runtime_error(fmt::format("{}: {}", msg, get_all_openssl_errors()));
+    return make_unknown_openssl_error(msg, get_all_openssl_errors());
 }
 
 bool contains_openssl_error(const std::vector<openssl_errc> & error_codes, int lib, int reason) {
@@ -870,7 +874,7 @@ public:
     }
 
     // Helper function for handling the SSL errors in do_put
-    future<stop_iteration> handle_do_put_ssl_err(const int ssl_err) {
+    future<stop_iteration> handle_do_put_ssl_err(int ssl_err, std::vector<openssl_errc> error_codes) {
         switch(ssl_err) {
         case SSL_ERROR_ZERO_RETURN:
             // Indicates a hang up somewhere
@@ -899,13 +903,12 @@ public:
             });
         case SSL_ERROR_SYSCALL:
         {
-            auto err = make_openssl_error("System error encountered during SSL write");
+            auto err = make_openssl_error("System error encountered during SSL write", std::move(error_codes));
             return handle_output_error(std::move(err)).then([] {
                 return stop_iteration::yes;
             });
         }
         case SSL_ERROR_SSL: {
-            auto error_codes = get_all_openssl_errors();
             if (contains_openssl_error(error_codes, ERR_LIB_SSL, SSL_R_UNEXPECTED_EOF_WHILE_READING)) {
                 // Probably shouldn't happen during a write, but
                 // let's handle this gracefully
@@ -922,7 +925,7 @@ public:
         {
             // Some other unhandled situation
             auto err = make_unknown_openssl_error(
-                "Unknown error encountered during SSL write");
+                "Unknown error encountered during SSL write", std::move(error_codes));
             return handle_output_error(std::move(err)).then([] {
                 return stop_iteration::yes;
             });
@@ -961,18 +964,16 @@ public:
         // This do_until runs until either a renegotiation occurs or the packet is empty
         while (!eof() && size > 0) {
             size_t bytes_written = 0;
-            verify_clean_error_queue("SSL_write_ex");
-            auto write_rc = SSL_write_ex(_ssl.get(), ptr, size, &bytes_written);
-            tls_log.trace("{} do_put: SSL_write_ex: {}", *this, write_rc);
+            auto [write_rc, ssl_err, error_codes] = ssl_call(
+                "do_put: SSL_write_ex",
+                [](int r) { return r == 1; },
+                SSL_write_ex, ptr, size, &bytes_written);
             if (write_rc != 1) {
-                const auto ssl_err = SSL_get_error(_ssl.get(), write_rc);
-                tls_log.trace("{} do_put: SSL_get_error: {}", *this, ssl_err);
-                auto should_stop = co_await handle_do_put_ssl_err(ssl_err);
+                auto should_stop = co_await handle_do_put_ssl_err(ssl_err, std::move(error_codes));
                 if (should_stop == stop_iteration::yes) {
                     co_return;
                 }
             } else {
-                clear_stale_ssl_errors("SSL_write_ex");
                 SEASTAR_ASSERT(bytes_written <= size);
                 tls_log.trace("{} do_put: bytes_written: {}", *this, bytes_written);
                 ptr += bytes_written;
@@ -1054,12 +1055,11 @@ public:
             [this] { return connected() || eof(); },
             [this] {
                 try {
-                    verify_clean_error_queue("SSL_do_handshake");
-                    auto n = SSL_do_handshake(_ssl.get());
-                    tls_log.trace("{} do_handshake: SSL_do_handshake: {}", *this, n);
+                    auto [n, ssl_error, error_codes] = ssl_call(
+                        "do_handshake: SSL_do_handshake",
+                        [](int r) { return r > 0; },
+                        SSL_do_handshake);
                     if (n <= 0) {
-                        auto ssl_error = SSL_get_error(_ssl.get(), n);
-                        tls_log.trace("{} do_handshake: SSL_get_error: {}", *this, ssl_error);
                         switch(ssl_error) {
                         case SSL_ERROR_NONE:
                         // probably shouldn't have gotten here
@@ -1076,12 +1076,11 @@ public:
                             });
                         case SSL_ERROR_SYSCALL:
                         {
-                            auto err = make_openssl_error("System error during handshake");
+                            auto err = make_openssl_error("System error during handshake", std::move(error_codes));
                             return handle_output_error(std::move(err));
                         }
                         case SSL_ERROR_SSL:
                         {
-                            auto error_codes = get_all_openssl_errors();
                             tls_log.debug("{} do_handshake: errors: {}", *this, error_codes);
                             if (contains_openssl_error(error_codes, ERR_LIB_SSL, SSL_R_UNEXPECTED_EOF_WHILE_READING)) {
                                 // peer has closed
@@ -1110,11 +1109,10 @@ public:
                         }
                         default:
                             auto err = make_unknown_openssl_error(
-                            "Unknown error encountered during handshake");
+                            "Unknown error encountered during handshake", std::move(error_codes));
                             return handle_output_error(std::move(err));
                         }
                     } else {
-                        clear_stale_ssl_errors("SSL_do_handshake");
                         if (_type == session_type::CLIENT
                             || _creds->get_client_auth() != client_auth::NONE) {
                             verify();
@@ -1177,14 +1175,12 @@ public:
             tls_log.trace("{} do_get: available: {}", *this, avail);
             buf_type buf(avail);
             size_t bytes_read = 0;
-            verify_clean_error_queue("SSL_read_ex");
-            auto read_result = SSL_read_ex(
-              _ssl.get(), buf.get_write(), avail, &bytes_read);
-            tls_log.trace("{} do_get: SSL_read_ex: {}", *this, read_result);
+            auto [read_result, ssl_err, error_codes] = ssl_call(
+                "do_get: SSL_read_ex",
+                [](int r) { return r == 1; },
+                SSL_read_ex, buf.get_write(), avail, &bytes_read);
             tls_log.trace("{} do_get: SSL_read_ex bytes_ready: {}", *this, bytes_read);
             if (read_result != 1) {
-                const auto ssl_err = SSL_get_error(_ssl.get(), read_result);
-                tls_log.trace("{} do_get: SSL_get_error: {}", *this, ssl_err);
                 switch (ssl_err) {
                 case SSL_ERROR_ZERO_RETURN:
                     // Remote end has closed
@@ -1205,7 +1201,7 @@ public:
                         });
                     });
                 case SSL_ERROR_SYSCALL:
-                    if (ERR_peek_error() == 0) {
+                    if (error_codes.empty()) {
                         // SSL_get_error
                         // (https://www.openssl.org/docs/man3.0/man3/SSL_get_error.html)
                         // states that on OpenSSL versions prior to 3.0, an
@@ -1220,11 +1216,10 @@ public:
                         return make_ready_future<buf_type>();
                     }
                     _error = std::make_exception_ptr(
-                        make_openssl_error("System error during SSL read"));
+                        make_openssl_error("System error during SSL read", std::move(error_codes)));
                     return make_exception_future<buf_type>(_error);
                 case SSL_ERROR_SSL:
                     {
-                        auto error_codes = get_all_openssl_errors();
                         if (contains_openssl_error(error_codes, ERR_LIB_SSL, SSL_R_UNEXPECTED_EOF_WHILE_READING)) {
                             // in this situation, the remote end hung up
                             _eof = true;
@@ -1237,11 +1232,10 @@ public:
                     }
                 default:
                     _error = std::make_exception_ptr(make_unknown_openssl_error(
-                      "Unexpected error condition during SSL read"));
+                      "Unexpected error condition during SSL read", std::move(error_codes)));
                     return make_exception_future<buf_type>(_error);
                 }
             } else {
-                clear_stale_ssl_errors("SSL_read_ex");
                 buf.trim(bytes_read);
                 return make_ready_future<buf_type>(std::move(buf));
             }
@@ -1274,18 +1268,15 @@ public:
             return make_ready_future();
         }
 
-        verify_clean_error_queue("SSL_shutdown");
-        auto res = SSL_shutdown(_ssl.get());
-        tls_log.trace("{} do_shutdown: SSL_shutdown: {}", *this, res);
+        auto [res, ssl_err, error_codes] = ssl_call(
+            "do_shutdown: SSL_shutdown",
+            [](int r) { return r >= 0; },
+            SSL_shutdown);
         if (res == 1) {
-            clear_stale_ssl_errors("SSL_shutdown");
             return wait_for_output();
         } else if (res == 0) {
-            clear_stale_ssl_errors("SSL_shutdown");
             return yield().then([this] { return do_shutdown(); });
         } else {
-            auto ssl_err = SSL_get_error(_ssl.get(), res);
-            tls_log.trace("{} do_shutdown: SSL_get_error: {}", *this, ssl_err);
             switch (ssl_err) {
             case SSL_ERROR_NONE:
                 // this is weird, yield and try again
@@ -1308,12 +1299,11 @@ public:
                 });
             case SSL_ERROR_SYSCALL:
             {
-                auto err = make_openssl_error("System error during shutdown");
+                auto err = make_openssl_error("System error during shutdown", std::move(error_codes));
                 return handle_output_error(std::move(err));
             }
             case SSL_ERROR_SSL:
             {
-                auto error_codes = get_all_openssl_errors();
                 if (contains_openssl_error(error_codes, ERR_LIB_SSL, SSL_R_APPLICATION_DATA_AFTER_CLOSE_NOTIFY)) {
                     // This may have resulted in a race condition where we receive a packet immediately after
                     // sending out the close notify alert.  In this situation, retry shutdown silently
@@ -1326,7 +1316,7 @@ public:
             default:
             {
                 auto err = make_unknown_openssl_error(
-                  "Unknown error occurred during SSL shutdown");
+                  "Unknown error occurred during SSL shutdown", std::move(error_codes));
                 return handle_output_error(std::move(err));
             }
             }
@@ -1651,6 +1641,31 @@ private:
         char buf[256];
         ERR_error_string_n(err, buf, sizeof(buf));
         tls_log.warn("{} stale error on queue before {}: {}", *this, operation, buf);
+    }
+
+    struct ssl_call_result {
+        int rc;
+        int ssl_err;
+        std::vector<openssl_errc> error_codes;
+    };
+
+    template <std::predicate<int> SuccessPred, typename Op, typename... Args>
+        requires std::invocable<Op, SSL*, Args...>
+              && std::convertible_to<std::invoke_result_t<Op, SSL*, Args...>, int>
+    ssl_call_result ssl_call(const char* operation, SuccessPred&& is_success,
+                             Op&& op, Args&&... args) {
+        verify_clean_error_queue(operation);
+        const int rc = std::invoke(std::forward<Op>(op), _ssl.get(), std::forward<Args>(args)...);
+        tls_log.trace("{} {}: {}", *this, operation, rc);
+        if (is_success(rc)) {
+            clear_stale_ssl_errors(operation);
+            return {rc, SSL_ERROR_NONE, {}};
+        }
+        // SSL_get_error must precede the drain: on OpenSSL <= 3.5 it
+        // peeks the queue to distinguish SSL_ERROR_SSL from SSL_ERROR_SYSCALL.
+        const int ssl_err = SSL_get_error(_ssl.get(), rc);
+        tls_log.trace("{} {}: SSL_get_error: {}", *this, operation, ssl_err);
+        return {rc, ssl_err, get_all_openssl_errors()};
     }
 
     std::vector<subject_alt_name> do_get_alt_name_information(const x509_ptr &peer_cert,
