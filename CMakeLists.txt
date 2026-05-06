@@ -837,6 +837,12 @@ if (Seastar_MODULE)
       FILES
         src/seastar.cppm
   )
+  # CMake passes both --precompile and -c when building BMIs with Clang;
+  # --precompile supersedes -c, making it unused and triggering
+  # -Wunused-command-line-argument.  Remove -Werror for module interface
+  # units so that the spurious warning does not become a hard error.
+  # see https://gitlab.kitware.com/cmake/cmake/-/work_items/27794
+  set_source_files_properties(src/seastar.cppm PROPERTIES COMPILE_OPTIONS "-Wno-error=unused-command-line-argument")
 endif ()
 
 add_library (Seastar::seastar ALIAS seastar)
