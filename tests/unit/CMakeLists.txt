@@ -732,7 +732,7 @@ function(seastar_sign_cert name)
     # create a cert if CA is not specified
     add_custom_command(OUTPUT ${cert}
       COMMAND ${OPENSSL} req
-        -new -x509 -sha256
+        -new -x509 -sha256 -days 1000
         -key ${privkey}
         -out ${cert}
         -subj ${subj}
