@@ -245,10 +245,10 @@ SEASTAR_TEST_CASE(test_decode_url) {
     req.parse_query_param();
     const auto& b = req.get_query_param_array("b");
     auto expected_b = std::vector<sstring>{"\"&\"", "#$#"};
-    BOOST_REQUIRE_EQUAL_COLLECTIONS(b.begin(), b.end(), expected_b.begin(), expected_b.end());
+    BOOST_REQUIRE(b == expected_b);
     const auto& a = req.get_query_param_array("a");
     auto expected_a = std::vector<sstring>{"!", "#$#"};
-    BOOST_REQUIRE_EQUAL_COLLECTIONS(a.begin(), a.end(), expected_a.begin(), expected_a.end());
+    BOOST_REQUIRE(a == expected_a);
     return make_ready_future<>();
 }
 
@@ -1952,7 +1952,7 @@ SEASTAR_TEST_CASE(test_url_encode_decode) {
     for (size_t i = 0; i < encoded.length(); i++) {
         if (encoded[i] != '%' && encoded[i] != '+') {
             auto f = std::find(std::begin(all_valid), std::end(all_valid), encoded[i]);
-            BOOST_REQUIRE_NE(f, std::end(all_valid));
+            BOOST_REQUIRE(f != std::end(all_valid));
         }
     }
 
@@ -1996,10 +1996,10 @@ SEASTAR_TEST_CASE(test_url_param_encode_decode_multiple) {
     BOOST_REQUIRE_EQUAL(url, to_send._url);
     const auto& to_send_a = to_send.get_query_param_array("a");
     const auto& to_recv_a = to_recv.get_query_param_array("a");
-    BOOST_REQUIRE_EQUAL_COLLECTIONS(to_send_a.begin(), to_send_a.end(), to_recv_a.begin(), to_recv_a.end());
+    BOOST_REQUIRE(to_send_a == to_recv_a);
     const auto& to_send_b = to_send.get_query_param_array("b");
     const auto& to_recv_b = to_recv.get_query_param_array("b");
-    BOOST_REQUIRE_EQUAL_COLLECTIONS(to_send_b.begin(), to_send_b.end(), to_recv_b.begin(), to_recv_b.end());
+    BOOST_REQUIRE(to_send_b == to_recv_b);
 
     BOOST_REQUIRE_EQUAL(to_recv.get_query_param("a"), to_send.get_query_param("a"));
     BOOST_REQUIRE_EQUAL(to_recv.get_query_param("b"), to_send.get_query_param("b"));
@@ -2018,11 +2018,11 @@ SEASTAR_TEST_CASE(test_url_param_empty) {
 
     std::vector<sstring> expected_key = {"v", "", "", ""};
     const auto& actual_key = req.get_query_param_array("key");
-    BOOST_REQUIRE_EQUAL_COLLECTIONS(actual_key.begin(), actual_key.end(), expected_key.begin(), expected_key.end());
+    BOOST_REQUIRE(actual_key == expected_key);
 
     std::vector<sstring> expected_key2 = {""};
     const auto& actual_key2 = req.get_query_param_array("key2");
-    BOOST_REQUIRE_EQUAL_COLLECTIONS(actual_key2.begin(), actual_key2.end(), expected_key2.begin(), expected_key2.end());
+    BOOST_REQUIRE(actual_key2 == expected_key2);
 
     BOOST_REQUIRE_EQUAL(req.get_query_param("key"), "");
     BOOST_REQUIRE_EQUAL(req.get_query_param("key2"), "");
@@ -2044,7 +2044,7 @@ SEASTAR_TEST_CASE(test_url_params_get_set) {
     for (const auto&[key, values] : params) {
         auto it = req_params.find(key);
         BOOST_REQUIRE(it != req_params.end());
-        BOOST_REQUIRE_EQUAL_COLLECTIONS(it->second.begin(), it->second.end(), values.begin(), values.end());
+        BOOST_REQUIRE(it->second == values);
     }
 
     BOOST_REQUIRE_EQUAL(req.get_query_param("a"), "lasta");
@@ -2060,7 +2060,7 @@ SEASTAR_TEST_CASE(test_url_params_get_set) {
     req.set_query_param("d", d_params);
     BOOST_REQUIRE_EQUAL(req.get_query_param("d"), "lastd");
     const auto& d_values = req.get_query_param_array("d");
-    BOOST_REQUIRE_EQUAL_COLLECTIONS(d_values.begin(), d_values.end(), d_params.begin(), d_params.end());
+    BOOST_REQUIRE(d_values == d_params);
 
     return make_ready_future<>();
 }
