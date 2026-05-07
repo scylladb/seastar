@@ -913,7 +913,7 @@ static void print_with_backtrace(backtrace_buffer& buf, bool oneline) noexcept {
 // where the backtrace itself may crash at some point down the stack
 // while the latter is more efficient and avoids splitting output
 // in the face of concurrent logging by other shards.
-static void print_with_backtrace(const char* cause, bool oneline = false, bool immediate = false) noexcept {
+static void print_with_backtrace(const char* cause, bool oneline = true, bool immediate = false) noexcept {
     backtrace_buffer buf(immediate);
     buf.append(cause);
     print_with_backtrace(buf, oneline);
@@ -4245,7 +4245,7 @@ static void sigsegv_action(siginfo_t *info, ucontext_t* uc) noexcept {
 
     // print the backtrace in immediate mode, so if we crash
     // during the backtrace we get as much output as possible
-    print_with_backtrace("Segmentation fault", false, true);
+    print_with_backtrace("Segmentation fault", true, true);
     reraise_signal(SIGSEGV);
 }
 
