@@ -382,6 +382,7 @@ class io_queue::priority_class_data final : public io_queue::priority_entity {
     std::chrono::duration<double> _total_execution_time;
     std::chrono::duration<double> _starvation_time;
     io_queue::clock_type::time_point _activated;
+    uint64_t _activations = 0;
 
     class bandwidth_throttler {
         io_group::priority_class_data::token_bucket_t& _tb;
@@ -485,6 +486,7 @@ class io_queue::priority_class_data final : public io_queue::priority_entity {
     }
 
     void activate() noexcept {
+        _activations++;
         if (_plugged) {
             start_dispatching();
         }
@@ -1154,6 +1156,7 @@ std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::priority_c
 
             sm::make_counter("integrated_queue_length", [this] { return _nr_queued.integral(); }, sm::description("Integrated queue length")),
             sm::make_counter("integrated_disk_queue_length", [this] { return _nr_executing.integral(); }, sm::description("Integrated disk queue length")),
+            sm::make_counter("activations", _activations, sm::description("The number of times the class was woken up from idle")),
     });
 }
 
@@ -1608,9 +1611,6 @@ std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::stream::me
             sm::make_counter("consumption",
                     [&pc, si] { return io_throttler::capacity_tokens(pc.consumption(si)); },
                     sm::description("Accumulated disk capacity units consumed by this class; an increment per-second rate indicates full utilization")),
-            sm::make_counter("activations",
-                    [] { return 0; },
-                    sm::description("The number of times the class was woken up from idle")),
     });
 }
 
