@@ -48,10 +48,31 @@ class socket_address;
  * Relatively thin SSL wrapper for socket IO.
  * (Can be expanded to other IO forms).
  *
- * The current underlying mechanism is
- * gnutls, however, all interfaces are kept
- * agnostic, so in theory it could be replaced
- * with OpenSSL or similar.
+ * Two underlying mechanisms are supported, GnuTLS and OpenSSL. Each one can
+ * be enabled or disabled at build time (\c Seastar_GNUTLS, \c Seastar_OPENSSL).
+ * When both are compiled in (\c SEASTAR_TLS_DUAL_BACKEND), the active backend
+ * is chosen at reactor startup via the \c --crypto-provider option; when only
+ * one is compiled in, that backend is fixed for the lifetime of the program.
+ *
+ * The interfaces here are kept agnostic so that either backend can be used
+ * without changes to client code.
+ *
+ * \section backend_lifetime When backend-dependent state is valid
+ *
+ * Several entry points below expose state that comes from the active backend
+ * (\ref error_category, \ref backend_name, the \c ERROR_* globals, and any
+ * function that internally creates a TLS session, credentials, or DH params).
+ *
+ * - In **single-backend** builds the backend is fixed at compile time. All
+ *   of these entry points are valid at any time, including from static
+ *   initializers and from unit tests that never start a reactor. The
+ *   \c ERROR_* globals are additionally declared \c const and statically
+ *   initialized to the backend's constants.
+ * - In **dual-backend** builds the backend is installed by
+ *   \c smp::configure() at reactor startup. Calling any backend-dependent
+ *   entry point before that point is undefined; the \c ERROR_* globals in
+ *   particular are zero-initialized and silently read as 0. Build with a
+ *   single TLS backend if you need them to be valid unconditionally.
  *
  */
 namespace tls {
@@ -696,20 +717,24 @@ namespace tls {
     std::ostream& operator<<(std::ostream&, subject_alt_name_type);
 
     /**
-     * Error handling.
+     * The error_category instance used by exceptions thrown by TLS.
      *
-     * The error_category instance used by exceptions thrown by TLS
+     * See \ref backend_lifetime for when this is valid to call.
      */
     const std::error_category& error_category();
 
     /**
      * Returns the name of the active TLS backend (e.g. "gnutls", "openssl").
+     *
+     * See \ref backend_lifetime for when this is valid to call.
      */
     const char* backend_name();
 
     /**
-     * The more common error codes encountered in TLS.
-     * Not an exhaustive list. Add exports as needed.
+     * The more common error codes encountered in TLS. Not an exhaustive
+     * list — add exports as needed.
+     *
+     * See \ref backend_lifetime for when these are valid to read.
      */
 #ifdef SEASTAR_TLS_DUAL_BACKEND
 #define SEASTAR_TLS_ERROR_QUALIFIERS extern
