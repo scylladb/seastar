@@ -20,6 +20,7 @@
  */
 
 #include "crypto.hh"
+#include <seastar/util/assert.hh>
 #include <memory>
 
 namespace seastar::internal::crypto {
@@ -31,10 +32,12 @@ namespace seastar::internal::crypto {
 static std::unique_ptr<crypto_provider> the_provider;
 
 crypto_provider& provider() {
+    SEASTAR_DEBUG_ASSERT(the_provider != nullptr);
     return *the_provider;
 }
 
 void set_provider(std::unique_ptr<crypto_provider> p) {
+    SEASTAR_ASSERT(the_provider == nullptr);
     the_provider = std::move(p);
     provider().get_tls_backend().init_error_codes();
 }
