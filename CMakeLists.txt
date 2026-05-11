@@ -525,11 +525,13 @@ seastar_generate_protobuf (
   IN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src/proto/metrics2.proto
   OUT_DIR ${Seastar_GEN_BINARY_DIR}/src/proto)
 
-set_option_if_package_is_found (Seastar_GNUTLS GnuTLS)
-set_option_if_package_is_found (Seastar_OPENSSL OpenSSL)
+option (Seastar_GNUTLS "Enable the GnuTLS-based TLS backend" ON)
+option (Seastar_OPENSSL "Enable the OpenSSL-based TLS backend" OFF)
 
 if (NOT Seastar_GNUTLS AND NOT Seastar_OPENSSL)
-  message (FATAL_ERROR "At least one TLS/crypto backend is required. Install GnuTLS or OpenSSL development packages.")
+  message (FATAL_ERROR "At least one TLS backend must be enabled. "
+    "Pass -DSeastar_GNUTLS=ON and/or -DSeastar_OPENSSL=ON, "
+    "or use configure.py --tls-mode=gnutls|openssl|both.")
 endif ()
 
 add_library (seastar
@@ -1137,6 +1139,15 @@ if (Seastar_OPENSSL)
   list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_OPENSSL)
   target_link_libraries (seastar
     PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+endif ()
+
+if (Seastar_GNUTLS AND Seastar_OPENSSL)
+  # Public marker: both TLS backends are compiled in, so the active backend is
+  # selected at reactor startup. Code that needs to handle the no-reactor case
+  # (e.g. static initializers, unit tests without a reactor) can use this to
+  # distinguish from the single-backend builds where the backend is fixed at
+  # compile time and available unconditionally.
+  target_compile_definitions (seastar PUBLIC SEASTAR_TLS_DUAL_BACKEND)
 endif ()
 
 set_option_if_package_is_found (Seastar_IO_URING LibUring)
