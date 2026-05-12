@@ -24,6 +24,10 @@
 
 namespace seastar::internal::crypto {
 
+#ifdef SEASTAR_TLS_DUAL_BACKEND
+
+// Dual-backend build: the active provider is selected at reactor startup
+// (--crypto-provider) and installed via set_provider() from smp::configure().
 static std::unique_ptr<crypto_provider> the_provider;
 
 crypto_provider& provider() {
@@ -34,6 +38,26 @@ void set_provider(std::unique_ptr<crypto_provider> p) {
     the_provider = std::move(p);
     provider().get_tls_backend().init_error_codes();
 }
+
+void reset_provider() {
+    the_provider.reset();
+}
+
+#else // single-backend
+
+// Single-backend build: the provider is fixed at compile time. Use a
+// function-local static so provider() works at any time, including before
+// reactor startup. No set_provider() is compiled or needed.
+crypto_provider& provider() {
+#ifdef SEASTAR_HAVE_GNUTLS
+    static auto instance = create_gnutls_provider();
+#else // SEASTAR_HAVE_OPENSSL
+    static auto instance = create_openssl_provider();
+#endif
+    return *instance;
+}
+
+#endif // SEASTAR_TLS_DUAL_BACKEND
 
 md5_hasher make_md5_hasher() {
     return provider().make_md5_hasher();

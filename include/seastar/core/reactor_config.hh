@@ -54,8 +54,13 @@ class network_stack_factory;
 struct reactor_options : public program_options::option_group {
     /// \brief Select cryptographic provider backend.
     ///
-    /// Available providers:
-    /// * gnutls (default)
+    /// In dual-backend builds (\c SEASTAR_TLS_DUAL_BACKEND), accepts:
+    /// * gnutls
+    /// * openssl
+    ///
+    /// In single-backend builds the only valid value is the backend that was
+    /// compiled in; the option is kept for CLI compatibility but is otherwise
+    /// a no-op (the provider is a compile-time-fixed static singleton).
     program_options::selection_value<crypto_provider_factory> crypto_provider;
     /// \brief Select network stack to use.
     ///
