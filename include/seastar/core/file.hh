@@ -311,12 +311,16 @@ public:
     // we will end up with various pages around, some of them with
     // overlapping ranges. Those would be very challenging to cache.
 
-    /// Alignment requirement for file offsets (for reads)
+    /// Alignment requirement for file offsets (for reads).
+    ///
+    /// The returned value is guaranteed to be a power of two.
     uint64_t disk_read_dma_alignment() const noexcept {
         return _file_impl->_disk_read_dma_alignment;
     }
 
-    /// Alignment requirement for file offsets (for writes)
+    /// Alignment requirement for file offsets (for writes).
+    ///
+    /// The returned value is guaranteed to be a power of two.
     uint64_t disk_write_dma_alignment() const noexcept {
         return _file_impl->_disk_write_dma_alignment;
     }
@@ -327,11 +331,15 @@ public:
     /// overwrites (writes to a location that was previously written).
     /// This can be smaller than \ref disk_write_dma_alignment(), allowing
     /// a reduction in disk bandwidth used.
+    ///
+    /// The returned value is guaranteed to be a power of two.
     uint64_t disk_overwrite_dma_alignment() const noexcept {
         return _file_impl->_disk_overwrite_dma_alignment;
     }
 
-    /// Alignment requirement for data buffers
+    /// Alignment requirement for data buffers.
+    ///
+    /// The returned value is guaranteed to be a power of two.
     uint64_t memory_dma_alignment() const noexcept {
         return _file_impl->_memory_dma_alignment;
     }

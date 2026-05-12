@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <bit>
 #include <coroutine>
 #include <deque>
 #include <functional>
@@ -86,6 +87,20 @@ struct alignments {
     unsigned disk_read;
     unsigned disk_write;
     unsigned disk_overwrite;
+
+    // The kernel/FS ABIs that produce these values (BLKSSZGET, XFS_IOC_DIOINFO,
+    // statx dio_*_align, posix_memalign) all guarantee power-of-two alignments,
+    // and seastar's own I/O paths consume them via `x & (align - 1)` masking
+    // (e.g. computing the unaligned prefix of a read offset), which would
+    // silently produce wrong offsets for a non-power-of-two value.
+    // Returns *this for convenience.
+    const alignments& validated() const {
+        SEASTAR_ASSERT(std::has_single_bit(memory));
+        SEASTAR_ASSERT(std::has_single_bit(disk_read));
+        SEASTAR_ASSERT(std::has_single_bit(disk_write));
+        SEASTAR_ASSERT(std::has_single_bit(disk_overwrite));
+        return *this;
+    }
 };
 
 // Minimum memory alignment required by posix_memalign
@@ -1265,7 +1280,7 @@ internal::alignments filesystem_alignments(
         align.disk_overwrite = std::max<unsigned>(align.disk_overwrite, *device_info.physical_block_size);
     }
 
-    return align;
+    return align.validated();
 }
 
 // Query block device alignment properties using ioctl and statx
@@ -1301,12 +1316,12 @@ blkdev_alignments(int fd, dev_t device_id) {
     //
     // The Linux kernel only enforces logical_block_size alignment for O_DIRECT (see block/fops.c:blkdev_dio_invalid).
     // Using physical_block_size avoids RMW at the hardware level.
-    return {
+    return internal::alignments{
         .memory = std::max(static_cast<unsigned>(device_info.memory_alignment.value_or(physical_block_size)), internal::min_memory_alignment),
         .disk_read = static_cast<unsigned>(logical_block_size),  // For reads: use logical_block_size (no performance penalty for reading 512-byte blocks from 4K sector disks)
         .disk_write = static_cast<unsigned>(physical_block_size),
         .disk_overwrite = static_cast<unsigned>(physical_block_size),
-    };
+    }.validated();
 }
 
 } // anonymous namespace
