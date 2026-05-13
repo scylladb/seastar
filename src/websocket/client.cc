@@ -19,9 +19,8 @@
 #include <exception>
 #include <random>
 #include <seastar/core/future.hh>
-#include <seastar/coroutine/all.hh>
+#include <seastar/net/api.hh>
 #include <seastar/websocket/client.hh>
-#include <seastar/core/when_all.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/http/reply.hh>
 #include <seastar/websocket/common.hh>
@@ -125,34 +124,28 @@ future<> client_connection<text_frame>::handshake() {
 
 template <bool text_frame>
 future<> client_connection<text_frame>::process() {
-    co_await coroutine::all(
-        [this] () -> future<> {
-            co_await this->_handler(this->_input, this->_output).handle_exception([this] (std::exception_ptr e) -> future<> {
-                co_await this->_read_buf.close();
-                std::rethrow_exception(e);
-            });
-        },
-        [this] () -> future<> {
-            while (!this->_done) {
-                co_await this->read_one();
-            }
-        },
-        [this] () {
-            return this->response_loop();
-        }
-    );
+    return this->_handler(this->_input, this->_output).handle_exception([this] (std::exception_ptr e){
+        // Preserve the handler failure even if the best-effort output close fails.
+        return this->_output.close().handle_exception([] (std::exception_ptr ex) {
+            websocket_logger.debug("WebSocket client output close failed after handler exception: {}", ex);
+        }).then([e = std::move(e)] () {
+            return make_exception_future(e);
+        });
+    }).finally([this] () {
+        return this->drain_send_chain();
+    });
 }
 
 template <bool text_frame>
-future<> client<text_frame>::connect(socket_address addr, sstring resource, sstring host,
+future<> client<text_frame>::connect(connected_socket fd, sstring resource, sstring host,
                          sstring subprotocol, handler_t handler,
-                         connection_options options) {
-    auto fd = co_await seastar::connect(addr);
-    _conn = std::make_unique<client_connection<text_frame>>(std::move(fd),
+                         const connection_options& options) {
+    this->_conn = std::make_unique<client_connection<text_frame>>(std::move(fd),
         std::move(resource), std::move(host),
         std::move(subprotocol), std::move(handler), options);
 
     co_await _conn->handshake();
+    _handshake_done = true;
     (void)try_with_gate(_task_gate, [this] () -> future<> {
         try {
             co_await _conn->process();
@@ -160,6 +153,15 @@ future<> client<text_frame>::connect(socket_address addr, sstring resource, sstr
             websocket_logger.debug("WebSocket client processing failed: {}", std::current_exception());
         }
     }).handle_exception_type([] (const gate_closed_exception&) {});
+}
+
+template <bool text_frame>
+future<> client<text_frame>::connect(socket_address addr, sstring resource, sstring host,
+                         sstring subprotocol, handler_t handler,
+                         connection_options options) {
+    SEASTAR_ASSERT(!_conn);
+    auto fd = co_await seastar::connect(addr);
+    co_await connect(std::move(fd), std::move(resource), std::move(host), std::move(subprotocol), std::move(handler), options);
 }
 
 template <bool text_frame>
@@ -168,28 +170,28 @@ future<> client<text_frame>::connect(socket_address addr,
                          sstring resource, sstring host,
                          sstring subprotocol, handler_t handler,
                          connection_options options) {
+    SEASTAR_ASSERT(!_conn);
     auto fd = co_await tls::connect(creds, addr, tls::tls_options{.server_name = host});
-    this->_conn = std::make_unique<client_connection<text_frame>>(std::move(fd),
-        std::move(resource), std::move(host),
-        std::move(subprotocol), std::move(handler), options);
-
-    co_await _conn->handshake();
-    (void)try_with_gate(_task_gate, [this] () -> future<> {
-        try {
-            co_await _conn->process();
-        } catch (...) {
-            websocket_logger.debug("WebSocket client processing failed: {}", std::current_exception());
-        }
-    }).handle_exception_type([] (const gate_closed_exception&) {});
+    co_await connect(std::move(fd), std::move(resource), std::move(host), std::move(subprotocol), std::move(handler), options);
 }
 
 template <bool text_frame>
 future<> client<text_frame>::close() {
     if (_conn) {
-        co_await _conn->close(true).handle_exception([] (auto) {});
-        _conn->shutdown_input();
+        co_await _conn->close(_handshake_done).handle_exception([] (auto e) {
+            websocket_logger.debug("close handshake failed: {}", e);
+        });
     }
     co_await _task_gate.close();
+    _conn.reset();
+}
+
+
+template <bool text_frame>
+void client<text_frame>::shutdown() {
+    if (_conn) {
+        _conn->shutdown_input();
+    }
 }
 
 template class client_connection<false>;

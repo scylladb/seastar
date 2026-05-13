@@ -27,8 +27,6 @@
 #include <seastar/core/seastar.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/gate.hh>
-#include <seastar/core/queue.hh>
-#include <seastar/core/when_all.hh>
 #include <seastar/websocket/common.hh>
 
 namespace seastar::experimental::websocket {
@@ -59,12 +57,15 @@ public:
     ~server_connection();
 
     /*!
-     * \brief serve WebSocket protocol on a server_connection
+     * \brief Serve WebSocket protocol on a server_connection.
+     *
+     * Performs the opening handshake and then runs the registered \ref
+     * handler_t for the negotiated subprotocol. See \ref handler_t for the
+     * connection lifecycle contract.
      */
     future<> process();
 
 protected:
-    future<> read_loop();
     future<> read_http_upgrade_request();
     void on_new_connection();
 };
@@ -100,12 +101,25 @@ public:
      * \param lo custom listen options (\ref listen_options)
      */
     void listen(socket_address addr, listen_options lo);
+    /*!
+     * \brief Listen on an already-created server_socket.
+     * \param ss The server socket to accept connections from.
+     */
+    void listen(server_socket ss);
 
     /*!
-     * Stops the server and shuts down all active connections
+     * Stops the server and shuts down all active connections.
+     *
+     * Active connections are torn down without initiating a WebSocket CLOSE
+     * handshake.
      */
     future<> stop();
 
+    /*!
+     * \brief Check whether a handler is registered for the given subprotocol name.
+     * \param name The subprotocol name (may be empty for the no-subprotocol handler).
+     * \return true if a handler is registered, false otherwise.
+     */
     bool is_handler_registered(std::string const& name);
 
     /*!
@@ -122,6 +136,6 @@ protected:
     future<stop_iteration> accept_one(server_socket &listener);
 };
 
-/// }@
+/// @}
 
 }

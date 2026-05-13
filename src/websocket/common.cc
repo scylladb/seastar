@@ -20,6 +20,10 @@
  */
 
 #include <seastar/core/future.hh>
+#include <seastar/core/iostream.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/core/temporary_buffer.hh>
+#include <seastar/core/seastar.hh>
 #include <seastar/websocket/common.hh>
 #include <seastar/core/byteorder.hh>
 #include "../core/crypto.hh"
@@ -28,6 +32,7 @@
 #include <seastar/util/defer.hh>
 #include <random>
 #include <seastar/websocket/parser.hh>
+#include <system_error>
 #include <utility>
 
 namespace seastar::experimental::websocket {
@@ -111,73 +116,127 @@ future<> basic_connection<is_client, text_frame>::do_send(opcodes opcode, tempor
 }
 
 template <bool is_client, bool text_frame>
-future<> basic_connection<is_client, text_frame>::drain_send_chain() {
-    return std::exchange(_send_chain, make_ready_future<>())
-        .handle_exception([] (std::exception_ptr ex) {
-            websocket_logger.debug("Drained websocket send chain failure: {}", ex);
-        });
-}
-
-template <bool is_client, bool text_frame>
-future<> basic_connection<is_client, text_frame>::response_loop() {
-    return do_until([this] {return _done;}, [this] {
-        // FIXME: implement error handling
-        return _output_buffer.pop_eventually().then([this] (
-                temporary_buffer<char> buf) {
-            if (!buf) {
-                return make_ready_future<>();
-            }
-            return send_data(text_frame ? opcodes::TEXT : opcodes::BINARY, std::move(buf));
-        });
-    }).finally([this]() {
-        return _write_buf.close();
-    });
-}
-
-template <bool is_client, bool text_frame>
 void basic_connection<is_client, text_frame>::shutdown_input() {
     _fd.shutdown_input();
 }
 
 template <bool is_client, bool text_frame>
 future<> basic_connection<is_client, text_frame>::close(bool send_close) {
-    if (_half_close) {
+    if (_close_future) {
+        return _close_future->get_future();
+    }
+    if (_state == lifecycle_state::torn_down) {
         return make_ready_future<>();
     }
-    _half_close = true;
-    return [this, send_close]() {
-        if (send_close) {
-            return send_data(opcodes::CLOSE, temporary_buffer<char>(0));
-        } else {
-            return make_ready_future<>();
-        }
-    }().finally([this] {
-        _done = true;
-        return when_all_succeed(_input.close(), _output.close()).discard_result().finally([this] {
-            _fd.shutdown_output();
+
+    if (send_close) {
+        _close_future.emplace(initiate_close_handshake());
+    } else {
+        _close_future.emplace(tear_down_streams());
+    }
+    return _close_future->get_future();
+}
+
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::respond_to_peer_close() {
+    if (_close_future) {
+        return _close_future->get_future();
+    }
+
+    _state = lifecycle_state::closing_peer;
+    _pending_inbound.emplace();
+    _close_future.emplace(this->send_data(opcodes::CLOSE, temporary_buffer<char>()).handle_exception([] (std::exception_ptr ex) {
+        websocket_logger.debug("Failed to send websocket close response: {}", ex);
+    }).finally([this] () {
+        return this->tear_down_streams();
+    }));
+    return _close_future->get_future();
+}
+
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::tear_down_streams() {
+    if (_tear_down_future) {
+        return _tear_down_future->get_future();
+    }
+    if (_state == lifecycle_state::torn_down) {
+        return make_ready_future<>();
+    }
+
+    _state = lifecycle_state::tearing_down;
+    _tear_down_future.emplace(drain_send_chain().finally([this] {
+        return when_all(_read_buf.close(), _write_buf.close()).then([] (std::tuple<future<>,future<>> f) {
+            std::get<0>(f).ignore_ready_future();
+            std::get<1>(f).ignore_ready_future();
+        });
+    }).finally([this] {
+        _state = lifecycle_state::torn_down;
+    }));
+    return _tear_down_future->get_future();
+}
+
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::initiate_close_handshake() {
+    _state = lifecycle_state::closing_local;
+    return this->send_data(opcodes::CLOSE, temporary_buffer<char>())
+        .then_wrapped([this] (future<> f) mutable -> future<> {
+            if (f.failed()) {
+                auto ex = f.get_exception();
+                websocket_logger.debug("Failed to send websocket close frame: {}", ex);
+                return make_exception_future<>(ex);
+            }
+            if (_in_consume) {
+                return make_ready_future<>();
+            }
+            _close_timer.emplace();
+            _close_timer->set_callback([this] () { _fd.shutdown_input(); });
+            _close_timer->arm(_close_timeout);
+            return wait_close();
+        }).finally([this] () {
+            _close_timer.reset();
+            return tear_down_streams();
+        });
+}
+
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::wait_close() {
+    return repeat([this] () {
+        return _read_buf.consume(_websocket_parser).then([this] () mutable {
+            if (_websocket_parser.eof()
+                || !_websocket_parser.is_valid()
+                || _websocket_parser.opcode() == opcodes::CLOSE) {
+                return make_ready_future<stop_iteration>(stop_iteration::yes);
+            };
+            return make_ready_future<stop_iteration>(stop_iteration::no);
+        }).handle_exception_type([] (const std::system_error& ex) {
+            websocket_logger.debug("Websocket close wait stopped by input shutdown: {}", ex);
+            return make_ready_future<stop_iteration>(stop_iteration::yes);
+        }).handle_exception([] (std::exception_ptr ex) {
+            websocket_logger.debug("Websocket close wait failed: {}", ex);
+            return make_ready_future<stop_iteration>(stop_iteration::yes);
         });
     });
 }
 
 template <bool is_client, bool text_frame>
-future<> basic_connection<is_client, text_frame>::read_one() {
+future<> basic_connection<is_client, text_frame>::consume() {
+    if (_state != lifecycle_state::running) [[unlikely]] {
+        _pending_inbound.emplace();
+        return make_ready_future();
+    }
+    _in_consume = true;
     return _read_buf.consume(_websocket_parser).then([this] () mutable {
         if (_websocket_parser.is_valid()) {
-            if (_half_close) {
-                // When the connection enters _half_closed state, just wait for the close to complete.
-                return make_ready_future();
-            }
-            // FIXME: implement error handling
             switch(_websocket_parser.opcode()) {
             // We do not distinguish between these 3 types.
             case opcodes::CONTINUATION:
             case opcodes::TEXT:
             case opcodes::BINARY:
-                return _input_buffer.push_eventually(_websocket_parser.result());
+                _pending_inbound = _websocket_parser.result();
+                return make_ready_future();
             case opcodes::CLOSE:
                 websocket_logger.debug("Received close frame.");
                 // datatracker.ietf.org/doc/html/rfc6455#section-5.5.1
-                return close(true);
+                return respond_to_peer_close();
             case opcodes::PING:
                 websocket_logger.debug("Received ping frame.");
                 return handle_ping(_websocket_parser.result());
@@ -185,15 +244,32 @@ future<> basic_connection<is_client, text_frame>::read_one() {
                 websocket_logger.debug("Received pong frame.");
                 return handle_pong();
             default:
-                // Invalid - do nothing.
+                SEASTAR_ASSERT(false); // parser guarantees only known opcodes reach here
                 ;
             }
         } else if (_websocket_parser.eof()) {
+            websocket_logger.debug("Websocket parse eof.");
+            _pending_inbound.emplace();
             return close(false);
         }
-        websocket_logger.debug("Reading from socket has failed.");
-        return close(true);
-    });
+
+        websocket_logger.debug("Websocket parse error.");
+        // The parser keeps its error state. Tear the streams down before
+        // reporting the parse failure so a handler that catches this exception
+        // cannot re-enter the same parser error forever.
+        return close(false).then([] {
+            return make_exception_future(websocket::exception("Reading from socket has failed."));
+        });
+    }).finally([this] () { _in_consume = false; });
+}
+
+
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::drain_send_chain() {
+    return std::exchange(_send_chain, make_ready_future<>())
+        .handle_exception([] (std::exception_ptr ex) {
+            websocket_logger.debug("Drained websocket send chain failure: {}", ex);
+        });
 }
 
 std::string sha1_base64(std::string_view source) {
