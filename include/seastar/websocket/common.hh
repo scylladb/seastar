@@ -146,6 +146,7 @@ protected:
     connected_socket _fd;
     input_stream<char> _read_buf;
     output_stream<char> _write_buf;
+    future<> _send_chain;
     bool _done = false;
     // TODO: implement https://datatracker.ietf.org/doc/html/rfc6455#section-7.1.2
     bool _half_close = false;
@@ -169,6 +170,7 @@ public:
         : _fd(std::move(fd))
         , _read_buf(_fd.input())
         , _write_buf(_fd.output())
+        , _send_chain(make_ready_future())
         , _websocket_parser(!is_client, options.max_payload_length)
         , _input_buffer{PIPE_SIZE}
         , _input(data_source{std::make_unique<connection_source_impl>(&_input_buffer)})
@@ -190,6 +192,8 @@ protected:
      * \brief Packs buff in websocket frame and sends it to the client.
      */
     future<> send_data(opcodes opcode, temporary_buffer<char> buff);
+    future<> do_send(opcodes opcode, temporary_buffer<char> buff);
+    future<> drain_send_chain();
 };
 
 using connection = basic_connection<false, false>;

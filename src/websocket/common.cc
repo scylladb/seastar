@@ -28,6 +28,7 @@
 #include <seastar/util/defer.hh>
 #include <random>
 #include <seastar/websocket/parser.hh>
+#include <utility>
 
 namespace seastar::experimental::websocket {
 
@@ -60,6 +61,24 @@ static void apply_mask(char* data, size_t len, uint32_t masking_key) {
 
 template <bool is_client, bool text_frame>
 future<> basic_connection<is_client, text_frame>::send_data(opcodes opcode, temporary_buffer<char> buff) {
+    promise<> p;
+    return std::exchange(_send_chain, p.get_future())
+        .then([this, opcode, buff = std::move(buff)] () mutable -> future<> {
+            return do_send(opcode, std::move(buff));
+        }).then_wrapped([p = std::move(p)] (future<> f) mutable {
+            if (f.failed()) {
+                auto e = f.get_exception();
+                p.set_exception(e);
+                return make_exception_future(std::move(e));
+            } else {
+                p.set_value();
+                return make_ready_future();
+            }
+        });
+}
+
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::do_send(opcodes opcode, temporary_buffer<char> buff) {
     char header[14] = {'\x80', 0}; // max: 2 + 8 (extended len) + 4 (mask key)
     size_t header_size = 2;
 
@@ -89,6 +108,14 @@ future<> basic_connection<is_client, text_frame>::send_data(opcodes opcode, temp
     co_await _write_buf.write(header, header_size);
     co_await _write_buf.write(std::move(buff));
     co_await _write_buf.flush();
+}
+
+template <bool is_client, bool text_frame>
+future<> basic_connection<is_client, text_frame>::drain_send_chain() {
+    return std::exchange(_send_chain, make_ready_future<>())
+        .handle_exception([] (std::exception_ptr ex) {
+            websocket_logger.debug("Drained websocket send chain failure: {}", ex);
+        });
 }
 
 template <bool is_client, bool text_frame>
