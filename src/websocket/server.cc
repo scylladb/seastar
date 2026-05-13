@@ -25,12 +25,12 @@
 #include <seastar/util/defer.hh>
 #include <seastar/util/log.hh>
 #include <seastar/http/request.hh>
+#include <seastar/websocket/common.hh>
 
 namespace seastar::experimental::websocket {
 
 using namespace std::string_view_literals;
 
-constexpr auto magic_key_suffix = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"sv;
 constexpr auto http_upgrade_reply_template =
     "HTTP/1.1 101 Switching Protocols\r\n"
     "Upgrade: websocket\r\n"
@@ -58,7 +58,7 @@ void server::accept(server_socket &listener) {
 
 future<stop_iteration> server::accept_one(server_socket &listener) {
     return listener.accept().then([this](accept_result ar) {
-        auto conn = std::make_unique<server_connection>(*this, std::move(ar.connection));
+        auto conn = std::make_unique<server_connection>(*this, std::move(ar.connection), _connection_options);
         (void)try_with_gate(_task_gate, [conn = std::move(conn)]() mutable {
             return conn->process().finally([conn = std::move(conn)] {
                 websocket_logger.debug("Connection is finished");
@@ -138,7 +138,7 @@ future<> server_connection::read_http_upgrade_request() {
     sstring sec_key = req->get_header("Sec-Websocket-Key");
     sstring sec_version = req->get_header("Sec-Websocket-Version");
 
-    auto sha1_input = fmt::format("{}{}", sec_key, magic_key_suffix);
+    auto sha1_input = fmt::format("{}{}", sec_key, websocket_magic_guid);
 
     websocket_logger.debug("Sec-Websocket-Key: {}, Sec-Websocket-Version: {}", sec_key, sec_version);
 

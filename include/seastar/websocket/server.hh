@@ -48,9 +48,11 @@ public:
     /*!
      * \param server owning \ref server
      * \param fd established socket used for communication
+     * \param options connection tuning options.
      */
-    server_connection(server& server, connected_socket&& fd)
-        : connection(std::move(fd))
+    server_connection(server& server, connected_socket&& fd,
+            connection_options options = {})
+        : connection(std::move(fd), options)
         , _server(server) {
         on_new_connection();
     }
@@ -78,7 +80,15 @@ class server {
     boost::intrusive::list<server_connection> _connections;
     std::map<std::string, handler_t> _handlers;
     gate _task_gate;
+    connection_options _connection_options;
 public:
+    /*!
+     * \param options connection tuning options for accepted connections.
+     */
+    explicit server(connection_options options = {})
+        : _connection_options(options) {
+    }
+
     /*!
      * \brief listen for a WebSocket connection on given address
      * \param addr address to listen on

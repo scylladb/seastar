@@ -54,9 +54,11 @@ public:
      * \param host the Host header value
      * \param subprotocol optional subprotocol name
      * \param handler application handler for incoming/outgoing data
+     * \param options connection tuning options.
      */
     client_connection(connected_socket&& fd, sstring resource, sstring host,
-                      sstring subprotocol, handler_t handler);
+                      sstring subprotocol, handler_t handler,
+                      connection_options options = {});
 
     /*!
      * \brief Run the WebSocket client connection.
@@ -96,9 +98,11 @@ public:
      * \param host the Host header value
      * \param subprotocol optional subprotocol name (empty for none)
      * \param handler application handler
+     * \param options connection tuning options.
      */
     future<> connect(socket_address addr, sstring resource, sstring host,
-                     sstring subprotocol, handler_t handler);
+                     sstring subprotocol, handler_t handler,
+                     connection_options options = {});
 
     /*!
      * \brief Connect to a WebSocket server over TLS.
@@ -108,11 +112,13 @@ public:
      * \param host the Host header value
      * \param subprotocol optional subprotocol name (empty for none)
      * \param handler application handler
+     * \param options connection tuning options.
      */
     future<> connect(socket_address addr,
                      shared_ptr<tls::certificate_credentials> creds,
                      sstring resource, sstring host,
-                     sstring subprotocol, handler_t handler);
+                     sstring subprotocol, handler_t handler,
+                     connection_options options = {});
 
     /*!
      * \brief Close the client and the underlying connection.

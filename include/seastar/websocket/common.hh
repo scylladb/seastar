@@ -34,6 +34,23 @@ using handler_t = std::function<future<>(input_stream<char>&, output_stream<char
 
 class server;
 
+/// RFC 6455 section 1.3 accept-key GUID shared by server and client handshakes.
+constexpr std::string_view websocket_magic_guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+/*!
+ * \brief Configuration knobs for a WebSocket connection.
+ */
+struct connection_options {
+    /*!
+     * \brief Maximum accepted payload size for incoming data frames.
+     */
+    uint64_t max_payload_length = websocket_parser::default_max_payload_length;
+    /*!
+     * \brief Buffer size of the output_stream wrapping the connection sink.
+     */
+    size_t output_buffer_size = 8192;
+};
+
 /// \defgroup websocket WebSocket
 /// \addtogroup websocket
 /// @{
@@ -147,15 +164,16 @@ public:
      * \param is_client if true, this is a client-side connection (sends masked
      *        frames and expects unmasked frames from server)
      */
-    basic_connection(connected_socket&& fd)
+    basic_connection(connected_socket&& fd,
+            connection_options options = {})
         : _fd(std::move(fd))
         , _read_buf(_fd.input())
         , _write_buf(_fd.output())
-        , _websocket_parser(!is_client)
+        , _websocket_parser(!is_client, options.max_payload_length)
         , _input_buffer{PIPE_SIZE}
         , _input(data_source{std::make_unique<connection_source_impl>(&_input_buffer)})
         , _output_buffer{PIPE_SIZE}
-        , _output(data_sink{std::make_unique<connection_sink_impl>(&_output_buffer)})
+        , _output(data_sink{std::make_unique<connection_sink_impl>(&_output_buffer)}, options.output_buffer_size)
     {
     }
 

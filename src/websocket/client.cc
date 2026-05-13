@@ -24,13 +24,9 @@
 #include <seastar/core/when_all.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/http/reply.hh>
+#include <seastar/websocket/common.hh>
 
 namespace seastar::experimental::websocket {
-
-using namespace std::string_view_literals;
-
-// refer https://datatracker.ietf.org/doc/html/rfc6455#section-1.3
-constexpr auto magic_key_suffix_client = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"sv;
 
 static thread_local std::mt19937 rng(std::random_device{}());
 
@@ -46,8 +42,9 @@ static sstring generate_websocket_key() {
 template <bool text_frame>
 client_connection<text_frame>::client_connection(connected_socket&& fd, sstring resource,
                                      sstring host, sstring subprotocol,
-                                     handler_t handler)
-    : basic_connection<true, text_frame>(std::move(fd))
+                                     handler_t handler,
+                                     connection_options options)
+    : basic_connection<true, text_frame>(std::move(fd), options)
     , _resource(std::move(resource))
     , _host(std::move(host))
 {
@@ -98,7 +95,7 @@ future<> client_connection<text_frame>::read_http_upgrade_response() {
 
     // Validate Sec-WebSocket-Accept
     auto expected_accept = sha1_base64(
-        fmt::format("{}{}", _websocket_key, magic_key_suffix_client));
+        fmt::format("{}{}", _websocket_key, websocket_magic_guid));
 
     sstring actual_accept = resp->get_header("Sec-WebSocket-Accept");
     // Trim leading whitespace
@@ -148,11 +145,12 @@ future<> client_connection<text_frame>::process() {
 
 template <bool text_frame>
 future<> client<text_frame>::connect(socket_address addr, sstring resource, sstring host,
-                         sstring subprotocol, handler_t handler) {
+                         sstring subprotocol, handler_t handler,
+                         connection_options options) {
     auto fd = co_await seastar::connect(addr);
     _conn = std::make_unique<client_connection<text_frame>>(std::move(fd),
         std::move(resource), std::move(host),
-        std::move(subprotocol), std::move(handler));
+        std::move(subprotocol), std::move(handler), options);
 
     co_await _conn->handshake();
     (void)try_with_gate(_task_gate, [this] () -> future<> {
@@ -168,11 +166,12 @@ template <bool text_frame>
 future<> client<text_frame>::connect(socket_address addr,
                          shared_ptr<tls::certificate_credentials> creds,
                          sstring resource, sstring host,
-                         sstring subprotocol, handler_t handler) {
+                         sstring subprotocol, handler_t handler,
+                         connection_options options) {
     auto fd = co_await tls::connect(creds, addr, tls::tls_options{.server_name = host});
     this->_conn = std::make_unique<client_connection<text_frame>>(std::move(fd),
         std::move(resource), std::move(host),
-        std::move(subprotocol), std::move(handler));
+        std::move(subprotocol), std::move(handler), options);
 
     co_await _conn->handshake();
     (void)try_with_gate(_task_gate, [this] () -> future<> {
