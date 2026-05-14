@@ -2459,12 +2459,39 @@ reactor::make_directory(std::string_view name_view, file_permissions permissions
 future<>
 reactor::touch_directory(std::string_view name_view, file_permissions permissions) noexcept {
     auto name = sstring(name_view);
+    auto mode = static_cast<mode_t>(permissions);
     syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
             internal::thread_pool_submit_reason::file_operation, [&] {
-        auto mode = static_cast<mode_t>(permissions);
         return wrap_syscall<int>(::mkdir(name.c_str(), mode));
     });
     if (sr.result == -1 && sr.error != EEXIST) {
+        if (sr.error == EPERM || sr.error == EACCES) {
+            // Refs: scylladb/scylladb#28259
+            // Diagnostic-only logging to capture mkdir/stat state on intermittent CI failures.
+            auto pid = ::getpid();
+            auto shard_id = this_shard_id();
+            sstring stat_state;
+            try {
+                auto sd = co_await file_stat(name, follow_symlink::no);
+                stat_state = format("exists type={} mode={:o} perms={:o} uid={} gid={}",
+                        static_cast<int>(sd.type),
+                        sd.mode,
+                        sd.mode & static_cast<mode_t>(file_permissions::all_permissions),
+                        sd.uid,
+                        sd.gid);
+            } catch (...) {
+                stat_state = format("failed: {}", std::current_exception());
+            }
+
+            seastar_logger.error(
+                    "touch_directory: mkdir({}) failed with errno={} (expected mode={:o}) on shard={} pid={}, stat={}",
+                    name,
+                    sr.error,
+                    mode,
+                    shard_id,
+                    pid,
+                    stat_state);
+        }
         sr.throw_fs_exception("mkdir failed", fs::path(name));
     }
 }
