@@ -1093,7 +1093,7 @@ internal::alignments filesystem_alignments(
     // Initialize with generic defaults for all filesystems
     internal::alignments align = {
         .memory = std::max(device_info.memory_alignment.value_or(4096), internal::min_memory_alignment),
-        .disk_read = 512,  // Linux O_DIRECT minimum
+        .disk_read = block_size,  // Linux O_DIRECT safe choice, might be reduced later
         .disk_write = block_size,
         .disk_overwrite = block_size,
     };
