@@ -149,6 +149,7 @@
 #include <seastar/core/internal/stall_detector.hh>
 #include <seastar/core/internal/run_in_background.hh>
 #include <seastar/coroutine/all.hh>
+#include <seastar/coroutine/exception.hh>
 #include <seastar/net/native-stack.hh>
 #include <seastar/net/packet.hh>
 #include <seastar/net/posix-stack.hh>
@@ -1950,7 +1951,9 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
         close_fd.cancel();
         return wrap_syscall(fd, st);
     });
-    sr.throw_fs_exception_if_error("open failed", name);
+    if (sr.failed()) {
+        co_return coroutine::exception(sr.make_fs_exception_ptr("open failed", fs::path(name)));
+    }
     shared_ptr<file_impl> impl = co_await make_file_impl(sr.result, options, open_flags, sr.extra);
     co_return file(std::move(impl));
 }
@@ -1962,7 +1965,10 @@ reactor::remove_file(std::string_view pathname_view) noexcept {
             internal::thread_pool_submit_reason::file_operation, [pathname] {
         return wrap_syscall<int>(::remove(pathname.c_str()));
     });
-    sr.throw_fs_exception_if_error("remove failed", pathname);
+    if (sr.failed()) {
+        co_await coroutine::return_exception_ptr(
+          sr.make_fs_exception_ptr("remove failed", fs::path(pathname)));
+    }
 }
 
 future<>
@@ -1975,7 +1981,10 @@ reactor::rename_file(std::string_view old_pathname_view, std::string_view new_pa
         return wrap_syscall<int>(static_cast<int>(
                 ::syscall(SYS_renameat2, AT_FDCWD, old_pathname.c_str(), AT_FDCWD, new_pathname.c_str(), raw_flags)));
     });
-    sr.throw_fs_exception_if_error("rename failed", old_pathname, new_pathname);
+    if (sr.failed()) {
+        co_await coroutine::return_exception_ptr(
+          sr.make_fs_exception_ptr("rename failed", fs::path(old_pathname), fs::path(new_pathname)));
+    }
 }
 
 future<>
@@ -1986,7 +1995,10 @@ reactor::link_file(std::string_view oldpath_view, std::string_view newpath_view)
             internal::thread_pool_submit_reason::file_operation, [oldpath, newpath] {
         return wrap_syscall<int>(::link(oldpath.c_str(), newpath.c_str()));
     });
-    sr.throw_fs_exception_if_error("link failed", oldpath, newpath);
+    if (sr.failed()) {
+        co_await coroutine::return_exception_ptr(
+          sr.make_fs_exception_ptr("link failed", fs::path(oldpath), fs::path(newpath)));
+    }
 }
 
 future<>
@@ -1997,9 +2009,10 @@ reactor::chmod(std::string_view name_view, file_permissions permissions) noexcep
             internal::thread_pool_submit_reason::file_operation, [name, mode] {
         return wrap_syscall<int>(::chmod(name.c_str(), mode));
     });
-    if (sr.result == -1) {
+    if (sr.failed()) {
         auto reason = format("chmod(0{:o}) failed", mode);
-        sr.throw_fs_exception(reason, fs::path(name));
+        co_await coroutine::return_exception_ptr(
+          sr.make_fs_exception_ptr(reason, fs::path(name)));
     }
 }
 
@@ -2038,9 +2051,9 @@ reactor::file_type(std::string_view name_view, follow_symlink follow) noexcept {
         auto ret = stat_syscall(name.c_str(), &st);
         return wrap_syscall(ret, st);
     });
-    if (long(sr.result) == -1) {
+    if (sr.failed()) {
         if (sr.error != ENOENT && sr.error != ENOTDIR) {
-            sr.throw_fs_exception_if_error("stat failed", name);
+            co_return coroutine::exception(sr.make_fs_exception_ptr("stat failed", fs::path(name)));
         }
         co_return std::optional<directory_entry_type>();
     }
@@ -2067,7 +2080,9 @@ reactor::inotify_add_watch(int fd, std::string_view path_view, uint32_t flags) {
         auto ret = ::inotify_add_watch(fd, path.c_str(), flags);
         return wrap_syscall(ret);
     });
-    ret.throw_if_error();
+    if (ret.failed()) {
+        co_return coroutine::exception(ret.make_system_error_ptr());
+    }
     co_return ret.result;
 }
 
@@ -2078,7 +2093,9 @@ reactor::make_pipe() {
             internal::thread_pool_submit_reason::file_operation, [&pipe] {
         return wrap_syscall<int>(::pipe2(pipe.data(), O_NONBLOCK));
     });
-    ret.throw_if_error();
+    if (ret.failed()) {
+        co_return coroutine::exception(ret.make_system_error_ptr());
+    }
     co_return std::tuple<file_desc, file_desc>(file_desc::from_fd(pipe[0]),
                                                                 file_desc::from_fd(pipe[1]));
 }
@@ -2224,8 +2241,10 @@ future<int> reactor::waitpid(pid_t pid) {
             // Success.  Return the waited pid status
             co_return wstatus;
         } else {
-            // Error.  Maybe throw exception, or return -1 status.
-            ret.throw_if_error();
+            // Error.  Maybe propagate exception, or return -1 status.
+            if (ret.failed()) {
+                co_return coroutine::exception(ret.make_system_error_ptr());
+            }
             co_return -1;
         }
     };
@@ -2283,7 +2302,9 @@ future<> reactor::chown(std::string_view filepath, uid_t owner, gid_t group) {
             return wrap_syscall(ret);
         });
 
-    sr.throw_if_error();
+    if (sr.failed()) {
+        co_await coroutine::return_exception_ptr(sr.make_system_error_ptr());
+    }
     co_return;
 }
 
@@ -2316,7 +2337,9 @@ reactor::file_stat(std::string_view pathname_view, follow_symlink follow) noexce
         auto ret = stat_syscall(pathname.c_str(), &st);
         return wrap_syscall(ret, st);
     });
-    sr.throw_fs_exception_if_error("stat failed", pathname);
+    if (sr.failed()) {
+        co_return coroutine::exception(sr.make_fs_exception_ptr("stat failed", fs::path(pathname)));
+    }
     co_return make_stat_data(sr.extra);
 }
 
@@ -2347,7 +2370,7 @@ reactor::file_accessible(std::string_view pathname_view, access_flags flags) noe
             (sr.error == EACCES && flags != access_flags::exists)) {
             co_return false;
         }
-        sr.throw_fs_exception("access failed", fs::path(pathname));
+        co_return coroutine::exception(sr.make_fs_exception_ptr("access failed", fs::path(pathname)));
     }
 
     co_return true;
@@ -2372,7 +2395,9 @@ reactor::file_system_at(std::string_view pathname_view) noexcept {
         { internal::fs_magic::tmpfs, fs_type::tmpfs },
         { internal::fs_magic::hugetlbfs, fs_type::hugetlbfs },
     };
-    sr.throw_fs_exception_if_error("statfs failed", pathname);
+    if (sr.failed()) {
+        co_return coroutine::exception(sr.make_fs_exception_ptr("statfs failed", fs::path(pathname)));
+    }
 
     fs_type ret = fs_type::other;
     if (type_mapper.count(sr.extra.f_type) != 0) {
@@ -2389,7 +2414,9 @@ reactor::fstatfs(int fd) noexcept {
         auto ret = ::fstatfs(fd, &st);
         return wrap_syscall(ret, st);
     });
-    sr.throw_if_error();
+    if (sr.failed()) {
+        co_return coroutine::exception(sr.make_system_error_ptr());
+    }
     struct statfs st = sr.extra;
     co_return st;
 }
@@ -2402,7 +2429,10 @@ reactor::file_system_space(std::string_view pathname) noexcept {
         auto si = std::filesystem::space(path, ec);
         return wrap_syscall(ec.value(), si);
     });
-    sr.throw_fs_exception_if_error("std::filesystem::space failed", sstring(pathname));
+    if (sr.failed()) {
+        co_return coroutine::exception(
+          sr.make_fs_exception_ptr("std::filesystem::space failed", fs::path(pathname)));
+    }
     co_return sr.extra;
 }
 
@@ -2415,7 +2445,9 @@ reactor::statvfs(std::string_view pathname_view) noexcept {
         auto ret = ::statvfs(pathname.c_str(), &st);
         return wrap_syscall(ret, st);
     });
-    sr.throw_fs_exception_if_error("statvfs failed", pathname);
+    if (sr.failed()) {
+        co_return coroutine::exception(sr.make_fs_exception_ptr("statvfs failed", fs::path(pathname)));
+    }
     struct statvfs st = sr.extra;
     co_return st;
 }
@@ -2437,7 +2469,9 @@ reactor::open_directory(std::string_view name_view) noexcept {
         }
         return wrap_syscall(fd, st);
     });
-    sr.throw_fs_exception_if_error("open failed", name);
+    if (sr.failed()) {
+        co_return coroutine::exception(sr.make_fs_exception_ptr("open failed", fs::path(name)));
+    }
     auto options = file_open_options{
         .durable = !_cfg.bypass_fsync,
     };
@@ -2453,7 +2487,10 @@ reactor::make_directory(std::string_view name_view, file_permissions permissions
         auto mode = static_cast<mode_t>(permissions);
         return wrap_syscall<int>(::mkdir(name.c_str(), mode));
     });
-    sr.throw_fs_exception_if_error("mkdir failed", name);
+    if (sr.failed()) {
+        co_await coroutine::return_exception_ptr(
+          sr.make_fs_exception_ptr("mkdir failed", fs::path(name)));
+    }
 }
 
 future<>
@@ -2464,8 +2501,9 @@ reactor::touch_directory(std::string_view name_view, file_permissions permission
         auto mode = static_cast<mode_t>(permissions);
         return wrap_syscall<int>(::mkdir(name.c_str(), mode));
     });
-    if (sr.result == -1 && sr.error != EEXIST) {
-        sr.throw_fs_exception("mkdir failed", fs::path(name));
+    if (sr.failed() && sr.error != EEXIST) {
+        co_await coroutine::return_exception_ptr(
+          sr.make_fs_exception_ptr("mkdir failed", fs::path(name)));
     }
 }
 

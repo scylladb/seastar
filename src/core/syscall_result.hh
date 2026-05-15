@@ -30,30 +30,33 @@ struct syscall_result {
     int error;
     syscall_result(T result, int error) : result{std::move(result)}, error{error} {
     }
+
+    bool failed() const noexcept {
+        return long(result) == -1;
+    }
+
     void throw_if_error() const {
-        if (long(result) == -1) {
+        if (failed()) {
             throw std::system_error(ec());
         }
     }
 
-    void throw_fs_exception(const sstring& reason, const fs::path& path) const {
-        throw fs::filesystem_error(reason, path, ec());
+    // Build (without throwing) an exception_ptr describing a system error
+    // for this syscall result. Intended for use in coroutines, paired with
+    // `co_return coroutine::exception(...)` (for future<T>) or
+    // `co_await coroutine::return_exception_ptr(...)` (for future<>), so the
+    // failure is propagated to the awaiter without invoking the throw/unwind
+    // machinery.
+    std::exception_ptr make_system_error_ptr() const noexcept {
+        return std::make_exception_ptr(std::system_error(ec()));
     }
 
-    void throw_fs_exception(const sstring& reason, const fs::path& path1, const fs::path& path2) const {
-        throw fs::filesystem_error(reason, path1, path2, ec());
+    std::exception_ptr make_fs_exception_ptr(const sstring& reason, const fs::path& path) const {
+        return std::make_exception_ptr(fs::filesystem_error(reason, path, ec()));
     }
 
-    void throw_fs_exception_if_error(const sstring& reason, const sstring& path) const {
-        if (long(result) == -1) {
-            throw_fs_exception(reason, fs::path(path));
-        }
-    }
-
-    void throw_fs_exception_if_error(const sstring& reason, const sstring& path1, const sstring& path2) const {
-        if (long(result) == -1) {
-            throw_fs_exception(reason, fs::path(path1), fs::path(path2));
-        }
+    std::exception_ptr make_fs_exception_ptr(const sstring& reason, const fs::path& path1, const fs::path& path2) const {
+        return std::make_exception_ptr(fs::filesystem_error(reason, path1, path2, ec()));
     }
 
     std::error_code ec() const {

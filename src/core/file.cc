@@ -74,6 +74,7 @@
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/coroutine/as_future.hh>
+#include <seastar/coroutine/exception.hh>
 #include "core/file-impl.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
@@ -273,7 +274,9 @@ future<> posix_file_impl::fdatasync(bool with_aio, int fd, internal::io_sink& si
             internal::thread_pool_submit_reason::file_operation, [fd] {
         return wrap_syscall<int>(::fdatasync(fd));
     });
-    sr.throw_if_error();
+    if (sr.failed()) {
+        co_await coroutine::return_exception_ptr(sr.make_system_error_ptr());
+    }
 }
 
 future<struct stat>
@@ -284,7 +287,9 @@ posix_file_impl::stat() noexcept {
         auto ret = ::fstat(fd, &st);
         return wrap_syscall(ret, st);
     });
-    ret.throw_if_error();
+    if (ret.failed()) {
+        co_return coroutine::exception(ret.make_system_error_ptr());
+    }
     co_return ret.extra;
 }
 
@@ -296,7 +301,9 @@ posix_file_impl::statat(std::string_view name, int flags) noexcept {
         auto ret = ::fstatat(fd, name.data(), &st, flags);
         return wrap_syscall(ret, st);
     });
-    ret.throw_if_error();
+    if (ret.failed()) {
+        co_return coroutine::exception(ret.make_system_error_ptr());
+    }
     co_return ret.extra;
 }
 
@@ -306,7 +313,9 @@ posix_file_impl::truncate(uint64_t length) noexcept {
             internal::thread_pool_submit_reason::file_operation, [this, length] {
         return wrap_syscall<int>(::ftruncate(_fd, length));
     });
-    sr.throw_if_error();
+    if (sr.failed()) {
+        co_await coroutine::return_exception_ptr(sr.make_system_error_ptr());
+    }
 }
 
 future<int>
@@ -315,7 +324,9 @@ posix_file_impl::ioctl(uint64_t cmd, void* argp) noexcept {
             internal::thread_pool_submit_reason::file_operation, [this, cmd, argp] () mutable {
         return wrap_syscall<int>(::ioctl(_fd, cmd, argp));
     });
-    sr.throw_if_error();
+    if (sr.failed()) {
+        co_return coroutine::exception(sr.make_system_error_ptr());
+    }
     // Some ioctls require to return a positive integer back.
     co_return sr.result;
 }
@@ -336,7 +347,9 @@ posix_file_impl::fcntl(int op, uintptr_t arg) noexcept {
             internal::thread_pool_submit_reason::file_operation, [this, op, arg] () mutable {
         return wrap_syscall<int>(::fcntl(_fd, op, arg));
     });
-    sr.throw_if_error();
+    if (sr.failed()) {
+        co_return coroutine::exception(sr.make_system_error_ptr());
+    }
     // Some fcntls require to return a positive integer back.
     co_return sr.result;
 }
@@ -358,7 +371,9 @@ posix_file_impl::discard(uint64_t offset, uint64_t length) noexcept {
         return wrap_syscall<int>(::fallocate(_fd, FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE,
             offset, length));
     });
-    sr.throw_if_error();
+    if (sr.failed()) {
+        co_await coroutine::return_exception_ptr(sr.make_system_error_ptr());
+    }
 }
 
 future<>
@@ -378,7 +393,9 @@ posix_file_impl::allocate(uint64_t position, uint64_t length) noexcept {
         }
         return wrap_syscall<int>(ret);
     });
-    sr.throw_if_error();
+    if (sr.failed()) {
+        co_await coroutine::return_exception_ptr(sr.make_system_error_ptr());
+    }
 #else
     return make_ready_future<>();
 #endif
@@ -391,7 +408,9 @@ posix_file_impl::mmap(size_t length, mmap_prot prot, mmap_private priv, size_t o
         int flags = bool(priv) ? MAP_PRIVATE : MAP_SHARED;
         return wrap_syscall<void*>(::mmap(nullptr, length, static_cast<int>(prot), flags, fd, offset));
     });
-    sr.throw_if_error();
+    if (sr.failed()) {
+        co_return coroutine::exception(sr.make_system_error_ptr());
+    }
     co_return file_mapping{sr.result, length};
 }
 
@@ -453,7 +472,9 @@ blockdev_file_impl::size() noexcept {
         int ret = ::ioctl(_fd, BLKGETSIZE64, &size);
         return wrap_syscall(ret, size);
     });
-    ret.throw_if_error();
+    if (ret.failed()) {
+        co_return coroutine::exception(ret.make_system_error_ptr());
+    }
     co_return ret.extra;
 }
 
@@ -494,7 +515,9 @@ future<size_t> posix_file_impl::read_directory(int fd, char* buffer, size_t buff
         auto ret = ::syscall(__NR_getdents64, fd, reinterpret_cast<linux_dirent64*>(buffer), buffer_size);
         return wrap_syscall(ret);
     });
-    ret.throw_if_error();
+    if (ret.failed()) {
+        co_return coroutine::exception(ret.make_system_error_ptr());
+    }
     co_return ret.result;
 }
 
@@ -769,7 +792,9 @@ blockdev_file_impl::discard(uint64_t offset, uint64_t length) noexcept {
         uint64_t range[2] { offset, length };
         return wrap_syscall<int>(::ioctl(_fd, BLKDISCARD, &range));
     });
-    sr.throw_if_error();
+    if (sr.failed()) {
+        co_await coroutine::return_exception_ptr(sr.make_system_error_ptr());
+    }
 }
 
 future<>
@@ -1171,7 +1196,9 @@ future<> file_mapping::unmap() noexcept {
             internal::thread_pool_submit_reason::file_operation, [addr, length] {
         return wrap_syscall<int>(::munmap(addr, length));
     });
-    sr.throw_if_error();
+    if (sr.failed()) {
+        co_await coroutine::return_exception_ptr(sr.make_system_error_ptr());
+    }
 }
 
 future<> file_mapping::flush() noexcept {
@@ -1179,7 +1206,9 @@ future<> file_mapping::flush() noexcept {
             internal::thread_pool_submit_reason::file_operation, [addr = _addr, length = _length] {
         return wrap_syscall<int>(::msync(addr, length, MS_SYNC));
     });
-    sr.throw_if_error();
+    if (sr.failed()) {
+        co_await coroutine::return_exception_ptr(sr.make_system_error_ptr());
+    }
 }
 
 // Some kernels can append to xfs filesystems, some cannot; determine

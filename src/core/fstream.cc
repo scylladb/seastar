@@ -40,6 +40,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/io_intent.hh>
+#include <seastar/coroutine/exception.hh>
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
 #include <seastar/util/internal/iovec_utils.hh>
@@ -572,7 +573,9 @@ public:
                 internal::thread_pool_submit_reason::file_operation, [path = std::move(path), flags] {
             return wrap_syscall<int>(::open(path.c_str(), flags | O_CLOEXEC | O_NONBLOCK));
         });
-        sr.throw_if_error();
+        if (sr.failed()) {
+            co_return coroutine::exception(sr.make_system_error_ptr());
+        }
         co_return file_desc::from_fd(sr.result);
     }
 };
