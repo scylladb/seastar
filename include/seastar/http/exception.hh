@@ -24,6 +24,9 @@
 #include <seastar/util/log.hh>
 #include <seastar/http/reply.hh>
 #include <seastar/json/json_elements.hh>
+#include <initializer_list>
+#include <utility>
+#include <vector>
 
 namespace seastar {
 
@@ -59,14 +62,33 @@ private:
 };
 
 /**
- * Throwing this exception will result in a redirect to the given url
+ * Throwing this exception will result in a redirect to the given url.
+ * Optional extra headers can be included in the redirect response.
  */
 class redirect_exception : public base_exception {
 public:
-    redirect_exception(const std::string& url, http::reply::status_type status = http::reply::status_type::moved_permanently)
-            : base_exception("", status), url(url) {
+    using header_list = std::initializer_list<std::pair<std::string, std::string>>;
+
+    redirect_exception(const std::string& url,
+                       http::reply::status_type status = http::reply::status_type::moved_permanently,
+                       header_list extra_headers = {})
+            : base_exception("", status), url(url), _extra_headers(extra_headers) {
     }
+
+    /// Construct an http::reply for this redirect, with Location header and status set.
+    http::reply to_reply() const {
+        http::reply reply{};
+        reply.add_header("Location", url);
+        for (const auto& [name, value] : _extra_headers) {
+            reply.add_header(name, value);
+        }
+        reply.set_status(status());
+        return reply;
+    }
+
     std::string url;
+private:
+    std::vector<std::pair<std::string, std::string>> _extra_headers;
 };
 
 /**

@@ -2128,6 +2128,67 @@ SEASTAR_TEST_CASE(test_redirect_exception) {
     });
 }
 
+BOOST_AUTO_TEST_CASE(test_redirect_exception_to_reply) {
+    // Basic redirect: Location header and status set correctly
+    httpd::redirect_exception e("/new-loc");
+    auto rep = e.to_reply();
+    BOOST_REQUIRE_EQUAL(rep.get_header("Location"), "/new-loc");
+    BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::moved_permanently);
+
+    // Extra headers are included in the reply
+    httpd::redirect_exception e2("/other", http::reply::status_type::moved_temporarily,
+            {{"Retry-After", "120"}, {"X-Custom", "val"}});
+    auto rep2 = e2.to_reply();
+    BOOST_REQUIRE_EQUAL(rep2.get_header("Location"), "/other");
+    BOOST_REQUIRE_EQUAL(rep2.get_header("Retry-After"), "120");
+    BOOST_REQUIRE_EQUAL(rep2.get_header("X-Custom"), "val");
+    BOOST_REQUIRE_EQUAL(rep2._status, http::reply::status_type::moved_temporarily);
+}
+
+SEASTAR_TEST_CASE(test_redirect_exception_sync_throw) {
+    // Verify that a handler which throws redirect_exception synchronously
+    // (i.e. before returning a future) is handled correctly by routes::handle().
+    // This exercises the catch(redirect_exception) block added alongside to_reply().
+    return seastar::async([] {
+        class sync_redirect_handle : public httpd::handler_base {
+        public:
+            virtual future<std::unique_ptr<http::reply>> handle(const sstring& path,
+                    std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
+                throw httpd::redirect_exception("/sync_dest", http::reply::status_type::moved_temporarily,
+                        {{"Retry-After", "30"}});
+            }
+        };
+
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+
+        future<> client = seastar::async([&lcf] {
+            auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
+            auto req = http::request::make("GET", "test", "/sync");
+            std::optional<http::reply::status_type> status;
+            sstring location;
+            sstring retry_after;
+            cln.make_request(std::move(req), [&](const http::reply& rep, input_stream<char>&& in) {
+                status = rep._status;
+                location = rep.get_header("Location");
+                retry_after = rep.get_header("Retry-After");
+                return make_ready_future<>();
+            }).get();
+            BOOST_REQUIRE(status.has_value());
+            BOOST_REQUIRE_EQUAL(status.value(), http::reply::status_type::moved_temporarily);
+            BOOST_REQUIRE_EQUAL(location, "/sync_dest");
+            BOOST_REQUIRE_EQUAL(retry_after, "30");
+            cln.close().get();
+        });
+
+        server._routes.put(GET, "/sync", new sync_redirect_handle());
+        server.do_accepts(0).get();
+        client.get();
+        server.stop().get();
+    });
+}
+
 BOOST_AUTO_TEST_CASE(test_path_decode_unchanged) {
     auto unchanged_chars = seastar::sstring{
       "~abcdefghijklmnopqrstuvwhyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789.+"};
