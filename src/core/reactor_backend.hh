@@ -384,6 +384,10 @@ public:
     }
 };
 
+namespace uring {
+    struct numa_assignment;
+}
+
 #ifdef SEASTAR_HAVE_URING
 
 /// Helper functions that manage the lifecycle and configuration of asymmetric io_uring backend
@@ -396,11 +400,13 @@ try_create_attached_asymmetric_uring(int uring_fd, bool throw_on_error);
 std::optional<::io_uring>
 try_create_base_asymmetric_uring(unsigned worker_cpu, bool throw_on_error);
 
-unsigned select_worker_cpu(seastar::shard_id shard_id, const resource::cpuset& worker_cpus);
+struct numa_assignment {
+    unsigned networking_core;
+    unsigned networking_group;
+    bool is_master;
+};
 
-bool is_master_shard(seastar::shard_id shard_id, const resource::cpuset& worker_cpus) noexcept;
-
-unsigned get_uring_group_id(seastar::shard_id shard_id, const resource::cpuset& worker_cpus) noexcept;
+std::shared_ptr<std::vector<numa_assignment>> compute_assignments(const std::vector<resource::cpu>& allocations, const resource::cpuset& networking_cores);
 
 // QUEUE_LEN is more or less arbitrary. Too low and we'll be
 // issuing too small batches, too high and we require too much locked
