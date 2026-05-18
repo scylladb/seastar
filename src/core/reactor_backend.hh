@@ -29,6 +29,8 @@
 #include <seastar/core/internal/linux-aio.hh>
 #include <seastar/core/cacheline.hh>
 #include <seastar/util/bool_class.hh>
+#include <seastar/core/shard_id.hh>
+#include <seastar/core/resource.hh>
 
 #include <fmt/ostream.h>
 #include <sys/time.h>
@@ -38,6 +40,10 @@
 #include <boost/program_options.hpp>
 #include <boost/container/static_vector.hpp>
 
+
+#ifdef SEASTAR_HAVE_URING
+#include <liburing.h>
+#endif
 
 namespace seastar {
 
@@ -361,6 +367,7 @@ public:
 };
 
 class reactor_backend_uring;
+class reactor_backend_asymmetric_uring;
 
 class reactor_backend_selector {
     std::string _name;
@@ -376,6 +383,36 @@ public:
         return os << rbs._name;
     }
 };
+
+#ifdef SEASTAR_HAVE_URING
+
+/// Helper functions that manage the lifecycle and configuration of asymmetric io_uring backend
+/// Handles CPU allocation, worker thread management, and backend creation
+namespace uring {
+
+std::optional<::io_uring>
+try_create_attached_asymmetric_uring(int uring_fd, bool throw_on_error);
+
+std::optional<::io_uring>
+try_create_base_asymmetric_uring(unsigned worker_cpu, bool throw_on_error);
+
+struct numa_assignment {
+    std::vector<unsigned> shard_to_networking_core;
+    std::vector<unsigned> shard_to_networking_group;
+    std::vector<bool> is_master_shard;
+};
+
+numa_assignment compute_assignments(const std::vector<resource::cpu>& allocations, const resource::cpuset& networking_cores);
+
+// QUEUE_LEN is more or less arbitrary. Too low and we'll be
+// issuing too small batches, too high and we require too much locked
+// memory, but otherwise it doesn't matter.
+inline constexpr unsigned QUEUE_LEN = 200;
+inline constexpr std::chrono::milliseconds POLLER_SLEEP_TIMEOUT(2000);
+
+} // namespace uring
+
+#endif // SEASTAR_HAVE_URING
 
 }
 

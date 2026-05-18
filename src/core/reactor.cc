@@ -19,6 +19,10 @@
  * Copyright 2014 Cloudius Systems
  */
 
+#ifdef SEASTAR_HAVE_URING
+#include <liburing.h>
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -30,8 +34,12 @@
 #include <ranges>
 #include <regex>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <barrier>
+#include <any>
+#include <memory>
+#include <vector>
 
 #include <grp.h>
 #include <spawn.h>
@@ -167,6 +175,7 @@
 #include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/util/internal/magic.hh>
 #include <seastar/util/internal/build_id.hh>
+#include <seastar/core/reactor_config.hh>
 #include "core/crypto.hh"
 #include "core/reactor_backend.hh"
 #include "core/syscall_result.hh"
@@ -4058,6 +4067,10 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
                  " Note that if the seastar_memory logger is set to debug or trace level, the diagnostics will be logged irrespective of this setting.")
     , reactor_backend(*this, "reactor-backend", backend_selector_candidates(), reactor_backend_selector::default_backend().name(),
                 fmt::format("Internal reactor implementation ({})", reactor_backend_selector::available()))
+    , async_workers_cpuset(*this, "async-workers-cpuset", resource::cpuset{},
+                "CPUs to use (in cpuset(7) format) for backend's async workers."
+                " Only applicable to, and required by, the asymmetric_io_uring reactor backend (see --reactor-backend)."
+                " Note that if the --cpuset is not set, using --async-workers-cpuset will restrict the CPUs for the SMP.")
     , aio_fsync(*this, "aio-fsync", kernel_supports_aio_fsync(),
                 "Use Linux aio for fsync() calls. This reduces latency; requires Linux 4.18 or later.")
     , max_networking_io_control_blocks(*this, "max-networking-io-control-blocks", 10000,
@@ -4383,6 +4396,73 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
     return network_iocbs;
 }
 
+static inline void warn_if_shards_and_async_workers_share_cpu(const std::vector<resource::cpu>& allocations, const resource::cpuset& async_worker_cpus) {
+    std::set<unsigned> overlapping_cpus;
+    for (auto cpu : allocations) {
+        if (async_worker_cpus.contains(cpu.cpu_id)) {
+            overlapping_cpus.insert(cpu.cpu_id);
+        }
+    }
+
+    if (!overlapping_cpus.empty()) {
+        seastar_logger.warn("The following CPUs assigned to shards overlap with the async workers cpuset: {}."
+                             " This may lead to performance degradation. It is recommended to keep the main"
+                             " cpuset and async workers cpuset disjoint.", fmt::join(overlapping_cpus, ","));
+    }
+}
+
+/// @brief If async worker CPUs are allocated and neither --smp nor --cpuset is specified, remove async worker CPUs from the main cpuset to avoid overcommitment by default.
+/// @param cpu_set The main cpuset to potentially remove async worker CPUs from.
+/// @param reactor_opts The reactor options, used to check if overprovisioned mode is enabled.
+/// @param smp_opts The SMP options, used to check if --smp or --cpuset is specified.
+/// @param async_worker_cpus The set of CPUs allocated for async workers, used to remove them from the main cpuset if needed.
+/// @throws std::invalid_argument if running in overprovisioned mode with async workers allocated and neither --smp nor --cpuset is specified, since this combination might be unintentional.
+static inline void maybe_remove_overlapping_cpus(resource::cpuset& cpu_set, const reactor_options& reactor_opts,
+        const smp_options& smp_opts, const resource::cpuset& async_worker_cpus) {
+    if (async_worker_cpus.size() == 0) {
+        return;
+    }
+
+    if (smp_opts.smp || smp_opts.cpuset){
+        // User did it explicitly, we won't mess with their choices.
+        return;
+    }
+
+    if (reactor_opts.overprovisioned) {
+        // If running in overprovisioned mode, we shouldn't remove async worker CPUs from the main cpuset, since overprovisioned mode is meant to allow running with more threads than CPUs.
+        // However, this might unintentionally lead to having async workers and multiple shards running on the same CPU. We decide not to allow this.
+        // If user would like to run in overprovisioned mode with async workers, they should explicitly specify the cpuset or smp count.
+        throw std::invalid_argument("Cannot run in overprovisioned mode when async workers are allocated and neither --smp nor --cpuset is specified");
+    }
+
+    seastar_logger.info("Removing async worker CPUs from main cpuset by default (neither --smp nor --cpuset specified)");
+    for (auto cpu_id : async_worker_cpus) {
+        cpu_set.erase(cpu_id);
+    }
+}
+
+/// Assigns set of cpus for backends that need dedicated async workers.
+/// Returns async_worker_allocation with allocated CPUs and remaining cpu_set for backends that need dedicated async workers
+/// For backends that don't need dedicated async workers the allocation has empty async_workers_cpuset and full cpu_set
+/// Throws if async_workers_cpu_set is empty
+static inline async_worker_allocation allocate_async_workers(const reactor_backend_selector& backend_selector,
+        const resource::cpuset& async_workers_cpu_set, const resource::cpuset& cpu_set,
+        const reactor_options& reactor_opts, const smp_options& smp_opts) {
+#ifdef SEASTAR_HAVE_URING
+    if (backend_selector.name() == "asymmetric_io_uring") {
+        if (async_workers_cpu_set.empty()) {
+            throw std::runtime_error("No CPUs specified for asymmetric_io_uring workers. Please see --async-workers-cpuset option.");
+        }
+
+        resource::cpuset new_cpuset = cpu_set;
+        maybe_remove_overlapping_cpus(new_cpuset, reactor_opts, smp_opts, async_workers_cpu_set);
+
+        return {async_workers_cpu_set, new_cpuset};
+    }
+#endif
+    return {{}, cpu_set};  // Other backends don't need workers
+}
+
 void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_opts)
 {
     // Install the crypto provider before anything else, so it is
@@ -4460,6 +4540,23 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             exit(1);
         }
         cpu_set = opts_cpuset;
+    }
+
+    // Let the backend selector allocate async worker cores if needed
+    auto backend_selector = reactor_opts.reactor_backend.get_selected_candidate();
+    resource::cpuset async_worker_cpus;
+    try {
+        auto allocation = allocate_async_workers(backend_selector, reactor_opts.async_workers_cpuset.get_value(),
+            cpu_set, reactor_opts, smp_opts);
+        async_worker_cpus = allocation.async_workers_cpuset;
+        cpu_set = allocation.reactor_cpuset;
+
+        seastar_logger.debug("Backend async workers allocated: {} potential app cores [{}], {} worker cores [{}]",
+                cpu_set.size(), fmt::join(cpu_set, ","),
+                async_worker_cpus.size(), fmt::join(async_worker_cpus, ","));
+    } catch (const std::exception& e) {
+        seastar_logger.error("{}", e.what());
+        exit(1);
     }
 
     if (smp_opts.smp) {
@@ -4562,6 +4659,8 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         memory::configure_minimal();
     }
 
+    warn_if_shards_and_async_workers_share_cpu(allocations, async_worker_cpus);
+
     _shard_to_numa_node_mapping.reserve(_shard_count);
     for (unsigned i = 0; i < _shard_count; i++) {
         _shard_to_numa_node_mapping.push_back(allocations[i].mem.size() > 0 ? allocations[i].mem[0].nodeid : 0);
@@ -4644,6 +4743,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     }
 #endif
 
+    std::barrier asymmetric_uring_masters_created(_shard_count);
     // Better to put it into the smp class, but at smp construction time
     // correct _shard_count is not known.
     std::barrier reactors_registered(_shard_count);
@@ -4704,7 +4804,6 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     _all_event_loops_done.emplace(_shard_count);
 
-    auto backend_selector = reactor_opts.reactor_backend.get_selected_candidate();
     seastar_logger.info("Reactor backend: {}", backend_selector);
 
     _qs_owner = decltype(smp::_qs_owner){new smp_message_queue* [_shard_count], qs_deleter{}};
@@ -4726,12 +4825,38 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         }
     };
 
+    auto master_uring_fds = std::make_shared<std::vector<int>>(_shard_count, -1);
+
+    auto reactor_config = reactor_cfg;
+#ifdef SEASTAR_HAVE_URING
+    using uring_assignment_ptr = std::shared_ptr<uring::numa_assignment>;
+#else
+    using uring_assignment_ptr = std::shared_ptr<void>;
+#endif
+    uring_assignment_ptr uring_assignments;
+
+#ifdef SEASTAR_HAVE_URING
+    if (reactor_opts.reactor_backend.get_selected_candidate().name() == "asymmetric_io_uring") {
+        using namespace uring;
+
+        uring_assignments = std::make_shared<numa_assignment>(compute_assignments(allocations, async_worker_cpus));
+
+        const bool is_master = uring_assignments->is_master_shard[0];
+        const unsigned uring_group_id = uring_assignments->shard_to_networking_group[0];
+        const unsigned worker_cpu = uring_assignments->shard_to_networking_core[0];
+        if (is_master) {
+            reactor_config.asymmetric_uring.emplace<compile_safe_io_uring>(try_create_base_asymmetric_uring(worker_cpu, true).value());
+            (*master_uring_fds)[uring_group_id] = std::any_cast<::io_uring>(std::get<compile_safe_io_uring>(reactor_config.asymmetric_uring)).ring_fd;
+        }
+    }
+#endif
+
     unsigned i;
     auto smp_tmain = smp::_tmain;
     smp::_this_smp = this;
     for (i = 1; i < _shard_count; i++) {
         auto allocation = allocations[i];
-        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_sampling_rate, mbind, backend_selector, reactor_cfg, &mtx, &layout, use_transparent_hugepages, allocate_qs_owner, allocate_smp_queues] {
+        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_sampling_rate, mbind, backend_selector, reactor_cfg, &mtx, &layout, use_transparent_hugepages, allocate_qs_owner, allocate_smp_queues, uring_assignments, &master_uring_fds, &asymmetric_uring_masters_created] {
           try {
             // initialize thread_locals that are equal across all reacto threads of this smp instance
             smp::_tmain = smp_tmain;
@@ -4761,7 +4886,30 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             throw_pthread_error(r);
             init_default_smp_service_group(i);
             lowres_clock::update();
-            allocate_reactor(i, backend_selector, reactor_cfg);
+
+            auto reactor_config = reactor_cfg;
+
+#ifdef SEASTAR_HAVE_URING
+            if (reactor_opts.reactor_backend.get_selected_candidate().name() == "asymmetric_io_uring") {
+                using namespace uring;
+                SEASTAR_ASSERT(uring_assignments);
+                const bool is_master = uring_assignments->is_master_shard[i];
+                const unsigned uring_group_id = uring_assignments->shard_to_networking_group[i];
+                const unsigned worker_cpu = uring_assignments->shard_to_networking_core[i];
+                if (is_master) {
+                    reactor_config.asymmetric_uring.emplace<compile_safe_io_uring>(try_create_base_asymmetric_uring(worker_cpu, true).value());
+                    (*master_uring_fds)[uring_group_id] = std::any_cast<::io_uring>(std::get<compile_safe_io_uring>(reactor_config.asymmetric_uring)).ring_fd;
+                }
+
+                asymmetric_uring_masters_created.arrive_and_wait();
+
+                if (!is_master) {
+                    reactor_config.asymmetric_uring.emplace<int>((*master_uring_fds)[uring_group_id]);
+                }
+            }
+#endif
+
+            allocate_reactor(i, backend_selector, reactor_config);
             reactors[i] = &engine();
             alloc_io_queues(i);
             allocate_qs_owner(i);
@@ -4783,8 +4931,22 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     init_default_smp_service_group(0);
     lowres_clock::update();
+
+#ifdef SEASTAR_HAVE_URING
+    if (reactor_opts.reactor_backend.get_selected_candidate().name() == "asymmetric_io_uring") {
+        using namespace uring;
+        asymmetric_uring_masters_created.arrive_and_wait();
+
+        SEASTAR_ASSERT(uring_assignments);
+        if (!uring_assignments->is_master_shard[0]) {
+            const unsigned uring_group_id = uring_assignments->shard_to_networking_group[0];
+            reactor_config.asymmetric_uring.emplace<int>((*master_uring_fds)[uring_group_id]);
+        }
+    }
+#endif
+
     try {
-        allocate_reactor(0, backend_selector, reactor_cfg);
+        allocate_reactor(0, backend_selector, reactor_config);
     } catch (const std::exception& e) {
         seastar_logger.error("{}", e.what());
         _exit(1);
