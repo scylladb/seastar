@@ -1125,6 +1125,10 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
     , _cpu_stall_detector(internal::make_cpu_stall_detector())
     , _cpu_sched(nullptr, 0)
     , _thread_pool(std::make_unique<thread_pool>(seastar::format("syscall-{}", id), _notify_eventfd)) {
+    // Initialize the thread subsystem before creating the backend: the
+    // backend ctor may start a seastar::thread (the aio retry fiber),
+    // which needs g_current_context set up.
+    seastar::thread_impl::init();
     /*
      * The _backend assignment is here, not on the initialization list as
      * the chosen backend constructor may want to handle signals and thus
@@ -1136,7 +1140,6 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
     _task_queues[1] = std::make_unique<task_queue>(&_cpu_sched, 1, "atexit", "exit", 1000);
     _at_destroy_tasks = _task_queues[1].get();
     set_need_preempt_var(&_preemption_monitor);
-    seastar::thread_impl::init();
     _backend->start_tick();
 
     sigset_t mask;
