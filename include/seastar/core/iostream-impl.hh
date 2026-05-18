@@ -277,7 +277,6 @@ input_stream<CharType>::consume(Consumer& consumer) noexcept(std::is_nothrow_mov
 template <typename CharType>
 future<temporary_buffer<CharType>>
 input_stream<CharType>::read_up_to(size_t n) noexcept {
-    using tmp_buf = temporary_buffer<CharType>;
     if (_buf.empty()) {
         if (_eof) {
             return make_ready_future<tmp_buf>();
@@ -306,7 +305,6 @@ input_stream<CharType>::read_up_to(size_t n) noexcept {
 template <typename CharType>
 future<temporary_buffer<CharType>>
 input_stream<CharType>::read() noexcept {
-    using tmp_buf = temporary_buffer<CharType>;
     if (_eof) {
         return make_ready_future<tmp_buf>();
     }
