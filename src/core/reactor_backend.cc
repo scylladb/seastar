@@ -168,7 +168,7 @@ future<> aio_storage_context::stop() noexcept {
     });
 
     // Wake up the retry coroutine so it can observe _stopping and exit.
-    _retry_cv.signal();
+    signal_retry_loop();
 
     return std::exchange(_pending_aio_retry_fut, make_ready_future<>()).finally([this] {
         return do_until([this] { return !_iocb_pool.outstanding(); }, [this] {
@@ -279,7 +279,7 @@ aio_storage_context::submit_work() {
         // so we don't want to call io_submit() from the reactor thread.
         //
         // Pretend that all aio failed with EAGAIN and submit them
-        // via schedule_retry(), below.
+        // via signal_retry_loop(), below.
         did_work = !_submission_queue.empty();
         for (auto& iocbp : _submission_queue) {
             set_nowait(*iocbp, false);
@@ -301,13 +301,13 @@ aio_storage_context::submit_work() {
     }
 
     if (need_to_retry()) {
-        schedule_retry();
+        signal_retry_loop();
     }
 
     return did_work;
 }
 
-void aio_storage_context::schedule_retry() {
+void aio_storage_context::signal_retry_loop() {
     _retry_cv.signal();
 }
 

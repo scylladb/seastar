@@ -100,6 +100,7 @@ class aio_storage_context {
     }
 
     future<> retry_loop();
+    void signal_retry_loop();
     void reap_pending_retries();
 
 public:
@@ -107,7 +108,6 @@ public:
     ~aio_storage_context();
 
     bool reap_completions(bool allow_retry = true);
-    void schedule_retry();
     bool submit_work();
     bool can_sleep() const;
     future<> stop() noexcept;
