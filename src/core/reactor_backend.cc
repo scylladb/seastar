@@ -134,25 +134,21 @@ aio_storage_context::~aio_storage_context() {
 }
 
 void aio_storage_context::reap_pending_retries() {
-    // Drain pending retries and complete them with -ECANCELED.
-    for (auto iocb : _pending_aio_retry) {
-        _iocb_pool.put_one(iocb);
-        auto desc = get_user_data<kernel_completion>(*iocb);
-        desc->complete_with(-ECANCELED);
-    }
-    _pending_aio_retry.clear();
-
+    auto drain_queue = [this] (pending_aio_retry_t& queue) {
+        for (auto iocb : queue) {
+            _iocb_pool.put_one(iocb);
+            auto desc = get_user_data<kernel_completion>(*iocb);
+            desc->complete_with(-ECANCELED);
+        }
+        queue.clear();
+    };
+    drain_queue(_pending_aio_retry);
     // _aio_retries is empty in the normal call path: this function only runs
     // after the retry loop's future has resolved, and that loop's predicate
     // only returns true when both vectors are empty. The drain below is
     // defensive — if a future change to schedule_retry() leaves entries
     // here, we still avoid leaking iocbs.
-    for (auto iocb : _aio_retries) {
-        _iocb_pool.put_one(iocb);
-        auto desc = get_user_data<kernel_completion>(*iocb);
-        desc->complete_with(-ECANCELED);
-    }
-    _aio_retries.clear();
+    drain_queue(_aio_retries);
 }
 
 future<> aio_storage_context::stop() noexcept {
