@@ -234,6 +234,23 @@ aio_storage_context::handle_aio_error(linux_abi::iocb* iocb, int ec) {
     }
 }
 
+void
+aio_storage_context::cancel_iocb(linux_abi::iocb* iocb) {
+    auto desc = get_user_data<kernel_completion>(*iocb);
+    _iocb_pool.put_one(iocb);
+    desc->complete_with(-ECANCELED);
+}
+
+void
+aio_storage_context::retry_iocb(linux_abi::iocb* iocb) {
+    if (_stopping) {
+        cancel_iocb(iocb);
+        return;
+    }
+    set_nowait(*iocb, false);
+    _pending_aio_retry.push_back(iocb);
+}
+
 bool
 aio_storage_context::submit_work() {
     bool did_work = false;
@@ -262,8 +279,7 @@ aio_storage_context::submit_work() {
         // via schedule_retry(), below.
         did_work = !_submission_queue.empty();
         for (auto& iocbp : _submission_queue) {
-            set_nowait(*iocbp, false);
-            _pending_aio_retry.push_back(iocbp);
+            retry_iocb(iocbp);
         }
         to_submit = 0;
     }
@@ -308,9 +324,7 @@ future<> aio_storage_context::retry_loop() {
                     // During shutdown, complete pending iocbs with -ECANCELED
                     // instead of resubmitting them.
                     for (auto iocb : _aio_retries) {
-                        _iocb_pool.put_one(iocb);
-                        auto desc = get_user_data<kernel_completion>(*iocb);
-                        desc->complete_with(-ECANCELED);
+                        cancel_iocb(iocb);
                     }
                     _aio_retries.clear();
                 } else {
@@ -344,13 +358,8 @@ future<> aio_storage_context::retry_loop() {
     });
 }
 
-bool aio_storage_context::reap_completions(bool allow_retry)
+bool aio_storage_context::reap_completions()
 {
-    // During shutdown, complete EAGAIN iocbs immediately instead of
-    // queuing them for retry — schedule_retry() is gated on _stopping.
-    if (_stopping) {
-        allow_retry = false;
-    }
     struct timespec timeout = {0, 0};
     auto n = io_getevents(_io_context, 1, max_aio, _ev_buffer, &timeout, _r._cfg.force_io_getevents_syscall);
     if (n == -1 && errno == EINTR) {
@@ -359,10 +368,9 @@ bool aio_storage_context::reap_completions(bool allow_retry)
     SEASTAR_ASSERT(n >= 0);
     for (size_t i = 0; i < size_t(n); ++i) {
         auto iocb = get_iocb(_ev_buffer[i]);
-        if (_ev_buffer[i].res == -EAGAIN && allow_retry) {
-            set_nowait(*iocb, false);
+        if (_ev_buffer[i].res == -EAGAIN) {
             _r._io_stats.aio_retries++;
-            _pending_aio_retry.push_back(iocb);
+            retry_iocb(iocb);
             continue;
         }
         _iocb_pool.put_one(iocb);
