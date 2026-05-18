@@ -327,6 +327,9 @@ void aio_storage_context::signal_retry_loop() {
 // Long-lasting retry coroutine.  Loops until _stopping, waiting on
 // _retry_cv when idle.
 future<> aio_storage_context::retry_loop() {
+    timer retry_timer([this] {
+        signal_retry_loop();
+    });
     do {
         // Process retries: loop until both vectors are empty or _stopping is set.
         // While retrying _aio_retries, new retries may be queued onto _pending_aio_retry.
@@ -369,8 +372,10 @@ future<> aio_storage_context::retry_loop() {
             });
         } else if (!_stopping) {
             // Some iocbs failed retry and are left in _aio_retries.
-            // Wait for submit_work or stop to wake us up to re-attempt them or return, respectively.
+            // Wait up to 10ms submit_work or stop to wake us up to re-attempt them or return, respectively.
+            retry_timer.arm(10ms);
             co_await _retry_cv.wait();
+            retry_timer.cancel();
         }
     } while (!_stopping);
 }
