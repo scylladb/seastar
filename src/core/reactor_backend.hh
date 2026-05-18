@@ -87,6 +87,8 @@ class aio_storage_context {
     boost::container::static_vector<internal::linux_abi::iocb*, max_aio> _submission_queue;
     iocb_pool _iocb_pool;
     size_t handle_aio_error(internal::linux_abi::iocb* iocb, int ec);
+    void cancel_iocb(internal::linux_abi::iocb* iocb);
+    void retry_iocb(internal::linux_abi::iocb* iocb);
     using pending_aio_retry_t = boost::container::static_vector<internal::linux_abi::iocb*, max_aio>;
     pending_aio_retry_t _pending_aio_retry; // Pending retries iocbs
     pending_aio_retry_t _aio_retries;       // Currently retried iocbs
@@ -107,7 +109,7 @@ public:
     explicit aio_storage_context(reactor& r);
     ~aio_storage_context();
 
-    bool reap_completions(bool allow_retry = true);
+    bool reap_completions();
     bool submit_work();
     bool can_sleep() const;
     future<> stop() noexcept;
