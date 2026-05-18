@@ -265,6 +265,7 @@ aio_storage_context::retry_iocb(linux_abi::iocb* iocb) {
     }
     set_nowait(*iocb, false);
     _pending_aio_retry.push_back(iocb);
+    signal_retry_loop();
 }
 
 bool
@@ -292,7 +293,7 @@ aio_storage_context::submit_work() {
         // so we don't want to call io_submit() from the reactor thread.
         //
         // Pretend that all aio failed with EAGAIN and submit them
-        // via signal_retry_loop(), below.
+        // via retry_iocb() which signals the retry coroutine.
         did_work = !_submission_queue.empty();
         for (auto& iocbp : _submission_queue) {
             retry_iocb(iocbp);
