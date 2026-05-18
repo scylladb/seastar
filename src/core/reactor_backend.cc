@@ -46,6 +46,7 @@
 #include <seastar/core/internal/uname.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/read_first_line.hh>
@@ -127,6 +128,9 @@ aio_storage_context::aio_storage_context(reactor& r)
                   "Mismatch between maximum allowed io and what the IO queues can produce");
     internal::setup_aio_context(max_aio, &_io_context);
     _r.do_at_exit([this] { return stop(); });
+
+    // Start the long-lasting retry coroutine.
+    _pending_aio_retry_fut = retry_loop();
 }
 
 aio_storage_context::~aio_storage_context() {
@@ -142,11 +146,8 @@ void aio_storage_context::reap_pending_retries() {
     }
     _pending_aio_retry.clear();
 
-    // _aio_retries is empty in the normal call path: this function only runs
-    // after the retry loop's future has resolved, and that loop's predicate
-    // only returns true when both vectors are empty. The drain below is
-    // defensive — if a future change to schedule_retry() leaves entries
-    // here, we still avoid leaking iocbs.
+    // _aio_retries is empty in the normal call path.
+    // However, if the retry_loop() fails to complete all retries, it might leave behind iocbs in _aio_retries.
     for (auto iocb : _aio_retries) {
         _iocb_pool.put_one(iocb);
         auto desc = get_user_data<kernel_completion>(*iocb);
@@ -156,8 +157,8 @@ void aio_storage_context::reap_pending_retries() {
 }
 
 future<> aio_storage_context::stop() noexcept {
-    // Set _stopping first so any reap_completions() and schedule_retry()
-    // calls that race with the drain below see the right state.
+    // Set _stopping first so the retry coroutine and reap_completions()
+    // see the right state.
     _stopping = true;
 
     // Drain items in io_sink (operations without allocated iocbs yet).
@@ -165,6 +166,9 @@ future<> aio_storage_context::stop() noexcept {
         desc->complete_with(-ECANCELED);
         return true;
     });
+
+    // Wake up the retry coroutine so it can observe _stopping and exit.
+    _retry_cv.signal();
 
     return std::exchange(_pending_aio_retry_fut, make_ready_future<>()).finally([this] {
         return do_until([this] { return !_iocb_pool.outstanding(); }, [this] {
@@ -304,41 +308,33 @@ aio_storage_context::submit_work() {
 }
 
 void aio_storage_context::schedule_retry() {
-    // Don't start a new retry loop if either:
-    //   (a) one is already in flight  (!_pending_aio_retry_fut.available()),
-    //   (b) we're shutting down       (_stopping) — stop() will drain the
-    //       queues itself; starting a second loop here would race with
-    //       stop()'s drain on the same iocb pool (the original double-free).
-    if (!_pending_aio_retry_fut.available() || _stopping) {
-        return;
-    }
+    _retry_cv.signal();
+}
 
-    // loop until both _pending_aio_retry and _aio_retries are empty.
-    // While retrying _aio_retries, new retries may be queued onto _pending_aio_retry.
-    _pending_aio_retry_fut = do_until([this] {
-        if (_aio_retries.empty()) {
-            if (_pending_aio_retry.empty()) {
-                return true;
+// Long-lasting retry coroutine.  Loops until _stopping, waiting on
+// _retry_cv when idle.
+future<> aio_storage_context::retry_loop() {
+    do {
+        // Process retries: loop until both vectors are empty or _stopping is set.
+        // While retrying _aio_retries, new retries may be queued onto _pending_aio_retry.
+        // If we're stopping, abandoned iocbs will be reaped and completed with -ECANCELED by reap_pending_retries().
+        while (need_to_retry() && !_stopping) {
+            if (_aio_retries.empty()) {
+                std::swap(_aio_retries, _pending_aio_retry);
             }
-            // _pending_aio_retry, holding a batch of new iocbs to retry,
-            // is swapped with the empty _aio_retries.
-            std::swap(_aio_retries, _pending_aio_retry);
-        }
-        return false;
-    }, [this] {
-        return _r._thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::aio_fallback, [this] () mutable {
-            auto r = io_submit(_io_context, _aio_retries.size(), _aio_retries.data());
-            return wrap_syscall<int>(r);
-        }).then_wrapped([this] (future<syscall_result<int>> f) {
-            // If submit failed, just log the error and exit the loop.
-            // The next call to submit_work will call schedule_retry again.
-            if (f.failed()) {
-                auto ex = f.get_exception();
-                seastar_logger.warn("aio_storage_context::schedule_retry failed: {}", std::move(ex));
-                return;
+            syscall_result<int> result(0, 0);
+            try {
+                result = co_await _r._thread_pool->submit<syscall_result<int>>(
+                        internal::thread_pool_submit_reason::aio_fallback, [this] () mutable {
+                    auto r = io_submit(_io_context, _aio_retries.size(), _aio_retries.data());
+                    return wrap_syscall<int>(r);
+                });
+            } catch (...) {
+                // If submit failed, just log the error and break out of the inner loop.
+                // The coroutine will wait for the next condition variable signal to retry (or return if stopping).
+                seastar_logger.warn("aio_storage_context::retry_loop failed: {}", std::current_exception());
+                break;
             }
-            auto result = f.get();
             auto iocbs = _aio_retries.data();
             size_t nr_consumed = 0;
             if (result.result == -1) {
@@ -352,14 +348,24 @@ void aio_storage_context::schedule_retry() {
                 nr_consumed = result.result;
             }
             _aio_retries.erase(_aio_retries.begin(), _aio_retries.begin() + nr_consumed);
-        });
-    });
+        }
+        if (_aio_retries.empty()) {
+            co_await _retry_cv.wait([this] {
+                // New iocbs are always queued onto _pending_aio_retry.
+                return _stopping || !_pending_aio_retry.empty();
+            });
+        } else if (!_stopping) {
+            // Some iocbs failed retry and are left in _aio_retries.
+            // Wait for submit_work or stop to wake us up to re-attempt them or return, respectively.
+            co_await _retry_cv.wait();
+        }
+    } while (!_stopping);
 }
 
 bool aio_storage_context::reap_completions(bool allow_retry)
 {
     // During shutdown, complete EAGAIN iocbs immediately instead of
-    // queuing them for retry — schedule_retry() is gated on _stopping.
+    // queuing them for retry — retry_loop() is gated on _stopping.
     if (_stopping) {
         allow_retry = false;
     }
