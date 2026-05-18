@@ -100,7 +100,6 @@ class aio_storage_context {
     }
 
     future<> retry_loop();
-    void reap_pending_retries();
 
 public:
     explicit aio_storage_context(reactor& r);
