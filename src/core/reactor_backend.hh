@@ -23,6 +23,7 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/core/posix.hh>
+#include <seastar/core/condition-variable.hh>
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/core/internal/poll.hh>
@@ -90,6 +91,7 @@ class aio_storage_context {
     pending_aio_retry_t _pending_aio_retry; // Pending retries iocbs
     pending_aio_retry_t _aio_retries;       // Currently retried iocbs
     future<> _pending_aio_retry_fut = make_ready_future<>();
+    condition_variable _retry_cv;
     bool _stopping = false;
     internal::linux_abi::io_event _ev_buffer[max_aio];
 
@@ -97,6 +99,7 @@ class aio_storage_context {
         return !_pending_aio_retry.empty() || !_aio_retries.empty();
     }
 
+    future<> retry_loop();
     void reap_pending_retries();
 
 public:

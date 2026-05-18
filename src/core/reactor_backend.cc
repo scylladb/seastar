@@ -46,6 +46,7 @@
 #include <seastar/core/internal/uname.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/thread.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/read_first_line.hh>
@@ -127,6 +128,9 @@ aio_storage_context::aio_storage_context(reactor& r)
                   "Mismatch between maximum allowed io and what the IO queues can produce");
     internal::setup_aio_context(max_aio, &_io_context);
     _r.do_at_exit([this] { return stop(); });
+
+    // Start the long-lasting retry fiber.
+    _pending_aio_retry_fut = retry_loop();
 }
 
 aio_storage_context::~aio_storage_context() {
@@ -156,8 +160,8 @@ void aio_storage_context::reap_pending_retries() {
 }
 
 future<> aio_storage_context::stop() noexcept {
-    // Set _stopping first so any reap_completions() and schedule_retry()
-    // calls that race with the drain below see the right state.
+    // Set _stopping first so the retry fiber and reap_completions()
+    // see the right state.
     _stopping = true;
 
     // Drain items in io_sink (operations without allocated iocbs yet).
@@ -165,6 +169,9 @@ future<> aio_storage_context::stop() noexcept {
         desc->complete_with(-ECANCELED);
         return true;
     });
+
+    // Wake up the retry fiber so it can observe _stopping and exit.
+    _retry_cv.signal();
 
     return std::exchange(_pending_aio_retry_fut, make_ready_future<>()).finally([this] {
         return do_until([this] { return !_iocb_pool.outstanding(); }, [this] {
@@ -304,55 +311,51 @@ aio_storage_context::submit_work() {
 }
 
 void aio_storage_context::schedule_retry() {
-    // Don't start a new retry loop if either:
-    //   (a) one is already in flight  (!_pending_aio_retry_fut.available()),
-    //   (b) we're shutting down       (_stopping) — stop() will drain the
-    //       queues itself; starting a second loop here would race with
-    //       stop()'s drain on the same iocb pool (the original double-free).
-    if (!_pending_aio_retry_fut.available() || _stopping) {
-        return;
-    }
+    _retry_cv.signal();
+}
 
-    // loop until both _pending_aio_retry and _aio_retries are empty.
-    // While retrying _aio_retries, new retries may be queued onto _pending_aio_retry.
-    _pending_aio_retry_fut = do_until([this] {
-        if (_aio_retries.empty()) {
-            if (_pending_aio_retry.empty()) {
-                return true;
+// Long-lasting retry fiber.  Loops until _stopping, waiting on
+// _retry_cv when idle.
+future<> aio_storage_context::retry_loop() {
+    return seastar::async([this] {
+        while (!_stopping) {
+            _retry_cv.wait([this] { return _stopping || need_to_retry(); }).get();
+            if (_stopping) {
+                break;
             }
-            // _pending_aio_retry, holding a batch of new iocbs to retry,
-            // is swapped with the empty _aio_retries.
-            std::swap(_aio_retries, _pending_aio_retry);
-        }
-        return false;
-    }, [this] {
-        return _r._thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::aio_fallback, [this] () mutable {
-            auto r = io_submit(_io_context, _aio_retries.size(), _aio_retries.data());
-            return wrap_syscall<int>(r);
-        }).then_wrapped([this] (future<syscall_result<int>> f) {
-            // If submit failed, just log the error and exit the loop.
-            // The next call to submit_work will call schedule_retry again.
-            if (f.failed()) {
-                auto ex = f.get_exception();
-                seastar_logger.warn("aio_storage_context::schedule_retry failed: {}", std::move(ex));
-                return;
-            }
-            auto result = f.get();
-            auto iocbs = _aio_retries.data();
-            size_t nr_consumed = 0;
-            if (result.result == -1) {
-                try {
-                    nr_consumed = handle_aio_error(iocbs[0], result.error);
-                } catch (...) {
-                    seastar_logger.error("aio retry failed: {}. Aborting.", std::current_exception());
-                    abort();
+            // Process retries: loop until both vectors are empty.
+            // While retrying _aio_retries, new retries may be queued
+            // onto _pending_aio_retry.
+            while (need_to_retry() && !_stopping) {
+                if (_aio_retries.empty()) {
+                    std::swap(_aio_retries, _pending_aio_retry);
                 }
-            } else {
-                nr_consumed = result.result;
+                syscall_result<int> result(0, 0);
+                try {
+                    result = _r._thread_pool->submit<syscall_result<int>>(
+                            internal::thread_pool_submit_reason::aio_fallback, [this] () mutable {
+                        auto r = io_submit(_io_context, _aio_retries.size(), _aio_retries.data());
+                        return wrap_syscall<int>(r);
+                    }).get();
+                } catch (...) {
+                    seastar_logger.warn("aio_storage_context::schedule_retry failed: {}", std::current_exception());
+                    break;
+                }
+                auto iocbs = _aio_retries.data();
+                size_t nr_consumed = 0;
+                if (result.result == -1) {
+                    try {
+                        nr_consumed = handle_aio_error(iocbs[0], result.error);
+                    } catch (...) {
+                        seastar_logger.error("aio retry failed: {}. Aborting.", std::current_exception());
+                        abort();
+                    }
+                } else {
+                    nr_consumed = result.result;
+                }
+                _aio_retries.erase(_aio_retries.begin(), _aio_retries.begin() + nr_consumed);
             }
-            _aio_retries.erase(_aio_retries.begin(), _aio_retries.begin() + nr_consumed);
-        });
+        }
     });
 }
 
