@@ -249,6 +249,7 @@ aio_storage_context::retry_iocb(linux_abi::iocb* iocb) {
     }
     set_nowait(*iocb, false);
     _pending_aio_retry.push_back(iocb);
+    schedule_retry();
 }
 
 bool
@@ -296,15 +297,13 @@ aio_storage_context::submit_work() {
         did_work = true;
     }
 
-    if (need_to_retry()) {
-        schedule_retry();
-    }
-
     return did_work;
 }
 
 void aio_storage_context::schedule_retry() {
-    _retry_cv.signal();
+    if (_aio_retries.empty()) {
+        _retry_cv.signal();
+    }
 }
 
 // Long-lasting retry fiber.  Loops until _stopping and both retry
