@@ -44,6 +44,13 @@ jobs:
     timeout-minutes: 60
     runs-on: ubuntu-24.04
     steps:
+      - name: Show parameters
+        run: |
+          echo "compiler=${{ inputs.compiler }} standard=${{ inputs.standard }} mode=${{ inputs.mode }} enable-ccache=${{ inputs.enable-ccache }}"
+          echo "enables=${{ inputs.enables }}"
+          echo "options=${{ inputs.options }}"
+          echo "test-args=${{ inputs.test-args }}"
+
       - uses: actions/checkout@v4
         with:
           submodules: "${{ contains(inputs.enables, 'dpdk') }}"
