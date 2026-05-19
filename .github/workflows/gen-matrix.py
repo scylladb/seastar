@@ -37,7 +37,7 @@ SPECIAL_ITEMS: list[dict[str, Any]] = [
         "mode": "release",
         "enables": "--enable-dpdk",
         "options": "--cook dpdk --dpdk-machine corei7-avx",
-        "label": "Test with DPDK enabled",
+        "info": "dpdk, ",
     },
     {
         "compiler": "clang++",
@@ -45,14 +45,13 @@ SPECIAL_ITEMS: list[dict[str, Any]] = [
         "mode": "debug",
         "enables": "--enable-cxx-modules",
         "enable-ccache": False,
-        "label": "Test with C++20 modules enabled",
+        "info": "modules, ",
     },
     {
         "compiler": "clang++",
         "standard": 23,
         "mode": "fuzz",
         "test-args": "-- -R 'Seastar.fuzz.'",
-        "label": "Fuzz Tests",
     },
 ]
 

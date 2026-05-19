@@ -62,56 +62,21 @@ jobs:
         with:
           submodules: "${{ contains(inputs.enables, 'dpdk') }}"
 
-      - name: Install build dependencies
-        run: |
-          ./install-dependencies.sh
-
-      - name: Install clang++
-        if: ${{ inputs.compiler == 'clang++' }}
-        run: |
-          apt-get -y install clang-20
-
-      - name: Install clang-scan-deps
-        if: ${{ contains(inputs.enables, 'cxx-modules') }}
-        run: |
-          apt-get -y install clang-tools-20
-
-      - name: Install g++
-        if: ${{ inputs.compiler == 'g++' }}
-        run: |
-          apt-get -y install gcc-14 g++-14
-
-      - name: Install ccache
-        if: ${{ inputs.enable-ccache }}
-        run: |
-          apt-get -y install ccache
-
       - name: Setup ccache
         if: ${{ inputs.enable-ccache }}
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           key: ${{ inputs.compiler }}-${{ inputs.standard }}-${{ inputs.mode }}-${{ inputs.enables }}
 
-      - name: Configure
-        run: |
-          if [ ${{ inputs.compiler }} = "clang++" ]; then
-            CC=clang-20
-            CPP=clang++-20
-          else
-            CC=gcc-14
-            CPP=g++-14
-          fi
-          if ${{ inputs.enable-ccache }}; then
-            MAYBE_CCACHE_OPT="--compiler-cache=ccache"
-          fi
-          ./configure.py                          \
-            --c++-standard ${{ inputs.standard }} \
-            --compiler $CPP                       \
-            --c-compiler $CC                      \
-            --mode ${{ inputs.mode }}             \
-            $MAYBE_CCACHE_OPT                     \
-            ${{ inputs.options }}                 \
-            ${{ inputs.enables }}
+      - name: Install build environment
+        env:
+          COMPILER: ${{ inputs.compiler }}
+          ENABLES: ${{ inputs.enables }}
+          STANDARD: ${{ inputs.standard }}
+          MODE: ${{ inputs.mode }}
+          OPTIONS: ${{ inputs.options }}
+          ENABLE_CCACHE: ${{ inputs.enable-ccache }}
+        run: .github/workflows/install-build-env.sh
 
       - name: Build
         run: cmake --build build/${{inputs.mode}}
