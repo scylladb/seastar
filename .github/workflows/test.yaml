@@ -18,6 +18,11 @@ on:
         description: 'build mode (debug, dev or release)'
         type: string
         required: true
+      arch:
+        description: "runner architecture: x86 or arm"
+        type: string
+        default: x86
+        required: false
       enables:
         description: 'the --enable-* option passed to configure.py'
         type: string
@@ -42,7 +47,7 @@ on:
 jobs:
   test:
     timeout-minutes: 60
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.arch == 'arm' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     container:
       image: ubuntu:26.04
     steps:
