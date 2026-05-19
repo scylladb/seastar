@@ -151,10 +151,26 @@ future<connection::reply_ptr> connection::do_make_request(const request& req) {
             if (cont) {
                 return make_ready_future<reply_ptr>(std::move(cont));
             }
+            
+            return do_with(false, [this, &req](bool& write_done) {
+                return when_all(
+                    write_body(req).then([this, &write_done] {
+                        return _write_buf.flush().then([&write_done] {
+                            write_done = true;
+                        });
+                    }),
+                    recv_reply().then([this, &write_done](reply_ptr rep) {
+                        if (!write_done) {
+                            _fd.shutdown_output();
+                        }
+                        return make_ready_future<reply_ptr>(std::move(rep));
+                    })
+                ).then([](auto joined) {
+                    auto& write_fut = std::get<0>(joined);
+                    auto& read_fut = std::get<1>(joined);
+                    if (write_fut.failed()) write_fut.ignore_ready_future();
 
-            return write_body(req).then([this] {
-                return _write_buf.flush().then([this] {
-                    return recv_reply();
+                    return make_ready_future<reply_ptr>(read_fut.get0());
                 });
             });
         });
