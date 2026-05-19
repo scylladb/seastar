@@ -51,7 +51,7 @@ jobs:
           echo "options=${{ inputs.options }}"
           echo "test-args=${{ inputs.test-args }}"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: "${{ contains(inputs.enables, 'dpdk') }}"
 
@@ -84,7 +84,7 @@ jobs:
 
       - name: Setup ccache
         if: ${{ inputs.enable-ccache }}
-        uses: hendrikmuhs/ccache-action@v1
+        uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           key: ${{ inputs.compiler }}-${{ inputs.standard }}-${{ inputs.mode }}-${{ inputs.enables }}
 
