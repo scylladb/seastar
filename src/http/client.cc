@@ -151,10 +151,24 @@ future<connection::reply_ptr> connection::do_make_request(const request& req) {
             if (cont) {
                 return make_ready_future<reply_ptr>(std::move(cont));
             }
-
-            return write_body(req).then([this] {
-                return _write_buf.flush().then([this] {
-                    return recv_reply();
+        
+            return do_with(std::exception_ptr{}, [this, &req](std::exception_ptr& write_err) {
+                return when_all(
+                    write_body(req).then([this] {
+                        return _write_buf.flush();
+                    }).handle_exception([this, &write_err](std::exception_ptr e) {
+                        // Save the write error, then send EOF to the server so
+                        // recv_reply can complete (server will close after seeing EOF).
+                        write_err = std::move(e);
+                        _fd.shutdown_output();
+                    }),
+                    recv_reply()
+                ).then_unpack([&write_err](auto write_fut, auto recv_fut) -> future<connection::reply_ptr> {
+                    write_fut.ignore_ready_future();
+                    if (!write_err || !recv_fut.failed()) return std::move(recv_fut);
+                
+                    recv_fut.ignore_ready_future();
+                    return make_exception_future<connection::reply_ptr>(std::move(write_err));
                 });
             });
         });
