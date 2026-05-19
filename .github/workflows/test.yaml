@@ -43,6 +43,8 @@ jobs:
   test:
     timeout-minutes: 60
     runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:26.04
     steps:
       - name: Show parameters
         run: |
@@ -51,36 +53,38 @@ jobs:
           echo "options=${{ inputs.options }}"
           echo "test-args=${{ inputs.test-args }}"
 
+      - name: Install git for checkout
+        run: |
+          apt-get update
+          apt-get install -y git ca-certificates
+
       - uses: actions/checkout@v5
         with:
           submodules: "${{ contains(inputs.enables, 'dpdk') }}"
 
-      - run: |
-          sudo apt-get update
-
       - name: Install build dependencies
         run: |
-          sudo ./install-dependencies.sh
+          ./install-dependencies.sh
 
       - name: Install clang++
         if: ${{ inputs.compiler == 'clang++' }}
         run: |
-          sudo apt-get -y install clang-20
+          apt-get -y install clang-20
 
       - name: Install clang-scan-deps
         if: ${{ contains(inputs.enables, 'cxx-modules') }}
         run: |
-          sudo apt-get -y install clang-tools-20
+          apt-get -y install clang-tools-20
 
       - name: Install g++
         if: ${{ inputs.compiler == 'g++' }}
         run: |
-          sudo apt-get -y install gcc-14 g++-14
+          apt-get -y install gcc-14 g++-14
 
       - name: Install ccache
         if: ${{ inputs.enable-ccache }}
         run: |
-          sudo apt-get -y install ccache
+          apt-get -y install ccache
 
       - name: Setup ccache
         if: ${{ inputs.enable-ccache }}
