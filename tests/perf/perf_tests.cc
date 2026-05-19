@@ -932,6 +932,7 @@ void run_all(const std::vector<std::string>& test_patterns, config& conf) {
 int main(int ac, char** av)
 {
     using namespace perf_tests::internal;
+    using namespace std::string_view_literals;
     namespace bpo = boost::program_options;
 
     app_template app;
@@ -1008,7 +1009,7 @@ int main(int ac, char** av)
             }
 
             auto selected_mad_str = split(app.configuration()["mad-columns"].as<std::string>());
-            if (std::ranges::find(selected_mad_str, "all") != selected_mad_str.end()) {
+            if (std::ranges::find(selected_mad_str, "all"sv) != selected_mad_str.end()) {
                 selected_mad_str.clear();
                 // add all column names
                 for (const column& col : selected_columns) {
