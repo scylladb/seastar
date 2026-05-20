@@ -7,8 +7,8 @@ jobs:
     name: Enforce python format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: psf/black@24.8.0
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: psf/black@b965c2a5026f8ba399283ba3e01898b012853c79 # 24.8.0
         with:
             version: "24.8.0"
             src: ./scripts

@@ -63,13 +63,13 @@ jobs:
           apt-get update
           apt-get install -y git ca-certificates
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           submodules: "${{ contains(inputs.enables, 'dpdk') }}"
 
       - name: Setup ccache
         if: ${{ inputs.enable-ccache }}
-        uses: hendrikmuhs/ccache-action@v1.2.23
+        uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
         with:
           key: ${{ inputs.compiler }}-${{ inputs.standard }}-${{ inputs.mode }}-${{ inputs.enables }}
 
