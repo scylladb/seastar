@@ -154,6 +154,39 @@ file (WRITE "${boost_user_config}"
   " : ${boost_cflags}${boost_cxxflags} <cxxflags>-std=c++${CMAKE_CXX_STANDARD}"
   " ;\n")
 
+# Boost 1.81's bundled B2 emits an invalid `--target=arm64-pc-linux` flag for
+# the clang toolset on aarch64 Linux. clang < 20 silently accepted the unknown
+# triple and the build worked; clang >= 20 rejects it, so every Boost source
+# fails with `'cstddef' file not found`. See
+# https://github.com/scylladb/seastar/issues/3415 and the upstream B2 ticket
+# https://github.com/bfgroup/b2/issues/449. Detect this combination up front
+# rather than letting the cook fail mid-build.
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$"
+    AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
+    AND NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 20)
+  set (_seastar_boost_will_be_cooked TRUE)
+  if (Cooking_INCLUDED_INGREDIENTS)
+    if (NOT ("Boost" IN_LIST Cooking_INCLUDED_INGREDIENTS))
+      set (_seastar_boost_will_be_cooked FALSE)
+    endif ()
+  elseif (Cooking_EXCLUDED_INGREDIENTS)
+    if ("Boost" IN_LIST Cooking_EXCLUDED_INGREDIENTS)
+      set (_seastar_boost_will_be_cooked FALSE)
+    endif ()
+  endif ()
+  if (_seastar_boost_will_be_cooked)
+    message (FATAL_ERROR
+      "Refusing to cook Boost 1.81 with clang ${CMAKE_CXX_COMPILER_VERSION} on "
+      "${CMAKE_SYSTEM_PROCESSOR}: B2's clang toolset emits "
+      "--target=arm64-pc-linux, which clang >= 20 rejects. The build will fail "
+      "with `'cstddef' file not found`. See "
+      "https://github.com/scylladb/seastar/issues/3415. Workaround: use a "
+      "distro-provided Boost (drop `--cook Boost`); any version >= 1.79.0 is "
+      "accepted and recent Ubuntu/Fedora/Debian ship 1.83+.")
+  endif ()
+  unset (_seastar_boost_will_be_cooked)
+endif ()
+
 cooking_ingredient (Boost
   EXTERNAL_PROJECT_ARGS
     URL https://archives.boost.io/release/1.81.0/source/boost_1_81_0.tar.bz2
