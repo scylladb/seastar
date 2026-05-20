@@ -138,6 +138,21 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
 else ()
   set(boost_toolset "cook_cxx")
 endif ()
+
+# Boost's bootstrap.sh runs a C++11 capability check that invokes a hardcoded
+# binary name ("clang++"/"g++") regardless of CMAKE_CXX_COMPILER, and does not
+# accept --cxx (it neither parses the flag nor forwards $CXX to its build.sh).
+# When CMAKE_CXX_COMPILER is e.g. clang++-20 and no unversioned clang++ is on
+# PATH, bootstrap fails. Create a per-project shim directory exposing
+# CMAKE_CXX_COMPILER under the expected unversioned name and prepend it to
+# PATH for the bootstrap step.
+set (boost_shim_dir "${CMAKE_CURRENT_BINARY_DIR}/cook_boost_shim")
+file (MAKE_DIRECTORY "${boost_shim_dir}")
+if (boost_toolset STREQUAL "clang")
+  file (CREATE_LINK "${CMAKE_CXX_COMPILER}" "${boost_shim_dir}/clang++" SYMBOLIC)
+elseif (boost_toolset STREQUAL "gcc")
+  file (CREATE_LINK "${CMAKE_CXX_COMPILER}" "${boost_shim_dir}/g++" SYMBOLIC)
+endif ()
 set (boost_user_config "${CMAKE_CURRENT_BINARY_DIR}/cook_boost.jam")
 if (CMAKE_C_FLAGS)
   string (JOIN " <cflags>" boost_cflags
@@ -159,6 +174,7 @@ cooking_ingredient (Boost
     URL https://archives.boost.io/release/1.81.0/source/boost_1_81_0.tar.bz2
     URL_HASH SHA256=71feeed900fbccca04a3b4f2f84a7c217186f28a940ed8b7ed4725986baf99fa
     PATCH_COMMAND
+      ${CMAKE_COMMAND} -E env "PATH=${boost_shim_dir}:$ENV{PATH}"
       ./bootstrap.sh
       --prefix=<INSTALL_DIR>
       --with-libraries=atomic,chrono,date_time,filesystem,program_options,system,test,thread
