@@ -315,6 +315,20 @@ cooking_ingredient (fmt
     -DFMT_DOC=OFF
     -DFMT_TEST=OFF)
 
+# Post-12.1.0 master snapshot, picked for fmt PR #4761 which fixes the
+# fmt/std.h vs fmt/ranges.h optional ambiguity that surfaces when
+# libstdc++-16 makes std::optional model std::ranges::range (C++26
+# P3168R2). Use via `--cook fmt-12-1-dev` instead of `--cook fmt`.
+# Drop once a tagged fmt release carries the fix.
+# Tracked at https://github.com/scylladb/seastar/issues/3411
+cooking_ingredient (fmt-12-1-dev
+  EXTERNAL_PROJECT_ARGS
+    URL https://github.com/fmtlib/fmt/archive/9cb8c0f92b4c345fb974a75d71370c23047528aa.tar.gz
+    URL_MD5 d7b894c137f688cc9895f4b9bb1a1762
+  CMAKE_ARGS
+    -DFMT_DOC=OFF
+    -DFMT_TEST=OFF)
+
 cooking_ingredient (liburing
   EXTERNAL_PROJECT_ARGS
     URL https://github.com/axboe/liburing/archive/liburing-2.1.tar.gz
