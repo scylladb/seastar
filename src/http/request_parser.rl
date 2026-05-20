@@ -33,6 +33,9 @@ namespace seastar {
 %%{
 
 access _fsm_;
+# alphtype + getkey: workaround for #3413
+alphtype unsigned char;
+getkey ((unsigned char)(*p));
 
 action mark {
     g.mark_start(p);
