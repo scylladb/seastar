@@ -100,7 +100,7 @@ module;
 #include <seastar/core/preempt.hh>
 #include <seastar/core/prefetch.hh>
 #include <seastar/core/print.hh>
-// #include <seastar/core/prometheus.hh>
+#include <seastar/core/prometheus.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/ragel.hh>
 #include <seastar/core/reactor.hh>
@@ -232,6 +232,7 @@ using seastar::app_template;
 using seastar::logger;
 using seastar::log_level;
 using seastar::future;
+using seastar::Future;
 using seastar::promise;
 using seastar::shared_future;
 using seastar::shared_promise;
@@ -547,6 +548,7 @@ using seastar::default_smp_service_group;
 using seastar::create_smp_service_group;
 using seastar::destroy_smp_service_group;
 using seastar::smp_submit_to_options;
+using seastar::inheriting_execution_stage;
 using seastar::inheriting_concrete_execution_stage;
 using seastar::scheduling_group_key;
 using seastar::scheduling_group_key_config;
@@ -652,6 +654,14 @@ using seastar::memory::allocation_site;
 using seastar::memory::sampled_memory_profile;
 using seastar::memory::set_heap_profiling_sampling_rate;
 using seastar::memory::page_size;
+
+}
+
+export namespace seastar::prometheus {
+
+using seastar::prometheus::config;
+using seastar::prometheus::start;
+using seastar::prometheus::add_prometheus_routes;
 
 }
 
