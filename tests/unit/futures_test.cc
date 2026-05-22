@@ -2871,6 +2871,23 @@ SEASTAR_THREAD_TEST_CASE(test_foreign_promise_set_value) {
     BOOST_REQUIRE_EQUAL(getter.get(), other_shard);
 }
 
+namespace test_bool_class_constexpr_ns {
+using bc = bool_class<struct tag>;
+static_assert(static_cast<bool>(bc(true)));
+static_assert(!static_cast<bool>(bc(false)));
+static_assert(static_cast<bool>(bc(true) && bc(true)));
+static_assert(!static_cast<bool>(bc(true) && bc(false)));
+static_assert(static_cast<bool>(bc(true) || bc(false)));
+static_assert(static_cast<bool>(!bc(false)));
+static_assert(bc(true) == bc(true));
+static_assert(bc(true) != bc(false));
+#if __cpp_lib_three_way_comparison
+static_assert((bc(true) <=> bc(false)) > 0);
+static_assert((bc(false) <=> bc(true)) < 0);
+static_assert((bc(true) <=> bc(true)) == 0);
+#endif
+}
+
 #if __cpp_lib_three_way_comparison
 SEASTAR_TEST_CASE(test_bool_class_spaceship_operator) {
     using test_bool_class = bool_class<struct test_bool_class_tag>;

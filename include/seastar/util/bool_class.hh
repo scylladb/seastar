@@ -68,20 +68,20 @@ public:
     constexpr explicit bool_class(bool v) noexcept : _value(v) { }
 
     /// Casts a bool_class object to an untyped \c bool.
-    explicit operator bool() const noexcept { return _value; }
+    constexpr explicit operator bool() const noexcept { return _value; }
 
     /// Logical OR.
-    friend bool_class operator||(bool_class x, bool_class y) noexcept {
+    friend constexpr bool_class operator||(bool_class x, bool_class y) noexcept {
         return bool_class(x._value || y._value);
     }
 
     /// Logical AND.
-    friend bool_class operator&&(bool_class x, bool_class y) noexcept {
+    friend constexpr bool_class operator&&(bool_class x, bool_class y) noexcept {
         return bool_class(x._value && y._value);
     }
 
     /// Logical NOT.
-    friend bool_class operator!(bool_class x) noexcept {
+    friend constexpr bool_class operator!(bool_class x) noexcept {
         return bool_class(!x._value);
     }
 
