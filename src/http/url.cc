@@ -30,21 +30,23 @@ namespace internal {
 
 namespace {
 
-short hex_to_byte(char c) {
-    if (c >='a' && c <= 'z') {
-        return c - 'a' + 10;
-    } else if (c >='A' && c <= 'Z') {
-        return c - 'A' + 10;
-    }
-    return c - '0';
+// https://url.spec.whatwg.org/#percent-encoded-bytes — a percent-encoded byte is
+// '%' followed by two ASCII hex digits; otherwise the '%' is left in the output.
+
+bool is_ascii_hex_digit(char c) noexcept {
+    return (c >= '0' && c <= '9') ||
+           (c >= 'A' && c <= 'F') ||
+           (c >= 'a' && c <= 'f');
 }
 
-/**
- * Convert a hex encoded 2 bytes substring to char
- */
-char hexstr_to_char(std::string_view in, size_t from) {
-
-    return static_cast<char>(hex_to_byte(in[from]) * 16 + hex_to_byte(in[from + 1]));
+unsigned hex_digit_value(char c) noexcept {
+    if (c <= '9') {
+        return static_cast<unsigned>(c - '0');
+    }
+    if (c <= 'F') {
+        return static_cast<unsigned>(c - 'A' + 10);
+    }
+    return static_cast<unsigned>(c - 'a' + 10);
 }
 
 bool should_encode(char c) {
@@ -65,11 +67,12 @@ bool decode(bool replace_plus, std::string_view in, sstring& out) {
     sstring buff(in.length(), 0);
     for (size_t i = 0; i < in.length(); ++i) {
         if (in[i] == '%') {
-            if (i + 3 <= in.size()) {
-                buff[pos++] = hexstr_to_char(in, i + 1);
+            if (i + 2 < in.size() && is_ascii_hex_digit(in[i + 1]) && is_ascii_hex_digit(in[i + 2])) {
+                buff[pos++] = static_cast<char>(
+                    (hex_digit_value(in[i + 1]) << 4) | hex_digit_value(in[i + 2]));
                 i += 2;
             } else {
-                return false;
+                buff[pos++] = '%';
             }
         } else if (replace_plus && in[i] == '+') {
             buff[pos++] = ' ';
