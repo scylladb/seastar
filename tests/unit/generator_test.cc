@@ -45,6 +45,11 @@ using namespace seastar;
 
 using do_suspend = bool_class<struct do_suspend_tag>;
 
+#if !defined(__clang__)
+// Work around gcc -Wmismatched-new-delete false positive in std::generator; see seastar#3422.
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
 sync_generator<int>
 sync_fibonacci_sequence(unsigned count) {
     auto a = 0, b = 1;
@@ -59,6 +64,9 @@ sync_fibonacci_sequence(unsigned count) {
         co_yield next;
     }
 }
+#if !defined(__clang__)
+#  pragma GCC diagnostic pop
+#endif
 
 coroutine::experimental::generator<int>
 async_fibonacci_sequence(unsigned count, do_suspend suspend) {
