@@ -42,6 +42,8 @@ parser.add_argument('-combined', help='set the name of the combined file',
                     default='autogen/pathautogen.ee')
 parser.add_argument('--create-cc', dest='create_cc', action='store_true', default=False,
                     help='Put global variables in a .cc file')
+parser.add_argument('--module-dependencies', dest='module', action='store_true', default=False,
+                    help='Use C++ module imports (import seastar; / import std;) for dependencies instead of #include directives')
 config = parser.parse_args()
 
 
@@ -79,6 +81,11 @@ def close_namespace(f):
 def add_include(f, includes):
     for include in includes:
         fprintln(f, '#include ', include)
+    fprintln(f, "")
+
+def add_import(f, modules):
+    for mod in modules:
+        fprintln(f, 'import ', mod, ';')
     fprintln(f, "")
 
 def trace_verbose(*params):
@@ -542,11 +549,13 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
     else:
         ccfile = hfile
     print_h_file_headers(hfile, api_name)
-    add_include(hfile, ['<seastar/core/sstring.hh>',
-                        '<seastar/json/json_elements.hh>',
-                        '<seastar/http/json_path.hh>'])
-
-    add_include(hfile, ['<iostream>', '<ranges>'])
+    if config.module:
+        add_import(hfile, ['seastar', 'std'])
+    else:
+        add_include(hfile, ['<seastar/core/sstring.hh>',
+                            '<seastar/json/json_elements.hh>',
+                            '<seastar/http/json_path.hh>'])
+        add_include(hfile, ['<iostream>', '<ranges>'])
     open_namespace(hfile, "seastar")
     open_namespace(hfile, "httpd")
     open_namespace(hfile, api_name)
