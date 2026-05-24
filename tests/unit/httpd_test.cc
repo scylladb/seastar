@@ -692,8 +692,8 @@ SEASTAR_TEST_CASE(test_chunked_sink_two_chunks_two_bufs) {
         raw_out.close().get();
 
         const std::string expected =
-                  format("{:x}", A.size() + B.size()) + "\r\n" + A + B + "\r\n"
-                + format("{:x}", C.size() + D.size()) + "\r\n" + C + D + "\r\n";
+                  std::string(format("{:x}", A.size() + B.size())) + "\r\n" + A + B + "\r\n"
+                + std::string(format("{:x}", C.size() + D.size())) + "\r\n" + C + D + "\r\n";
         BOOST_REQUIRE_EQUAL(ss.str(), expected);
     });
 }
