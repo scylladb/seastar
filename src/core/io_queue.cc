@@ -204,6 +204,9 @@ public:
 
     virtual bool is_dispatchable() const noexcept = 0;
 
+    virtual void plug() noexcept = 0;
+    virtual void unplug() noexcept = 0;
+
 protected:
     ~priority_entity() = default;
 };
@@ -220,7 +223,7 @@ struct io_queue::priority_class_group_data final : public io_queue::priority_ent
         parent.add_child(*this);
     }
 
-    void plug() noexcept {
+    void plug() noexcept override {
         if (_plugged) {
             return;
         }
@@ -229,7 +232,7 @@ struct io_queue::priority_class_group_data final : public io_queue::priority_ent
             _parent->child_started_dispatching(*this);
         }
     }
-    void unplug() noexcept {
+    void unplug() noexcept override {
         if (!_plugged) {
             return;
         }
@@ -364,7 +367,6 @@ public:
 };
 
 class io_queue::priority_class_data final : public io_queue::priority_entity {
-    io_queue& _queue;
     const internal::priority_class _pc;
     struct {
         size_t bytes = 0;
@@ -387,24 +389,15 @@ class io_queue::priority_class_data final : public io_queue::priority_entity {
     class bandwidth_throttler {
         io_group::priority_class_data::token_bucket_t& _tb;
         uint64_t _replenish_head{0};
-        priority_class_data& _pc;
-        std::optional<unsigned> _group;
+        priority_entity& _entry;
         timer<lowres_clock> _replenish;
 
         void throttle() noexcept {
-            if (_group) {
-                _pc._queue.throttle_priority_class_group(*_group);
-            } else {
-                _pc._queue.throttle_priority_class(_pc);
-            }
+            _entry.unplug();
         }
 
         void unthrottle() noexcept {
-            if (_group) {
-                _pc._queue.unthrottle_priority_class_group(*_group);
-            } else {
-                _pc._queue.unthrottle_priority_class(_pc);
-            }
+            _entry.plug();
         }
 
         void try_to_replenish() noexcept {
@@ -418,10 +411,9 @@ class io_queue::priority_class_data final : public io_queue::priority_entity {
         }
 
     public:
-        bandwidth_throttler(io_group::priority_class_data& pg, priority_class_data& pc, std::optional<unsigned> g) noexcept
+        bandwidth_throttler(io_group::priority_class_data& pg, priority_entity& entry) noexcept
                 : _tb(pg.tb)
-                , _pc(pc)
-                , _group(g)
+                , _entry(entry)
                 , _replenish([this] { try_to_replenish(); })
         {}
 
@@ -499,13 +491,18 @@ class io_queue::priority_class_data final : public io_queue::priority_entity {
     }
 
 public:
-    void plug() noexcept {
+    // No idempotency guards here (unlike group's plug/unplug) because the
+    // class has exactly one bandwidth_throttler caller and self-stops on
+    // unplug: once _plugged becomes false the dispatch loop breaks, so no
+    // further grab() can trigger a second unplug.  Calls are thus strictly
+    // alternating: unplug → plug → unplug → ...
+    void plug() noexcept override {
         _plugged = true;
         if (is_active()) {
             start_dispatching();
         }
     }
-    void unplug() noexcept {
+    void unplug() noexcept override {
         _plugged = false;
         if (is_active()) {
             stop_dispatching();
@@ -562,9 +559,8 @@ public:
     void account_consumption(stream_id s, capacity_t cost) noexcept { _consumption[s] += cost; }
 
     priority_class_data(internal::priority_class pc, uint32_t shares, io_queue& q,
-                        io_group::priority_class_data& pg, std::optional<unsigned> group_index, priority_entity& parent)
+                        io_group::priority_class_data& pg, priority_entity& parent)
         : priority_entity(&parent, shares, q._streams)
-        , _queue(q)
         , _pc(pc)
         , _nr_queued(0)
         , _nr_executing(0)
@@ -573,9 +569,9 @@ public:
         , _total_execution_time(0)
         , _starvation_time(0)
     {
-        _bw.emplace_back(pg, *this, std::nullopt);
+        _bw.emplace_back(pg, *this);
         if (pg.parent != nullptr) {
-            _bw.emplace_back(*pg.parent, *this, group_index);
+            _bw.emplace_back(*pg.parent, parent);
         }
         unsigned nr_streams = q._streams.size();
         for (unsigned i = 0; i < nr_streams; i++) {
@@ -708,6 +704,8 @@ struct io_queue::dispatch_root final : public io_queue::priority_entity {
         }
     }
 
+    void plug() noexcept override {}
+    void unplug() noexcept override {}
     bool is_dispatchable() const noexcept override { return false; }
 };
 
@@ -1236,7 +1234,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
 
         priority_entity& parent = pcg ? static_cast<priority_entity&>(*pcg) : *_root;
         auto shares = sg.get_shares();
-        auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg, group_index, parent);
+        auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg, parent);
         register_stats(sg.name(), *pc_data);
 
         _priority_classes[id] = std::move(pc_data);
@@ -1580,27 +1578,6 @@ void io_queue::destroy_priority_class(internal::priority_class pc) noexcept {
         _priority_classes[pc.id()].reset();
     }
 }
-
-void io_queue::throttle_priority_class(const priority_class_data& pc) noexcept {
-    const_cast<priority_class_data&>(pc).unplug();
-}
-
-void io_queue::unthrottle_priority_class(const priority_class_data& pc) noexcept {
-    const_cast<priority_class_data&>(pc).plug();
-}
-
-void io_queue::throttle_priority_class_group(unsigned group) noexcept {
-    if (group < _priority_groups.size() && _priority_groups[group]) {
-        _priority_groups[group]->unplug();
-    }
-}
-
-void io_queue::unthrottle_priority_class_group(unsigned group) noexcept {
-    if (group < _priority_groups.size() && _priority_groups[group]) {
-        _priority_groups[group]->plug();
-    }
-}
-
 
 io_queue::stream::stream(io_throttler& t, sstring label) noexcept
     : out(t), _label(std::move(label)), publisher(t.token_bucket()) {}
