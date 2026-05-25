@@ -1141,7 +1141,8 @@ endif ()
 
 set_option_if_package_is_found (Seastar_IO_URING LibUring)
 if (Seastar_IO_URING)
-  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_URING)
+  target_compile_definitions (seastar
+    PUBLIC SEASTAR_HAVE_URING)
   target_link_libraries (seastar
     PRIVATE URING::uring)
 endif ()
