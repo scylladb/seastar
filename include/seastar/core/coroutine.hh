@@ -51,7 +51,7 @@ namespace internal {
 inline
 void
 execute_involving_handle_destruction_in_await_suspend(std::invocable<> auto&& func) noexcept {
-#if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ > 15 || (__GNUC__ == 15 && __GNUC_MINOR__ >= 2))
+#if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ == 15 && __GNUC_MINOR__ == 2)
     memory::scoped_critical_alloc_section _;
     schedule(new lambda_task(current_scheduling_group(), std::forward<decltype(func)>(func)));
 #else
@@ -62,7 +62,7 @@ execute_involving_handle_destruction_in_await_suspend(std::invocable<> auto&& fu
 inline
 void
 execute_involving_handle_destruction_in_await_suspend(task* tsk) noexcept {
-#if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ > 15 || (__GNUC__ == 15 && __GNUC_MINOR__ >= 2))
+#if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ == 15 && __GNUC_MINOR__ == 2)
     schedule(tsk);
 #else
     tsk->run_and_dispose();
