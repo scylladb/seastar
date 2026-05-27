@@ -280,9 +280,10 @@ public:
     /// \param fmt - {fmt} style format string (implictly converted to struct logger::format_info)
     ///              or a logger::format_info passed down the call chain.
     /// \param args - args to print string
+    /// \return true if message was logged, false otherwise (either log level is disabled, an exception occured or rate limit was exceeded).
     ///
     template <typename... Args>
-    void log(log_level level, rate_limit& rl, format_info_t<Args...> fmt, Args&&... args) noexcept {
+    bool log(log_level level, rate_limit& rl, format_info_t<Args...> fmt, Args&&... args) noexcept {
         if (is_enabled(level) && rl.check()) {
             try {
                 lambda_log_writer writer([&] (internal::log_buf::inserter_iterator it) {
@@ -292,23 +293,26 @@ public:
                     return fmt::format_to(it, fmt::runtime(fmt.format), std::forward<Args>(args)...);
                 });
                 do_log(level, writer);
+                return true;
             } catch (...) {
                 failed_to_log(std::current_exception(), fmt::string_view(fmt.format), fmt.loc);
             }
         }
+        return false;
     }
 
     /// logs to desired level if enabled, otherwise we ignore the log line
     ///
     /// \param writer a function which writes directly to the underlying log buffer
     /// \param fmt - optional logger::format_info passed down the call chain.
+    /// \return true if message was logged, false otherwise (either log level is disabled, an exception occured or rate limit was exceeded).
     ///
     /// This is a low level method for use cases where it is very important to
     /// avoid any allocations. The \arg writer will be passed a
     /// internal::log_buf::inserter_iterator that allows it to write into the log
     /// buffer directly, avoiding the use of any intermediary buffers.
     /// This is rate-limited version, see \ref rate_limit.
-    void log(log_level level, rate_limit& rl, log_writer& writer, format_info_t<> fmt = {}) noexcept {
+    bool log(log_level level, rate_limit& rl, log_writer& writer, format_info_t<> fmt = {}) noexcept {
         if (is_enabled(level) && rl.check()) {
             try {
                 lambda_log_writer writer_wrapper([&] (internal::log_buf::inserter_iterator it) {
@@ -318,10 +322,12 @@ public:
                     return writer(it);
                 });
                 do_log(level, writer_wrapper);
+                return true;
             } catch (...) {
                 failed_to_log(std::current_exception(), "", fmt.loc);
             }
         }
+        return false;
     }
     /// \endcond
 
