@@ -618,10 +618,13 @@ inline future<> reply(wait_type, future<RetTypes>&& ret, uint64_t verb, int64_t 
             } else {
                 data = std::invoke(marshall<Serializer, const RetTypes&>, std::ref(client->template serializer<Serializer>()), response_frame_headroom, std::move(ret.get()));
             }
-        } catch (std::exception& ex) {
-            const auto type_name = pretty_type_name(typeid(ex));
-            const auto message = std::string_view(ex.what());
-            uint32_t len = message.size() + type_name.size() + 2; // 2 bytes for separating type name and what() message
+        } catch (...) {
+            // Use fmt::format with exception_ptr to properly render all exception
+            // details, including nested exceptions (seastar::nested_exception,
+            // std::nested_exception) which would otherwise lose their inner context
+            // if we only called what().
+            const auto msg = fmt::format("{}", std::current_exception());
+            const uint32_t len = msg.size();
             data = snd_buf(response_frame_headroom + 2 * sizeof(uint32_t) + len);
             auto os = make_serializer_stream(data);
             os.skip(response_frame_headroom);
@@ -629,9 +632,7 @@ inline future<> reply(wait_type, future<RetTypes>&& ret, uint64_t verb, int64_t 
             os.write(reinterpret_cast<char*>(&v32), sizeof(v32));
             v32 = cpu_to_le(len);
             os.write(reinterpret_cast<char*>(&v32), sizeof(v32));
-            os.write(type_name.data(), type_name.size());
-            os.write(": ", 2);
-            os.write(message.data(), message.size());
+            os.write(msg.data(), len);
             msg_id = -msg_id;
         }
 
@@ -648,8 +649,8 @@ inline future<> reply(no_wait_type, future<no_wait_type>&& r, uint64_t verb, int
         std::optional<rpc_clock_type::time_point>, std::optional<rpc_clock_type::duration>) {
     try {
         r.get();
-    } catch (std::exception& ex) {
-        client->get_logger()(client->info(), msgid, format("exception \"{}\" in no_wait handler of the verb {} ignored", ex.what(), verb));
+    } catch (...) {
+        client->get_logger()(client->info(), msgid, format("exception \"{}\" in no_wait handler of the verb {} ignored", std::current_exception(), verb));
     }
     return make_ready_future<>();
 }
