@@ -502,8 +502,26 @@ SEASTAR_TEST_CASE(test_rpc_remote_verb_error) {
         env.register_handler(1, []() { throw std::runtime_error("test_error"); }).get();
         auto f = env.proto().make_client<void ()>(1);
         BOOST_REQUIRE_EXCEPTION(f(c1).get(), rpc::remote_verb_error, [](const rpc::remote_verb_error& e) {
-            return std::string_view(e.what()) == "std::runtime_error: test_error";
+            return std::string_view(e.what()) == "std::runtime_error (test_error)";
         });
+
+        // Verify that nested exceptions are properly reported with full context.
+        // Without using fmt::format("{}", eptr), a seastar::nested_exception would
+        // only show "seastar::nested_exception" in what(), losing all inner/outer details.
+        env.register_handler(2, []() {
+            return make_exception_future<>(
+                std::make_exception_ptr(seastar::nested_exception(
+                    std::make_exception_ptr(std::runtime_error("inner")),
+                    std::make_exception_ptr(std::runtime_error("outer"))
+                ))
+            );
+        }).get();
+        auto f2 = env.proto().make_client<void ()>(2);
+        BOOST_REQUIRE_EXCEPTION(f2(c1).get(), rpc::remote_verb_error, [](const rpc::remote_verb_error& e) {
+            auto msg = std::string_view(e.what());
+            return msg == "seastar::nested_exception: std::runtime_error (inner) (while cleaning up after std::runtime_error (outer))";
+        });
+
         c1.stop().get();
     });
 }
