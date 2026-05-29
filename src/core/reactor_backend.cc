@@ -1604,11 +1604,14 @@ protected:
 
     class sendmsg_completion_base : public sized_promise_completion_base {
     protected:
+        reactor_backend_uring_base& _be;
+        pollable_fd_state& _fd;
+        std::span<iovec> _iovs;
         ::msghdr _mh = {};
         const size_t _to_write;
     public:
-        sendmsg_completion_base(std::span<iovec> iovs, size_t to_write)
-            : _to_write(to_write) {
+        sendmsg_completion_base(reactor_backend_uring_base& be, pollable_fd_state& fd, std::span<iovec> iovs, size_t to_write)
+            : _be(be), _fd(fd), _iovs(iovs), _to_write(to_write) {
             _mh.msg_iov = iovs.data();
             _mh.msg_iovlen = std::min<size_t>(iovs.size(), IOV_MAX);
         }
@@ -1618,18 +1621,27 @@ protected:
         size_t to_write() const noexcept {
             return _to_write;
         }
+        // io_uring can complete a socket send with -EAGAIN even without
+        // MSG_DONTWAIT (axboe/liburing#1601); reissue via the poll-based path.
+        void complete_with(ssize_t res) override;
     };
 
+#if SEASTAR_API_LEVEL < 9
     class send_completion_base : public sized_promise_completion_base {
     protected:
+        reactor_backend_uring_base& _be;
+        pollable_fd_state& _fd;
+        const void* _buffer;
         const size_t _to_write;
     public:
-        explicit send_completion_base(size_t to_write)
-            : _to_write(to_write) {}
+        send_completion_base(reactor_backend_uring_base& be, pollable_fd_state& fd, const void* buffer, size_t to_write)
+            : _be(be), _fd(fd), _buffer(buffer), _to_write(to_write) {}
         size_t to_write() const noexcept {
             return _to_write;
         }
+        void complete_with(ssize_t res) override;
     };
+#endif
 
     bool do_flush_submission_ring() {
         if (_has_pending_submissions) {
@@ -1711,6 +1723,16 @@ protected:
         _r._io_sink.submit(desc.release(), std::move(req));
         return fut;
     }
+
+    // do_sendmsg()/do_send() are private to reactor; reach them via friendship.
+    future<size_t> resend_sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) {
+        return _r.do_sendmsg(fd, iovs, len);
+    }
+#if SEASTAR_API_LEVEL < 9
+    future<size_t> resend_send(pollable_fd_state& fd, const void* buffer, size_t len) {
+        return _r.do_send(fd, buffer, len);
+    }
+#endif
 public:
     explicit reactor_backend_uring_base(reactor& r, ::io_uring uring)
             : reactor_backend(uses_blocking_io::yes, supports_aio_fdatasync::yes)
@@ -1810,6 +1832,27 @@ public:
         return pollable_fd_state_ptr(new uring_pollable_fd_state(std::move(fd), std::move(speculate)));
     }
 };
+
+// Out-of-line: reactor_backend_uring_base must be complete to reach resend_*().
+void reactor_backend_uring_base::sendmsg_completion_base::complete_with(ssize_t res) {
+    if (res == -EAGAIN) {
+        _be.resend_sendmsg(_fd, _iovs, _to_write).forward_to(std::move(_result));
+        delete this;
+        return;
+    }
+    io_completion::complete_with(res);
+}
+
+#if SEASTAR_API_LEVEL < 9
+void reactor_backend_uring_base::send_completion_base::complete_with(ssize_t res) {
+    if (res == -EAGAIN) {
+        _be.resend_send(_fd, _buffer, _to_write).forward_to(std::move(_result));
+        delete this;
+        return;
+    }
+    io_completion::complete_with(res);
+}
+#endif
 
 class reactor_backend_uring final : public reactor_backend_uring_base {
 public:
@@ -1958,12 +2001,10 @@ public:
                 return current_exception_as_future<size_t>();
             }
         }
+        // EAGAIN reissue lives in the base, shared with the asymmetric backend.
         class sendmsg_completion final : public sendmsg_completion_base {
-            pollable_fd_state& _fd;
         public:
-            sendmsg_completion(pollable_fd_state& fd, std::span<iovec> iovs, size_t len)
-                : sendmsg_completion_base(iovs, len)
-                , _fd(fd) {}
+            using sendmsg_completion_base::sendmsg_completion_base;
             void complete(size_t bytes) noexcept final {
                 if (bytes == to_write()) {
                     _fd.speculate_epoll(EPOLLOUT);
@@ -1971,7 +2012,7 @@ public:
                 sendmsg_completion_base::complete(bytes);
             }
         };
-        auto desc = std::make_unique<sendmsg_completion>(fd, iovs, len);
+        auto desc = std::make_unique<sendmsg_completion>(*this, fd, iovs, len);
         auto req = internal::io_request::make_sendmsg(fd.fd.get(), desc->msghdr(), MSG_NOSIGNAL);
         return submit_request(std::move(desc), std::move(req));
     }
@@ -1995,12 +2036,10 @@ public:
                 return current_exception_as_future<size_t>();
             }
         }
+        // As in sendmsg() above: EAGAIN reissue lives in the base.
         class send_completion final : public send_completion_base {
-            pollable_fd_state& _fd;
         public:
-            send_completion(pollable_fd_state& fd, size_t to_write)
-                : send_completion_base(to_write)
-                , _fd(fd) {}
+            using send_completion_base::send_completion_base;
             void complete(size_t bytes) noexcept final {
                 if (bytes == to_write()) {
                     _fd.speculate_epoll(EPOLLOUT);
@@ -2008,7 +2047,7 @@ public:
                 send_completion_base::complete(bytes);
             }
         };
-        auto desc = std::make_unique<send_completion>(fd, len);
+        auto desc = std::make_unique<send_completion>(*this, fd, buffer, len);
         auto req = internal::io_request::make_send(fd.fd.get(), buffer, len, MSG_NOSIGNAL);
         return submit_request(std::move(desc), std::move(req));
     }
@@ -2350,14 +2389,14 @@ public:
     }
 
     virtual future<size_t> sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) final {
-        auto desc = std::make_unique<sendmsg_completion_base>(iovs, len);
+        auto desc = std::make_unique<sendmsg_completion_base>(*this, fd, iovs, len);
         auto req = internal::io_request::make_sendmsg(fd.fd.get(), desc->msghdr(), MSG_NOSIGNAL);
         return submit_request(std::move(desc), std::move(req));
     }
 
 #if SEASTAR_API_LEVEL < 9
     virtual future<size_t> send(pollable_fd_state& fd, const void* buffer, size_t len) override {
-        auto desc = std::make_unique<send_completion_base>(len);
+        auto desc = std::make_unique<send_completion_base>(*this, fd, buffer, len);
         auto req = internal::io_request::make_send(fd.fd.get(), buffer, len, MSG_NOSIGNAL);
         return submit_request(std::move(desc), std::move(req));
     }

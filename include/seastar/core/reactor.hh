@@ -146,7 +146,9 @@ class io_intent;
 
 class io_completion : public kernel_completion {
 public:
-    virtual void complete_with(ssize_t res) final override;
+    // Not final: a backend can intercept the raw result (e.g. io_uring -EAGAIN)
+    // and reissue instead of completing.
+    virtual void complete_with(ssize_t res) override;
 
     virtual void complete(size_t res) noexcept = 0;
     virtual void set_exception(std::exception_ptr eptr) noexcept = 0;
