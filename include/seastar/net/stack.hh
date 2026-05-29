@@ -70,6 +70,12 @@ public:
     virtual future<accept_result> accept() = 0;
     virtual void abort_accept() = 0;
     virtual socket_address local_address() const = 0;
+    /// Update the listen backlog on an already-listening socket.
+    /// Implementations may apply the new backlog value to the
+    /// underlying listening socket.
+    virtual void set_listen_backlog(int backlog);
+    /// Get the currently configured listen backlog.
+    virtual int get_listen_backlog() const;
 };
 
 class datagram_channel_impl {

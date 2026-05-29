@@ -227,6 +227,23 @@ socket_address server_socket::local_address() const noexcept {
     return _ssi->local_address();
 }
 
+void server_socket::set_listen_backlog(int backlog) {
+    _ssi->set_listen_backlog(backlog);
+}
+
+int server_socket::get_listen_backlog() const {
+    return _ssi->get_listen_backlog();
+}
+
+void net::server_socket_impl::set_listen_backlog(int backlog) {
+    seastar_logger.warn("set_listen_backlog() not supported by this socket implementation");
+}
+
+int net::server_socket_impl::get_listen_backlog() const {
+    seastar_logger.warn("get_listen_backlog() not supported by this socket implementation");
+    return -1;
+}
+
 network_interface::network_interface(shared_ptr<net::network_interface_impl> impl) noexcept
     : _impl(std::move(impl))
 {}
