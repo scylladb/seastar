@@ -5345,6 +5345,16 @@ future<> destroy_scheduling_supergroup(scheduling_supergroup sg) noexcept {
     });
 }
 
+scheduling_group::stats
+scheduling_group::get_stats() const noexcept {
+    const auto * const tq = engine()._task_queues[_id].get();
+    return {
+        .runtime = tq->_runtime,
+        .waittime = tq->_waittime,
+        .starvetime = tq->_starvetime
+    };
+}
+
 future<scheduling_group>
 create_scheduling_group(sstring name, sstring shortname, float shares, scheduling_supergroup parent) noexcept {
     auto sg = co_await smp::submit_to(0, [name, shortname, shares, parent] {
