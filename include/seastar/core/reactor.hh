@@ -617,8 +617,12 @@ template <typename Func>
 public:
     task* current_task() const { return _current_task; }
 
+    [[deprecated("Use seastar::schedule(t) instead")]]
     void add_task(task* t) noexcept;
+    [[deprecated("Use seastar::schedule_urgent(t) instead")]]
     void add_urgent_task(task* t) noexcept;
+    [[deprecated("Use seastar::schedule(t) or seastar::schedule_urgent(t) instead")]]
+    void add_high_priority_task(task*) noexcept;
 
     /// Pass a future to "run" in the background.
     ///
@@ -656,8 +660,6 @@ public:
         _idle_cpu_handler = std::move(handler);
     }
     void force_poll();
-
-    void add_high_priority_task(task*) noexcept;
 
     network_stack& net() { return *_network_stack; }
 
@@ -786,6 +788,7 @@ public:
         static future<> restore_long_task_queue_state(const long_task_queue_state& state) noexcept;
         static void set_abort_on_too_long_task_queue(bool value) noexcept;
         static void set_max_task_backlog(unsigned value) noexcept;
+        static void add_high_priority_task(task*) noexcept;
     };
 };
 
