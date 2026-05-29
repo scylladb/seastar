@@ -1844,7 +1844,16 @@ public:
         };
         auto desc = std::make_unique<write_completion>(fd, iovs, len);
         auto req = internal::io_request::make_sendmsg(fd.fd.get(), desc->msghdr(), MSG_NOSIGNAL);
-        return submit_request(std::move(desc), std::move(req));
+        return submit_request(std::move(desc), std::move(req)).handle_exception_type(
+                [this, &fd, iovs, len] (const std::system_error& e) -> future<size_t> {
+            // An io_uring SENDMSG can complete with -EAGAIN when the send buffer
+            // is full, and that gets thrown to the caller instead of retried.
+            // Fall back to the poll-based path like the aio/epoll backends do.
+            if (e.code() == std::errc::resource_unavailable_try_again) {
+                return _r.do_sendmsg(fd, iovs, len);
+            }
+            return make_exception_future<size_t>(e);
+        });
     }
 
     virtual future<size_t> writev(pollable_fd_state& fd, std::span<iovec> iovs) override {
@@ -1890,7 +1899,15 @@ public:
         };
         auto desc = std::make_unique<write_completion>(fd, len);
         auto req = internal::io_request::make_send(fd.fd.get(), buffer, len, MSG_NOSIGNAL);
-        return submit_request(std::move(desc), std::move(req));
+        return submit_request(std::move(desc), std::move(req)).handle_exception_type(
+                [this, &fd, buffer, len] (const std::system_error& e) -> future<size_t> {
+            // See sendmsg(): io_uring SEND can complete with -EAGAIN; retry via the
+            // poll-based path instead of surfacing it.
+            if (e.code() == std::errc::resource_unavailable_try_again) {
+                return _r.do_send(fd, buffer, len);
+            }
+            return make_exception_future<size_t>(e);
+        });
     }
 #endif
 
