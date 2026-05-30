@@ -1169,10 +1169,17 @@ if (ErrorUnused_FOUND)
   endif ()
 endif ()
 
+# clang
 check_cxx_compiler_flag ("-Wno-error=#warnings" ErrorWarnings_FOUND)
 if (ErrorWarnings_FOUND)
   target_compile_options (seastar
       PRIVATE "-Wno-error=#warnings")
+endif ()
+# gcc
+check_cxx_compiler_flag ("-Wno-error=cpp" ErrorCpp_FOUND)
+if (ErrorCpp_FOUND)
+  target_compile_options (seastar
+      PRIVATE "-Wno-error=cpp")
 endif ()
 
 foreach (definition
