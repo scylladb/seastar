@@ -62,12 +62,10 @@ set(rte_libs
   net_e1000
   net_ena
   net_enic
-  net_i40e
   net_ixgbe
   net_nfp
   net_qede
   net_ring
-  net_sfc
   net_vmxnet3
   pci
   rcu
@@ -75,6 +73,12 @@ set(rte_libs
   security
   telemetry
   timer)
+# DPDK does not build the i40e and sfc PMDs on RISC-V
+if (NOT CMAKE_SYSTEM_PROCESSOR MATCHES "riscv")
+  list (APPEND rte_libs
+    net_i40e
+    net_sfc)
+endif ()
 # sfc_efx driver can only build on x86 and aarch64
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64|x86_64|aarch64")
   list (APPEND rte_libs
