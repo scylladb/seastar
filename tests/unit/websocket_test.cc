@@ -12,6 +12,8 @@
 #include <seastar/util/memory-data-source.hh>
 #include "loopback_socket.hh"
 
+BOOST_TEST_DONT_PRINT_LOG_VALUE(std::vector<seastar::sstring>)
+
 using namespace seastar;
 using namespace seastar::experimental;
 using namespace std::literals::string_view_literals;

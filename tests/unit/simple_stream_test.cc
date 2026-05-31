@@ -24,6 +24,8 @@
 #include <boost/test/unit_test.hpp>
 #include <seastar/core/simple-stream.hh>
 
+BOOST_TEST_DONT_PRINT_LOG_VALUE(std::vector<char>)
+
 using namespace seastar;
 
 template<typename Input, typename Output>
