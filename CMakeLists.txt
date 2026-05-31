@@ -422,6 +422,7 @@ find_package (ragel 6.10 REQUIRED)
 find_package (Threads REQUIRED)
 find_package (PthreadSetName REQUIRED)
 find_package (Valgrind REQUIRED)
+find_package (ngtcp2 REQUIRED)
 
 cmake_dependent_option (Seastar_LOGGER_COMPILE_TIME_FMT
   "Enable the compile-time {fmt} check when formatting logging messages" ON
@@ -716,6 +717,10 @@ add_library (seastar
   include/seastar/websocket/client.hh
   include/seastar/websocket/common.hh
   include/seastar/websocket/server.hh
+  include/seastar/quic/quic.hh
+  include/seastar/quic/quic_client.hh
+  include/seastar/quic/quic_server.hh
+  include/seastar/quic/quic_error.hh
   src/core/alien.cc
   src/core/file.cc
   src/core/fair_queue.cc
@@ -812,6 +817,12 @@ add_library (seastar
   src/websocket/common.cc
   src/websocket/client.cc
   src/websocket/server.cc
+  src/quic/quic_command_runtime.cc
+  src/quic/quic_common.cc
+  src/quic/quic_client.cc
+  src/quic/quic_connection_state.cc
+  src/quic/quic_server.cc
+  src/quic/quic_error.cc
   )
 
 if (Seastar_GNUTLS)
@@ -919,6 +930,8 @@ target_link_libraries (seastar
     lz4::lz4
   PRIVATE
     ${CMAKE_DL_LIBS}
+    ngtcp2::ngtcp2
+    GnuTLS::gnutls
     StdAtomic::atomic
     lksctp-tools::lksctp-tools
     protobuf::libprotobuf
