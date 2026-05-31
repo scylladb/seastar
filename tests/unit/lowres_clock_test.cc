@@ -20,6 +20,7 @@
  */
 
 #include <seastar/testing/test_case.hh>
+#include "test_comparisons.hh"
 
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/do_with.hh>
@@ -111,7 +112,7 @@ SEASTAR_TEST_CASE(system_clock_sanity) {
     return do_with(0ul, 0ul, [](std::size_t& index, std::size_t& success_count) {
         return repeat([&index, &success_count] {
             if (index >= 3) {
-                BOOST_REQUIRE_GE(success_count, 2u);
+                SEASTAR_BOOST_REQUIRE_GE(success_count, 2u);
                 return make_ready_future<stop_iteration>(stop_iteration::yes);
             }
 
@@ -134,7 +135,7 @@ SEASTAR_TEST_CASE(system_clock_dynamic) {
     return do_with(lowres_system_clock::now(), [](auto &&t1) {
         return seastar::sleep(std::chrono::milliseconds(100)).then([&t1] {
             auto const t2 = lowres_system_clock::now();
-            BOOST_REQUIRE_NE(t1.time_since_epoch().count(), t2.time_since_epoch().count());
+            SEASTAR_BOOST_REQUIRE_NE(t1.time_since_epoch().count(), t2.time_since_epoch().count());
 
             return make_ready_future<>();
         });

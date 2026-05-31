@@ -21,6 +21,7 @@
 
 #include <seastar/testing/test_case.hh>
 #include <seastar/util/log.hh>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -31,7 +32,7 @@ SEASTAR_TEST_CASE(log_buf_realloc) {
 
     internal::log_buf b(external_buf.data(), external_buf.size());
 
-    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(b.data()), external_buf_ptr);
+    SEASTAR_BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(b.data()), external_buf_ptr);
 
     auto it = b.back_insert_begin();
 
@@ -41,11 +42,11 @@ SEASTAR_TEST_CASE(log_buf_realloc) {
 
     *it = 'a'; // should trigger realloc
 
-    BOOST_REQUIRE_NE(reinterpret_cast<uintptr_t>(b.data()), reinterpret_cast<uintptr_t>(external_buf.data()));
+    SEASTAR_BOOST_REQUIRE_NE(reinterpret_cast<uintptr_t>(b.data()), reinterpret_cast<uintptr_t>(external_buf.data()));
 
     const char* p = b.data();
     for (auto i = 0; i < 129; ++i) {
-        BOOST_REQUIRE_EQUAL(p[i], 'a');
+        SEASTAR_BOOST_REQUIRE_EQUAL(p[i], 'a');
     }
 
     return make_ready_future<>();
@@ -59,7 +60,7 @@ SEASTAR_TEST_CASE(log_buf_insert_iterator_format_to) {
 
     internal::log_buf b(external_buf_ptr, size);
 
-    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(b.data()), reinterpret_cast<uintptr_t>(external_buf_ptr));
+    SEASTAR_BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(b.data()), reinterpret_cast<uintptr_t>(external_buf_ptr));
 
     auto it = b.back_insert_begin();
 
@@ -67,10 +68,10 @@ SEASTAR_TEST_CASE(log_buf_insert_iterator_format_to) {
     str[size] = '\0';
 
     it = fmt::format_to(it, fmt::runtime(str), size);
-    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(b.data()), reinterpret_cast<uintptr_t>(external_buf_ptr));
+    SEASTAR_BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(b.data()), reinterpret_cast<uintptr_t>(external_buf_ptr));
 
     *it++ = '\n';
-    BOOST_REQUIRE_NE(reinterpret_cast<uintptr_t>(b.data()), reinterpret_cast<uintptr_t>(external_buf_ptr));
+    SEASTAR_BOOST_REQUIRE_NE(reinterpret_cast<uintptr_t>(b.data()), reinterpret_cast<uintptr_t>(external_buf_ptr));
 
     memset(str, 'b', size);
     it = fmt::format_to(it, fmt::runtime(str), size);
@@ -79,13 +80,13 @@ SEASTAR_TEST_CASE(log_buf_insert_iterator_format_to) {
     const char* p = b.data();
     size_t pos = 0;
     for (size_t i = 0; i < size; i++) {
-        BOOST_REQUIRE_EQUAL(p[pos++], 'a');
+        SEASTAR_BOOST_REQUIRE_EQUAL(p[pos++], 'a');
     }
-    BOOST_REQUIRE_EQUAL(p[pos++], '\n');
+    SEASTAR_BOOST_REQUIRE_EQUAL(p[pos++], '\n');
     for (size_t i = 0; i < size; i++) {
-        BOOST_REQUIRE_EQUAL(p[pos++], 'b');
+        SEASTAR_BOOST_REQUIRE_EQUAL(p[pos++], 'b');
     }
-    BOOST_REQUIRE_EQUAL(p[pos++], '\n');
+    SEASTAR_BOOST_REQUIRE_EQUAL(p[pos++], '\n');
     return make_ready_future<>();
 }
 
@@ -96,19 +97,19 @@ SEASTAR_TEST_CASE(log_buf_clear) {
 
     fmt::format_to(it, "abcd");
 
-    BOOST_CHECK_EQUAL(buf.view(), "abcd");
+    SEASTAR_BOOST_CHECK_EQUAL(buf.view(), "abcd");
     auto cap_before = buf.capacity();
     buf.clear();
-    BOOST_CHECK_EQUAL(cap_before, buf.capacity());
-    BOOST_CHECK_EQUAL(0, buf.size());
+    SEASTAR_BOOST_CHECK_EQUAL(cap_before, buf.capacity());
+    SEASTAR_BOOST_CHECK_EQUAL(0, buf.size());
 
     fmt::format_to(it, "uuvvwwxxyyzz");
 
-    BOOST_CHECK_EQUAL(buf.view(), "uuvvwwxxyyzz");
+    SEASTAR_BOOST_CHECK_EQUAL(buf.view(), "uuvvwwxxyyzz");
     cap_before = buf.capacity();
     buf.clear();
-    BOOST_CHECK_EQUAL(cap_before, buf.capacity());
-    BOOST_CHECK_EQUAL(0, buf.size());
+    SEASTAR_BOOST_CHECK_EQUAL(cap_before, buf.capacity());
+    SEASTAR_BOOST_CHECK_EQUAL(0, buf.size());
 
     return make_ready_future<>();
 }

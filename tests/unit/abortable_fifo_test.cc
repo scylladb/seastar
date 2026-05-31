@@ -22,6 +22,7 @@
 
 #include <chrono>
 #include <exception>
+#include "test_comparisons.hh"
 
 #include <seastar/core/thread.hh>
 #include <seastar/testing/test_case.hh>
@@ -40,42 +41,42 @@ SEASTAR_TEST_CASE(test_no_abortable_operations) {
     internal::abortable_fifo<int> fifo;
 
     BOOST_REQUIRE(fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     BOOST_REQUIRE(!bool(fifo));
 
     fifo.push_back(1);
 
     BOOST_REQUIRE(!fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
     BOOST_REQUIRE(bool(fifo));
-    BOOST_REQUIRE_EQUAL(fifo.front(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 1);
 
     fifo.push_back(2);
     fifo.push_back(3);
 
     BOOST_REQUIRE(!fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 3u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 3u);
     BOOST_REQUIRE(bool(fifo));
-    BOOST_REQUIRE_EQUAL(fifo.front(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 1);
 
     fifo.pop_front();
 
     BOOST_REQUIRE(!fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
     BOOST_REQUIRE(bool(fifo));
-    BOOST_REQUIRE_EQUAL(fifo.front(), 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 2);
 
     fifo.pop_front();
 
     BOOST_REQUIRE(!fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
     BOOST_REQUIRE(bool(fifo));
-    BOOST_REQUIRE_EQUAL(fifo.front(), 3);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 3);
 
     fifo.pop_front();
 
     BOOST_REQUIRE(fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     BOOST_REQUIRE(!bool(fifo));
 
     return make_ready_future<>();
@@ -94,18 +95,18 @@ SEASTAR_THREAD_TEST_CASE(test_abortable_operations) {
     fifo.push_back(1, as);
 
     BOOST_REQUIRE(!fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
     BOOST_REQUIRE(bool(fifo));
-    BOOST_REQUIRE_EQUAL(fifo.front(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 1);
 
     as.request_abort();
     yield().get();
 
     BOOST_REQUIRE(fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     BOOST_REQUIRE(!bool(fifo));
-    BOOST_REQUIRE_EQUAL(expired.size(), 1u);
-    BOOST_REQUIRE_EQUAL(expired[0], 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(expired.size(), 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(expired[0], 1);
 
     expired.clear();
     as = abort_source();
@@ -118,16 +119,16 @@ SEASTAR_THREAD_TEST_CASE(test_abortable_operations) {
     yield().get();
 
     BOOST_REQUIRE(!fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
     BOOST_REQUIRE(bool(fifo));
-    BOOST_REQUIRE_EQUAL(expired.size(), 1u);
-    BOOST_REQUIRE_EQUAL(expired[0], 2);
-    BOOST_REQUIRE_EQUAL(fifo.front(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(expired.size(), 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(expired[0], 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 1);
     fifo.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
-    BOOST_REQUIRE_EQUAL(fifo.front(), 3);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 3);
     fifo.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
 
     expired.clear();
 
@@ -142,18 +143,18 @@ SEASTAR_THREAD_TEST_CASE(test_abortable_operations) {
     yield().get();
 
     BOOST_REQUIRE(!fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
     BOOST_REQUIRE(bool(fifo));
-    BOOST_REQUIRE_EQUAL(expired.size(), 2u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(expired.size(), 2u);
     std::sort(expired.begin(), expired.end());
-    BOOST_REQUIRE_EQUAL(expired[0], 1);
-    BOOST_REQUIRE_EQUAL(expired[1], 2);
-    BOOST_REQUIRE_EQUAL(fifo.front(), 3);
+    SEASTAR_BOOST_REQUIRE_EQUAL(expired[0], 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(expired[1], 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 3);
     fifo.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
-    BOOST_REQUIRE_EQUAL(fifo.front(), 4);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 4);
     fifo.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
 
     expired.clear();
 
@@ -168,16 +169,16 @@ SEASTAR_THREAD_TEST_CASE(test_abortable_operations) {
     yield().get();
 
     BOOST_REQUIRE(!fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
     BOOST_REQUIRE(bool(fifo));
-    BOOST_REQUIRE_EQUAL(expired.size(), 3u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(expired.size(), 3u);
     std::sort(expired.begin(), expired.end());
-    BOOST_REQUIRE_EQUAL(expired[0], 2);
-    BOOST_REQUIRE_EQUAL(expired[1], 3);
-    BOOST_REQUIRE_EQUAL(expired[2], 4);
-    BOOST_REQUIRE_EQUAL(fifo.front(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(expired[0], 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(expired[1], 3);
+    SEASTAR_BOOST_REQUIRE_EQUAL(expired[2], 4);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 1);
     fifo.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
 
     expired.clear();
     as = abort_source();
@@ -191,13 +192,13 @@ SEASTAR_THREAD_TEST_CASE(test_abortable_operations) {
     as.request_abort();
     yield().get();
 
-    BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
-    BOOST_REQUIRE_EQUAL(fifo.front(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 1);
     fifo.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
-    BOOST_REQUIRE_EQUAL(fifo.front(), 5);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 5);
     fifo.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_abort_exception) {
@@ -217,18 +218,18 @@ SEASTAR_THREAD_TEST_CASE(test_abort_exception) {
     fifo.push_back(1, aoe.abort_source());
 
     BOOST_REQUIRE(!fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
     BOOST_REQUIRE(bool(fifo));
-    BOOST_REQUIRE_EQUAL(fifo.front(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 1);
 
     manual_clock::advance(1s);
     yield().get();
 
     BOOST_REQUIRE(fifo.empty());
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     BOOST_REQUIRE(!bool(fifo));
-    BOOST_REQUIRE_EQUAL(expired.size(), 1u);
-    BOOST_REQUIRE_EQUAL(expired[0].value, 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(expired.size(), 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(expired[0].value, 1);
     BOOST_REQUIRE(expired[0].ex);
     BOOST_REQUIRE_THROW(std::rethrow_exception(expired[0].ex), timed_out_error);
 }

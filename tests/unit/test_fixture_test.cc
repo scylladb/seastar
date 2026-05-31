@@ -21,6 +21,7 @@
  */
 
 #include <boost/test/execution_monitor.hpp>
+#include "test_comparisons.hh"
 
 #include <seastar/core/sleep.hh>
 #include <seastar/testing/test_case.hh>
@@ -177,7 +178,7 @@ BOOST_AUTO_TEST_CASE(test_nested_throw) {
         const_cast<test_nested_throw_helper&>(test_nested_throw_helper_instance).run();
     } catch (boost::execution_exception& e) {
         // Should get a cpp exception failure
-        BOOST_REQUIRE_EQUAL(e.code(), boost::execution_exception::error_code::cpp_exception_error);
+        SEASTAR_BOOST_REQUIRE_EQUAL(e.code(), boost::execution_exception::error_code::cpp_exception_error);
         // Should have the nested message
         BOOST_REQUIRE(e.what().find("Message 1") != std::string::npos);
         // Should have the outer message

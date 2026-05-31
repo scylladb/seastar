@@ -20,6 +20,7 @@
  */
 
 #include <ranges>
+#include "test_comparisons.hh"
 
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
@@ -46,7 +47,7 @@ SEASTAR_TEST_CASE(deferred_close_test) {
         // destroying close_gate should invoke g.close()
         // and wait for all background continuations to complete
         BOOST_REQUIRE(g.is_closed());
-        BOOST_REQUIRE_EQUAL(count, expected);
+        SEASTAR_BOOST_REQUIRE_EQUAL(count, expected);
     });
   });
 }
@@ -80,7 +81,7 @@ SEASTAR_TEST_CASE(close_now_test) {
 
         close_gate.close_now();
         BOOST_REQUIRE(g.is_closed());
-        BOOST_REQUIRE_EQUAL(count, expected);
+        SEASTAR_BOOST_REQUIRE_EQUAL(count, expected);
         // gate must not be double-closed.
     });
   });
@@ -108,10 +109,10 @@ SEASTAR_TEST_CASE(with_closeable_test) {
         }).then([&] (int res) {
             // res should be returned by the function called
             // by with_closeable.
-            BOOST_REQUIRE_EQUAL(res, 17);
+            SEASTAR_BOOST_REQUIRE_EQUAL(res, 17);
             // closing the gate should wait for
             // all background continuations to complete
-            BOOST_REQUIRE_EQUAL(count, expected);
+            SEASTAR_BOOST_REQUIRE_EQUAL(count, expected);
         });
     });
 }
@@ -128,7 +129,7 @@ SEASTAR_TEST_CASE(with_closeable_exception_test) {
         }).handle_exception_type([&] (const expected_exception&) {
             // closing the gate should also happen when func throws,
             // waiting for all background continuations to complete
-            BOOST_REQUIRE_EQUAL(count, expected);
+            SEASTAR_BOOST_REQUIRE_EQUAL(count, expected);
         });
     });
 }
@@ -172,7 +173,7 @@ SEASTAR_TEST_CASE(cancel_deferred_stop_test) {
         auto stop = deferred_stop(cs);
         stop.cancel();
     }
-    BOOST_REQUIRE_EQUAL(cs.stopped(), 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(cs.stopped(), 0);
     return make_ready_future<>();
 }
 
@@ -182,7 +183,7 @@ SEASTAR_TEST_CASE(deferred_stop_test) {
         auto stop_counting = deferred_stop(cs);
     }).then([&] {
         // cs.stop() should be called when stop_counting is destroyed
-        BOOST_REQUIRE_EQUAL(cs.stopped(), 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(cs.stopped(), 1);
     });
   });
 }
@@ -194,7 +195,7 @@ SEASTAR_TEST_CASE(move_deferred_stop_test) {
     }).then([&] {
         // cs.stop() should be called once and only once
         // when stop is destroyed
-        BOOST_REQUIRE_EQUAL(cs.stopped(), 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(cs.stopped(), 1);
     });
   });
 }
@@ -207,10 +208,10 @@ SEASTAR_TEST_CASE(stop_now_test) {
         stop_counting.stop_now();
         // cs.stop() should not be called again
         // when stop_counting is destroyed
-        BOOST_REQUIRE_EQUAL(cs.stopped(), 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(cs.stopped(), 1);
     }).then([&] {
         // cs.stop() should be called exactly once
-        BOOST_REQUIRE_EQUAL(cs.stopped(), 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(cs.stopped(), 1);
     });
   });
 }
@@ -222,9 +223,9 @@ SEASTAR_TEST_CASE(with_stoppable_test) {
         }).then([&] (int res) {
             // res should be returned by the function called
             // by with_closeable.
-            BOOST_REQUIRE_EQUAL(res, 17);
+            SEASTAR_BOOST_REQUIRE_EQUAL(res, 17);
             // cs.stop() should be called before count_stops is destroyed
-            BOOST_REQUIRE_EQUAL(stopped, 1);
+            SEASTAR_BOOST_REQUIRE_EQUAL(stopped, 1);
         });
     });
 }
@@ -236,7 +237,7 @@ SEASTAR_TEST_CASE(with_stoppable_exception_test) {
         }).handle_exception_type([&] (const expected_exception&) {
             // cs.stop() should be called before count_stops is destroyed
             // also when func throws
-            BOOST_REQUIRE_EQUAL(stopped, 1);
+            SEASTAR_BOOST_REQUIRE_EQUAL(stopped, 1);
         });
     });
 }
@@ -247,8 +248,8 @@ SEASTAR_THREAD_TEST_CASE(move_open_gate_test) {
     // move an open gate
     gate g2 = std::move(g1);
     // the state in g1 should be moved into g2
-    BOOST_CHECK_EQUAL(g1.get_count(), 0);
-    BOOST_REQUIRE_EQUAL(g2.get_count(), 1);
+    SEASTAR_BOOST_CHECK_EQUAL(g1.get_count(), 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(g2.get_count(), 1);
     g2.leave();
     g2.close().get();
     BOOST_CHECK(!g1.is_closed());
@@ -261,8 +262,8 @@ SEASTAR_THREAD_TEST_CASE(move_closing_gate_test) {
     auto fut = g1.close();
     // move a closing gate
     gate g2 = std::move(g1);
-    BOOST_CHECK_EQUAL(g1.get_count(), 0);
-    BOOST_REQUIRE_EQUAL(g2.get_count(), 1);
+    SEASTAR_BOOST_CHECK_EQUAL(g1.get_count(), 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(g2.get_count(), 1);
     g2.leave();
     fut.get();
     BOOST_CHECK(!g1.is_closed());
@@ -274,8 +275,8 @@ SEASTAR_THREAD_TEST_CASE(move_closed_gate_test) {
     g1.close().get();
     // move a closed gate
     gate g2 = std::move(g1);
-    BOOST_CHECK_EQUAL(g1.get_count(), 0);
-    BOOST_CHECK_EQUAL(g2.get_count(), 0);
+    SEASTAR_BOOST_CHECK_EQUAL(g1.get_count(), 0);
+    SEASTAR_BOOST_CHECK_EQUAL(g2.get_count(), 0);
     BOOST_CHECK(!g1.is_closed());
     BOOST_CHECK(g2.is_closed());
 }
@@ -366,10 +367,10 @@ SEASTAR_TEST_CASE(gate_holder_parallel_copy_test) {
         }).then([&, expected] (int res) {
             // res should be returned by the function called
             // by with_closeable.
-            BOOST_REQUIRE_EQUAL(res, 17);
+            SEASTAR_BOOST_REQUIRE_EQUAL(res, 17);
             // closing the gate should wait for
             // all background continuations to complete
-            BOOST_REQUIRE_EQUAL(count, expected);
+            SEASTAR_BOOST_REQUIRE_EQUAL(count, expected);
         });
     });
 }

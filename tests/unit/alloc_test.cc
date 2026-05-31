@@ -28,6 +28,7 @@
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/memory_diagnostics.hh>
+#include "test_comparisons.hh"
 
 #include <memory>
 #include <new>
@@ -186,12 +187,12 @@ SEASTAR_THREAD_TEST_CASE(test_cross_thread_realloc) {
             smp::submit_to(other_shard, [=] {
                 char* p2 = static_cast<char *>(realloc(p, realloc_size));
                 if (initial_size > 0 && realloc_size > 0) {
-                    BOOST_REQUIRE_EQUAL(p2[0], 'x');
+                    SEASTAR_BOOST_REQUIRE_EQUAL(p2[0], 'x');
                     if (realloc_size <= initial_size) {
-                        BOOST_REQUIRE_EQUAL(p2[realloc_size - 1], 'y');
+                        SEASTAR_BOOST_REQUIRE_EQUAL(p2[realloc_size - 1], 'y');
                     }
                     if (realloc_size > initial_size) {
-                        BOOST_REQUIRE_EQUAL(p2[initial_size - 1], 'z');
+                        SEASTAR_BOOST_REQUIRE_EQUAL(p2[initial_size - 1], 'z');
                     }
                 }
                 free(p2);
@@ -279,7 +280,7 @@ void* test_nullptr = nullptr;
 SEASTAR_TEST_CASE(test_realloc_nullptr) {
     auto p0 = realloc(test_nullptr, 8);
     BOOST_REQUIRE(p0 != nullptr);
-    BOOST_REQUIRE_EQUAL(realloc(p0, 0), nullptr);
+    SEASTAR_BOOST_REQUIRE_EQUAL(realloc(p0, 0), nullptr);
 
     p0 = realloc(test_nullptr, 0);
     BOOST_REQUIRE(p0 != nullptr);
@@ -322,30 +323,30 @@ SEASTAR_TEST_CASE(test_bad_alloc_throws) {
     // test that new throws
     stats = seastar::memory::stats();
     BOOST_REQUIRE_THROW(sink = operator new(size), std::bad_alloc);
-    BOOST_CHECK_EQUAL(failed_allocs(), 1);
+    SEASTAR_BOOST_CHECK_EQUAL(failed_allocs(), 1);
 
     // test that new[] throws
     stats = seastar::memory::stats();
     BOOST_REQUIRE_THROW(sink = new char[size], std::bad_alloc);
-    BOOST_CHECK_EQUAL(failed_allocs(), 1);
+    SEASTAR_BOOST_CHECK_EQUAL(failed_allocs(), 1);
 
     // test that huge malloc returns null
     stats = seastar::memory::stats();
-    BOOST_REQUIRE_EQUAL(malloc(size), nullptr);
-    BOOST_CHECK_EQUAL(failed_allocs(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(malloc(size), nullptr);
+    SEASTAR_BOOST_CHECK_EQUAL(failed_allocs(), 1);
 
     // test that huge realloc on nullptr returns null
     stats = seastar::memory::stats();
-    BOOST_REQUIRE_EQUAL(realloc(nullptr, size), nullptr);
-    BOOST_CHECK_EQUAL(failed_allocs(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(realloc(nullptr, size), nullptr);
+    SEASTAR_BOOST_CHECK_EQUAL(failed_allocs(), 1);
 
     // test that huge realloc on an existing ptr returns null
     stats = seastar::memory::stats();
     void *p = malloc(1);
     BOOST_REQUIRE(p);
     void *p2 = realloc(p, size);
-    BOOST_REQUIRE_EQUAL(p2, nullptr);
-    BOOST_CHECK_EQUAL(failed_allocs(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(p2, nullptr);
+    SEASTAR_BOOST_CHECK_EQUAL(failed_allocs(), 1);
     free(p2 ?: p);
 
     return make_ready_future<>();
@@ -382,7 +383,7 @@ void check_function_allocation(const char* name, size_t expected_allocs, Func f)
     auto after = seastar::memory::stats();
 
     BOOST_TEST_INFO("After function: " << name);
-    BOOST_REQUIRE_EQUAL(expected_allocs, after.mallocs() - before.mallocs());
+    SEASTAR_BOOST_REQUIRE_EQUAL(expected_allocs, after.mallocs() - before.mallocs());
 }
 
 SEASTAR_TEST_CASE(test_diagnostics_allocation) {
@@ -420,7 +421,7 @@ SEASTAR_TEST_CASE(test_two_allocations_increase_total_bytes_allocated) {
 
     auto after = seastar::memory::stats();
 
-    BOOST_REQUIRE_EQUAL(after.total_bytes_allocated() - before.total_bytes_allocated(), size1 + size2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(after.total_bytes_allocated() - before.total_bytes_allocated(), size1 + size2);
 
     operator delete(p2);
     operator delete(p1);
@@ -449,7 +450,7 @@ SEASTAR_TEST_CASE(test_sampled_profile_collection_small)
 {
     {
         auto stats = seastar::memory::sampled_memory_profile();
-        BOOST_REQUIRE_EQUAL(stats.size(), 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stats.size(), 0);
     }
 
     std::size_t count = 100;
@@ -476,20 +477,20 @@ SEASTAR_TEST_CASE(test_sampled_profile_collection_small)
         auto stats1 = seastar::memory::sampled_memory_profile();
 
         // two back-to-back copies of the sample should have the same value
-        BOOST_CHECK_EQUAL(stats0, stats1);
+        SEASTAR_BOOST_CHECK_EQUAL(stats0, stats1);
 
         // check that we get the same value from the raw array iterface
         std::vector<seastar::memory::allocation_site> stats2(stats0.size());
         auto sz2 = seastar::memory::sampled_memory_profile(stats2.data(), stats2.size());
-        BOOST_CHECK_EQUAL(stats0.size(), sz2);
-        BOOST_CHECK_EQUAL(stats0, stats2);
+        SEASTAR_BOOST_CHECK_EQUAL(stats0.size(), sz2);
+        SEASTAR_BOOST_CHECK_EQUAL(stats0, stats2);
 
         // check with +1 size, we expect to still only get size elements
         std::vector<seastar::memory::allocation_site> stats3(stats0.size() + 1);
         auto sz3 = seastar::memory::sampled_memory_profile(stats3.data(), stats3.size());
-        BOOST_CHECK_EQUAL(stats0.size(), sz3);
+        SEASTAR_BOOST_CHECK_EQUAL(stats0.size(), sz3);
         stats3.resize(sz3);
-        BOOST_CHECK_EQUAL(stats0, stats3);
+        SEASTAR_BOOST_CHECK_EQUAL(stats0, stats3);
 
         return stats0;
     };
@@ -499,8 +500,8 @@ SEASTAR_TEST_CASE(test_sampled_profile_collection_small)
 
     {
         auto stats = get_samples();
-        BOOST_REQUIRE_EQUAL(stats.size(), 2);
-        BOOST_REQUIRE_EQUAL(stats[0].size, stats[0].count * 100);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stats.size(), 2);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stats[0].size, stats[0].count * 100);
     }
 
     seastar::memory::set_heap_profiling_sampling_rate(100);
@@ -513,7 +514,7 @@ SEASTAR_TEST_CASE(test_sampled_profile_collection_small)
 
     {
         auto stats = get_samples();
-        BOOST_REQUIRE_EQUAL(stats.size(), 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stats.size(), 0);
     }
 
     return seastar::make_ready_future();
@@ -523,7 +524,7 @@ SEASTAR_TEST_CASE(test_sampled_profile_collection_large)
 {
     {
         auto stats = seastar::memory::sampled_memory_profile();
-        BOOST_REQUIRE_EQUAL(stats.size(), 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stats.size(), 0);
     }
 
     std::size_t count = 100;
@@ -550,8 +551,8 @@ SEASTAR_TEST_CASE(test_sampled_profile_collection_large)
 
     {
         auto stats = seastar::memory::sampled_memory_profile();
-        BOOST_REQUIRE_EQUAL(stats.size(), 2);
-        BOOST_REQUIRE_EQUAL(stats[0].size, stats[0].count * 1000000);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stats.size(), 2);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stats[0].size, stats[0].count * 1000000);
     }
 
     seastar::memory::set_heap_profiling_sampling_rate(1000000);
@@ -565,7 +566,7 @@ SEASTAR_TEST_CASE(test_sampled_profile_collection_large)
     {
         auto stats = seastar::memory::sampled_memory_profile();
         // NOTE this is because right now the tracking structure doesn't delete call sites ever
-        BOOST_REQUIRE_EQUAL(stats.size(), 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stats.size(), 0);
     }
 
     return seastar::make_ready_future();
@@ -589,7 +590,7 @@ SEASTAR_TEST_CASE(test_sampled_profile_collection_max_sites)
 
     {
         auto stats = seastar::memory::sampled_memory_profile();
-        BOOST_REQUIRE_EQUAL(stats.size(), 1000);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stats.size(), 1000);
     }
 
     for (auto ptr : ptrs) {
@@ -603,7 +604,7 @@ SEASTAR_TEST_CASE(test_change_sample_rate)
 {
     {
         auto stats = seastar::memory::sampled_memory_profile();
-        BOOST_REQUIRE_EQUAL(stats.size(), 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stats.size(), 0);
     }
 
     std::size_t sample_rate = 100;
@@ -625,9 +626,9 @@ SEASTAR_TEST_CASE(test_change_sample_rate)
     size_t last_alloc_size = 0;
     {
         auto stats = seastar::memory::sampled_memory_profile();
-        BOOST_REQUIRE_EQUAL(stats.size(), 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stats.size(), 1);
         last_alloc_size = stats[0].size;
-        BOOST_REQUIRE_EQUAL(stats[0].size, stats[0].count * sample_rate);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stats[0].size, stats[0].count * sample_rate);
     }
 
     seastar::memory::set_heap_profiling_sampling_rate(sample_rate);
@@ -642,10 +643,10 @@ SEASTAR_TEST_CASE(test_change_sample_rate)
 
     {
         auto stats = seastar::memory::sampled_memory_profile();
-        BOOST_REQUIRE_EQUAL(stats.size(), 1);
-        BOOST_REQUIRE_EQUAL(stats[0].size, stats[0].count * sample_rate);
-        BOOST_REQUIRE_NE(stats[0].size, last_alloc_size);
-        BOOST_REQUIRE_GT(stats[0].size, 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stats.size(), 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stats[0].size, stats[0].count * sample_rate);
+        SEASTAR_BOOST_REQUIRE_NE(stats[0].size, last_alloc_size);
+        SEASTAR_BOOST_REQUIRE_GT(stats[0].size, 0);
         last_alloc_size = stats[0].size;
     }
 
@@ -660,8 +661,8 @@ SEASTAR_TEST_CASE(test_change_sample_rate)
 
     {
         auto stats = seastar::memory::sampled_memory_profile();
-        BOOST_REQUIRE_EQUAL(stats.size(), 1);
-        BOOST_REQUIRE_LT(stats[0].size, last_alloc_size); // should not have underflowed
+        SEASTAR_BOOST_REQUIRE_EQUAL(stats.size(), 1);
+        SEASTAR_BOOST_REQUIRE_LT(stats[0].size, last_alloc_size); // should not have underflowed
     }
 
     seastar::memory::set_heap_profiling_sampling_rate(sample_rate);
@@ -675,7 +676,7 @@ SEASTAR_TEST_CASE(test_change_sample_rate)
 
     {
         auto stats = seastar::memory::sampled_memory_profile();
-        BOOST_REQUIRE_EQUAL(stats.size(), 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stats.size(), 0);
     }
 
     return seastar::make_ready_future();
@@ -719,7 +720,7 @@ SEASTAR_TEST_CASE(c23_free_sized) {
     free_sized(p1, 100);
     void* p2;
     int r = posix_memalign(&p2, 1024, 4096);
-    BOOST_REQUIRE_EQUAL(r, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(r, 0);
     free_aligned_sized(p2, 1024, 4096);
     return make_ready_future<>();
 }

@@ -23,6 +23,7 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/testing/test_case.hh>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -42,7 +43,7 @@ SEASTAR_TEST_CASE(test_sighup) {
         kill(getpid(), SIGHUP);
 
         return p->get_future().then([&] {
-            BOOST_REQUIRE_EQUAL(signaled, true);
+            SEASTAR_BOOST_REQUIRE_EQUAL(signaled, true);
         });
     });
 }

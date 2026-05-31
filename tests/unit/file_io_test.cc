@@ -20,6 +20,7 @@
  */
 
 #include <filesystem>
+#include "test_comparisons.hh"
 
 #include <seastar/testing/random.hh>
 #include <seastar/testing/test_case.hh>
@@ -138,8 +139,8 @@ SEASTAR_TEST_CASE(file_ro_dup_test) {
         co_await smp::submit_to(1, [fi = std::move(fi)] () mutable -> future<> {
             auto f = std::move(fi.handle).to_file();
             auto st = co_await f.stat();
-            BOOST_REQUIRE_EQUAL(st.st_dev, fi.st.st_dev);
-            BOOST_REQUIRE_EQUAL(st.st_ino, fi.st.st_ino);
+            SEASTAR_BOOST_REQUIRE_EQUAL(st.st_dev, fi.st.st_dev);
+            SEASTAR_BOOST_REQUIRE_EQUAL(st.st_ino, fi.st.st_ino);
         });
     });
 }
@@ -159,19 +160,19 @@ SEASTAR_TEST_CASE(file_mmap_test) {
         auto f = co_await open_file_dma(filename, open_flags::rw | open_flags::create);
         co_await f.truncate(4096);
         auto map = co_await f.mmap(4096, mmap_prot::read | mmap_prot::write, mmap_private::no, 0);
-        BOOST_CHECK_EQUAL(map.size(), 4096);
+        SEASTAR_BOOST_CHECK_EQUAL(map.size(), 4096);
         // Write null-terminated string to the map.
         std::string_view str = "Hello, mmap!";
         std::memcpy(map.get(), str.data(), str.size() + 1);
         std::string_view map_str{reinterpret_cast<const char*>(map.get()), str.size()};
-        BOOST_CHECK_EQUAL(map_str, str);
+        SEASTAR_BOOST_CHECK_EQUAL(map_str, str);
         co_await map.flush();
         co_await map.unmap();
         // Read the string back through the file, using dma_read.
         auto buf = allocate_aligned_buffer<char>(4096, 4096);
         co_await f.dma_read(0, buf.get(), 4096);
         std::string_view buf_str{buf.get(), str.size()};
-        BOOST_CHECK_EQUAL(buf_str, str);
+        SEASTAR_BOOST_CHECK_EQUAL(buf_str, str);
         co_await f.close();
     });
 }
@@ -344,8 +345,8 @@ SEASTAR_THREAD_TEST_CASE(test_sanitize_iovecs) {
         auto original_iovecs = std::vector<iovec> { { buf.get_write(), buf.size() } };
         auto actual_iovecs = original_iovecs;
         auto actual_length = internal::sanitize_iovecs(actual_iovecs, 4096);
-        BOOST_CHECK_EQUAL(actual_length, 4096);
-        BOOST_CHECK_EQUAL(actual_iovecs.size(), 1);
+        SEASTAR_BOOST_CHECK_EQUAL(actual_length, 4096);
+        SEASTAR_BOOST_CHECK_EQUAL(actual_iovecs.size(), 1);
         BOOST_CHECK(iovec_equal(original_iovecs.back(), actual_iovecs.back()));
     }
 
@@ -356,8 +357,8 @@ SEASTAR_THREAD_TEST_CASE(test_sanitize_iovecs) {
         }
         auto actual_iovecs = original_iovecs;
         auto actual_length = internal::sanitize_iovecs(actual_iovecs, 4096);
-        BOOST_CHECK_EQUAL(actual_length, 512 * IOV_MAX);
-        BOOST_CHECK_EQUAL(actual_iovecs.size(), IOV_MAX - 1);
+        SEASTAR_BOOST_CHECK_EQUAL(actual_length, 512 * IOV_MAX);
+        SEASTAR_BOOST_CHECK_EQUAL(actual_iovecs.size(), IOV_MAX - 1);
 
         original_iovecs.resize(IOV_MAX - 1);
         BOOST_CHECK(std::equal(original_iovecs.begin(), original_iovecs.end(),
@@ -371,8 +372,8 @@ SEASTAR_THREAD_TEST_CASE(test_sanitize_iovecs) {
         }
         auto actual_iovecs = original_iovecs;
         auto actual_length = internal::sanitize_iovecs(actual_iovecs, 4096);
-        BOOST_CHECK_EQUAL(actual_length, 512 * IOV_MAX);
-        BOOST_CHECK_EQUAL(actual_iovecs.size(), IOV_MAX);
+        SEASTAR_BOOST_CHECK_EQUAL(actual_length, 512 * IOV_MAX);
+        SEASTAR_BOOST_CHECK_EQUAL(actual_iovecs.size(), IOV_MAX);
 
         original_iovecs.resize(IOV_MAX);
         original_iovecs.back().iov_len = 512;
@@ -387,8 +388,8 @@ SEASTAR_THREAD_TEST_CASE(test_sanitize_iovecs) {
         }
         auto actual_iovecs = original_iovecs;
         auto actual_length = internal::sanitize_iovecs(actual_iovecs, 4096);
-        BOOST_CHECK_EQUAL(actual_length, 512 * IOV_MAX);
-        BOOST_CHECK_EQUAL(actual_iovecs.size(), IOV_MAX);
+        SEASTAR_BOOST_CHECK_EQUAL(actual_length, 512 * IOV_MAX);
+        SEASTAR_BOOST_CHECK_EQUAL(actual_iovecs.size(), IOV_MAX);
 
         original_iovecs.resize(IOV_MAX);
         BOOST_CHECK(std::equal(original_iovecs.begin(), original_iovecs.end(),
@@ -410,7 +411,7 @@ SEASTAR_TEST_CASE(test_chmod) {
     auto f = open_file_dma(filename, oflags).get();
     f.close().get();
     auto sd = file_stat(filename).get();
-    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
+    SEASTAR_BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
 
     // test chmod with new_permissions
     auto new_permissions = file_permissions::user_read | file_permissions::group_read | file_permissions::others_read;
@@ -418,7 +419,7 @@ SEASTAR_TEST_CASE(test_chmod) {
     BOOST_REQUIRE(file_exists(filename).get());
     chmod(filename, new_permissions).get();
     sd = file_stat(filename).get();
-    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(new_permissions));
+    SEASTAR_BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(new_permissions));
     remove_file(filename).get();
 
     umask(orig_umask);
@@ -439,7 +440,7 @@ SEASTAR_TEST_CASE(test_open_file_dma_permissions) {
     auto f = open_file_dma(filename, oflags).get();
     f.close().get();
     auto sd = file_stat(filename).get();
-    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
+    SEASTAR_BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
     remove_file(filename).get();
 
     // test options.create_permissions
@@ -449,7 +450,7 @@ SEASTAR_TEST_CASE(test_open_file_dma_permissions) {
     f = open_file_dma(filename, oflags, options).get();
     f.close().get();
     sd = file_stat(filename).get();
-    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(options.create_permissions));
+    SEASTAR_BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(options.create_permissions));
     remove_file(filename).get();
 
     umask(orig_umask);
@@ -464,7 +465,7 @@ SEASTAR_TEST_CASE(test_make_directory_permissions) {
     // test default_dir_permissions with make_directory
     make_directory(dirname).get();
     auto sd = file_stat(dirname).get();
-    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    SEASTAR_BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
     remove_file(dirname).get();
 
     // test make_directory
@@ -472,7 +473,7 @@ SEASTAR_TEST_CASE(test_make_directory_permissions) {
     BOOST_REQUIRE(create_permissions != file_permissions::default_dir_permissions);
     make_directory(dirname, create_permissions).get();
     sd = file_stat(dirname).get();
-    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
+    SEASTAR_BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
     remove_file(dirname).get();
 
     umask(orig_umask);
@@ -487,7 +488,7 @@ SEASTAR_TEST_CASE(test_touch_directory_permissions) {
     // test default_dir_permissions with touch_directory
     touch_directory(dirname).get();
     auto sd = file_stat(dirname).get();
-    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    SEASTAR_BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
     remove_file(dirname).get();
 
     // test touch_directory, dir creation
@@ -496,13 +497,13 @@ SEASTAR_TEST_CASE(test_touch_directory_permissions) {
     BOOST_REQUIRE(!file_exists(dirname).get());
     touch_directory(dirname, create_permissions).get();
     sd = file_stat(dirname).get();
-    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
+    SEASTAR_BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
 
     // test touch_directory of existing dir, dir mode need not change
     BOOST_REQUIRE(file_exists(dirname).get());
     touch_directory(dirname, file_permissions::default_dir_permissions).get();
     sd = file_stat(dirname).get();
-    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
+    SEASTAR_BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
     remove_file(dirname).get();
 
     umask(orig_umask);
@@ -525,9 +526,9 @@ SEASTAR_TEST_CASE(test_recursive_touch_directory_permissions) {
     // test default_dir_permissions with recursive_touch_directory
     recursive_touch_directory(dirpath).get();
     auto sd = file_stat(base_dirname).get();
-    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    SEASTAR_BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
     sd = file_stat(dirpath).get();
-    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    SEASTAR_BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
     remove_file(dirpath).get();
 
     // test recursive_touch_directory, dir creation
@@ -537,17 +538,17 @@ SEASTAR_TEST_CASE(test_recursive_touch_directory_permissions) {
     BOOST_REQUIRE(!file_exists(dirpath).get());
     recursive_touch_directory(dirpath, create_permissions).get();
     sd = file_stat(base_dirname).get();
-    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    SEASTAR_BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
     sd = file_stat(dirpath).get();
-    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
+    SEASTAR_BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
 
     // test recursive_touch_directory of existing dir, dir mode need not change
     BOOST_REQUIRE(file_exists(dirpath).get());
     recursive_touch_directory(dirpath, file_permissions::default_dir_permissions).get();
     sd = file_stat(base_dirname).get();
-    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
+    SEASTAR_BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_dir_permissions));
     sd = file_stat(dirpath).get();
-    BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
+    SEASTAR_BOOST_CHECK_EQUAL(sd.mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(create_permissions));
     remove_file(dirpath).get();
     remove_file(base_dirname).get();
 
@@ -565,7 +566,7 @@ SEASTAR_TEST_CASE(test_file_stat_method) {
     auto f = open_file_dma(filename, oflags).get();
     auto close_f = deferred_close(f);
     auto st = f.stat().get();
-    BOOST_CHECK_EQUAL(st.st_mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
+    SEASTAR_BOOST_CHECK_EQUAL(st.st_mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
 
     umask(orig_umask);
   });
@@ -586,7 +587,7 @@ SEASTAR_TEST_CASE(test_dir_statat_method) {
         auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), buffer_size);
         memset(buf.get_write(), 0, buf.size());
         auto written = f.dma_write(0, buf.get(), buf.size()).get();
-        BOOST_REQUIRE_EQUAL(written, buffer_size);
+        SEASTAR_BOOST_REQUIRE_EQUAL(written, buffer_size);
         close_f.close_now();
 
         // Open dir and get the file stat using statat
@@ -594,18 +595,18 @@ SEASTAR_TEST_CASE(test_dir_statat_method) {
         auto close_dir = deferred_close(dir);
 
         auto file_st = dir.statat(filename).get();
-        BOOST_REQUIRE_EQUAL(file_st.st_size, buffer_size);
+        SEASTAR_BOOST_REQUIRE_EQUAL(file_st.st_size, buffer_size);
 
         const char* linkname = "test_link.tmp";
         auto rc = ::symlink((path / filename).c_str(), (path / linkname).c_str());
-        BOOST_REQUIRE_EQUAL(rc, 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(rc, 0);
 
         auto link_st = dir.statat(linkname, AT_SYMLINK_NOFOLLOW).get();
-        BOOST_REQUIRE_NE(link_st.st_ino, file_st.st_ino);
+        SEASTAR_BOOST_REQUIRE_NE(link_st.st_ino, file_st.st_ino);
 
         // Default flags are expected to follow symlinks
         auto st = dir.statat(linkname).get();
-        BOOST_REQUIRE_EQUAL(st.st_ino, file_st.st_ino);
+        SEASTAR_BOOST_REQUIRE_EQUAL(st.st_ino, file_st.st_ino);
 
         // Test non-existing file resolving into exception
         BOOST_REQUIRE_EXCEPTION(dir.statat("no-such-file").get(), std::system_error, [] (auto& ex) {
@@ -640,7 +641,7 @@ SEASTAR_TEST_CASE(test_file_write_lifetime_method) {
             // Set and verify the lifetime hint of the inode
             f1.set_inode_lifetime_hint(hint).get();
             auto o_hint1 = f1.get_inode_lifetime_hint().get();
-            BOOST_CHECK_EQUAL(hint, o_hint1);
+            SEASTAR_BOOST_CHECK_EQUAL(hint, o_hint1);
         }
 
         // Perform invalid ops
@@ -661,11 +662,11 @@ SEASTAR_TEST_CASE(test_file_fcntl) {
         auto lease = F_WRLCK;
         BOOST_REQUIRE(!f.fcntl(F_SETLEASE, lease).get());
         auto o_lease = f.fcntl(F_GETLEASE).get();
-        BOOST_CHECK_EQUAL(lease, o_lease);
+        SEASTAR_BOOST_CHECK_EQUAL(lease, o_lease);
 
         // Use _short version and test the same
         o_lease = f.fcntl_short(F_GETLEASE).get();
-        BOOST_CHECK_EQUAL(lease, o_lease);
+        SEASTAR_BOOST_CHECK_EQUAL(lease, o_lease);
 
         // Perform invalid ops
         BOOST_REQUIRE_THROW(f.fcntl(F_SETLEASE, (uintptr_t)~0ul).get(), std::system_error);
@@ -693,7 +694,7 @@ SEASTAR_TEST_CASE(test_file_ioctl) {
             BOOST_REQUIRE(block_size != 0);
         } catch (std::system_error& e) {
             // anon_bdev filesystems do not support FIGETBSZ, and return EINVAL
-            BOOST_REQUIRE_EQUAL(e.code().value(), EINVAL);
+            SEASTAR_BOOST_REQUIRE_EQUAL(e.code().value(), EINVAL);
         }
 
         // Perform invalid ops
@@ -759,9 +760,9 @@ SEASTAR_TEST_CASE(test_underlying_file) {
         auto f = open_file_dma(filename, oflags).get();
         auto close_f = deferred_close(f);
         auto lf = file(make_shared<test_layered_file>(f));
-        BOOST_CHECK_EQUAL(f.memory_dma_alignment(), lf.memory_dma_alignment());
-        BOOST_CHECK_EQUAL(f.disk_read_dma_alignment(), lf.disk_read_dma_alignment());
-        BOOST_CHECK_EQUAL(f.disk_write_dma_alignment(), lf.disk_write_dma_alignment());
+        SEASTAR_BOOST_CHECK_EQUAL(f.memory_dma_alignment(), lf.memory_dma_alignment());
+        SEASTAR_BOOST_CHECK_EQUAL(f.disk_read_dma_alignment(), lf.disk_read_dma_alignment());
+        SEASTAR_BOOST_CHECK_EQUAL(f.disk_write_dma_alignment(), lf.disk_write_dma_alignment());
     });
 }
 
@@ -778,7 +779,7 @@ SEASTAR_TEST_CASE(test_file_stat_method_with_file) {
             ref = f;
             return f.stat();
         }).get();
-        BOOST_CHECK_EQUAL(st.st_mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
+        SEASTAR_BOOST_CHECK_EQUAL(st.st_mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
 
         // verify that the file was auto-closed
         BOOST_REQUIRE_THROW(ref.stat().get(), std::system_error);
@@ -831,7 +832,7 @@ SEASTAR_TEST_CASE(test_with_file_close_on_failure) {
         }).get();
         auto st = ref.stat().get();
         ref.close().get();
-        BOOST_CHECK_EQUAL(st.st_mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
+        SEASTAR_BOOST_CHECK_EQUAL(st.st_mode & static_cast<mode_t>(file_permissions::all_permissions), static_cast<mode_t>(file_permissions::default_file_permissions));
 
         // close-on-error case
         BOOST_REQUIRE_THROW(with_file_close_on_failure(open_file_dma(filename, oflags), [&ref] (file& f) {
@@ -942,7 +943,7 @@ SEASTAR_TEST_CASE(test_dma_iovec) {
         auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get();
         iovecs.push_back(iovec{ wbuf.get(), alignment });
         auto count = f.dma_write(0, iovecs).get();
-        BOOST_REQUIRE_EQUAL(count, alignment);
+        SEASTAR_BOOST_REQUIRE_EQUAL(count, alignment);
         f.truncate(size).get();
         f.close().get();
 
@@ -954,7 +955,7 @@ SEASTAR_TEST_CASE(test_dma_iovec) {
         iovecs.clear();
         iovecs.push_back(iovec{ rbuf.get(), alignment });
         count = f.dma_read(0, iovecs).get();
-        BOOST_REQUIRE_EQUAL(count, size);
+        SEASTAR_BOOST_REQUIRE_EQUAL(count, size);
 
         BOOST_REQUIRE(std::equal(wbuf.get(), wbuf.get() + alignment, rbuf.get(), rbuf.get() + alignment));
 
@@ -964,7 +965,7 @@ SEASTAR_TEST_CASE(test_dma_iovec) {
         iovecs.clear();
         iovecs.push_back(iovec{ rbuf.get(), alignment });
         count = f.dma_read(0, iovecs).get();
-        BOOST_REQUIRE_EQUAL(count, size);
+        SEASTAR_BOOST_REQUIRE_EQUAL(count, size);
 
         BOOST_REQUIRE(std::equal(wbuf.get(), wbuf.get() + alignment, rbuf.get(), rbuf.get() + alignment));
     });
@@ -1070,10 +1071,10 @@ SEASTAR_TEST_CASE(test_file_system_space) {
         auto st = engine().statvfs(name).get();
         auto si = file_system_space(name).get();
 
-        BOOST_REQUIRE_EQUAL(st.f_blocks * st.f_frsize, si.capacity);
-        BOOST_REQUIRE_LE(si.free, si.capacity);
-        BOOST_REQUIRE_LE(si.available, si.capacity);
-        BOOST_REQUIRE_LE(si.available, si.free);
+        SEASTAR_BOOST_REQUIRE_EQUAL(st.f_blocks * st.f_frsize, si.capacity);
+        SEASTAR_BOOST_REQUIRE_LE(si.free, si.capacity);
+        SEASTAR_BOOST_REQUIRE_LE(si.available, si.capacity);
+        SEASTAR_BOOST_REQUIRE_LE(si.available, si.free);
     });
 }
 
@@ -1115,7 +1116,7 @@ public:
     future<> flush() {
         return _file->enqueue(opcode::flush, 0, 0, [this] {
             if (_fsync_is_exclusive) {
-                BOOST_CHECK_EQUAL(_writes, 0);
+                SEASTAR_BOOST_CHECK_EQUAL(_writes, 0);
             }
             _queue.emplace_back(_flushes);
             return _queue.back().complete.get_future();
@@ -1129,10 +1130,10 @@ public:
             uint64_t fsize = _fd.size();
             if (pos + _block_size > fsize) {
                 _appends++;
-                BOOST_CHECK_LE(_appends, _max_appends);
+                SEASTAR_BOOST_CHECK_LE(_appends, _max_appends);
             }
             if (_fsync_is_exclusive) {
-                BOOST_CHECK_EQUAL(_flushes, 0);
+                SEASTAR_BOOST_CHECK_EQUAL(_flushes, 0);
             }
             _queue.emplace_back(_writes, pos);
             return _queue.back().complete.get_future();
@@ -1152,7 +1153,7 @@ public:
     }
 
     future<> close() {
-        BOOST_CHECK_EQUAL(_appends, _max_appends);
+        SEASTAR_BOOST_CHECK_EQUAL(_appends, _max_appends);
         return _file->close();
     }
 };
@@ -1261,13 +1262,13 @@ SEASTAR_THREAD_TEST_CASE(test_posix_file_dma_read_bulk) {
         fmt::print(" read returned {} bytes\n", buf.size());
         if (offset >= data.size()) {
             // read past EOF --> empty buffer
-            BOOST_REQUIRE_EQUAL(buf.size(), 0);
+            SEASTAR_BOOST_REQUIRE_EQUAL(buf.size(), 0);
         } else {
             size_t avail = std::min(data.size() - offset, length);
             // must have read at least what's available
-            BOOST_REQUIRE_GE(buf.size(), avail);
+            SEASTAR_BOOST_REQUIRE_GE(buf.size(), avail);
             // no read past EOF
-            BOOST_REQUIRE_LE(offset + buf.size(), data.size());
+            SEASTAR_BOOST_REQUIRE_LE(offset + buf.size(), data.size());
             BOOST_REQUIRE(std::memcmp(buf.get(), data.get() + offset, buf.size()) == 0);
         }
     };

@@ -23,6 +23,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/process.hh>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -34,7 +35,7 @@ SEASTAR_TEST_CASE(test_spawn_success) {
     }).then([] (auto wstatus) {
         auto* exit_status = std::get_if<process::wait_exited>(&wstatus);
         BOOST_REQUIRE(exit_status != nullptr);
-        BOOST_CHECK_EQUAL(exit_status->exit_code, EXIT_SUCCESS);
+        SEASTAR_BOOST_CHECK_EQUAL(exit_status->exit_code, EXIT_SUCCESS);
     });
 }
 
@@ -44,7 +45,7 @@ SEASTAR_TEST_CASE(test_spawn_failure) {
     }).then([] (auto wstatus) {
         auto* exit_status = std::get_if<process::wait_exited>(&wstatus);
         BOOST_REQUIRE(exit_status != nullptr);
-        BOOST_CHECK_EQUAL(exit_status->exit_code, EXIT_FAILURE);
+        SEASTAR_BOOST_CHECK_EQUAL(exit_status->exit_code, EXIT_FAILURE);
     });
 }
 
@@ -110,12 +111,12 @@ SEASTAR_TEST_CASE(test_spawn_input) {
                 BOOST_TEST_ERROR(fmt::format("failed to read from cout: {}", e));
                 return make_ready_future<temporary_buffer<char>>();
             }).then([] (temporary_buffer<char> echo) {
-                BOOST_CHECK_EQUAL(sstring(echo.get(), echo.size()), text);
+                SEASTAR_BOOST_CHECK_EQUAL(sstring(echo.get(), echo.size()), text);
             }).finally([&p] {
                 return p.wait().then([](process::wait_status wstatus) {
                     auto* exit_status = std::get_if<process::wait_exited>(&wstatus);
                     BOOST_REQUIRE(exit_status != nullptr);
-                    BOOST_CHECK_EQUAL(exit_status->exit_code, EXIT_SUCCESS);
+                    SEASTAR_BOOST_CHECK_EQUAL(exit_status->exit_code, EXIT_SUCCESS);
                  });
             });
         });
@@ -133,7 +134,7 @@ SEASTAR_TEST_CASE(test_spawn_kill) {
         }).then([start](process::wait_status wait_status) {
             auto* wait_signaled = std::get_if<process::wait_signaled>(&wait_status);
             BOOST_REQUIRE(wait_signaled != nullptr);
-            BOOST_CHECK_EQUAL(wait_signaled->terminating_signal, SIGTERM);
+            SEASTAR_BOOST_CHECK_EQUAL(wait_signaled->terminating_signal, SIGTERM);
             auto end = std::chrono::high_resolution_clock::now();
             auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
             // sleep should be terminated in 10ms.
@@ -141,7 +142,7 @@ SEASTAR_TEST_CASE(test_spawn_kill) {
             // waitpid(2) with backoff (at least 20ms).
             // the minimal backoff is added to 10ms, so the test can pass on
             // older kernels as well.
-            BOOST_CHECK_LE(ms, 10 + 20);
+            SEASTAR_BOOST_CHECK_LE(ms, 10 + 20);
         });
     });
 }

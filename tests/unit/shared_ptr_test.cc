@@ -27,6 +27,7 @@
 #include <unordered_map>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -134,11 +135,11 @@ BOOST_AUTO_TEST_CASE(test_indirect_functors) {
 
 
         auto i = a_set.begin();
-        BOOST_REQUIRE_EQUAL(sstring("k0"), *(*i++));
-        BOOST_REQUIRE_EQUAL(sstring("k1"), *(*i++));
-        BOOST_REQUIRE_EQUAL(sstring("k2"), *(*i++));
-        BOOST_REQUIRE_EQUAL(sstring("k3"), *(*i++));
-        BOOST_REQUIRE_EQUAL(sstring("k4"), *(*i++));
+        SEASTAR_BOOST_REQUIRE_EQUAL(sstring("k0"), *(*i++));
+        SEASTAR_BOOST_REQUIRE_EQUAL(sstring("k1"), *(*i++));
+        SEASTAR_BOOST_REQUIRE_EQUAL(sstring("k2"), *(*i++));
+        SEASTAR_BOOST_REQUIRE_EQUAL(sstring("k3"), *(*i++));
+        SEASTAR_BOOST_REQUIRE_EQUAL(sstring("k4"), *(*i++));
     }
 
     {

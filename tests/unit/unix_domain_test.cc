@@ -20,6 +20,7 @@
  */
 
 #include <filesystem>
+#include "test_comparisons.hh"
 
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
@@ -99,7 +100,7 @@ future<> ud_server_client::init_server() {
                 //  verify the client address
                 if (client_path) {
                     socket_address tmmp{unix_domain_addr{*client_path}};
-                    BOOST_REQUIRE_EQUAL(cn_addr, socket_address{unix_domain_addr{*client_path}});
+                    SEASTAR_BOOST_REQUIRE_EQUAL(cn_addr, socket_address{unix_domain_addr{*client_path}});
                 }
 
                 return do_with(cn.input(), cn.output(), [](auto& inp, auto& out) {
@@ -141,7 +142,7 @@ void ud_server_client::client_round() {
     out.write(test_message).get();
     out.flush().get();
     auto bb = inp.read().get();
-    BOOST_REQUIRE_EQUAL(std::string_view(bb.begin(), bb.size()), "+"s+test_message);
+    SEASTAR_BOOST_REQUIRE_EQUAL(std::string_view(bb.begin(), bb.size()), "+"s+test_message);
     inp.close().get();
     out.close().get();
 }
@@ -156,7 +157,7 @@ future<> ud_server_client::run() {
 
 void rm(std::string_view what) {
     auto res = system(fmt::format("rm -f {}", what).c_str());
-    BOOST_REQUIRE_EQUAL(res, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(res, 0);
 }
 
 //  testing the various address types, both on the server and on the
@@ -201,11 +202,11 @@ SEASTAR_TEST_CASE(unixdomain_abs_bind_2) {
 
 SEASTAR_TEST_CASE(unixdomain_text) {
     socket_address addr1{unix_domain_addr{"abc"}};
-    BOOST_REQUIRE_EQUAL(format("{}", addr1), "abc");
+    SEASTAR_BOOST_REQUIRE_EQUAL(format("{}", addr1), "abc");
     socket_address addr2{unix_domain_addr{""}};
-    BOOST_REQUIRE_EQUAL(format("{}", addr2), "{unnamed}");
+    SEASTAR_BOOST_REQUIRE_EQUAL(format("{}", addr2), "{unnamed}");
     socket_address addr3{unix_domain_addr{std::string("\0abc", 5)}};
-    BOOST_REQUIRE_EQUAL(format("{}", addr3), "@abc_");
+    SEASTAR_BOOST_REQUIRE_EQUAL(format("{}", addr3), "@abc_");
     return make_ready_future<>();
 }
 
@@ -260,9 +261,9 @@ SEASTAR_THREAD_TEST_CASE(unixdomain_datagram_autobind) {
 
     auto bufs = dgram.get_buffers();
     // POSIX impementation uses single buffer
-    BOOST_REQUIRE_EQUAL(bufs.size(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(bufs.size(), 1);
     string received = internal::to_sstring<sstring>(bufs[0]);
-    BOOST_REQUIRE_EQUAL(received, "hello");
+    SEASTAR_BOOST_REQUIRE_EQUAL(received, "hello");
 }
 
 SEASTAR_THREAD_TEST_CASE(unixdomain_datagram_named_bound) {
@@ -286,9 +287,9 @@ SEASTAR_THREAD_TEST_CASE(unixdomain_datagram_named_bound) {
     net::udp_datagram dgram = named_receiver.receive().get();
     auto bufs = dgram.get_buffers();
     // POSIX impementation uses single buffer
-    BOOST_REQUIRE_EQUAL(bufs.size(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(bufs.size(), 1);
     string received = internal::to_sstring<sstring>(bufs[0]);
-    BOOST_REQUIRE_EQUAL(received, "hihi");
+    SEASTAR_BOOST_REQUIRE_EQUAL(received, "hihi");
 
     // Try to be nice and remove the temporary directory.
     std::filesystem::remove_all(tmpdir_ptr);

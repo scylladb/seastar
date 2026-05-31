@@ -30,6 +30,8 @@
 #include <type_traits>
 #include <vector>
 #include <seastar/testing/test_case.hh>
+#include <fmt/ranges.h>
+#include "test_comparisons.hh"
 
 #include <seastar/core/reactor.hh>
 #include <seastar/core/shared_ptr.hh>
@@ -89,7 +91,7 @@ SEASTAR_TEST_CASE(test_self_move) {
     future_state<std::unique_ptr<int>> s2;
     s2.set(std::make_unique<int>(42));
     std::swap(s2, s2);
-    BOOST_REQUIRE_EQUAL(*std::move(s2).get(), 42);
+    SEASTAR_BOOST_REQUIRE_EQUAL(*std::move(s2).get(), 42);
 
     promise<std::unique_ptr<int>> p1;
     p1.set_value(std::make_unique<int>(42));
@@ -98,14 +100,14 @@ SEASTAR_TEST_CASE(test_self_move) {
     promise<std::unique_ptr<int>> p2;
     p2.set_value(std::make_unique<int>(42));
     std::swap(p2, p2);
-    BOOST_REQUIRE_EQUAL(*p2.get_future().get(), 42);
+    SEASTAR_BOOST_REQUIRE_EQUAL(*p2.get_future().get(), 42);
 
     auto  f1 = make_ready_future<std::unique_ptr<int>>(std::make_unique<int>(42));
     f1 = std::move(f1); // no crash, but the value of f1 is not defined.
 
     auto f2 = make_ready_future<std::unique_ptr<int>>(std::make_unique<int>(42));
     std::swap(f2, f2);
-    BOOST_REQUIRE_EQUAL(*f2.get(), 42);
+    SEASTAR_BOOST_REQUIRE_EQUAL(*f2.get(), 42);
 
     return make_ready_future<>();
 }
@@ -151,7 +153,7 @@ SEASTAR_TEST_CASE(test_stream_drop_sub) {
     std::optional<future<>> ret;
     {
         auto sub = s->listen([expected](int actual) {
-            BOOST_REQUIRE_EQUAL(expected, actual);
+            SEASTAR_BOOST_REQUIRE_EQUAL(expected, actual);
             return make_ready_future<>();
         });
         ret = sub.done();
@@ -169,7 +171,7 @@ SEASTAR_TEST_CASE(test_reference) {
     future<int&> fut = std::move(orig);
     int& r = fut.get();
     r = 43;
-    BOOST_REQUIRE_EQUAL(a, 43);
+    SEASTAR_BOOST_REQUIRE_EQUAL(a, 43);
     return make_ready_future<>();
 }
 
@@ -189,7 +191,7 @@ SEASTAR_TEST_CASE(test_make_ready_future_tuple) {
     // into T. The tuple special-case is removed in v10 — the emplace path used
     // there direct-initializes T from the args, which rejects a tuple arg.
     auto f = make_ready_future<int>(std::tuple(42));
-    BOOST_REQUIRE_EQUAL(f.get(), 42);
+    SEASTAR_BOOST_REQUIRE_EQUAL(f.get(), 42);
     return make_ready_future<>();
 }
 #endif
@@ -220,7 +222,7 @@ SEASTAR_TEST_CASE(test_set_value_conversions) {
         promise<std::vector<std::string>> p;
         auto f = p.get_future();
         p.set_value({});
-        BOOST_REQUIRE_EQUAL(f.get(), (std::vector<std::string>{}));
+        SEASTAR_BOOST_REQUIRE_EQUAL(f.get(), (std::vector<std::string>{}));
     }
     // brace-init-list: initializer_list<string> ctor
     {
@@ -228,7 +230,7 @@ SEASTAR_TEST_CASE(test_set_value_conversions) {
         auto f = p.get_future();
         p.set_value({"foo", "foo"});
         std::vector<std::string> foo_x2{"foo", "foo"};
-        BOOST_REQUIRE_EQUAL(f.get(), foo_x2);
+        SEASTAR_BOOST_REQUIRE_EQUAL(f.get(), foo_x2);
     }
     // brace-init-list: (count, value) ctor
     {
@@ -236,14 +238,14 @@ SEASTAR_TEST_CASE(test_set_value_conversions) {
         auto f = p.get_future();
         p.set_value({3, "foo"});
         std::vector<std::string> foo_x3{"foo", "foo", "foo"};
-        BOOST_REQUIRE_EQUAL(f.get(), foo_x3);
+        SEASTAR_BOOST_REQUIRE_EQUAL(f.get(), foo_x3);
     }
     // reference preserved
     {
         promise<std::vector<int>&> p;
         auto f = p.get_future();
         p.set_value(conversion_test_static_vector);
-        BOOST_REQUIRE_EQUAL(&f.get(), &conversion_test_static_vector);
+        SEASTAR_BOOST_REQUIRE_EQUAL(&f.get(), &conversion_test_static_vector);
     }
     return make_ready_future<>();
 }
@@ -274,8 +276,8 @@ SEASTAR_TEST_CASE(test_set_value_copy_counter) {
         const tests::copy_move_counter cc;
         p.set_value(cc);
         std::ignore = f.get();
-        BOOST_CHECK_EQUAL(cc.shared->copies, 1);
-        BOOST_CHECK_EQUAL(cc.shared->moves, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(cc.shared->copies, 1);
+        SEASTAR_BOOST_CHECK_EQUAL(cc.shared->moves, 0);
     }
     // non-const lvalue → 1 copy
     {
@@ -284,8 +286,8 @@ SEASTAR_TEST_CASE(test_set_value_copy_counter) {
         tests::copy_move_counter cc;
         p.set_value(cc);
         std::ignore = f.get();
-        BOOST_CHECK_EQUAL(cc.shared->copies, 1);
-        BOOST_CHECK_EQUAL(cc.shared->moves, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(cc.shared->copies, 1);
+        SEASTAR_BOOST_CHECK_EQUAL(cc.shared->moves, 0);
     }
     // rvalue (equivalent to prvalue — same category) → 1 move
     {
@@ -294,8 +296,8 @@ SEASTAR_TEST_CASE(test_set_value_copy_counter) {
         tests::copy_move_counter cc;
         p.set_value(std::move(cc));
         std::ignore = f.get();
-        BOOST_CHECK_EQUAL(cc.shared->copies, 0);
-        BOOST_CHECK_EQUAL(cc.shared->moves, 1);
+        SEASTAR_BOOST_CHECK_EQUAL(cc.shared->copies, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(cc.shared->moves, 1);
     }
     return make_ready_future<>();
 }
@@ -307,7 +309,7 @@ SEASTAR_TEST_CASE(test_set_value_move_counter) {
     tests::move_counter mc;
     p.set_value(std::move(mc));
     std::ignore = f.get();
-    BOOST_CHECK_EQUAL(mc.shared->moves, 1);
+    SEASTAR_BOOST_CHECK_EQUAL(mc.shared->moves, 1);
     return make_ready_future<>();
 }
 
@@ -316,12 +318,12 @@ SEASTAR_TEST_CASE(test_make_ready_future_conversions) {
     {
         auto f = make_ready_future<std::vector<std::string>>(3, "foo");
         std::vector<std::string> foo_x3{"foo", "foo", "foo"};
-        BOOST_REQUIRE_EQUAL(f.get(), foo_x3);
+        SEASTAR_BOOST_REQUIRE_EQUAL(f.get(), foo_x3);
     }
     // reference preserved
     {
         auto f = make_ready_future<std::vector<int>&>(conversion_test_static_vector);
-        BOOST_REQUIRE_EQUAL(&f.get(), &conversion_test_static_vector);
+        SEASTAR_BOOST_REQUIRE_EQUAL(&f.get(), &conversion_test_static_vector);
     }
     // Emplace uses direct-initialization, so explicit converting ctors are
     // accepted — differs from co_return and promise::set_value, which gate on
@@ -339,8 +341,8 @@ SEASTAR_TEST_CASE(test_make_ready_future_copy_counter) {
         tests::copy_move_counter cc;
         auto f = make_ready_future(std::move(cc));
         std::ignore = f.get();
-        BOOST_CHECK_EQUAL(cc.shared->copies, 0);
-        BOOST_CHECK_EQUAL(cc.shared->moves, 1);
+        SEASTAR_BOOST_CHECK_EQUAL(cc.shared->copies, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(cc.shared->moves, 1);
     }
     // explicit-T emplace form with const lvalue → 1 copy (single-arg
     // overload's T&& cannot bind to const lvalue, so emplace overload wins)
@@ -348,8 +350,8 @@ SEASTAR_TEST_CASE(test_make_ready_future_copy_counter) {
         const tests::copy_move_counter cc;
         auto f = make_ready_future<tests::copy_move_counter>(cc);
         std::ignore = f.get();
-        BOOST_CHECK_EQUAL(cc.shared->copies, 1);
-        BOOST_CHECK_EQUAL(cc.shared->moves, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(cc.shared->copies, 1);
+        SEASTAR_BOOST_CHECK_EQUAL(cc.shared->moves, 0);
     }
     return make_ready_future<>();
 }
@@ -360,7 +362,7 @@ SEASTAR_TEST_CASE(test_make_ready_future_move_counter) {
         tests::move_counter mc;
         auto f = make_ready_future(std::move(mc));
         std::ignore = f.get();
-        BOOST_CHECK_EQUAL(mc.shared->moves, 1);
+        SEASTAR_BOOST_CHECK_EQUAL(mc.shared->moves, 1);
     }
     // no-arg emplace: the single-arg T&& overload needs one argument, so the
     // variadic overload wins and default-constructs move_counter in place
@@ -369,7 +371,7 @@ SEASTAR_TEST_CASE(test_make_ready_future_move_counter) {
     {
         auto f = make_ready_future<tests::move_counter>();
         auto mc = f.get();
-        BOOST_CHECK_EQUAL(mc.shared->moves, 1);
+        SEASTAR_BOOST_CHECK_EQUAL(mc.shared->moves, 1);
     }
     return make_ready_future<>();
 }
@@ -428,7 +430,7 @@ SEASTAR_TEST_CASE(test_finally_is_called_on_success_and_failure) {
 SEASTAR_TEST_CASE(test_get_on_promise) {
     auto p = promise<uint32_t>();
     p.set_value(10);
-    BOOST_REQUIRE_EQUAL(10u, p.get_future().get());
+    SEASTAR_BOOST_REQUIRE_EQUAL(10u, p.get_future().get());
     return make_ready_future();
 }
 
@@ -450,7 +452,7 @@ SEASTAR_TEST_CASE(test_get_on_exceptional_promise) {
 }
 
 static void check_finally_exception(std::exception_ptr ex) {
-  BOOST_REQUIRE_EQUAL(fmt::format("{}", ex),
+  SEASTAR_BOOST_REQUIRE_EQUAL(fmt::format("{}", ex),
         "seastar::nested_exception: test_exception (bar) (while cleaning up after test_exception (foo))");
   try {
       // convert to the concrete type nested_exception
@@ -459,12 +461,12 @@ static void check_finally_exception(std::exception_ptr ex) {
     try {
         std::rethrow_exception(ex.inner);
     } catch (test_exception& inner) {
-        BOOST_REQUIRE_EQUAL(inner.what(), "bar");
+        SEASTAR_BOOST_REQUIRE_EQUAL(inner.what(), "bar");
     }
     try {
         ex.rethrow_nested();
     } catch (test_exception& outer) {
-        BOOST_REQUIRE_EQUAL(outer.what(), "foo");
+        SEASTAR_BOOST_REQUIRE_EQUAL(outer.what(), "foo");
     }
   }
 }
@@ -734,7 +736,7 @@ template<typename Container>
 void test_iterator_range_estimate() {
     Container container{1,2,3};
 
-    BOOST_REQUIRE_EQUAL(internal::iterator_range_estimate_vector_capacity(
+    SEASTAR_BOOST_REQUIRE_EQUAL(internal::iterator_range_estimate_vector_capacity(
         container.begin(), container.end()), 3);
 }
 
@@ -745,7 +747,7 @@ BOOST_AUTO_TEST_CASE(test_iterator_range_estimate_vector_capacity) {
     {
         int n = 42;
         auto seq = std::views::iota(0, n);
-        BOOST_REQUIRE_EQUAL(internal::iterator_range_estimate_vector_capacity(
+        SEASTAR_BOOST_REQUIRE_EQUAL(internal::iterator_range_estimate_vector_capacity(
             seq.begin(), seq.end()), n);
     }
     {
@@ -753,7 +755,7 @@ BOOST_AUTO_TEST_CASE(test_iterator_range_estimate_vector_capacity) {
         // might actually consume or transform the underlying sequence, in this
         // case, the function under test returns 0.
         auto seq = std::views::iota(1);
-        BOOST_REQUIRE_EQUAL(internal::iterator_range_estimate_vector_capacity(
+        SEASTAR_BOOST_REQUIRE_EQUAL(internal::iterator_range_estimate_vector_capacity(
             seq.begin(), seq.end()), 0);
     }
 }
@@ -908,7 +910,7 @@ SEASTAR_TEST_CASE(test_map_reduce) {
     return map_reduce(boost::make_counting_iterator<long>(0), boost::make_counting_iterator<long>(n),
             square, long(0), std::plus<long>()).then([n] (auto result) {
         auto m = n - 1; // counting does not include upper bound
-        BOOST_REQUIRE_EQUAL(result, (m * (m + 1) * (2*m + 1)) / 6);
+        SEASTAR_BOOST_REQUIRE_EQUAL(result, (m * (m + 1) * (2*m + 1)) / 6);
     });
 }
 
@@ -919,7 +921,7 @@ SEASTAR_TEST_CASE(test_map_reduce_simple) {
                 [] (long x) { return x; },
                 [&res] (long x) { res += x; }).then([n, &res] {
             long expected = (n * (n - 1)) / 2;
-            BOOST_REQUIRE_EQUAL(res, expected);
+            SEASTAR_BOOST_REQUIRE_EQUAL(res, expected);
         });
     });
 }
@@ -931,8 +933,8 @@ SEASTAR_TEST_CASE(test_map_reduce_tuple) {
                 [] (long x) { return std::tuple<long, long>(x, -x); },
                 [&res0, &res1] (std::tuple<long, long> t) { res0 += std::get<0>(t); res1 += std::get<1>(t); }).then([n, &res0, &res1] {
             long expected = (n * (n - 1)) / 2;
-            BOOST_REQUIRE_EQUAL(res0, expected);
-            BOOST_REQUIRE_EQUAL(res1, -expected);
+            SEASTAR_BOOST_REQUIRE_EQUAL(res0, expected);
+            SEASTAR_BOOST_REQUIRE_EQUAL(res1, -expected);
         });
     });
 }
@@ -973,7 +975,7 @@ SEASTAR_TEST_CASE(test_map_reduce_lifetime) {
         return map_reduce(boost::make_counting_iterator<long>(0), boost::make_counting_iterator<long>(n),
                 map{}, reduce{res}).then([n, &res] {
             long expected = (n * (n - 1)) / 2;
-            BOOST_REQUIRE_EQUAL(res, expected);
+            SEASTAR_BOOST_REQUIRE_EQUAL(res, expected);
         });
     });
 }
@@ -1009,7 +1011,7 @@ SEASTAR_TEST_CASE(test_map_reduce0_lifetime) {
     return map_reduce(boost::make_counting_iterator<long>(0), boost::make_counting_iterator<long>(n),
             map{}, 0L, reduce{}).then([n] (long res) {
         long expected = (n * (n - 1)) / 2;
-        BOOST_REQUIRE_EQUAL(res, expected);
+        SEASTAR_BOOST_REQUIRE_EQUAL(res, expected);
     });
 }
 
@@ -1055,7 +1057,7 @@ SEASTAR_TEST_CASE(test_map_reduce1_lifetime) {
     return map_reduce(boost::make_counting_iterator<long>(0), boost::make_counting_iterator<long>(n),
                       map{}, reduce{}).then([n] (long res) {
         long expected = (n * (n - 1)) / 2;
-        BOOST_REQUIRE_EQUAL(res, expected);
+        SEASTAR_BOOST_REQUIRE_EQUAL(res, expected);
     });
 }
 
@@ -1123,34 +1125,34 @@ SEASTAR_TEST_CASE(test_sleep) {
 
 SEASTAR_TEST_CASE(test_do_with_1) {
     return do_with(1, [] (int& one) {
-       BOOST_REQUIRE_EQUAL(one, 1);
+       SEASTAR_BOOST_REQUIRE_EQUAL(one, 1);
        return make_ready_future<>();
     });
 }
 
 SEASTAR_TEST_CASE(test_do_with_2) {
     return do_with(1, 2L, [] (int& one, long two) {
-        BOOST_REQUIRE_EQUAL(one, 1);
-        BOOST_REQUIRE_EQUAL(two, 2);
+        SEASTAR_BOOST_REQUIRE_EQUAL(one, 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(two, 2);
         return make_ready_future<>();
     });
 }
 
 SEASTAR_TEST_CASE(test_do_with_3) {
     return do_with(1, 2L, 3, [] (int& one, long two, int three) {
-        BOOST_REQUIRE_EQUAL(one, 1);
-        BOOST_REQUIRE_EQUAL(two, 2);
-        BOOST_REQUIRE_EQUAL(three, 3);
+        SEASTAR_BOOST_REQUIRE_EQUAL(one, 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(two, 2);
+        SEASTAR_BOOST_REQUIRE_EQUAL(three, 3);
         return make_ready_future<>();
     });
 }
 
 SEASTAR_TEST_CASE(test_do_with_4) {
     return do_with(1, 2L, 3, 4, [] (int& one, long two, int three, int four) {
-        BOOST_REQUIRE_EQUAL(one, 1);
-        BOOST_REQUIRE_EQUAL(two, 2);
-        BOOST_REQUIRE_EQUAL(three, 3);
-        BOOST_REQUIRE_EQUAL(four, 4);
+        SEASTAR_BOOST_REQUIRE_EQUAL(one, 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(two, 2);
+        SEASTAR_BOOST_REQUIRE_EQUAL(three, 3);
+        SEASTAR_BOOST_REQUIRE_EQUAL(four, 4);
         return make_ready_future<>();
     });
 }
@@ -1246,7 +1248,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each) {
             sum += v;
             return make_ready_future<>();
         }).get();
-        BOOST_REQUIRE_EQUAL(sum, 15);
+        SEASTAR_BOOST_REQUIRE_EQUAL(sum, 15);
 
         // all suspend
         sum = 0;
@@ -1255,7 +1257,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each) {
                 sum += v;
             });
         }).get();
-        BOOST_REQUIRE_EQUAL(sum, 15);
+        SEASTAR_BOOST_REQUIRE_EQUAL(sum, 15);
 
         // throws immediately
         BOOST_CHECK_EXCEPTION(parallel_for_each(range, [] (int) -> future<> {
@@ -1284,7 +1286,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each_early_failure) {
                 return make_ready_future<>();
             });
         }).then_wrapped([&counter] (future<> f) {
-            BOOST_REQUIRE_EQUAL(counter, 11000);
+            SEASTAR_BOOST_REQUIRE_EQUAL(counter, 11000);
             BOOST_REQUIRE(f.failed());
             try {
                 f.get();
@@ -1375,7 +1377,7 @@ SEASTAR_TEST_CASE(futurize_invoke_val_ok) {
     return futurize_invoke([] (int arg) { return arg * 2; }, 2).then_wrapped([] (future<int> f) {
         try {
             auto x = f.get();
-            BOOST_REQUIRE_EQUAL(x, 4);
+            SEASTAR_BOOST_REQUIRE_EQUAL(x, 4);
         } catch (expected_exception& e) {
             BOOST_FAIL("should not have thrown");
         }
@@ -1404,7 +1406,7 @@ SEASTAR_TEST_CASE(futurize_invoke_val_future_ok) {
     }, 2).then_wrapped([] (future<int> f) {
         try {
             auto x = f.get();
-            BOOST_REQUIRE_EQUAL(x, 200);
+            SEASTAR_BOOST_REQUIRE_EQUAL(x, 200);
         } catch (expected_exception& e) {
             BOOST_FAIL("should not have thrown");
         }
@@ -1451,7 +1453,7 @@ SEASTAR_TEST_CASE(futurize_invoke_void_future_ok) {
     }, *a).then_wrapped([a] (future<> f) {
         try {
             f.get();
-            BOOST_REQUIRE_EQUAL(*a, 100);
+            SEASTAR_BOOST_REQUIRE_EQUAL(*a, 100);
         } catch (expected_exception& e) {
             BOOST_FAIL("should not have thrown");
         }
@@ -1592,19 +1594,19 @@ SEASTAR_TEST_CASE(test_futurize_from_tuple_const_ref) {
         unmovable_object& operator=(const unmovable_object&) { BOOST_FAIL("unmovable_object should not be copied"); return *this; }
         unmovable_object(unmovable_object&&) { BOOST_FAIL("unmovable_object should not be moved"); }
         unmovable_object& operator=(unmovable_object&&) { BOOST_FAIL("unmovable_object should not be moved"); return *this; }
-        ~unmovable_object() { BOOST_REQUIRE_EQUAL(v, 5); }
+        ~unmovable_object() { SEASTAR_BOOST_REQUIRE_EQUAL(v, 5); }
     };
     unmovable_object n{5};
 
     // Ensure the support through `make_ready_future` as well.
-    BOOST_REQUIRE_EQUAL(make_ready_future<unmovable_object&>(n).get().v, 5);
+    SEASTAR_BOOST_REQUIRE_EQUAL(make_ready_future<unmovable_object&>(n).get().v, 5);
 
     auto f = make_ready_future<>();
-    f = std::move(f).then([&]() -> unmovable_object& { return n; }).then([](unmovable_object& x) { BOOST_REQUIRE_EQUAL(x.v, 5); });
-    f = std::move(f).then([&]() -> const unmovable_object& { return n; }).then([](const unmovable_object& x) { BOOST_REQUIRE_EQUAL(x.v, 5); });
+    f = std::move(f).then([&]() -> unmovable_object& { return n; }).then([](unmovable_object& x) { SEASTAR_BOOST_REQUIRE_EQUAL(x.v, 5); });
+    f = std::move(f).then([&]() -> const unmovable_object& { return n; }).then([](const unmovable_object& x) { SEASTAR_BOOST_REQUIRE_EQUAL(x.v, 5); });
     // Without the annotation, it would be pass-by-value or moved
-    f = std::move(f).then([]() { int x = 1; return x; }).then([](int x) { BOOST_REQUIRE_EQUAL(x, 1); });
-    f = std::move(f).then([x = n.v] { return x; }).then([](int x) { BOOST_REQUIRE_EQUAL(x, 5); });
+    f = std::move(f).then([]() { int x = 1; return x; }).then([](int x) { SEASTAR_BOOST_REQUIRE_EQUAL(x, 1); });
+    f = std::move(f).then([x = n.v] { return x; }).then([](int x) { SEASTAR_BOOST_REQUIRE_EQUAL(x, 5); });
     co_await std::move(f);
 }
 
@@ -1670,7 +1672,7 @@ SEASTAR_TEST_CASE(test_when_all_functions) {
         throw 42;
         return make_ready_future<>();
     }, yield()).then([] (std::tuple<future<int>, future<>, future<>> res) {
-        BOOST_REQUIRE_EQUAL(std::get<0>(res).get(), 42);
+        SEASTAR_BOOST_REQUIRE_EQUAL(std::get<0>(res).get(), 42);
 
         BOOST_REQUIRE(std::get<1>(res).available());
         BOOST_REQUIRE(std::get<1>(res).failed());
@@ -1790,7 +1792,7 @@ SEASTAR_TEST_CASE(test_with_timeout_when_it_does_not_time_out) {
 
             pr.set_value(42);
 
-            BOOST_REQUIRE_EQUAL(f.get(), 42);
+            SEASTAR_BOOST_REQUIRE_EQUAL(f.get(), 42);
         }
 
         // Check that timer was indeed cancelled
@@ -1830,7 +1832,7 @@ SEASTAR_TEST_CASE(test_shared_future_with_timeout) {
 
         pr.set_value(42);
 
-        BOOST_REQUIRE_EQUAL(42, f3.get());
+        SEASTAR_BOOST_REQUIRE_EQUAL(42, f3.get());
     });
 }
 
@@ -1859,7 +1861,7 @@ SEASTAR_THREAD_TEST_CASE(test_shared_future_with_abort) {
 
     pr.set_value(42);
 
-    BOOST_REQUIRE_EQUAL(42, f3.get());
+    SEASTAR_BOOST_REQUIRE_EQUAL(42, f3.get());
 
     auto f4 = pr.get_shared_future(as);
     BOOST_REQUIRE(f4.available());
@@ -1937,11 +1939,11 @@ SEASTAR_TEST_CASE(test_when_all_succeed_tuples) {
         make_ready_future<std::tuple<int, sstring>>(std::tuple(84, "hi")),
         make_ready_future<bool>(true)
     ).then_unpack([] (sstring msg, int v, std::tuple<int, sstring> t, bool b) {
-        BOOST_REQUIRE_EQUAL(msg, "hello world");
-        BOOST_REQUIRE_EQUAL(v, 42);
-        BOOST_REQUIRE_EQUAL(std::get<0>(t), 84);
-        BOOST_REQUIRE_EQUAL(std::get<1>(t), "hi");
-        BOOST_REQUIRE_EQUAL(b, true);
+        SEASTAR_BOOST_REQUIRE_EQUAL(msg, "hello world");
+        SEASTAR_BOOST_REQUIRE_EQUAL(v, 42);
+        SEASTAR_BOOST_REQUIRE_EQUAL(std::get<0>(t), 84);
+        SEASTAR_BOOST_REQUIRE_EQUAL(std::get<1>(t), "hi");
+        SEASTAR_BOOST_REQUIRE_EQUAL(b, true);
 
         return seastar::when_all_succeed(
                 make_exception_future<>(42),
@@ -2034,10 +2036,10 @@ SEASTAR_TEST_CASE(test_when_all_succeed_vector) {
         vecs.emplace_back(make_ready_future<int>(3));
         return seastar::when_all_succeed(vecs.begin(), vecs.end());
     }).then([] (std::vector<int> vals) {
-        BOOST_REQUIRE_EQUAL(vals.size(), 3u);
-        BOOST_REQUIRE_EQUAL(vals[0], 1);
-        BOOST_REQUIRE_EQUAL(vals[1], 2);
-        BOOST_REQUIRE_EQUAL(vals[2], 3);
+        SEASTAR_BOOST_REQUIRE_EQUAL(vals.size(), 3u);
+        SEASTAR_BOOST_REQUIRE_EQUAL(vals[0], 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(vals[1], 2);
+        SEASTAR_BOOST_REQUIRE_EQUAL(vals[2], 3);
 
         std::vector<future<int>> vecs;
         vecs.emplace_back(make_ready_future<int>(1));
@@ -2144,11 +2146,11 @@ SEASTAR_THREAD_TEST_CASE(test_exception_future_with_backtrace) {
         });
     };
 
-    BOOST_REQUIRE_EQUAL(outer(false).get(), -1);
-    BOOST_REQUIRE_EQUAL(counter, 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(outer(false).get(), -1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(counter, 1);
 
     BOOST_CHECK_THROW(outer(true).get(), expected_exception);
-    BOOST_REQUIRE_EQUAL(counter, 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(counter, 1);
 
     // Example code where we expect a "Exceptional future ignored"
     // warning.
@@ -2243,7 +2245,7 @@ SEASTAR_THREAD_TEST_CASE(test_with_gate) {
 
     // test normal operation when gate is opened
     BOOST_CHECK_NO_THROW(with_gate(g, [&] { counter++; }).get());
-    BOOST_REQUIRE_EQUAL(counter, 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(counter, 1);
 
     // test that an exception returned by the calling func
     // is propagated to with_gate future
@@ -2312,7 +2314,7 @@ SEASTAR_THREAD_TEST_CASE(test_max_concurrent_for_each) {
         sum += v;
         return make_ready_future<>();
     }).get();
-    BOOST_REQUIRE_EQUAL(sum, 28);
+    SEASTAR_BOOST_REQUIRE_EQUAL(sum, 28);
 
     BOOST_TEST_MESSAGE("const iterator");
     sum = 0;
@@ -2320,7 +2322,7 @@ SEASTAR_THREAD_TEST_CASE(test_max_concurrent_for_each) {
         sum += v;
         return make_ready_future<>();
     }).get();
-    BOOST_REQUIRE_EQUAL(sum, 28);
+    SEASTAR_BOOST_REQUIRE_EQUAL(sum, 28);
 
     BOOST_TEST_MESSAGE("reverse iterator");
     sum = 0;
@@ -2328,7 +2330,7 @@ SEASTAR_THREAD_TEST_CASE(test_max_concurrent_for_each) {
         sum += v;
         return make_ready_future<>();
     }).get();
-    BOOST_REQUIRE_EQUAL(sum, 28);
+    SEASTAR_BOOST_REQUIRE_EQUAL(sum, 28);
 
     BOOST_TEST_MESSAGE("immediate result");
     sum = 0;
@@ -2336,7 +2338,7 @@ SEASTAR_THREAD_TEST_CASE(test_max_concurrent_for_each) {
         sum += v;
         return make_ready_future<>();
     }).get();
-    BOOST_REQUIRE_EQUAL(sum, 28);
+    SEASTAR_BOOST_REQUIRE_EQUAL(sum, 28);
 
     BOOST_TEST_MESSAGE("suspend");
     sum = 0;
@@ -2345,7 +2347,7 @@ SEASTAR_THREAD_TEST_CASE(test_max_concurrent_for_each) {
             sum += v;
         });
     }).get();
-    BOOST_REQUIRE_EQUAL(sum, 28);
+    SEASTAR_BOOST_REQUIRE_EQUAL(sum, 28);
 
     BOOST_TEST_MESSAGE("throw immediately");
     sum = 0;
@@ -2356,7 +2358,7 @@ SEASTAR_THREAD_TEST_CASE(test_max_concurrent_for_each) {
         }
         return make_ready_future<>();
     }).get(), int, [] (int v) { return v == 5; });
-    BOOST_REQUIRE_EQUAL(sum, 28);
+    SEASTAR_BOOST_REQUIRE_EQUAL(sum, 28);
 
     BOOST_TEST_MESSAGE("throw after suspension");
     sum = 0;
@@ -2375,7 +2377,7 @@ SEASTAR_THREAD_TEST_CASE(test_max_concurrent_for_each) {
         sum += v;
         return make_ready_future<>();
     }).get();
-    BOOST_REQUIRE_EQUAL(sum, 28);
+    SEASTAR_BOOST_REQUIRE_EQUAL(sum, 28);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_for_each_set) {
@@ -2388,7 +2390,7 @@ SEASTAR_THREAD_TEST_CASE(test_for_each_set) {
     do_for_each(range, [&res] (auto i) {
         res |= 1 << i;
     }).get();
-    BOOST_REQUIRE_EQUAL(res, 17);
+    SEASTAR_BOOST_REQUIRE_EQUAL(res, 17);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_yield) {
@@ -2396,9 +2398,9 @@ SEASTAR_THREAD_TEST_CASE(test_yield) {
     auto one = yield().then([&] {
         flag = true;
     });
-    BOOST_REQUIRE_EQUAL(flag, false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(flag, false);
     one.get();
-    BOOST_REQUIRE_EQUAL(flag, true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(flag, true);
 
 #ifndef SEASTAR_DEBUG
     // same thing, with now(), but for non-DEBUG only, otherwise .then() doesn't
@@ -2408,7 +2410,7 @@ SEASTAR_THREAD_TEST_CASE(test_yield) {
         flag = true;
     });
     // now() does not yield
-    BOOST_REQUIRE_EQUAL(flag, true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(flag, true);
 #endif
 }
 
@@ -2495,7 +2497,7 @@ SEASTAR_THREAD_TEST_CASE(test_ready_future_across_shards) {
     auto other_shard = (this_shard_id() + 1) % this_smp_shard_count();
     auto f1 = make_ready_future<int>(42);
     smp::submit_to(other_shard, [f1 = std::move(f1)] () mutable {
-        BOOST_REQUIRE_EQUAL(f1.get(), 42);
+        SEASTAR_BOOST_REQUIRE_EQUAL(f1.get(), 42);
     }).get();
 }
 
@@ -2692,13 +2694,13 @@ void test_lifetimes_and_movement() {
         auto stats = std::make_shared<canary_stats>();
         apply_unready(canary_callable_move_only{stats});
         // Rvalue lambda gets moved into then() implementation
-        BOOST_CHECK_EQUAL(stats->copies, 0);
-        BOOST_CHECK_EQUAL(stats->moves, if_erased(4, 1) + extra_moves);
-        BOOST_CHECK_EQUAL(stats->copy_assignments, 0);
-        BOOST_CHECK_EQUAL(stats->move_assignments, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->copies, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->moves, if_erased(4, 1) + extra_moves);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->copy_assignments, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->move_assignments, 0);
 
-        BOOST_CHECK_EQUAL(stats->lvalue_calls, 0);
-        BOOST_CHECK_EQUAL(stats->rvalue_calls, 1);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->lvalue_calls, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->rvalue_calls, 1);
     }
 
     // Test 2: Passing lvalue lambda to then()
@@ -2708,13 +2710,13 @@ void test_lifetimes_and_movement() {
         canary_callable callable{stats};
         apply_unready(callable);
         // Lvalue lambda gets copied once, then moved through then() chain
-        BOOST_CHECK_EQUAL(stats->copies, 1);
-        BOOST_CHECK_EQUAL(stats->moves, if_erased(4, 1) + extra_moves);
-        BOOST_CHECK_EQUAL(stats->copy_assignments, 0);
-        BOOST_CHECK_EQUAL(stats->move_assignments, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->copies, 1);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->moves, if_erased(4, 1) + extra_moves);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->copy_assignments, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->move_assignments, 0);
 
-        BOOST_CHECK_EQUAL(stats->lvalue_calls, 0);
-        BOOST_CHECK_EQUAL(stats->rvalue_calls, 1);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->lvalue_calls, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->rvalue_calls, 1);
 
         BOOST_CHECK(!callable.c.is_moved_from());
     }
@@ -2726,13 +2728,13 @@ void test_lifetimes_and_movement() {
         canary_callable_move_only callable{stats};
         apply_unready(std::move(callable));
         // std::move(lvalue lambda) behaves like rvalue lambda - only moves
-        BOOST_CHECK_EQUAL(stats->copies, 0);
-        BOOST_CHECK_EQUAL(stats->moves, if_erased(4, 1) + extra_moves);
-        BOOST_CHECK_EQUAL(stats->copy_assignments, 0);
-        BOOST_CHECK_EQUAL(stats->move_assignments, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->copies, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->moves, if_erased(4, 1) + extra_moves);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->copy_assignments, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->move_assignments, 0);
 
-        BOOST_CHECK_EQUAL(stats->lvalue_calls, 0);
-        BOOST_CHECK_EQUAL(stats->rvalue_calls, 1);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->lvalue_calls, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->rvalue_calls, 1);
 
         BOOST_CHECK(callable.c.is_moved_from());
     }
@@ -2747,13 +2749,13 @@ void test_lifetimes_and_movement() {
         auto stats = std::make_shared<canary_stats>();
         apply_ready(canary_callable_move_only{stats});
         // Ready future: lambda moved fewer times since future is already ready
-        BOOST_CHECK_EQUAL(stats->copies, 0);
-        BOOST_CHECK_EQUAL(stats->moves, if_erased(3, 0) + is_debug() + extra_moves);
-        BOOST_CHECK_EQUAL(stats->copy_assignments, 0);
-        BOOST_CHECK_EQUAL(stats->move_assignments, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->copies, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->moves, if_erased(3, 0) + is_debug() + extra_moves);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->copy_assignments, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->move_assignments, 0);
 
-        BOOST_CHECK_EQUAL(stats->lvalue_calls, 0);
-        BOOST_CHECK_EQUAL(stats->rvalue_calls, 1);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->lvalue_calls, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->rvalue_calls, 1);
     }
 
     // Test 5: ready future with lvalue lambda
@@ -2763,13 +2765,13 @@ void test_lifetimes_and_movement() {
         canary_callable callable{stats};
         apply_ready(callable);
         // Ready future: lvalue lambda copied once, then moved fewer times
-        BOOST_CHECK_EQUAL(stats->copies, 1);
-        BOOST_CHECK_EQUAL(stats->moves, if_erased(3, 0) + is_debug() + extra_moves);
-        BOOST_CHECK_EQUAL(stats->copy_assignments, 0);
-        BOOST_CHECK_EQUAL(stats->move_assignments, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->copies, 1);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->moves, if_erased(3, 0) + is_debug() + extra_moves);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->copy_assignments, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->move_assignments, 0);
 
-        BOOST_CHECK_EQUAL(stats->lvalue_calls, 0);
-        BOOST_CHECK_EQUAL(stats->rvalue_calls, 1);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->lvalue_calls, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(stats->rvalue_calls, 1);
 
         BOOST_CHECK(!callable.c.is_moved_from());
     }
@@ -2868,7 +2870,7 @@ SEASTAR_THREAD_TEST_CASE(test_foreign_promise_set_value) {
 
     setter.get();
 
-    BOOST_REQUIRE_EQUAL(getter.get(), other_shard);
+    SEASTAR_BOOST_REQUIRE_EQUAL(getter.get(), other_shard);
 }
 
 namespace test_bool_class_constexpr_ns {
@@ -2894,17 +2896,17 @@ SEASTAR_TEST_CASE(test_bool_class_spaceship_operator) {
     auto a = test_bool_class::yes;
     auto b = test_bool_class::no;
 
-    BOOST_REQUIRE_EQUAL(a, a);
+    SEASTAR_BOOST_REQUIRE_EQUAL(a, a);
     BOOST_REQUIRE(a <=> a == 0);
-    BOOST_REQUIRE_EQUAL(a, test_bool_class(true));
+    SEASTAR_BOOST_REQUIRE_EQUAL(a, test_bool_class(true));
     BOOST_REQUIRE(a <=> test_bool_class(true) == 0);
-    BOOST_REQUIRE_EQUAL(b, b);
+    SEASTAR_BOOST_REQUIRE_EQUAL(b, b);
     BOOST_REQUIRE(b <=> b == 0);
-    BOOST_REQUIRE_EQUAL(b, test_bool_class(false));
+    SEASTAR_BOOST_REQUIRE_EQUAL(b, test_bool_class(false));
     BOOST_REQUIRE(b <=> test_bool_class(false) == 0);
-    BOOST_REQUIRE_GT(a, b);
+    SEASTAR_BOOST_REQUIRE_GT(a, b);
     BOOST_REQUIRE(a <=> b > 0);
-    BOOST_REQUIRE_LT(b, a);
+    SEASTAR_BOOST_REQUIRE_LT(b, a);
     BOOST_REQUIRE(b <=> a < 0);
 
     return make_ready_future();

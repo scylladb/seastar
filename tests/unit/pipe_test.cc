@@ -22,6 +22,7 @@
 
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include "test_comparisons.hh"
 
 #include <seastar/core/pipe.hh>
 
@@ -42,10 +43,10 @@ SEASTAR_THREAD_TEST_CASE(simple_pipe_test) {
     auto f0 = p.reader.read();
     BOOST_CHECK(!f0.available());
     p.writer.write(17).get();
-    BOOST_REQUIRE_EQUAL(*f0.get(), 17);
+    SEASTAR_BOOST_REQUIRE_EQUAL(*f0.get(), 17);
 
     p.writer.write(42).get();
     auto f2 = p.reader.read();
     BOOST_CHECK(f2.available());
-    BOOST_REQUIRE_EQUAL(*f2.get(), 42);
+    SEASTAR_BOOST_REQUIRE_EQUAL(*f2.get(), 42);
 }

@@ -27,6 +27,7 @@
 #include <seastar/util/log.hh>
 #include <seastar/util/backtrace.hh>
 #include <ostream>
+#include "test_comparisons.hh"
 #include <regex>
 
 
@@ -126,7 +127,7 @@ BOOST_AUTO_TEST_CASE(nested_exception_logging1) {
             } catch(...) {
                 log_msg << std::current_exception();
             }
-            BOOST_REQUIRE_EQUAL(log_msg.str(), exception_generator_str(inst, level));
+            SEASTAR_BOOST_REQUIRE_EQUAL(log_msg.str(), exception_generator_str(inst, level));
         }
     }
 }
@@ -140,7 +141,7 @@ BOOST_AUTO_TEST_CASE(nested_exception_logging2) {
         log_msg << std::current_exception();
     }
 
-    BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("std::nested_exception: <no exception>"));
+    SEASTAR_BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("std::nested_exception: <no exception>"));
 }
 
 class very_important_exception : public std::exception {
@@ -173,7 +174,7 @@ BOOST_AUTO_TEST_CASE(nested_exception_logging3) {
 
     std::string expected_string("std::_Nested_exception<unknown_obj>: std::_Nested_exception<std::system_error> (error generic:1, my error: Operation not permitted): very_important_exception (very important information)");
 
-    BOOST_REQUIRE_EQUAL(log_msg.str(), expected_string);
+    SEASTAR_BOOST_REQUIRE_EQUAL(log_msg.str(), expected_string);
 }
 
 BOOST_AUTO_TEST_CASE(unknown_object_thrown_test) {
@@ -184,7 +185,7 @@ BOOST_AUTO_TEST_CASE(unknown_object_thrown_test) {
         log_msg << std::current_exception();
     }
 
-    BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("unknown_obj"));
+    SEASTAR_BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("unknown_obj"));
 
 }
 
@@ -208,9 +209,9 @@ BOOST_AUTO_TEST_CASE(format_error_test) {
 #endif
 
     BOOST_TEST_MESSAGE(log_msg.str());
-    BOOST_REQUIRE_NE(log_msg.str().find(__builtin_FILE()), std::string::npos);
-    BOOST_REQUIRE_NE(log_msg.str().find(__builtin_FUNCTION()), std::string::npos);
-    BOOST_REQUIRE_NE(log_msg.str().find(fmt), std::string::npos);
+    SEASTAR_BOOST_REQUIRE_NE(log_msg.str().find(__builtin_FILE()), std::string::npos);
+    SEASTAR_BOOST_REQUIRE_NE(log_msg.str().find(__builtin_FUNCTION()), std::string::npos);
+    SEASTAR_BOOST_REQUIRE_NE(log_msg.str().find(fmt), std::string::npos);
 }
 
 BOOST_AUTO_TEST_CASE(throw_with_backtrace_exception_logging) {

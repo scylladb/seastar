@@ -22,6 +22,7 @@
 
 #include <stdlib.h>
 #include <random>
+#include "test_comparisons.hh"
 
 #include <seastar/testing/random.hh>
 #include <seastar/testing/test_case.hh>
@@ -73,7 +74,7 @@ SEASTAR_THREAD_TEST_CASE(test_tmp_file) {
             });
         });
     }).get();
-    BOOST_REQUIRE_EQUAL(expected , actual);
+    SEASTAR_BOOST_REQUIRE_EQUAL(expected , actual);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_non_existing_TMPDIR) {
@@ -182,7 +183,7 @@ SEASTAR_THREAD_TEST_CASE(test_tmp_dir) {
             });
         });
     }).get();
-    BOOST_REQUIRE_EQUAL(expected , actual);
+    SEASTAR_BOOST_REQUIRE_EQUAL(expected , actual);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_tmp_dir_with_path) {
@@ -201,7 +202,7 @@ SEASTAR_THREAD_TEST_CASE(test_tmp_dir_with_path) {
             });
         });
     }).get();
-    BOOST_REQUIRE_EQUAL(expected , actual);
+    SEASTAR_BOOST_REQUIRE_EQUAL(expected , actual);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_tmp_dir_with_non_existing_path) {
@@ -216,7 +217,7 @@ SEASTAR_TEST_CASE(tmp_dir_with_thread_test) {
         auto buf = get_init_buffer(f);
         auto expected = buf.size();
         auto actual = f.dma_write(0, buf.get(), buf.size()).get();
-        BOOST_REQUIRE_EQUAL(expected, actual);
+        SEASTAR_BOOST_REQUIRE_EQUAL(expected, actual);
         tf.close().get();
         tf.remove().get();
     });
@@ -295,11 +296,11 @@ SEASTAR_TEST_CASE(test_read_entire_file_contiguous) {
                 wbuf.get_write()[i] = chars[dist(eng) % sizeof(chars)];
             }
 
-            BOOST_REQUIRE_EQUAL(f.dma_write(0, wbuf.begin(), wbuf.size()).get(), wbuf.size());
+            SEASTAR_BOOST_REQUIRE_EQUAL(f.dma_write(0, wbuf.begin(), wbuf.size()).get(), wbuf.size());
             f.flush().get();
 
             sstring res = util::read_entire_file_contiguous(tf.get_path()).get();
-            BOOST_REQUIRE_EQUAL(res, std::string_view(wbuf.begin(), wbuf.size()));
+            SEASTAR_BOOST_REQUIRE_EQUAL(res, std::string_view(wbuf.begin(), wbuf.size()));
         });
     });
 }

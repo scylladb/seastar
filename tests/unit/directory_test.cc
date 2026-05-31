@@ -21,6 +21,7 @@
 
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/test_runner.hh>
+#include "test_comparisons.hh"
 
 #include <seastar/util/std-compat.hh>
 #ifdef SEASTAR_COROUTINES_ENABLED
@@ -166,10 +167,10 @@ SEASTAR_TEST_CASE(test_generator_with_statat) {
         auto& entry = *de;
         auto sd1 = co_await f.statat(entry.name);
         auto sd2 = co_await file_stat(f, entry.name, follow_symlink::no);
-        BOOST_REQUIRE_EQUAL(sd1.st_ino, sd2.inode_number);
+        SEASTAR_BOOST_REQUIRE_EQUAL(sd1.st_ino, sd2.inode_number);
 
         auto sd3 = co_await file_stat(entry.name, follow_symlink::no);
-        BOOST_REQUIRE_EQUAL(sd1.st_ino, sd3.inode_number);
+        SEASTAR_BOOST_REQUIRE_EQUAL(sd1.st_ino, sd3.inode_number);
     }
     co_await f.close();
 }

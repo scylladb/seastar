@@ -26,6 +26,7 @@
 #include <seastar/core/prometheus.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/util/closeable.hh>
+#include "test_comparisons.hh"
 
 #include "core/prometheus-impl.hh"
 #include "memory-data-sink.hh"
@@ -442,16 +443,16 @@ SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_basic_counter) {
 
     // After aggregation, should have one metric with "shard" label removed
     const auto& values = aggregator.get_values();
-    BOOST_REQUIRE_EQUAL(values.size(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(values.size(), 1);
 
     // Check that the aggregated value has the correct labels (without "shard")
     auto it = values.begin();
     // Labels are already filtered (aggregated labels removed)
-    BOOST_REQUIRE_EQUAL(it->second.labels.size(), 1);
-    BOOST_REQUIRE_EQUAL(it->second.labels.at("name").value(), "counter1");
+    SEASTAR_BOOST_REQUIRE_EQUAL(it->second.labels.size(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(it->second.labels.at("name").value(), "counter1");
 
     // Check that values were summed: 123 + 456 = 579
-    BOOST_REQUIRE_EQUAL(it->second.m.d(), 579);
+    SEASTAR_BOOST_REQUIRE_EQUAL(it->second.m.d(), 579);
 
     return make_ready_future<>();
 }
@@ -482,14 +483,14 @@ SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_multiple_labels) {
 
     // After aggregation, should have one metric with "shard" and "cpu" removed
     const auto& values = aggregator.get_values();
-    BOOST_REQUIRE_EQUAL(values.size(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(values.size(), 1);
 
     auto it = values.begin();
     // Labels are already filtered (aggregated labels removed)
-    BOOST_REQUIRE_EQUAL(it->second.labels.size(), 2);
-    BOOST_REQUIRE_EQUAL(it->second.labels.at("name").value(), "metric1");
-    BOOST_REQUIRE_EQUAL(it->second.labels.at("type").value(), "typeA");
-    BOOST_REQUIRE_EQUAL(it->second.m.d(), 300);
+    SEASTAR_BOOST_REQUIRE_EQUAL(it->second.labels.size(), 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(it->second.labels.at("name").value(), "metric1");
+    SEASTAR_BOOST_REQUIRE_EQUAL(it->second.labels.at("type").value(), "typeA");
+    SEASTAR_BOOST_REQUIRE_EQUAL(it->second.m.d(), 300);
 
     return make_ready_future<>();
 }
@@ -516,7 +517,7 @@ SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_different_label_values) {
 
     // Should have TWO separate aggregated metrics (different "name" values)
     const auto& values = aggregator.get_values();
-    BOOST_REQUIRE_EQUAL(values.size(), 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(values.size(), 2);
 
     // Verify we have both metrics by iterating
     int count_metric1 = 0;
@@ -524,14 +525,14 @@ SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_different_label_values) {
     for (auto it = values.begin(); it != values.end(); ++it) {
         if (it->second.labels.at("name").value() == "metric1") {
             count_metric1++;
-            BOOST_REQUIRE_EQUAL(it->second.m.d(), 100);
+            SEASTAR_BOOST_REQUIRE_EQUAL(it->second.m.d(), 100);
         } else if (it->second.labels.at("name").value() == "metric2") {
             count_metric2++;
-            BOOST_REQUIRE_EQUAL(it->second.m.d(), 200);
+            SEASTAR_BOOST_REQUIRE_EQUAL(it->second.m.d(), 200);
         }
     }
-    BOOST_REQUIRE_EQUAL(count_metric1, 1);
-    BOOST_REQUIRE_EQUAL(count_metric2, 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(count_metric1, 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(count_metric2, 1);
 
     return make_ready_future<>();
 }
@@ -542,7 +543,7 @@ SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_empty) {
     metric_aggregate_by_labels aggregator(aggregate_labels);
 
     BOOST_REQUIRE(aggregator.empty());
-    BOOST_REQUIRE_EQUAL(aggregator.get_values().size(), 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(aggregator.get_values().size(), 0);
 
     return make_ready_future<>();
 }
@@ -568,7 +569,7 @@ SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_no_aggregation) {
 
     // Should have TWO separate metrics (no aggregation)
     const auto& values = aggregator.get_values();
-    BOOST_REQUIRE_EQUAL(values.size(), 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(values.size(), 2);
 
     return make_ready_future<>();
 }
@@ -593,7 +594,7 @@ SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_real_counters) {
     aggregator.add(value2, labels2);
 
     const auto& values = aggregator.get_values();
-    BOOST_REQUIRE_EQUAL(values.size(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(values.size(), 1);
 
     auto it = values.begin();
     BOOST_REQUIRE_CLOSE(it->second.m.d(), 580.2, 0.001);
@@ -634,17 +635,17 @@ SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_histograms) {
     aggregator.add(value2, labels2);
 
     const auto& values = aggregator.get_values();
-    BOOST_REQUIRE_EQUAL(values.size(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(values.size(), 1);
 
     auto it = values.begin();
     const auto& aggregated_hist = it->second.m.get_histogram();
 
     // Check aggregated histogram values
-    BOOST_REQUIRE_EQUAL(aggregated_hist.sample_count, 30);
-    BOOST_REQUIRE_EQUAL(aggregated_hist.sample_sum, 400);
-    BOOST_REQUIRE_EQUAL(aggregated_hist.buckets.size(), 2);
-    BOOST_REQUIRE_EQUAL(aggregated_hist.buckets[0].count, 13);
-    BOOST_REQUIRE_EQUAL(aggregated_hist.buckets[1].count, 30);
+    SEASTAR_BOOST_REQUIRE_EQUAL(aggregated_hist.sample_count, 30);
+    SEASTAR_BOOST_REQUIRE_EQUAL(aggregated_hist.sample_sum, 400);
+    SEASTAR_BOOST_REQUIRE_EQUAL(aggregated_hist.buckets.size(), 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(aggregated_hist.buckets[0].count, 13);
+    SEASTAR_BOOST_REQUIRE_EQUAL(aggregated_hist.buckets[1].count, 30);
 
     return make_ready_future<>();
 }
@@ -665,10 +666,10 @@ SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_same_metric_added_twice) {
     aggregator.add(value2, labels);
 
     const auto& values = aggregator.get_values();
-    BOOST_REQUIRE_EQUAL(values.size(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(values.size(), 1);
 
     auto it = values.begin();
-    BOOST_REQUIRE_EQUAL(it->second.m.d(), 250);
+    SEASTAR_BOOST_REQUIRE_EQUAL(it->second.m.d(), 250);
 
     return make_ready_future<>();
 }

@@ -31,6 +31,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include "test_comparisons.hh"
 #if __cplusplus >= 202302L && defined(__cpp_lib_generator)
 #include <generator>
 template <typename T>
@@ -90,7 +91,7 @@ verify_fib_drained(coroutine::experimental::generator<int> actual_fibs, unsigned
 
     while (auto actual_fib = co_await actual_fibs()) {
         BOOST_REQUIRE(expected_fib != std::end(expected_fibs));
-        BOOST_REQUIRE_EQUAL(*actual_fib, *expected_fib);
+        SEASTAR_BOOST_REQUIRE_EQUAL(actual_fib->get(), *expected_fib);
         ++expected_fib;
     }
     BOOST_REQUIRE(expected_fib == std::end(expected_fibs));
@@ -112,7 +113,7 @@ seastar::future<> test_generator_not_drained(do_suspend suspend) {
     auto fib = async_fibonacci_sequence(42, suspend);
     auto actual_fib = co_await fib();
     BOOST_REQUIRE(actual_fib.has_value());
-    BOOST_REQUIRE_EQUAL(*actual_fib, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(actual_fib->get(), 0);
 }
 
 SEASTAR_TEST_CASE(test_generator_not_drained_with_suspend) {
@@ -143,10 +144,10 @@ SEASTAR_TEST_CASE(test_generator_value_reference) {
     while (auto actual = co_await actual_quoted()) {
         BOOST_REQUIRE(idx < expected_quoted.size());
         // generator<std::string_view, std::string> returns std::string_view as a value
-        BOOST_REQUIRE_EQUAL(*actual, expected_quoted[idx]);
+        SEASTAR_BOOST_REQUIRE_EQUAL(*actual, expected_quoted[idx]);
         ++idx;
     }
-    BOOST_REQUIRE_EQUAL(idx, expected_quoted.size());
+    SEASTAR_BOOST_REQUIRE_EQUAL(idx, expected_quoted.size());
 }
 
 coroutine::experimental::generator<std::string>
@@ -163,10 +164,10 @@ SEASTAR_TEST_CASE(test_generator_rvalue_reference) {
     while (auto actual = co_await actual_strings()) {
         BOOST_REQUIRE(idx < expected_strings.size());
         // generator<std::string> returns std::string&& wrapped in reference_wrapper
-        BOOST_REQUIRE_EQUAL(actual->get(), expected_strings[idx]);
+        SEASTAR_BOOST_REQUIRE_EQUAL(actual->get(), expected_strings[idx]);
         ++idx;
     }
-    BOOST_REQUIRE_EQUAL(idx, expected_strings.size());
+    SEASTAR_BOOST_REQUIRE_EQUAL(idx, expected_strings.size());
 }
 
 SEASTAR_TEST_CASE(test_generator_move_ctor) {
@@ -230,7 +231,7 @@ SEASTAR_TEST_CASE(test_generator_throws_from_generator) {
     auto f = co_await coroutine::as_future(count_to(42));
     BOOST_REQUIRE(f.failed());
     BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), std::invalid_argument);
-    BOOST_REQUIRE_EQUAL(total, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(total, 0);
 }
 
 SEASTAR_TEST_CASE(test_generator_throws_from_consumer) {
@@ -247,7 +248,7 @@ SEASTAR_TEST_CASE(test_generator_throws_from_consumer) {
     auto f = co_await coroutine::as_future(count_to(42));
     BOOST_REQUIRE(f.failed());
     BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), std::invalid_argument);
-    BOOST_REQUIRE_EQUAL(total, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(total, 0);
 }
 
 SEASTAR_TEST_CASE(test_batch_generator_empty_sequence) {
@@ -290,7 +291,7 @@ verify_fib_drained(coroutine::experimental::generator<int, int, std::vector<int>
 
     while (auto actual_fib = co_await actual_fibs()) {
         BOOST_REQUIRE(expected_fib != std::end(expected_fibs));
-        BOOST_REQUIRE_EQUAL(*actual_fib, *expected_fib);
+        SEASTAR_BOOST_REQUIRE_EQUAL(*actual_fib, *expected_fib);
         ++expected_fib;
     }
     BOOST_REQUIRE(expected_fib == std::end(expected_fibs));
@@ -314,7 +315,7 @@ seastar::future<> test_batch_generator_not_drained(do_suspend suspend) {
     auto fib = async_fibonacci_sequence_batch(42, 12, suspend);
     auto actual_fib = co_await fib();
     BOOST_REQUIRE(actual_fib.has_value());
-    BOOST_REQUIRE_EQUAL(*actual_fib, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(*actual_fib, 0);
 }
 
 SEASTAR_TEST_CASE(test_batch_generator_not_drained_with_suspend) {
@@ -358,7 +359,7 @@ SEASTAR_TEST_CASE(test_batch_generator_move_away) {
 
     int expected_n = 0;
     while (auto n = co_await numbers()) {
-        BOOST_REQUIRE_EQUAL(n->get().value, expected_n++);
+        SEASTAR_BOOST_REQUIRE_EQUAL(n->get().value, expected_n++);
     }
 }
 
@@ -393,7 +394,7 @@ SEASTAR_TEST_CASE(test_batch_generator_convertible) {
 
     int expected_n = 0;
     while (auto n = co_await numbers()) {
-        BOOST_REQUIRE_EQUAL(*n, expected_n++);
+        SEASTAR_BOOST_REQUIRE_EQUAL(*n, expected_n++);
     }
 }
 
@@ -523,15 +524,15 @@ SEASTAR_TEST_CASE(test_batch_generator_elements_of_borrowed_range) {
     }
 
     // Elements must have been copied, not moved: data strings are still intact.
-    BOOST_REQUIRE_EQUAL(data[0], "hello");
-    BOOST_REQUIRE_EQUAL(data[1], "world");
-    BOOST_REQUIRE_EQUAL(data[2], "foo");
-    BOOST_REQUIRE_EQUAL(data[3], "bar");
+    SEASTAR_BOOST_REQUIRE_EQUAL(data[0], "hello");
+    SEASTAR_BOOST_REQUIRE_EQUAL(data[1], "world");
+    SEASTAR_BOOST_REQUIRE_EQUAL(data[2], "foo");
+    SEASTAR_BOOST_REQUIRE_EQUAL(data[3], "bar");
 
-    BOOST_REQUIRE_EQUAL(received[0], "hello");
-    BOOST_REQUIRE_EQUAL(received[1], "world");
-    BOOST_REQUIRE_EQUAL(received[2], "foo");
-    BOOST_REQUIRE_EQUAL(received[3], "bar");
+    SEASTAR_BOOST_REQUIRE_EQUAL(received[0], "hello");
+    SEASTAR_BOOST_REQUIRE_EQUAL(received[1], "world");
+    SEASTAR_BOOST_REQUIRE_EQUAL(received[2], "foo");
+    SEASTAR_BOOST_REQUIRE_EQUAL(received[3], "bar");
 }
 
 // Regression test: a buffered generator with count not a multiple of buffer_size
@@ -550,7 +551,7 @@ SEASTAR_TEST_CASE(test_batch_generator_partial_last_batch) {
     for (int expected = 0; expected < count; ++expected) {
         auto val = co_await gen();
         BOOST_REQUIRE(val.has_value());
-        BOOST_REQUIRE_EQUAL(*val, expected);
+        SEASTAR_BOOST_REQUIRE_EQUAL(*val, expected);
     }
     auto exhausted = co_await gen();
     BOOST_REQUIRE(!exhausted.has_value());
@@ -567,10 +568,10 @@ SEASTAR_TEST_CASE(test_generator_waiting_task_no_infinite_loop) {
     }();
     // First yield would set the generator's waiting task to itself
     auto val = co_await gen();
-    BOOST_REQUIRE_EQUAL(*val, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(val->get(), 0);
     // To reach the second yield, the generator must finish a large number of concurrent tasks, which should
     // cause a dump of tasks in the task queue. If the generator's waiting task was set to itself,
     // the dump would never finish.
     auto val2 = co_await gen();
-    BOOST_REQUIRE_EQUAL(*val2, 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(val2->get(), 1);
 }

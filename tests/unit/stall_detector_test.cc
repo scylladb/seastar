@@ -31,6 +31,7 @@
 #include <atomic>
 #include <chrono>
 #include <ranges>
+#include "test_comparisons.hh"
 
 #include <sys/mman.h>
 
@@ -93,7 +94,7 @@ SEASTAR_THREAD_TEST_CASE(normal_case) {
     std::atomic<unsigned> reports{};
     temporary_stall_detector_settings tsds(10ms, [&] { ++reports; });
     spin_some_cooperatively(1s);
-    BOOST_REQUIRE_EQUAL(reports, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(reports, 0);
 }
 
 SEASTAR_THREAD_TEST_CASE(simple_stalls) {
@@ -108,7 +109,7 @@ SEASTAR_THREAD_TEST_CASE(simple_stalls) {
 
     // blocked-reactor-reports-per-minute defaults to 5, so we don't
     // get all 10 reports.
-    BOOST_REQUIRE_EQUAL(reports, 5);
+    SEASTAR_BOOST_REQUIRE_EQUAL(reports, 5);
 }
 
 SEASTAR_THREAD_TEST_CASE(no_poll_no_stall) {
@@ -128,7 +129,7 @@ SEASTAR_THREAD_TEST_CASE(no_poll_no_stall) {
         return make_ready_future<>();
     }).get();
     f.get();
-    BOOST_REQUIRE_EQUAL(reports, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(reports, 0);
 }
 
 // Triggers stalls by spinning with a specify "body" function
@@ -156,7 +157,7 @@ static void test_spin_with_body(const char* what, void_fn body) {
             spin(20ms, body);
         }
         testlog.info("Ending spin test: {}", what);
-        BOOST_CHECK_EQUAL(reports, count_stacks ? 5 : 0);
+        SEASTAR_BOOST_CHECK_EQUAL(reports, count_stacks ? 5 : 0);
     }
 }
 

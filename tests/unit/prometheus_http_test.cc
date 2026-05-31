@@ -20,6 +20,7 @@
  */
 
 #include "loopback_socket.hh"
+#include "test_comparisons.hh"
 
 #include <seastar/core/metrics.hh>
 #include <seastar/core/prometheus.hh>
@@ -54,7 +55,7 @@ std::string get_metrics_body(loopback_connection_factory& lcf, const sstring& pa
     std::string body;
     cln.make_request(http::request::make("GET", "test", path),
         [&body] (const http::reply& rep, input_stream<char>&& in) {
-            BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::ok);
+            SEASTAR_BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::ok);
             return seastar::async([&body, in = std::move(in)] () mutable {
                 body = util::read_entire_stream_contiguous(in).get();
                 in.close().get();

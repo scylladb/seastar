@@ -35,6 +35,7 @@
 #include <seastar/core/when_any.hh>
 #include <seastar/core/with_timeout.hh>
 #include <boost/range/irange.hpp>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -46,12 +47,12 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_signal_consume) {
     cv.signal();
     auto f = cv.wait();
 
-    BOOST_REQUIRE_EQUAL(f.available(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(f.available(), true);
     f.get();
 
     auto f2 = cv.wait();
 
-    BOOST_REQUIRE_EQUAL(f2.available(), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(f2.available(), false);
 
     cv.signal();
 
@@ -62,17 +63,17 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_signal_consume) {
     waiters.emplace_back(cv.wait());
     waiters.emplace_back(cv.wait());
 
-    BOOST_REQUIRE_EQUAL(std::count_if(waiters.begin(), waiters.end(), std::mem_fn(&future<>::available)), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(std::count_if(waiters.begin(), waiters.end(), std::mem_fn(&future<>::available)), 0u);
 
     cv.signal();
 
-    BOOST_REQUIRE_EQUAL(std::count_if(waiters.begin(), waiters.end(), std::mem_fn(&future<>::available)), 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(std::count_if(waiters.begin(), waiters.end(), std::mem_fn(&future<>::available)), 1u);
     // FIFO
-    BOOST_REQUIRE_EQUAL(waiters.front().available(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(waiters.front().available(), true);
 
     cv.broadcast();
 
-    BOOST_REQUIRE_EQUAL(std::count_if(waiters.begin(), waiters.end(), std::mem_fn(&future<>::available)), 3u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(std::count_if(waiters.begin(), waiters.end(), std::mem_fn(&future<>::available)), 3u);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_condition_variable_pred) {
@@ -109,7 +110,7 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_signal_break) {
     waiters.emplace_back(cv.wait());
     waiters.emplace_back(cv.wait());
 
-    BOOST_REQUIRE_EQUAL(std::count_if(waiters.begin(), waiters.end(), std::mem_fn(&future<>::available)), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(std::count_if(waiters.begin(), waiters.end(), std::mem_fn(&future<>::available)), 0u);
 
     cv.broken();
 
@@ -138,10 +139,10 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_timeout) {
     condition_variable cv;
 
     auto f = cv.wait(100ms);
-    BOOST_REQUIRE_EQUAL(f.available(), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(f.available(), false);
 
     sleep(200ms).get();
-    BOOST_REQUIRE_EQUAL(f.available(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(f.available(), true);
 
     try {
         f.get();
@@ -212,14 +213,14 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_pred_wait) {
 SEASTAR_THREAD_TEST_CASE(test_condition_variable_has_waiter) {
     condition_variable cv;
 
-    BOOST_REQUIRE_EQUAL(cv.has_waiters(), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(cv.has_waiters(), false);
 
     auto f = cv.wait();
-    BOOST_REQUIRE_EQUAL(cv.has_waiters(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(cv.has_waiters(), true);
 
     cv.signal();
     f.get();
-    BOOST_REQUIRE_EQUAL(cv.has_waiters(), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(cv.has_waiters(), false);
 }
 
 SEASTAR_TEST_CASE(test_condition_variable_signal_consume_coroutine) {
@@ -327,7 +328,7 @@ SEASTAR_TEST_CASE(test_condition_variable_when_signal) {
 
     co_await cv.when();
     // ensure we did not resume before timer ran fully
-    BOOST_REQUIRE_EQUAL(ready, true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(ready, true);
 }
 
 SEASTAR_TEST_CASE(test_condition_variable_when_timeout) {
@@ -357,7 +358,7 @@ SEASTAR_TEST_CASE(test_condition_variable_when_timeout) {
     }
 
     // he should not have run yet...
-    BOOST_REQUIRE_EQUAL(f.available(), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(f.available(), false);
     // now, if the code is broken, the timer will run once we switch out,
     // and cause the wait to time out, even though it did not. -> assert
 

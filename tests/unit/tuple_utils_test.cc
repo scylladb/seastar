@@ -22,6 +22,7 @@
 #define BOOST_TEST_MODULE core
 
 #include <seastar/util/tuple_utils.hh>
+#include "test_comparisons.hh"
 
 #include <boost/test/unit_test.hpp>
 
@@ -45,7 +46,7 @@ BOOST_AUTO_TEST_CASE(for_each) {
         os << e;
     });
 
-    BOOST_REQUIRE_EQUAL(os.str(), "a1005.4");
+    SEASTAR_BOOST_REQUIRE_EQUAL(os.str(), "a1005.4");
 }
 
 namespace {
