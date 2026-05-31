@@ -27,6 +27,8 @@
 #include "ascii.hh"
 #include <seastar/core/loop.hh>
 
+BOOST_TEST_DONT_PRINT_LOG_VALUE(std::vector<seastar::sstring>)
+
 using namespace seastar;
 using namespace net;
 using namespace memcache;
