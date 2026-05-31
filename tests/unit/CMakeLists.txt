@@ -472,6 +472,11 @@ seastar_add_test (program_options
 seastar_add_test (proxy_protocol
   SOURCES proxy_protocol_test.cc)
 
+seastar_add_test (quic
+  SOURCES quic_test.cc
+  LIBRARIES ngtcp2::ngtcp2
+  DEPENDS testcrt)
+
 seastar_add_test (queue
   SOURCES queue_test.cc)
 
