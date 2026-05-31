@@ -97,6 +97,11 @@ int main(int argc, char** argv) {
             duration);
         co_await seastar::sleep_abortable(std::chrono::seconds(duration));
         ws_demo_logger.info("Done, closing connection.");
+        // close() drives the CLOSE handshake and tears the streams down,
+        // which unblocks the handler's in.read() via SHUT_RD. shutdown() is
+        // an OOB escape hatch for outbound-stall cases; here it is harmless
+        // belt-and-suspenders.
+        ws_client.shutdown();
         co_await ws_client.close();
     });
 }

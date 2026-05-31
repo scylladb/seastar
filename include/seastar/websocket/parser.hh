@@ -82,7 +82,7 @@ struct frame_header {
 
     bool is_opcode_known() {
         //https://datatracker.ietf.org/doc/html/rfc6455#section-5.1
-        return opcode < 0xA && !(opcode < 0x8 && opcode > 0x2);
+        return opcode <= 0xA && !(opcode < 0x8 && opcode > 0x2);
     }
 };
 
@@ -108,6 +108,7 @@ class websocket_parser {
     std::unique_ptr<frame_header> _header;
     uint64_t _payload_length = 0;
     uint64_t _consumed_payload_length = 0;
+    uint64_t _max_payload_length;
     bool _require_mask;
     uint32_t _masking_key;
     buff_t _result;
@@ -129,16 +130,35 @@ class websocket_parser {
             payload[i] ^= static_cast<char>(((_masking_key << (j * 8)) >> 24));
         }
     }
+    bool is_control_frame() const {
+        return _header && _header->opcode >= opcodes::CLOSE;
+    }
+    bool valid_payload_length() const {
+        if (is_control_frame()) {
+            return _header->fin && _payload_length <= 125;
+        }
+        return _payload_length <= _max_payload_length;
+    }
 public:
+    static constexpr uint64_t default_max_payload_length = 16 * 1024 * 1024;
+
     /*!
      * \brief Construct a websocket frame parser.
      * \param require_mask if true (default), incoming frames must be masked
      *        (server-side). If false, incoming frames must not be masked
      *        (client-side).
+     * \param max_payload_length maximum accepted payload size for data frames.
+     *        The default is 16 MiB. Control frames are always limited to the
+     *        RFC 6455 maximum of 125 bytes and must not be fragmented. A frame
+     *        violating either limit puts the parser into the error state
+     *        (\ref is_valid returns false) and stops consumption; the caller
+     *        sees this as a websocket::exception on the active read.
      */
-    explicit websocket_parser(bool require_mask = true)
+    explicit websocket_parser(bool require_mask = true,
+            uint64_t max_payload_length = default_max_payload_length)
         : _state(parsing_state::flags_and_payload_data)
         , _cstate(connection_state::valid)
+        , _max_payload_length(max_payload_length)
         , _require_mask(require_mask)
         , _masking_key(0) {}
     future<consumption_result_t> operator()(temporary_buffer<char> data);

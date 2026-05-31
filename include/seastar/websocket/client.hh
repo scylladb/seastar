@@ -23,6 +23,7 @@
 #include <seastar/core/seastar.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/gate.hh>
+#include <seastar/net/api.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/websocket/common.hh>
 
@@ -54,16 +55,18 @@ public:
      * \param host the Host header value
      * \param subprotocol optional subprotocol name
      * \param handler application handler for incoming/outgoing data
+     * \param options connection tuning options.
      */
     client_connection(connected_socket&& fd, sstring resource, sstring host,
-                      sstring subprotocol, handler_t handler);
+                      sstring subprotocol, handler_t handler,
+                      connection_options options = {});
 
     /*!
      * \brief Run the WebSocket client connection.
      */
     future<> process();
 
-     /*!
+    /*!
      * \brief Perform the WebSocket opening handshake.
      *
      * Sends an HTTP Upgrade request to the server and waits for
@@ -87,7 +90,10 @@ template<bool text_frame = false>
 class client {
     std::unique_ptr<client_connection<text_frame>> _conn;
     gate _task_gate;
-
+    bool _handshake_done = false;
+    future<> connect(connected_socket fd, sstring resource, sstring host,
+                     sstring subprotocol, handler_t handler,
+                     const connection_options& options);
 public:
     /*!
      * \brief Connect to a WebSocket server over plain TCP.
@@ -96,9 +102,11 @@ public:
      * \param host the Host header value
      * \param subprotocol optional subprotocol name (empty for none)
      * \param handler application handler
+     * \param options connection tuning options.
      */
     future<> connect(socket_address addr, sstring resource, sstring host,
-                     sstring subprotocol, handler_t handler);
+                     sstring subprotocol, handler_t handler,
+                     connection_options options = {});
 
     /*!
      * \brief Connect to a WebSocket server over TLS.
@@ -108,16 +116,52 @@ public:
      * \param host the Host header value
      * \param subprotocol optional subprotocol name (empty for none)
      * \param handler application handler
+     * \param options connection tuning options.
      */
     future<> connect(socket_address addr,
                      shared_ptr<tls::certificate_credentials> creds,
                      sstring resource, sstring host,
-                     sstring subprotocol, handler_t handler);
+                     sstring subprotocol, handler_t handler,
+                     connection_options options = {});
 
     /*!
-     * \brief Close the client and the underlying connection.
+     * \brief Close the connection and wait for the client processing task to
+     *        finish.
+     *
+     * The client handler owns the WebSocket connection lifetime. To close the
+     * connection normally, the handler should call close() on the output stream
+     * passed to it.
+     *
+     * close() initiates a WebSocket CLOSE handshake and tears down the
+     * underlying streams. A handler blocked in input_stream::read() is unblocked
+     * because the stream teardown shuts down the socket read side (SHUT_RD),
+     * causing the pending read to observe EOF.
+     *
+     * The one case where this future may not resolve is when the CLOSE frame
+     * itself cannot be sent (for example, the peer's TCP receive window is full
+     * and the outbound write never yields back). In that case the teardown
+     * path never runs, and shutdown() can be used as an out-of-band escape
+     * hatch: it directly shuts down the connection's input so the handler can
+     * return and the task gate can drain.
+     *
+     * \sa shutdown()
      */
     future<> close();
+    /*!
+     * \brief Shut down the underlying connection input as an out-of-band escape.
+     *
+     * Synchronously shuts down the connection's read side without going through
+     * the CLOSE handshake. Useful when close() cannot make progress because the
+     * outbound path is stalled (peer recv-window full, dead peer holding the
+     * connection open). Calling shutdown() unblocks a handler waiting in
+     * input_stream::read() so close() and the task gate can finish.
+     *
+     * Normal teardown should go through close(); shutdown() is an escape hatch
+     * for outbound-stall scenarios.
+     *
+     * \sa close()
+     */
+    void shutdown();
 };
 
 /// @}
