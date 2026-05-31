@@ -374,6 +374,30 @@ seastar_add_test (execution_stage
 seastar_add_test (expiring_fifo
   SOURCES expiring_fifo_test.cc)
 
+seastar_add_test (future_state_maybe_uninit
+  SOURCES future_state_maybe_uninit_test.cc)
+# Re-enable -Wmaybe-uninitialized for just this test under compilers
+# that support it (GCC). It is otherwise disabled globally (see the
+# top-level CMakeLists.txt `-Wno-maybe-uninitialized` PUBLIC compile
+# option on the seastar target) because the warning has historically
+# been noisy on future<T>. Setting the option on the source file
+# (rather than the target) appends it AFTER the inherited
+# -Wno-maybe-uninitialized in the compile command, so the warning is
+# actually active here -- and together with the project-wide -Werror,
+# any regression of the specific false positive that this test guards
+# against breaks the build.
+#
+# -Wmaybe-uninitialized is GCC-only; clang puts both definite and
+# maybe cases under -Wuninitialized and rejects -Wmaybe-uninitialized
+# with -Wunknown-warning-option (an error under -Werror). The same
+# MaybeUninitialized_FOUND check the top-level CMakeLists.txt uses to
+# gate -Wno-maybe-uninitialized gates the positive form here too.
+if (MaybeUninitialized_FOUND)
+  set_source_files_properties (future_state_maybe_uninit_test.cc
+    PROPERTIES
+      COMPILE_OPTIONS "-Wmaybe-uninitialized")
+endif ()
+
 seastar_add_test (abortable_fifo
   SOURCES abortable_fifo_test.cc)
 
