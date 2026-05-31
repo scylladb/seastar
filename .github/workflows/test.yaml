@@ -67,6 +67,11 @@ jobs:
         with:
           submodules: "${{ contains(inputs.enables, 'dpdk') }}"
 
+      - name: Checkout ngtcp2 submodule
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git submodule update --init ngtcp2
+
       - name: Setup ccache
         if: ${{ inputs.enable-ccache }}
         uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23

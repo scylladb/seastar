@@ -15,8 +15,18 @@ jobs:
       image: alpine:latest
 
     steps:
+    - name: Install git for checkout
+      run: |
+        apk update
+        apk add --no-cache git
+
     - name: Checkout repository
       uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+    - name: Checkout ngtcp2 submodule
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        git submodule update --init ngtcp2
 
     - name: Install build dependencies
       run: |
