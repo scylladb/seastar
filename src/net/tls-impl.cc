@@ -825,8 +825,16 @@ future<> tls::force_rehandshake(connected_socket& socket) {
 
 } // namespace seastar
 
-// Error code globals — initialized at startup by the active backend's
-// init_error_codes() method, called from smp::configure().
+#ifdef SEASTAR_TLS_DUAL_BACKEND
+// Dual-backend build: the error code globals are zero-initialized here and
+// filled in at reactor startup by the active backend's init_error_codes()
+// method (called from smp::configure() via internal::crypto::set_provider()).
+// Accessing them before reactor startup silently reads as 0 — build with a
+// single TLS backend if you need them to be valid at any time.
+//
+// In single-backend builds these globals are instead defined as `const` and
+// statically initialized in the backend's own tls_<backend>.cc, so they are
+// valid at any time including from static initializers.
 int seastar::tls::ERROR_UNKNOWN_COMPRESSION_ALGORITHM = 0;
 int seastar::tls::ERROR_UNKNOWN_CIPHER_TYPE = 0;
 int seastar::tls::ERROR_INVALID_SESSION = 0;
@@ -845,3 +853,4 @@ int seastar::tls::ERROR_UNSUPPORTED_VERSION = 0;
 int seastar::tls::ERROR_NO_CIPHER_SUITES = 0;
 int seastar::tls::ERROR_DECRYPTION_FAILED = 0;
 int seastar::tls::ERROR_MAC_VERIFY_FAILED = 0;
+#endif // SEASTAR_TLS_DUAL_BACKEND

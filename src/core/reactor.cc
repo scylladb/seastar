@@ -3972,7 +3972,6 @@ static program_options::selection_value<crypto_provider_factory> create_crypto_p
 #ifdef SEASTAR_HAVE_GNUTLS
     candidates.push_back({"gnutls", {new crypto_provider_factory(internal::crypto::create_gnutls_provider), deleter}, {}});
 #endif
-
 #ifdef SEASTAR_HAVE_OPENSSL
     candidates.push_back({"openssl", {new crypto_provider_factory(internal::crypto::create_openssl_provider), deleter}, {}});
 #endif
@@ -4185,6 +4184,9 @@ void smp::cleanup() noexcept {
     _shard_to_numa_node_mapping = decltype(_shard_to_numa_node_mapping)();
     reactor_holder.reset();
     local_engine = nullptr;
+#ifdef SEASTAR_TLS_DUAL_BACKEND
+    internal::crypto::reset_provider();
+#endif
 }
 
 void smp::cleanup_cpu() {
@@ -4387,9 +4389,15 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
 
 void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_opts)
 {
+#ifdef SEASTAR_TLS_DUAL_BACKEND
     // Install the crypto provider before anything else, so it is
     // available to all reactors from the moment they start.
+    //
+    // Only present in dual-backend builds; in single-backend builds the
+    // provider is a static singleton in src/core/crypto.cc and needs no
+    // installation step.
     internal::crypto::set_provider(reactor_opts.crypto_provider.get_selected_candidate()());
+#endif
 
     bool use_transparent_hugepages = !reactor_opts.overprovisioned;
 

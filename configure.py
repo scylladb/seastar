@@ -173,6 +173,9 @@ arg_parser.add_argument('--cook', action='append', dest='cook', default=[],
 arg_parser.add_argument('--verbose', dest='verbose', action='store_true', help='Make configure output more verbose.')
 arg_parser.add_argument('--scheduling-groups-count', action='store', dest='scheduling_groups_count', default='16',
                         help='Number of available scheduling groups in the reactor')
+arg_parser.add_argument('--tls-mode', action='store', dest='tls_mode',
+                        choices=['gnutls', 'openssl', 'both'], default='gnutls',
+                        help='TLS backend(s) to enable: gnutls (default), openssl, or both')
 
 add_tristate(
     arg_parser,
@@ -289,6 +292,8 @@ def configure_mode(mode):
         '-DBUILD_SHARED_LIBS={}'.format('yes' if mode in ('debug', 'dev') else 'no'),
         '-DSeastar_API_LEVEL={}'.format(args.api_level),
         '-DSeastar_SCHEDULING_GROUPS_COUNT={}'.format(args.scheduling_groups_count),
+        '-DSeastar_GNUTLS={}'.format('ON' if args.tls_mode in ('gnutls', 'both') else 'OFF'),
+        '-DSeastar_OPENSSL={}'.format('ON' if args.tls_mode in ('openssl', 'both') else 'OFF'),
         tr(args.exclude_tests, 'EXCLUDE_TESTS_FROM_ALL'),
         tr(args.exclude_apps, 'EXCLUDE_APPS_FROM_ALL'),
         tr(args.exclude_demos, 'EXCLUDE_DEMOS_FROM_ALL'),

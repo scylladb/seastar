@@ -65,6 +65,12 @@ std::unique_ptr<dh_params_impl> make_dh_params(dh_params::level);
 std::unique_ptr<dh_params_impl> make_dh_params(const blob&, x509_crt_format);
 
 /// Initialize TLS error codes with OpenSSL values.
+///
+/// In dual-backend builds (\c SEASTAR_TLS_DUAL_BACKEND) the legacy
+/// \c seastar::tls::ERROR_* globals are zero at static-init time and this
+/// function fills them in at reactor startup. In single-backend builds the
+/// globals are statically initialized to their OpenSSL values and this is a
+/// no-op.
 void init_error_codes();
 
 } // namespace seastar::tls::openssl
