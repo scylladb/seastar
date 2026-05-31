@@ -15,6 +15,11 @@ jobs:
       image: alpine:latest
 
     steps:
+    - name: Install git for checkout
+      run: |
+        apk update
+        apk add --no-cache git
+
     - name: Checkout repository
       uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
 
@@ -42,6 +47,7 @@ jobs:
           make               \
           meson              \
           numactl-dev        \
+          ngtcp2-dev         \
           openssl            \
           openssl-dev        \
           protobuf-dev       \
@@ -60,7 +66,8 @@ jobs:
         mkdir -p build
         ./cooking.sh -i c-ares -d build -t RelWithDebInfo -- \
          -DSeastar_LTTNG=OFF               \
-         -DSeastar_DOCS=OFF
+         -DSeastar_DOCS=OFF                \
+         -DSeastar_NGTCP2_PROVIDER=SYSTEM
 
     - name: Build Seastar
       run: |
