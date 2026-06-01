@@ -574,7 +574,6 @@ using seastar::produce_be;
 
 // Additional symbols
 using seastar::now;
-using seastar::later;
 using seastar::with_clock;
 using seastar::memory_output_stream;
 using seastar::abort_on_expiry;
