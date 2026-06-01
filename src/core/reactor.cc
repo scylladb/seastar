@@ -4994,9 +4994,6 @@ future<> check_for_io_immediately() noexcept {
     return tsk->get_future();
 }
 
-future<> later() noexcept {
-    return check_for_io_immediately();
-}
 
 steady_clock_type::duration reactor::total_idle_time() const {
     return _total_idle;

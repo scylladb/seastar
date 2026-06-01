@@ -73,12 +73,6 @@ future<> maybe_yield() noexcept {
 /// \note This has no effect on I/O polling on other shards.
 future<> check_for_io_immediately() noexcept;
 
-/// \brief Returns a future which is not ready but is scheduled to resolve soon.
-///
-/// \deprecated Use yield() instead, or check_for_io_immediately() if your really need it.
-[[deprecated("Use yield() or check_for_io_immediately()")]]
-future<> later() noexcept;
-
 /// @}
 
 } // namespace seastar
