@@ -19,6 +19,10 @@
  * Copyright 2014 Cloudius Systems
  */
 
+#ifdef SEASTAR_HAVE_URING
+#include <liburing.h>
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -32,6 +36,7 @@
 #include <thread>
 #include <unordered_set>
 #include <barrier>
+#include <memory>
 
 #include <grp.h>
 #include <spawn.h>
@@ -167,6 +172,7 @@
 #include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/util/internal/magic.hh>
 #include <seastar/util/internal/build_id.hh>
+#include <seastar/core/reactor_config.hh>
 #include "core/crypto.hh"
 #include "core/reactor_backend.hh"
 #include "core/syscall_result.hh"
@@ -4058,6 +4064,10 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
                  " Note that if the seastar_memory logger is set to debug or trace level, the diagnostics will be logged irrespective of this setting.")
     , reactor_backend(*this, "reactor-backend", backend_selector_candidates(), reactor_backend_selector::default_backend().name(),
                 fmt::format("Internal reactor implementation ({})", reactor_backend_selector::available()))
+    , async_workers_cpuset(*this, "async-workers-cpuset", resource::cpuset{},
+                "CPUs to use (in cpuset(7) format) for backend's async workers."
+                " Only applicable to, and required by, the asymmetric_io_uring reactor backend (see --reactor-backend)."
+                " Note that if the --cpuset is not set, using --async-workers-cpuset will restrict the CPUs available to the SMP shards.")
     , aio_fsync(*this, "aio-fsync", kernel_supports_aio_fsync(),
                 "Use Linux aio for fsync() calls. This reduces latency; requires Linux 4.18 or later.")
     , max_networking_io_control_blocks(*this, "max-networking-io-control-blocks", 10000,
@@ -4464,6 +4474,17 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         cpu_set = opts_cpuset;
     }
 
+    // Let the backend selector allocate async worker cores if needed
+    auto backend_selector = reactor_opts.reactor_backend.get_selected_candidate();
+    std::shared_ptr<reactor_backend_configurator> backend_configurator;
+    try {
+        backend_configurator = backend_selector.configurator(cpu_set, reactor_opts, smp_opts);
+        cpu_set = backend_configurator->configured_cpuset();
+    } catch (const std::exception& e) {
+        seastar_logger.error("{}", e.what());
+        exit(1);
+    }
+
     if (smp_opts.smp) {
         _shard_count = smp_opts.smp.get_value();
     } else {
@@ -4564,6 +4585,8 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         memory::configure_minimal();
     }
 
+    backend_configurator->verify_allocations(allocations);
+
     _shard_to_numa_node_mapping.reserve(_shard_count);
     for (unsigned i = 0; i < _shard_count; i++) {
         _shard_to_numa_node_mapping.push_back(allocations[i].mem.size() > 0 ? allocations[i].mem[0].nodeid : 0);
@@ -4646,6 +4669,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     }
 #endif
 
+    std::barrier backend_configuration_initialized(_shard_count);
     // Better to put it into the smp class, but at smp construction time
     // correct _shard_count is not known.
     std::barrier reactors_registered(_shard_count);
@@ -4706,7 +4730,6 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     _all_event_loops_done.emplace(_shard_count);
 
-    auto backend_selector = reactor_opts.reactor_backend.get_selected_candidate();
     seastar_logger.info("Reactor backend: {}", backend_selector);
 
     _qs_owner = decltype(smp::_qs_owner){new smp_message_queue* [_shard_count], qs_deleter{}};
@@ -4728,12 +4751,17 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         }
     };
 
+    auto master_uring_fds = std::make_shared<std::vector<int>>(_shard_count, -1);
+
+    const shard_id first_shard_id = 0;
+    backend_configurator->initialize_shard_configuration(first_shard_id);
+
     unsigned i;
     auto smp_tmain = smp::_tmain;
     smp::_this_smp = this;
     for (i = 1; i < _shard_count; i++) {
         auto allocation = allocations[i];
-        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_sampling_rate, mbind, backend_selector, reactor_cfg, &mtx, &layout, use_transparent_hugepages, allocate_qs_owner, allocate_smp_queues] {
+        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_sampling_rate, mbind, backend_selector, reactor_cfg, &mtx, &layout, use_transparent_hugepages, allocate_qs_owner, allocate_smp_queues, backend_configurator, &backend_configuration_initialized] {
           try {
             // initialize thread_locals that are equal across all reacto threads of this smp instance
             smp::_tmain = smp_tmain;
@@ -4763,7 +4791,12 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             throw_pthread_error(r);
             init_default_smp_service_group(i);
             lowres_clock::update();
-            allocate_reactor(i, backend_selector, reactor_cfg);
+
+            backend_configurator->initialize_shard_configuration(i);
+            backend_configuration_initialized.arrive_and_wait();
+            auto reactor_config = backend_configurator->finalize_apply_shard_configuration(i, reactor_cfg);
+
+            allocate_reactor(i, backend_selector, reactor_config);
             reactors[i] = &engine();
             alloc_io_queues(i);
             allocate_qs_owner(i);
@@ -4785,8 +4818,12 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     init_default_smp_service_group(0);
     lowres_clock::update();
+
+    backend_configuration_initialized.arrive_and_wait();
+    auto reactor_config = backend_configurator->finalize_apply_shard_configuration(first_shard_id, reactor_cfg);
+
     try {
-        allocate_reactor(0, backend_selector, reactor_cfg);
+        allocate_reactor(0, backend_selector, reactor_config);
     } catch (const std::exception& e) {
         seastar_logger.error("{}", e.what());
         _exit(1);
