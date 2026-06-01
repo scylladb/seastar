@@ -1109,17 +1109,6 @@ future<> posix_datagram_channel::send(const socket_address& dst, std::span<tempo
             .then([len, del = std::move(del) ] (size_t size) { SEASTAR_ASSERT(size == len); });
 }
 
-udp_channel
-posix_network_stack::make_udp_channel(const socket_address& addr) {
-    if (!addr.is_unspecified()) {
-        return make_bound_datagram_channel(addr);
-    } else {
-        // Preserve the default behavior of make_udp_channel({}) which is to
-        // create an unbound channel that can be used to send UDP datagrams.
-        return make_unbound_datagram_channel(AF_INET);
-    }
-}
-
 datagram_channel
 posix_network_stack::make_unbound_datagram_channel(sa_family_t family) {
     return datagram_channel(std::make_unique<posix_datagram_channel>(family));

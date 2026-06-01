@@ -166,7 +166,6 @@ public:
     explicit native_network_stack(const native_stack_options& opts, std::shared_ptr<device> dev);
     virtual server_socket listen(socket_address sa, listen_options opt) override;
     virtual ::seastar::socket socket() override;
-    virtual udp_channel make_udp_channel(const socket_address& addr) override;
     virtual net::datagram_channel make_unbound_datagram_channel(sa_family_t) override;
     virtual net::datagram_channel make_bound_datagram_channel(const socket_address& local) override;
     virtual future<> initialize() override;
@@ -203,11 +202,6 @@ public:
 };
 
 thread_local promise<std::unique_ptr<network_stack>> native_network_stack::ready_promise;
-
-udp_channel
-native_network_stack::make_udp_channel(const socket_address& addr) {
-    return _inet.get_udp().make_channel(addr);
-}
 
 net::datagram_channel native_network_stack::make_unbound_datagram_channel(sa_family_t family) {
     if (family != AF_INET) {
