@@ -661,8 +661,6 @@ public:
 
     network_stack& net() { return *_network_stack; }
 
-    [[deprecated("Use this_shard_id")]]
-    shard_id cpu_id() const;
 
     /// \returns Returns the `smp` instance which owns this reactor.
     const seastar::smp& smp() const noexcept;

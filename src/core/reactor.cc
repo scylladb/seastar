@@ -198,10 +198,6 @@ namespace seastar {
 
 seastar::logger seastar_logger("seastar");
 
-shard_id reactor::cpu_id() const {
-    SEASTAR_ASSERT(_id == this_shard_id());
-    return _id;
-}
 
 void reactor::update_shares_for_queues(internal::priority_class pc, uint32_t shares) {
     for (auto&& q : _io_queues) {
