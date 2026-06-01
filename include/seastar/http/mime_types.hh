@@ -11,7 +11,6 @@
 #pragma once
 
 #include <string_view>
-#include <seastar/core/sstring.hh>
 
 namespace seastar {
 
@@ -30,14 +29,5 @@ const char* extension_to_type(std::string_view extension);
 } // namespace mime_types
 
 } // namespace httpd
-
-namespace httpd {
-namespace mime_types {
-[[deprecated("Use http::mime_types::extension_to_type instead")]]
-inline const char* extension_to_type(const sstring& extension) {
-    return http::mime_types::extension_to_type(extension);
-}
-}
-}
 
 }
