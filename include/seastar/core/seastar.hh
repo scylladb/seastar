@@ -154,24 +154,6 @@ future<connected_socket> connect(socket_address sa, socket_address local, transp
 /// \return a \ref socket object that can be used for establishing connections
 socket make_socket();
 
-/// Creates a udp_channel object suitable for sending UDP packets
-///
-/// The channel is not bound to a local address, and thus can only be used
-/// for sending.
-///
-/// \return a \ref net::udp_channel object that can be used for UDP transfers.
-[[deprecated("Use `make_unbound_datagram_channel` instead")]]
-net::udp_channel make_udp_channel();
-
-
-/// Creates a udp_channel object suitable for sending and receiving UDP packets
-///
-/// \param local local address to bind to
-///
-/// \return a \ref net::udp_channel object that can be used for UDP transfers.
-[[deprecated("Use `make_bound_datagram_channel` instead")]]
-net::udp_channel make_udp_channel(const socket_address& local);
-
 /// Creates a datagram_channel object suitable for sending datagrams to
 /// destinations that belong to the provided address family.
 /// Supported address families: AF_INET, AF_INET6 and AF_UNIX.
