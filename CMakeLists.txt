@@ -645,7 +645,6 @@ add_library (seastar
   include/seastar/http/reply.hh
   include/seastar/http/request.hh
   include/seastar/http/routes.hh
-  include/seastar/http/short_streams.hh
   include/seastar/http/transformers.hh
   include/seastar/http/client.hh
   include/seastar/core/internal/md5.hh
