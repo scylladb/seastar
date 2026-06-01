@@ -109,10 +109,6 @@ alloc_failure_injector& local_failure_injector() {
 #endif
 
 
-struct [[deprecated("Use scoped_critical_section instead")]] disable_failure_guard {
-    scoped_critical_alloc_section cs;
-};
-
 /// \brief Marks a point in code which should be considered for failure injection.
 inline
 void on_alloc_point() {
