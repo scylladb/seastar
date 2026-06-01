@@ -527,17 +527,6 @@ public:
         return u.internal.size == 0;
     }
 
-    // Deprecated March 2020.
-    [[deprecated("Use = {}")]]
-    void reset() noexcept {
-        if (is_external()) {
-            std::free(u.external.str);
-        }
-        u.internal.size = 0;
-        if (NulTerminate) {
-            u.internal.str[0] = '\0';
-        }
-    }
     temporary_buffer<char_type> release() && {
         if (is_external()) {
             auto ptr = u.external.str;
