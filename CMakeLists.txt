@@ -300,6 +300,10 @@ option (Seastar_HWLOC
   "Enable hwloc support."
   ON)
 
+option (Seastar_LTTNG
+  "Enable LTTng-UST tracepoint support for IO tracing."
+  ON)
+
 option (Seastar_IO_URING
   "Enable io_uring support."
   ON)
@@ -1158,6 +1162,16 @@ if (SystemTap-SDT_FOUND)
     PRIVATE SystemTap::SDT)
 endif ()
 
+if (Seastar_LTTNG)
+  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_LTTNG_UST)
+
+  target_sources (seastar
+    PRIVATE src/core/io_trace.cc)
+
+  target_link_libraries (seastar
+    PRIVATE LTTng::UST)
+endif ()
+
 check_cxx_compiler_flag ("-Werror=unused-result" ErrorUnused_FOUND)
 if (ErrorUnused_FOUND)
   if (Seastar_UNUSED_RESULT_ERROR)
@@ -1527,6 +1541,7 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/SeastarDependencies.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindLibUring.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSystemTap-SDT.cmake
+      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindLTTngUST.cmake
     DESTINATION ${install_cmakedir})
 
   install (
