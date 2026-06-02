@@ -24,6 +24,7 @@
 
 #include <boost/test/unit_test.hpp>
 #include <seastar/util/noncopyable_function.hh>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -39,10 +40,10 @@ BOOST_AUTO_TEST_CASE(basic_tests) {
     auto fn2 = noncopyable_function<int (s*, int)>(&s::f2);
     auto fn3 = noncopyable_function<int (int)>(&s::f3);
     auto fn4 = noncopyable_function<int (int)>(std::move(obj2));
-    BOOST_REQUIRE_EQUAL(fn1(&obj, 1), 2);
-    BOOST_REQUIRE_EQUAL(fn2(&obj, 1), 3);
-    BOOST_REQUIRE_EQUAL(fn3(1), 4);
-    BOOST_REQUIRE_EQUAL(fn4(1), 5);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fn1(&obj, 1), 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fn2(&obj, 1), 3);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fn3(1), 4);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fn4(1), 5);
 }
 
 template <size_t Extra>
@@ -64,16 +65,16 @@ template <size_t Extra>
 void do_move_tests() {
     using payload = ::payload<Extra>;
     auto f1 = noncopyable_function<int ()>(payload(3));
-    BOOST_REQUIRE_EQUAL(payload::live, 1u);
-    BOOST_REQUIRE_EQUAL(f1(), 3);
+    SEASTAR_BOOST_REQUIRE_EQUAL(payload::live, 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(f1(), 3);
     auto f2 = noncopyable_function<int ()>();
     BOOST_CHECK_THROW(f2(), std::bad_function_call);
     f2 = std::move(f1);
     BOOST_CHECK_THROW(f1(), std::bad_function_call);
-    BOOST_REQUIRE_EQUAL(f2(), 3);
-    BOOST_REQUIRE_EQUAL(payload::live, 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(f2(), 3);
+    SEASTAR_BOOST_REQUIRE_EQUAL(payload::live, 1u);
     f2 = {};
-    BOOST_REQUIRE_EQUAL(payload::live, 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(payload::live, 0u);
     BOOST_CHECK_THROW(f2(), std::bad_function_call);
 }
 

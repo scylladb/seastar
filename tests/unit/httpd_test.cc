@@ -39,6 +39,7 @@
 #include <seastar/http/internal/content_source.hh>
 #include <seastar/util/closeable.hh>
 #include <seastar/net/tls.hh>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 using namespace httpd;
@@ -73,7 +74,7 @@ SEASTAR_TEST_CASE(test_reply)
 {
     http::reply r;
     r.set_content_type("txt");
-    BOOST_REQUIRE_EQUAL(r._headers["Content-Type"], sstring("text/plain"));
+    SEASTAR_BOOST_REQUIRE_EQUAL(r._headers["Content-Type"], sstring("text/plain"));
     return make_ready_future<>();
 }
 
@@ -82,7 +83,7 @@ SEASTAR_TEST_CASE(test_str_matcher)
 
     str_matcher m("/hello");
     parameters param;
-    BOOST_REQUIRE_EQUAL(m.match("/abc/hello", 4, param), 10u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(m.match("/abc/hello", 4, param), 10u);
     return make_ready_future<>();
 }
 
@@ -91,9 +92,9 @@ SEASTAR_TEST_CASE(test_param_matcher)
 
     param_matcher m("param");
     parameters param;
-    BOOST_REQUIRE_EQUAL(m.match("/abc/hello", 4, param), 10u);
-    BOOST_REQUIRE_EQUAL(param.path("param"), "/hello");
-    BOOST_REQUIRE_EQUAL(param.get_decoded_param("param"), "hello");
+    SEASTAR_BOOST_REQUIRE_EQUAL(m.match("/abc/hello", 4, param), 10u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(param.path("param"), "/hello");
+    SEASTAR_BOOST_REQUIRE_EQUAL(param.get_decoded_param("param"), "hello");
     return make_ready_future<>();
 }
 
@@ -105,16 +106,16 @@ SEASTAR_TEST_CASE(test_match_rule)
     match_rule mr(h);
     mr.add_str("/hello").add_param("param");
     httpd::handler_base* res = mr.get("/hello/val1", param);
-    BOOST_REQUIRE_EQUAL(res, h);
-    BOOST_REQUIRE_EQUAL(param.get_decoded_param("param"), "val1");
+    SEASTAR_BOOST_REQUIRE_EQUAL(res, h);
+    SEASTAR_BOOST_REQUIRE_EQUAL(param.get_decoded_param("param"), "val1");
     res = mr.get("/hell/val1", param);
     httpd::handler_base* nl = nullptr;
-    BOOST_REQUIRE_EQUAL(res, nl);
+    SEASTAR_BOOST_REQUIRE_EQUAL(res, nl);
 
     // Test that URL decoding happens correctly on the path part of
     // the URL. Reproduces issue #725.
     res = mr.get("/hello/hello%21hi", param);
-    BOOST_REQUIRE_EQUAL(param.get_decoded_param("param"), "hello!hi");
+    SEASTAR_BOOST_REQUIRE_EQUAL(param.get_decoded_param("param"), "hello!hi");
 
     return make_ready_future<>();
 }
@@ -131,7 +132,7 @@ SEASTAR_TEST_CASE(test_match_rule_order)
     route.add(operation_type::GET, url("/hello"), h2);
 
     auto rh = route.get_handler(GET, "/hello", param);
-    BOOST_REQUIRE_EQUAL(rh, h1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(rh, h1);
 
     return make_ready_future<>();
 }
@@ -145,12 +146,12 @@ SEASTAR_TEST_CASE(test_put_drop_rule)
     {
         auto reg = handler_registration(rts, *h, "/hello", operation_type::GET);
         auto res = rts.get_handler(operation_type::GET, "/hello", params);
-        BOOST_REQUIRE_EQUAL(res, h.get());
+        SEASTAR_BOOST_REQUIRE_EQUAL(res, h.get());
     }
 
     auto res = rts.get_handler(operation_type::GET, "/hello", params);
     httpd::handler_base* nl = nullptr;
-    BOOST_REQUIRE_EQUAL(res, nl);
+    SEASTAR_BOOST_REQUIRE_EQUAL(res, nl);
     return make_ready_future<>();
 }
 
@@ -190,26 +191,26 @@ SEASTAR_TEST_CASE(test_add_del_cookie)
     {
         auto reg = rule_registration(rts, mr, operation_type::GET);
         auto res = rts.get_handler(operation_type::GET, "/hello", params);
-        BOOST_REQUIRE_EQUAL(res, h);
+        SEASTAR_BOOST_REQUIRE_EQUAL(res, h);
     }
 
     auto res = rts.get_handler(operation_type::GET, "/hello", params);
     httpd::handler_base* nl = nullptr;
-    BOOST_REQUIRE_EQUAL(res, nl);
+    SEASTAR_BOOST_REQUIRE_EQUAL(res, nl);
     return make_ready_future<>();
 }
 
 SEASTAR_TEST_CASE(test_formatter)
 {
-    BOOST_REQUIRE_EQUAL(json::formatter::to_json(true), "true");
-    BOOST_REQUIRE_EQUAL(json::formatter::to_json(false), "false");
-    BOOST_REQUIRE_EQUAL(json::formatter::to_json(1), "1");
+    SEASTAR_BOOST_REQUIRE_EQUAL(json::formatter::to_json(true), "true");
+    SEASTAR_BOOST_REQUIRE_EQUAL(json::formatter::to_json(false), "false");
+    SEASTAR_BOOST_REQUIRE_EQUAL(json::formatter::to_json(1), "1");
     const char* txt = "efg";
-    BOOST_REQUIRE_EQUAL(json::formatter::to_json(txt), "\"efg\"");
+    SEASTAR_BOOST_REQUIRE_EQUAL(json::formatter::to_json(txt), "\"efg\"");
     sstring str = "abc";
-    BOOST_REQUIRE_EQUAL(json::formatter::to_json(str), "\"abc\"");
+    SEASTAR_BOOST_REQUIRE_EQUAL(json::formatter::to_json(str), "\"abc\"");
     float f = 1;
-    BOOST_REQUIRE_EQUAL(json::formatter::to_json(f), "1");
+    SEASTAR_BOOST_REQUIRE_EQUAL(json::formatter::to_json(f), "1");
     f = 1.0/0.0;
     BOOST_CHECK_THROW(json::formatter::to_json(f), std::out_of_range);
     f = -1.0/0.0;
@@ -217,7 +218,7 @@ SEASTAR_TEST_CASE(test_formatter)
     f = 0.0/0.0;
     BOOST_CHECK_THROW(json::formatter::to_json(f), std::invalid_argument);
     double d = -1;
-    BOOST_REQUIRE_EQUAL(json::formatter::to_json(d), "-1");
+    SEASTAR_BOOST_REQUIRE_EQUAL(json::formatter::to_json(d), "-1");
     d = 1.0/0.0;
     BOOST_CHECK_THROW(json::formatter::to_json(d), std::out_of_range);
     d = -1.0/0.0;
@@ -232,15 +233,15 @@ SEASTAR_TEST_CASE(test_decode_url) {
     req._url = "/a?q=%23%24%23";
     sstring url = req.parse_query_param();
     const auto& query_parameters = deprecated_query_parameters(req);
-    BOOST_REQUIRE_EQUAL(url, "/a");
-    BOOST_REQUIRE_EQUAL(req.get_query_param("q"), "#$#");
-    BOOST_REQUIRE_EQUAL(query_parameters.at("q"), "#$#");
+    SEASTAR_BOOST_REQUIRE_EQUAL(url, "/a");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req.get_query_param("q"), "#$#");
+    SEASTAR_BOOST_REQUIRE_EQUAL(query_parameters.at("q"), "#$#");
     req._url = "/a?a=%23%24%23&b=%22%26%22";
     req.parse_query_param();
-    BOOST_REQUIRE_EQUAL(req.get_query_param("a"), "#$#");
-    BOOST_REQUIRE_EQUAL(query_parameters.at("a"), "#$#");
-    BOOST_REQUIRE_EQUAL(req.get_query_param("b"), "\"&\"");
-    BOOST_REQUIRE_EQUAL(query_parameters.at("b"), "\"&\"");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req.get_query_param("a"), "#$#");
+    SEASTAR_BOOST_REQUIRE_EQUAL(query_parameters.at("a"), "#$#");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req.get_query_param("b"), "\"&\"");
+    SEASTAR_BOOST_REQUIRE_EQUAL(query_parameters.at("b"), "\"&\"");
     req._url = "/a?b=%22%26%22&a=%21&b=%23%24%23&a=%23%24%23";
     req.parse_query_param();
     const auto& b = req.get_query_param_array("b");
@@ -261,12 +262,12 @@ SEASTAR_TEST_CASE(test_decode_path) {
     req.param.set("param4", "/yet%20another");
     req.param.set("invalid_param", "/%2");
 
-    BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "a+b");
-    BOOST_REQUIRE_EQUAL(req.get_path_param("param2"), "same+a+b");
-    BOOST_REQUIRE_EQUAL(req.get_path_param("param3"), "another_param");
-    BOOST_REQUIRE_EQUAL(req.get_path_param("param4"), "yet another");
-    BOOST_REQUIRE_EQUAL(req.get_path_param("invalid_param"), "");
-    BOOST_REQUIRE_EQUAL(req.get_path_param("missing_param"), "");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "a+b");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req.get_path_param("param2"), "same+a+b");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req.get_path_param("param3"), "another_param");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req.get_path_param("param4"), "yet another");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req.get_path_param("invalid_param"), "");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req.get_path_param("missing_param"), "");
     return make_ready_future<>();
 }
 
@@ -282,7 +283,7 @@ SEASTAR_TEST_CASE(test_routes) {
     auto f1 =
             route.handle("/api", std::move(req), std::move(rep)).then(
                     [] (std::unique_ptr<http::reply> rep) {
-                        BOOST_REQUIRE_EQUAL((int )rep->_status, (int )http::reply::status_type::ok);
+                        SEASTAR_BOOST_REQUIRE_EQUAL((int )rep->_status, (int )http::reply::status_type::ok);
                     });
     req.reset(new http::request);
     rep.reset(new http::reply);
@@ -290,7 +291,7 @@ SEASTAR_TEST_CASE(test_routes) {
     auto f2 =
             route.handle("/", std::move(req), std::move(rep)).then(
                     [] (std::unique_ptr<http::reply> rep) {
-                        BOOST_REQUIRE_EQUAL((int )rep->_status, (int )http::reply::status_type::ok);
+                        SEASTAR_BOOST_REQUIRE_EQUAL((int )rep->_status, (int )http::reply::status_type::ok);
                     });
     req.reset(new http::request);
     rep.reset(new http::reply);
@@ -303,7 +304,7 @@ SEASTAR_TEST_CASE(test_routes) {
     auto f4 =
             route.handle("/ap", std::move(req), std::move(rep)).then(
                     [] (std::unique_ptr<http::reply> rep) {
-                        BOOST_REQUIRE_EQUAL((int )rep->_status,
+                        SEASTAR_BOOST_REQUIRE_EQUAL((int )rep->_status,
                                             (int )http::reply::status_type::not_found);
                     });
     return when_all(std::move(f1), std::move(f2), std::move(f3), std::move(f4))
@@ -324,9 +325,9 @@ SEASTAR_THREAD_TEST_CASE(test_text_route) {
     auto reply = route.handle("/hello", std::make_unique<http::request>(),
             std::make_unique<http::reply>()).get();
 
-    BOOST_CHECK_EQUAL((int )reply->_status, (int )http::reply::status_type::ok);
-    BOOST_CHECK_EQUAL(reply->_headers["Content-Type"], "text/plain");
-    BOOST_CHECK_EQUAL(reply->_content, "hello, you");
+    SEASTAR_BOOST_CHECK_EQUAL((int )reply->_status, (int )http::reply::status_type::ok);
+    SEASTAR_BOOST_CHECK_EQUAL(reply->_headers["Content-Type"], "text/plain");
+    SEASTAR_BOOST_CHECK_EQUAL(reply->_content, "hello, you");
 }
 
 SEASTAR_TEST_CASE(test_json_path) {
@@ -349,29 +350,29 @@ SEASTAR_TEST_CASE(test_json_path) {
 
     path1.set(*route, [res1] (const_req req) {
         (*res1) = true;
-        BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "value1");
+        SEASTAR_BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "value1");
         return "";
     });
 
     path2.set(*route, [res2] (const_req req) {
         (*res2) = true;
-        BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "value4+value4 value4");
+        SEASTAR_BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "value4+value4 value4");
 
-        BOOST_REQUIRE_EQUAL(req.get_path_param("param2"), "text4+text4");
+        SEASTAR_BOOST_REQUIRE_EQUAL(req.get_path_param("param2"), "text4+text4");
         return "";
     });
 
     path3.set(*route, [res3] (const_req req) {
         (*res3) = true;
-        BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "value3");
+        SEASTAR_BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "value3");
 
-        BOOST_REQUIRE_EQUAL(req.get_path_param("param2"), "text2/text3");
+        SEASTAR_BOOST_REQUIRE_EQUAL(req.get_path_param("param2"), "text2/text3");
         return "";
     });
 
     path4.set(*route, [res4] (const_req req) {
         (*res4) = true;
-        BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "example%20");
+        SEASTAR_BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "example%20");
         return "";
     });
 
@@ -380,7 +381,7 @@ SEASTAR_TEST_CASE(test_json_path) {
         req._url = raw_url;
         sstring url = req.parse_query_param();
         return route->handle(url, std::make_unique<http::request>(), std::make_unique<http::reply>()).then([res, route] (auto f) {
-            BOOST_REQUIRE_EQUAL(*res, true);
+            SEASTAR_BOOST_REQUIRE_EQUAL(*res, true);
         });
     };
 
@@ -412,8 +413,8 @@ SEASTAR_TEST_CASE(test_match_rule_order_with_param) {
     route.add(operation_type::GET, url("/ward").remainder("path"), h3);
     route.add(operation_type::GET, url("/ward"), h4);
 
-    BOOST_REQUIRE_EQUAL(route.get_handler(GET, "/draw", param), h1);
-    BOOST_REQUIRE_EQUAL(route.get_handler(GET, "/ward", param), h3); // ATTN: it's NOT h4
+    SEASTAR_BOOST_REQUIRE_EQUAL(route.get_handler(GET, "/draw", param), h1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(route.get_handler(GET, "/ward", param), h3); // ATTN: it's NOT h4
 
     return make_ready_future<>();
 }
@@ -444,13 +445,13 @@ SEASTAR_TEST_CASE(test_transformer) {
                 return os.close();
             });
         }).then([&ss, &cr] () {
-            BOOST_REQUIRE_EQUAL(ss.str(), "hello-{{Protocol}}-xyz-{{Host}}");
+            SEASTAR_BOOST_REQUIRE_EQUAL(ss.str(), "hello-{{Protocol}}-xyz-{{Host}}");
             return test_transformer_stream(ss, cr, {"hell", "o-{", "{Pro", "tocol}}-xyz-{{Ho", "st}}{{Pr"}).then([&ss, &cr] {
-                BOOST_REQUIRE_EQUAL(ss.str(), "hello-http-xyz-localhost{{Pr");
+                SEASTAR_BOOST_REQUIRE_EQUAL(ss.str(), "hello-http-xyz-localhost{{Pr");
                 return test_transformer_stream(ss, cr, {"hell", "o-{{", "Pro", "tocol}}{{Protocol}}-{{Protoxyz-{{Ho", "st}}{{Pr"}).then([&ss, &cr] {
-                    BOOST_REQUIRE_EQUAL(ss.str(), "hello-httphttp-{{Protoxyz-localhost{{Pr");
+                    SEASTAR_BOOST_REQUIRE_EQUAL(ss.str(), "hello-httphttp-{{Protoxyz-localhost{{Pr");
                     return test_transformer_stream(ss, cr, {"hell", "o-{{Pro", "t{{Protocol}}ocol}}", "{{Host}}"}).then([&ss] {
-                        BOOST_REQUIRE_EQUAL(ss.str(), "hello-{{Prothttpocol}}localhost");
+                        SEASTAR_BOOST_REQUIRE_EQUAL(ss.str(), "hello-{{Prothttpocol}}localhost");
                     });
                 });
             });
@@ -562,9 +563,9 @@ public:
                         write_request(output).get();
                         size_t body_size = response_body_size(input);
                         if (std::get<bool>(tests[count])) {
-                            BOOST_REQUIRE_EQUAL(body_size, std::get<size_t>(tests[count]));
+                            SEASTAR_BOOST_REQUIRE_EQUAL(body_size, std::get<size_t>(tests[count]));
                         } else {
-                            BOOST_REQUIRE_EQUAL(input.eof(), true);
+                            SEASTAR_BOOST_REQUIRE_EQUAL(input.eof(), true);
                             more = false;
                         }
                         count++;
@@ -694,7 +695,7 @@ SEASTAR_TEST_CASE(test_chunked_sink_two_chunks_two_bufs) {
         const std::string expected =
                   std::string(format("{:x}", A.size() + B.size())) + "\r\n" + A + B + "\r\n"
                 + std::string(format("{:x}", C.size() + D.size())) + "\r\n" + C + D + "\r\n";
-        BOOST_REQUIRE_EQUAL(ss.str(), expected);
+        SEASTAR_BOOST_REQUIRE_EQUAL(ss.str(), expected);
     });
 }
 #endif
@@ -768,7 +769,7 @@ SEASTAR_TEST_CASE(json_stream) {
         vec.emplace_back(1000000);
     }
     return test_client_server::run_test(json::stream_object(vec), [total_size](size_t s, size_t body_size) {
-        BOOST_REQUIRE_EQUAL(body_size, total_size);
+        SEASTAR_BOOST_REQUIRE_EQUAL(body_size, total_size);
         return false;
     });
 }
@@ -782,7 +783,7 @@ SEASTAR_TEST_CASE(dont_abort) {
         co_await stream.close();
     }
     , [](size_t s, size_t body_size) {
-        BOOST_REQUIRE_EQUAL(body_size, 3);
+        SEASTAR_BOOST_REQUIRE_EQUAL(body_size, 3);
         return false;
     });
 
@@ -824,7 +825,7 @@ SEASTAR_TEST_CASE(content_length_limit) {
                     });
                 }).get();
                 BOOST_REQUIRE(status.has_value());
-                BOOST_REQUIRE_EQUAL(status.value(), expected);
+                SEASTAR_BOOST_REQUIRE_EQUAL(status.value(), expected);
             };
 
             check_status("",                    http::reply::status_type::ok);
@@ -875,7 +876,7 @@ SEASTAR_TEST_CASE(test_client_unexpected_reply_status) {
                     return make_ready_future<>();
                 }).get();
                 BOOST_REQUIRE(status.has_value());
-                BOOST_REQUIRE_EQUAL(status.value(), http::reply::status_type::internal_server_error);
+                SEASTAR_BOOST_REQUIRE_EQUAL(status.value(), http::reply::status_type::internal_server_error);
             }
 
             cln.close().get();
@@ -950,8 +951,8 @@ SEASTAR_TEST_CASE(test_client_head_empty_body) {
             auto req = http::request::make("HEAD", "test", "/test");
             cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
                 return seastar::async([&rep, in = std::move(in)] () mutable {
-                    BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::ok);
-                    BOOST_REQUIRE_EQUAL(rep.content_length, 128);
+                    SEASTAR_BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::ok);
+                    SEASTAR_BOOST_REQUIRE_EQUAL(rep.content_length, 128);
                     auto buf = in.read().get();
                     BOOST_REQUIRE(buf.empty());
                     in.close().get();
@@ -1021,7 +1022,7 @@ SEASTAR_TEST_CASE(test_client_retry_nested) {
                                     [](auto& ex) { return ex.code().value() == ENOBUFS; });
 
             cln.close().get();
-            BOOST_REQUIRE_EQUAL(count, 2);
+            SEASTAR_BOOST_REQUIRE_EQUAL(count, 2);
         });
 
         when_all(std::move(client_ex), std::move(server)).discard_result().get();
@@ -1297,15 +1298,15 @@ SEASTAR_TEST_CASE(test_100_continue) {
                         if (need_cont) {
                             BOOST_REQUIRE(body_sent);
                         }
-                        BOOST_REQUIRE_NE(resp.find("200 OK"), std::string::npos);
+                        SEASTAR_BOOST_REQUIRE_NE(resp.find("200 OK"), std::string::npos);
                     }
                 }
             }
             output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nContent-Length: 17\r\nExpect: 100-continue\r\n\r\n")).get();
             output.flush().get();
             auto resp = input.read().get();
-            BOOST_REQUIRE_EQUAL(std::string(resp.get(), resp.size()).find("100 Continue"), std::string::npos);
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("413 Payload Too Large"), std::string::npos);
+            SEASTAR_BOOST_REQUIRE_EQUAL(std::string(resp.get(), resp.size()).find("100 Continue"), std::string::npos);
+            SEASTAR_BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("413 Payload Too Large"), std::string::npos);
 
             input.close().get();
             output.close().get();
@@ -1336,8 +1337,8 @@ SEASTAR_TEST_CASE(test_unparsable_request) {
             output.write(sstring("GET /test HTTP/1.1\r\nhello\r\nContent-Length: 17\r\nExpect: 100-continue\r\n\r\n")).get();
             output.flush().get();
             auto resp = input.read().get();
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("400 Bad Request"), std::string::npos);
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("Can't parse the request"), std::string::npos);
+            SEASTAR_BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("400 Bad Request"), std::string::npos);
+            SEASTAR_BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("Can't parse the request"), std::string::npos);
 
             input.close().get();
             output.close().get();
@@ -1444,10 +1445,10 @@ future<> check_http_reply(std::vector<sstring>&& req_parts, std::vector<std::str
             auto resp = input.read().get();
             std::string resp_str(resp.get(), resp.size());
             for (auto& str : resp_parts) {
-                BOOST_REQUIRE_NE(resp_str.find(str), std::string::npos);
+                SEASTAR_BOOST_REQUIRE_NE(resp_str.find(str), std::string::npos);
             }
             for (auto& str : absent_parts) {
-                BOOST_REQUIRE_EQUAL(resp_str.find(str), std::string::npos);
+                SEASTAR_BOOST_REQUIRE_EQUAL(resp_str.find(str), std::string::npos);
             }
 
             input.close().get();
@@ -1479,7 +1480,7 @@ future<> head_handler_no_body(bool chunked) {
             auto resp = input.read().get();
             auto resp_s = std::string(resp.get(), resp.size());
             fmt::print("resp:[{}]", resp_s);
-            BOOST_REQUIRE_NE(resp_s.find("200 OK"), std::string::npos);
+            SEASTAR_BOOST_REQUIRE_NE(resp_s.find("200 OK"), std::string::npos);
 
             // RFC7231 section 4.3.2
             // The HEAD method is identical to GET except that the server MUST NOT
@@ -1492,13 +1493,13 @@ future<> head_handler_no_body(bool chunked) {
 
             // Seastar HTTPD doesn't omit header fields ..
             if (chunked) {
-                BOOST_REQUIRE_NE(resp_s.find("Transfer-Encoding: chunked\r\n"), std::string::npos);
+                SEASTAR_BOOST_REQUIRE_NE(resp_s.find("Transfer-Encoding: chunked\r\n"), std::string::npos);
             } else {
-                BOOST_REQUIRE_NE(resp_s.find("Content-Length: 1\r\n"), std::string::npos);
+                SEASTAR_BOOST_REQUIRE_NE(resp_s.find("Content-Length: 1\r\n"), std::string::npos);
             }
 
             // ... but does omit the body itself
-            BOOST_REQUIRE_EQUAL(resp_s.find("\r\n\r\n"), resp_s.size() - 4);
+            SEASTAR_BOOST_REQUIRE_EQUAL(resp_s.find("\r\n\r\n"), resp_s.size() - 4);
 
             input.close().get();
             output.close().get();
@@ -1552,13 +1553,13 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                 auto req = http::request::make("GET", "test", "/test");
                 req.write_body("txt", sstring("12345 78901\t34521345"));
                 cln.make_request(std::move(req), [&] (const http::reply& resp, input_stream<char>&& in) {
-                    BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
+                    SEASTAR_BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
                     if (!chunked_reply) {
-                        BOOST_REQUIRE_EQUAL(resp.content_length, 20);
+                        SEASTAR_BOOST_REQUIRE_EQUAL(resp.content_length, 20);
                     }
                     return seastar::async([in = std::move(in)] () mutable {
                         sstring body = util::read_entire_stream_contiguous(in).get();
-                        BOOST_REQUIRE_EQUAL(body, sstring("12345 78901\t34521345"));
+                        SEASTAR_BOOST_REQUIRE_EQUAL(body, sstring("12345 78901\t34521345"));
                     });
                 }).get();
             }
@@ -1572,11 +1573,11 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                 });
                 cln.make_request(std::move(req), [&] (const http::reply& resp, input_stream<char>&& in) {
                     if (!chunked_reply) {
-                        BOOST_REQUIRE_EQUAL(resp.content_length, 12);
+                        SEASTAR_BOOST_REQUIRE_EQUAL(resp.content_length, 12);
                     }
                     return seastar::async([in = std::move(in)] () mutable {
                         sstring body = util::read_entire_stream_contiguous(in).get();
-                        BOOST_REQUIRE_EQUAL(body, sstring("1234567890AB"));
+                        SEASTAR_BOOST_REQUIRE_EQUAL(body, sstring("1234567890AB"));
                     });
                 }, http::reply::status_type::ok).get();
             }
@@ -1596,11 +1597,11 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                 });
                 cln.make_request(std::move(req), [chunked_reply, size, jumbo_copy = std::move(jumbo_copy)] (const http::reply& resp, input_stream<char>&& in) mutable {
                     if (!chunked_reply) {
-                        BOOST_REQUIRE_EQUAL(resp.content_length, size);
+                        SEASTAR_BOOST_REQUIRE_EQUAL(resp.content_length, size);
                     }
                     return seastar::async([in = std::move(in), jumbo_copy = std::move(jumbo_copy)] () mutable {
                         sstring body = util::read_entire_stream_contiguous(in).get();
-                        BOOST_REQUIRE_EQUAL(body, to_sstring(std::move(jumbo_copy)));
+                        SEASTAR_BOOST_REQUIRE_EQUAL(body, to_sstring(std::move(jumbo_copy)));
                     });
                 }, http::reply::status_type::ok).get();
             }
@@ -1613,13 +1614,13 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                     co_await out.write(seastar::temporary_buffer<char>{msg, 5});
                 });
                 cln.make_request(std::move(req), [&] (const http::reply& resp, input_stream<char>&& in) {
-                    BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
+                    SEASTAR_BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
                     if (!chunked_reply) {
-                        BOOST_REQUIRE_EQUAL(resp.content_length, 5);
+                        SEASTAR_BOOST_REQUIRE_EQUAL(resp.content_length, 5);
                     }
                     return seastar::async([in = std::move(in)] () mutable {
                         sstring body = util::read_entire_stream_contiguous(in).get();
-                        BOOST_REQUIRE_EQUAL(body, sstring("hello"));
+                        SEASTAR_BOOST_REQUIRE_EQUAL(body, sstring("hello"));
                     });
                 }).get();
             }
@@ -1632,13 +1633,13 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                     co_await out.write(sstring("1234\r\n7890"));
                 });
                 cln.make_request(std::move(req), [&] (const http::reply& resp, input_stream<char>&& in) {
-                    BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
+                    SEASTAR_BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
                     if (!chunked_reply) {
-                        BOOST_REQUIRE_EQUAL(resp.content_length, 13);
+                        SEASTAR_BOOST_REQUIRE_EQUAL(resp.content_length, 13);
                     }
                     return seastar::async([in = std::move(in)] () mutable {
                         sstring body = util::read_entire_stream_contiguous(in).get();
-                        BOOST_REQUIRE_EQUAL(body, sstring("req1234\r\n7890"));
+                        SEASTAR_BOOST_REQUIRE_EQUAL(body, sstring("req1234\r\n7890"));
                     });
                 }).get();
             }
@@ -1649,13 +1650,13 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                 req.write_body("txt", sstring("foobar"));
                 req.set_expects_continue();
                 cln.make_request(std::move(req), [&] (const http::reply& resp, input_stream<char>&& in) {
-                    BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
+                    SEASTAR_BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
                     if (!chunked_reply) {
-                        BOOST_REQUIRE_EQUAL(resp.content_length, 6);
+                        SEASTAR_BOOST_REQUIRE_EQUAL(resp.content_length, 6);
                     }
                     return seastar::async([in = std::move(in)] () mutable {
                         sstring body = util::read_entire_stream_contiguous(in).get();
-                        BOOST_REQUIRE_EQUAL(body, sstring("foobar"));
+                        SEASTAR_BOOST_REQUIRE_EQUAL(body, sstring("foobar"));
                     });
                 }).get();
             }
@@ -1684,7 +1685,7 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                         callback_completed = true;
                     });
                 });
-                BOOST_REQUIRE_NE(callback_completed, true); // should throw early
+                SEASTAR_BOOST_REQUIRE_NE(callback_completed, true); // should throw early
                 BOOST_REQUIRE_THROW(cln.make_request(std::move(req), [] (const auto& resp, auto&& in) {
                     BOOST_REQUIRE(false); // should throw before handling response
                     return make_ready_future<>();
@@ -1832,9 +1833,9 @@ SEASTAR_TEST_CASE(test_date_header_disabled) {
 SEASTAR_TEST_CASE(case_insensitive_header) {
     std::unique_ptr<seastar::http::request> req = std::make_unique<seastar::http::request>();
     req->_headers["conTEnt-LengtH"] = "17";
-    BOOST_REQUIRE_EQUAL(req->get_header("content-length"), "17");
-    BOOST_REQUIRE_EQUAL(req->get_header("Content-Length"), "17");
-    BOOST_REQUIRE_EQUAL(req->get_header("cOnTeNT-lEnGTh"), "17");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req->get_header("content-length"), "17");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req->get_header("Content-Length"), "17");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req->get_header("cOnTeNT-lEnGTh"), "17");
     return make_ready_future<>();
 }
 
@@ -1844,8 +1845,8 @@ SEASTAR_TEST_CASE(broken_reply) {
     char r101[] = "Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
 
     parser.parse(r101, r101 + sizeof(r101), r101 + sizeof(r101));
-    BOOST_REQUIRE_EQUAL(parser.failed(), true);
-    BOOST_REQUIRE_EQUAL(parser.error_message().starts_with("Parsing error at offset 0: encountered \"Lorem ipsum dolor sit amet, cons\""), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(parser.failed(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(parser.error_message().starts_with("Parsing error at offset 0: encountered \"Lorem ipsum dolor sit amet, cons\""), true);
 
     return make_ready_future<>();
 }
@@ -1858,9 +1859,9 @@ SEASTAR_TEST_CASE(case_insensitive_header_reply) {
     parser.parse(r101, r101 + sizeof(r101), r101 + sizeof(r101));
     auto response = parser.get_parsed_response();
     std::unique_ptr<seastar::http::reply> rep = std::make_unique<seastar::http::reply>(std::move(*response));
-    BOOST_REQUIRE_EQUAL(rep->get_header("content-length"), "17");
-    BOOST_REQUIRE_EQUAL(rep->get_header("Content-Length"), "17");
-    BOOST_REQUIRE_EQUAL(rep->get_header("cOnTeNT-lEnGTh"), "17");
+    SEASTAR_BOOST_REQUIRE_EQUAL(rep->get_header("content-length"), "17");
+    SEASTAR_BOOST_REQUIRE_EQUAL(rep->get_header("Content-Length"), "17");
+    SEASTAR_BOOST_REQUIRE_EQUAL(rep->get_header("cOnTeNT-lEnGTh"), "17");
 
     return make_ready_future<>();
 }
@@ -1890,12 +1891,12 @@ SEASTAR_TEST_CASE(http_parse_response_status) {
 
     parser.parse(r101, r101 + sizeof(r101), r101 + sizeof(r101));
     auto response = parser.get_parsed_response();
-    BOOST_REQUIRE_EQUAL(response->_status, http::reply::status_type::switching_protocols);
+    SEASTAR_BOOST_REQUIRE_EQUAL(response->_status, http::reply::status_type::switching_protocols);
 
     parser.init();
     parser.parse(r200, r200 + sizeof(r200), r200 + sizeof(r200));
     response = parser.get_parsed_response();
-    BOOST_REQUIRE_EQUAL(response->_status, http::reply::status_type::ok);
+    SEASTAR_BOOST_REQUIRE_EQUAL(response->_status, http::reply::status_type::ok);
     return make_ready_future<>();
 }
 
@@ -1906,11 +1907,11 @@ SEASTAR_TEST_CASE(http_parse_response_small_json) {
 
     parser.parse(r101, r101 + sizeof(r101), r101 + sizeof(r101));
     auto resp = parser.get_parsed_response();
-    BOOST_REQUIRE_EQUAL((int)resp->_status, 200);
-    BOOST_REQUIRE_EQUAL(resp->get_header("Content-Length"), "17");
-    BOOST_REQUIRE_EQUAL(resp->get_header("Content-Type"), "application/json");
-    BOOST_REQUIRE_EQUAL(resp->get_header("server"), "uvicorn");
-    BOOST_REQUIRE_EQUAL(resp->get_header("date"), "Thu, 25 May 2023 16:13:59 GMT");
+    SEASTAR_BOOST_REQUIRE_EQUAL((int)resp->_status, 200);
+    SEASTAR_BOOST_REQUIRE_EQUAL(resp->get_header("Content-Length"), "17");
+    SEASTAR_BOOST_REQUIRE_EQUAL(resp->get_header("Content-Type"), "application/json");
+    SEASTAR_BOOST_REQUIRE_EQUAL(resp->get_header("server"), "uvicorn");
+    SEASTAR_BOOST_REQUIRE_EQUAL(resp->get_header("date"), "Thu, 25 May 2023 16:13:59 GMT");
 
     return make_ready_future<>();
 }
@@ -1940,15 +1941,15 @@ SEASTAR_TEST_CASE(test_url_encode_decode) {
     sstring all_valid = "~abcdefghijklmnopqrstuvwhyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789.";
     encoded = http::internal::url_encode(all_valid);
     ok = http::internal::url_decode(encoded, decoded);
-    BOOST_REQUIRE_EQUAL(ok, true);
-    BOOST_REQUIRE_EQUAL(decoded, all_valid);
-    BOOST_REQUIRE_EQUAL(all_valid, encoded);
+    SEASTAR_BOOST_REQUIRE_EQUAL(ok, true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(decoded, all_valid);
+    SEASTAR_BOOST_REQUIRE_EQUAL(all_valid, encoded);
 
     sstring some_invalid = "a?/!@#$%^&*()[]=.\\ \tZ";
     encoded = http::internal::url_encode(some_invalid);
     ok = http::internal::url_decode(encoded, decoded);
-    BOOST_REQUIRE_EQUAL(ok, true);
-    BOOST_REQUIRE_EQUAL(decoded, some_invalid);
+    SEASTAR_BOOST_REQUIRE_EQUAL(ok, true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(decoded, some_invalid);
     for (size_t i = 0; i < encoded.length(); i++) {
         if (encoded[i] != '%' && encoded[i] != '+') {
             auto f = std::find(std::begin(all_valid), std::end(all_valid), encoded[i]);
@@ -1971,13 +1972,13 @@ SEASTAR_TEST_CASE(test_url_param_encode_decode) {
     to_recv._url = to_send.format_url();
     sstring url = to_recv.parse_query_param();
 
-    BOOST_REQUIRE_EQUAL(url, to_send._url);
+    SEASTAR_BOOST_REQUIRE_EQUAL(url, to_send._url);
     const auto& to_recv_query_parameters = deprecated_query_parameters(to_recv);
-    BOOST_REQUIRE_EQUAL(to_recv_query_parameters.size(), to_send_query_parameters.size());
+    SEASTAR_BOOST_REQUIRE_EQUAL(to_recv_query_parameters.size(), to_send_query_parameters.size());
     for (const auto& p : to_send_query_parameters) {
         auto it = to_recv_query_parameters.find(p.first);
         BOOST_REQUIRE(it != to_recv_query_parameters.end());
-        BOOST_REQUIRE_EQUAL(it->second, p.second);
+        SEASTAR_BOOST_REQUIRE_EQUAL(it->second, p.second);
     }
 
     return make_ready_future<>();
@@ -1993,7 +1994,7 @@ SEASTAR_TEST_CASE(test_url_param_encode_decode_multiple) {
     http::request to_recv;
     to_recv._url = to_send.format_url();
     sstring url = to_recv.parse_query_param();
-    BOOST_REQUIRE_EQUAL(url, to_send._url);
+    SEASTAR_BOOST_REQUIRE_EQUAL(url, to_send._url);
     const auto& to_send_a = to_send.get_query_param_array("a");
     const auto& to_recv_a = to_recv.get_query_param_array("a");
     BOOST_REQUIRE(to_send_a == to_recv_a);
@@ -2001,8 +2002,8 @@ SEASTAR_TEST_CASE(test_url_param_encode_decode_multiple) {
     const auto& to_recv_b = to_recv.get_query_param_array("b");
     BOOST_REQUIRE(to_send_b == to_recv_b);
 
-    BOOST_REQUIRE_EQUAL(to_recv.get_query_param("a"), to_send.get_query_param("a"));
-    BOOST_REQUIRE_EQUAL(to_recv.get_query_param("b"), to_send.get_query_param("b"));
+    SEASTAR_BOOST_REQUIRE_EQUAL(to_recv.get_query_param("a"), to_send.get_query_param("a"));
+    SEASTAR_BOOST_REQUIRE_EQUAL(to_recv.get_query_param("b"), to_send.get_query_param("b"));
     return make_ready_future<>();
 }
 
@@ -2012,7 +2013,7 @@ SEASTAR_TEST_CASE(test_url_param_empty) {
     req._url = test_url;
     req.parse_query_param();
     const auto& query_params = deprecated_query_parameters(req);
-    BOOST_REQUIRE_EQUAL(query_params.size(), 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(query_params.size(), 2);
     BOOST_REQUIRE(query_params.at("key").empty());
     BOOST_REQUIRE(query_params.at("key2").empty());
 
@@ -2024,8 +2025,8 @@ SEASTAR_TEST_CASE(test_url_param_empty) {
     const auto& actual_key2 = req.get_query_param_array("key2");
     BOOST_REQUIRE(actual_key2 == expected_key2);
 
-    BOOST_REQUIRE_EQUAL(req.get_query_param("key"), "");
-    BOOST_REQUIRE_EQUAL(req.get_query_param("key2"), "");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req.get_query_param("key"), "");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req.get_query_param("key2"), "");
 
     return make_ready_future<>();
 }
@@ -2047,18 +2048,18 @@ SEASTAR_TEST_CASE(test_url_params_get_set) {
         BOOST_REQUIRE(it->second == values);
     }
 
-    BOOST_REQUIRE_EQUAL(req.get_query_param("a"), "lasta");
-    BOOST_REQUIRE_EQUAL(req.get_query_param("b"), "lastb");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req.get_query_param("a"), "lasta");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req.get_query_param("b"), "lastb");
 
     req.set_query_param("a", "new_a");
-    BOOST_REQUIRE_EQUAL(req.get_query_param("a"), "new_a");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req.get_query_param("a"), "new_a");
 
     req.set_query_param("c", "c/c\%c");
-    BOOST_REQUIRE_EQUAL(req.get_query_param("c"), "c/c%c");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req.get_query_param("c"), "c/c%c");
 
     std::vector<sstring> d_params = {"d/d%d", "lastd"};
     req.set_query_param("d", d_params);
-    BOOST_REQUIRE_EQUAL(req.get_query_param("d"), "lastd");
+    SEASTAR_BOOST_REQUIRE_EQUAL(req.get_query_param("d"), "lastd");
     const auto& d_values = req.get_query_param_array("d");
     BOOST_REQUIRE(d_values == d_params);
 
@@ -2069,7 +2070,7 @@ SEASTAR_TEST_CASE(test_unexpected_exception_format) {
     try {
         throw httpd::unexpected_status_error(http::reply::status_type::see_other);
     } catch (const std::exception& ex) {
-        BOOST_REQUIRE_EQUAL(sstring(ex.what()), format("{}", http::reply::status_type::see_other));
+        SEASTAR_BOOST_REQUIRE_EQUAL(sstring(ex.what()), format("{}", http::reply::status_type::see_other));
     }
     return make_ready_future<>();
 }
@@ -2110,8 +2111,8 @@ SEASTAR_TEST_CASE(test_redirect_exception) {
                     return make_ready_future<>();
                 }).get();
                 BOOST_REQUIRE(status.has_value());
-                BOOST_REQUIRE_EQUAL(status.value(), expected_status);
-                BOOST_REQUIRE_EQUAL(location, expected_dest);
+                SEASTAR_BOOST_REQUIRE_EQUAL(status.value(), expected_status);
+                SEASTAR_BOOST_REQUIRE_EQUAL(location, expected_dest);
             };
 
             test("/perm", "/perm_loc", http::reply::status_type::moved_permanently);
@@ -2132,17 +2133,17 @@ BOOST_AUTO_TEST_CASE(test_redirect_exception_to_reply) {
     // Basic redirect: Location header and status set correctly
     httpd::redirect_exception e("/new-loc");
     auto rep = e.to_reply();
-    BOOST_REQUIRE_EQUAL(rep.get_header("Location"), "/new-loc");
-    BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::moved_permanently);
+    SEASTAR_BOOST_REQUIRE_EQUAL(rep.get_header("Location"), "/new-loc");
+    SEASTAR_BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::moved_permanently);
 
     // Extra headers are included in the reply
     httpd::redirect_exception e2("/other", http::reply::status_type::moved_temporarily,
             {{"Retry-After", "120"}, {"X-Custom", "val"}});
     auto rep2 = e2.to_reply();
-    BOOST_REQUIRE_EQUAL(rep2.get_header("Location"), "/other");
-    BOOST_REQUIRE_EQUAL(rep2.get_header("Retry-After"), "120");
-    BOOST_REQUIRE_EQUAL(rep2.get_header("X-Custom"), "val");
-    BOOST_REQUIRE_EQUAL(rep2._status, http::reply::status_type::moved_temporarily);
+    SEASTAR_BOOST_REQUIRE_EQUAL(rep2.get_header("Location"), "/other");
+    SEASTAR_BOOST_REQUIRE_EQUAL(rep2.get_header("Retry-After"), "120");
+    SEASTAR_BOOST_REQUIRE_EQUAL(rep2.get_header("X-Custom"), "val");
+    SEASTAR_BOOST_REQUIRE_EQUAL(rep2._status, http::reply::status_type::moved_temporarily);
 }
 
 SEASTAR_TEST_CASE(test_redirect_exception_sync_throw) {
@@ -2176,9 +2177,9 @@ SEASTAR_TEST_CASE(test_redirect_exception_sync_throw) {
                 return make_ready_future<>();
             }).get();
             BOOST_REQUIRE(status.has_value());
-            BOOST_REQUIRE_EQUAL(status.value(), http::reply::status_type::moved_temporarily);
-            BOOST_REQUIRE_EQUAL(location, "/sync_dest");
-            BOOST_REQUIRE_EQUAL(retry_after, "30");
+            SEASTAR_BOOST_REQUIRE_EQUAL(status.value(), http::reply::status_type::moved_temporarily);
+            SEASTAR_BOOST_REQUIRE_EQUAL(location, "/sync_dest");
+            SEASTAR_BOOST_REQUIRE_EQUAL(retry_after, "30");
             cln.close().get();
         });
 
@@ -2196,7 +2197,7 @@ BOOST_AUTO_TEST_CASE(test_path_decode_unchanged) {
     auto success = http::internal::path_decode(unchanged_chars, result);
 
     BOOST_REQUIRE(success);
-    BOOST_REQUIRE_EQUAL(result, unchanged_chars);
+    SEASTAR_BOOST_REQUIRE_EQUAL(result, unchanged_chars);
 }
 
 BOOST_AUTO_TEST_CASE(test_path_decode_changed) {
@@ -2207,7 +2208,7 @@ BOOST_AUTO_TEST_CASE(test_path_decode_changed) {
     BOOST_REQUIRE(success);
 
     auto expected_chars = seastar::sstring{" "};
-    BOOST_REQUIRE_EQUAL(result, expected_chars);
+    SEASTAR_BOOST_REQUIRE_EQUAL(result, expected_chars);
 }
 
 namespace seastar::http {
@@ -2239,30 +2240,30 @@ BOOST_AUTO_TEST_CASE(test_http_status_classification) {
         auto classification = http::reply::classify_status(static_cast<http::reply::status_type>(i));
         if (i >= 100 && i < 200) {
             ++informational;
-            BOOST_REQUIRE_EQUAL(classification, http::reply::status_class::informational);
+            BOOST_REQUIRE(classification == http::reply::status_class::informational);
         } else if (i >= 200 && i < 300) {
             ++success;
-            BOOST_REQUIRE_EQUAL(classification, http::reply::status_class::success);
+            BOOST_REQUIRE(classification == http::reply::status_class::success);
         } else if (i >= 300 && i < 400) {
             ++redirection;
-            BOOST_REQUIRE_EQUAL(classification, http::reply::status_class::redirection);
+            BOOST_REQUIRE(classification == http::reply::status_class::redirection);
         } else if (i >= 400 && i < 500) {
             ++client_error;
-            BOOST_REQUIRE_EQUAL(classification, http::reply::status_class::client_error);
+            BOOST_REQUIRE(classification == http::reply::status_class::client_error);
         } else if (i >= 500 && i < 600) {
             ++server_error;
-            BOOST_REQUIRE_EQUAL(classification, http::reply::status_class::server_error);
+            BOOST_REQUIRE(classification == http::reply::status_class::server_error);
         } else {
             ++unclassified;
-            BOOST_REQUIRE_EQUAL(classification, http::reply::status_class::unclassified);
+            BOOST_REQUIRE(classification == http::reply::status_class::unclassified);
         }
     }
-    BOOST_REQUIRE_EQUAL(informational, 100);
-    BOOST_REQUIRE_EQUAL(success, 100);
-    BOOST_REQUIRE_EQUAL(redirection, 100);
-    BOOST_REQUIRE_EQUAL(client_error, 100);
-    BOOST_REQUIRE_EQUAL(server_error, 100);
-    BOOST_REQUIRE_EQUAL(unclassified, 300);
+    SEASTAR_BOOST_REQUIRE_EQUAL(informational, 100);
+    SEASTAR_BOOST_REQUIRE_EQUAL(success, 100);
+    SEASTAR_BOOST_REQUIRE_EQUAL(redirection, 100);
+    SEASTAR_BOOST_REQUIRE_EQUAL(client_error, 100);
+    SEASTAR_BOOST_REQUIRE_EQUAL(server_error, 100);
+    SEASTAR_BOOST_REQUIRE_EQUAL(unclassified, 300);
 }
 
 // #2661. Check that trying a http connection with a wire error
@@ -2402,7 +2403,7 @@ SEASTAR_THREAD_TEST_CASE(test_content_length_data_sink) {
         sstring expected_ss;
         output_stream<char> data = output_stream<char>(testing::memory_data_sink(ss));
         output_stream<char> out = http::internal::make_http_content_length_output_stream(data, len, written);
-        BOOST_CHECK_EQUAL(written, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(written, 0);
 
         unsigned values = 0;
         while (true) {
@@ -2415,19 +2416,19 @@ SEASTAR_THREAD_TEST_CASE(test_content_length_data_sink) {
             auto f = out.flush();
             if (expected > len) {
                 BOOST_CHECK_EXCEPTION(f.get(), std::runtime_error, [] (const auto& e) { return sstring(e.what()).starts_with("body content length overflow"); });
-                BOOST_CHECK_EQUAL(written, expected - value.size());
+                SEASTAR_BOOST_CHECK_EQUAL(written, expected - value.size());
                 break;
             }
 
             f.get();
-            BOOST_CHECK_EQUAL(written, expected);
+            SEASTAR_BOOST_CHECK_EQUAL(written, expected);
             data.flush().get();
             expected_ss += value;
             values++;
         }
 
-        BOOST_CHECK_EQUAL(values, len / value.size());
-        BOOST_CHECK_EQUAL(ss.str(), expected_ss);
+        SEASTAR_BOOST_CHECK_EQUAL(values, len / value.size());
+        SEASTAR_BOOST_CHECK_EQUAL(ss.str(), expected_ss);
     };
 
     do_check(2, "1", false);
@@ -2458,8 +2459,8 @@ SEASTAR_THREAD_TEST_CASE(test_write_reply_content) {
 
     auto s = ss.str();
     BOOST_REQUIRE(s.starts_with("HTTP/1.1 200 OK\r\n"));
-    BOOST_REQUIRE_NE(s.find("Content-Type: text/plain\r\n"), std::string::npos);
-    BOOST_REQUIRE_NE(s.find("Content-Length: 5\r\n"), std::string::npos);
+    SEASTAR_BOOST_REQUIRE_NE(s.find("Content-Type: text/plain\r\n"), std::string::npos);
+    SEASTAR_BOOST_REQUIRE_NE(s.find("Content-Length: 5\r\n"), std::string::npos);
     BOOST_REQUIRE(s.ends_with("hello"));
 }
 
@@ -2485,11 +2486,11 @@ SEASTAR_THREAD_TEST_CASE(test_write_reply_body_writer) {
 
     auto s = ss.str();
     BOOST_REQUIRE(s.starts_with("HTTP/1.1 200 OK\r\n"));
-    BOOST_REQUIRE_NE(s.find("Content-Type: application/json\r\n"), std::string::npos);
-    BOOST_REQUIRE_NE(s.find("Transfer-Encoding: chunked\r\n"), std::string::npos);
-    BOOST_REQUIRE_EQUAL(s.find("Content-Length:"), std::string::npos);
+    SEASTAR_BOOST_REQUIRE_NE(s.find("Content-Type: application/json\r\n"), std::string::npos);
+    SEASTAR_BOOST_REQUIRE_NE(s.find("Transfer-Encoding: chunked\r\n"), std::string::npos);
+    SEASTAR_BOOST_REQUIRE_EQUAL(s.find("Content-Length:"), std::string::npos);
     // chunk: "2\r\n{}\r\n" followed by terminal "0\r\n\r\n"
-    BOOST_REQUIRE_NE(s.find("2\r\n{}\r\n"), std::string::npos);
+    SEASTAR_BOOST_REQUIRE_NE(s.find("2\r\n{}\r\n"), std::string::npos);
     BOOST_REQUIRE(s.ends_with("0\r\n\r\n"));
 }
 
@@ -2513,8 +2514,8 @@ SEASTAR_THREAD_TEST_CASE(test_write_reply_body_no_content_type) {
 
     auto s = ss.str();
     BOOST_REQUIRE(s.starts_with("HTTP/1.1 200 OK\r\n"));
-    BOOST_REQUIRE_EQUAL(s.find("Content-Type:"), std::string::npos);
-    BOOST_REQUIRE_NE(s.find("Content-Length: 5\r\n"), std::string::npos);
+    SEASTAR_BOOST_REQUIRE_EQUAL(s.find("Content-Type:"), std::string::npos);
+    SEASTAR_BOOST_REQUIRE_NE(s.find("Content-Length: 5\r\n"), std::string::npos);
     BOOST_REQUIRE(s.ends_with("hello"));
 }
 
@@ -2539,14 +2540,14 @@ SEASTAR_THREAD_TEST_CASE(test_reply_cookies) {
 
     std::vector<sstring> lines;
     boost::split(lines, headers_str_no_cr, boost::is_any_of("\n"));
-    BOOST_REQUIRE_EQUAL(lines.size(), 4);
+    SEASTAR_BOOST_REQUIRE_EQUAL(lines.size(), 4);
     lines.pop_back(); // last line is empty
     std::sort(lines.begin(), lines.end());
 
     // Check that both headers and cookies are present
-    BOOST_REQUIRE_EQUAL(lines[0], "Content-Encoding: gzip");
-    BOOST_REQUIRE_EQUAL(lines[1], "Set-Cookie: cookie1=1");
-    BOOST_REQUIRE_EQUAL(lines[2], "Set-Cookie: cookie2=2");
+    SEASTAR_BOOST_REQUIRE_EQUAL(lines[0], "Content-Encoding: gzip");
+    SEASTAR_BOOST_REQUIRE_EQUAL(lines[1], "Set-Cookie: cookie1=1");
+    SEASTAR_BOOST_REQUIRE_EQUAL(lines[2], "Set-Cookie: cookie2=2");
 }
 
 SEASTAR_TEST_CASE(test_http_request_formatting) {
@@ -2558,14 +2559,14 @@ SEASTAR_TEST_CASE(test_http_request_formatting) {
     fmt::print("{}\n", str);
     std::vector<std::string> parts;
     boost::split(parts, str, boost::is_any_of(" "));
-    BOOST_REQUIRE_EQUAL(parts.size(), 6);
+    SEASTAR_BOOST_REQUIRE_EQUAL(parts.size(), 6);
     std::sort(parts.begin() + 2, parts.begin() + 5); // headers can come in any order
-    BOOST_REQUIRE_EQUAL(parts[0], "PUT");
-    BOOST_REQUIRE_EQUAL(parts[1], "/test");
-    BOOST_REQUIRE_EQUAL(parts[2], "Content-Length:12");
-    BOOST_REQUIRE_EQUAL(parts[3], "Content-Type:text/plain");
-    BOOST_REQUIRE_EQUAL(parts[4], "Host:host");
-    BOOST_REQUIRE_EQUAL(parts[5], "body-content");
+    SEASTAR_BOOST_REQUIRE_EQUAL(parts[0], "PUT");
+    SEASTAR_BOOST_REQUIRE_EQUAL(parts[1], "/test");
+    SEASTAR_BOOST_REQUIRE_EQUAL(parts[2], "Content-Length:12");
+    SEASTAR_BOOST_REQUIRE_EQUAL(parts[3], "Content-Type:text/plain");
+    SEASTAR_BOOST_REQUIRE_EQUAL(parts[4], "Host:host");
+    SEASTAR_BOOST_REQUIRE_EQUAL(parts[5], "body-content");
 
     return make_ready_future<>();
 }
@@ -2581,13 +2582,13 @@ SEASTAR_TEST_CASE(test_http_reply_formatting) {
     fmt::print("{}\n", str);
     std::vector<std::string> parts;
     boost::split(parts, str, boost::is_any_of(" "));
-    BOOST_REQUIRE_EQUAL(parts.size(), 5);
+    SEASTAR_BOOST_REQUIRE_EQUAL(parts.size(), 5);
     std::sort(parts.begin() + 2, parts.begin() + 4); // headers can come in any order
-    BOOST_REQUIRE_EQUAL(parts[0], "200");
-    BOOST_REQUIRE_EQUAL(parts[1], "OK");
-    BOOST_REQUIRE_EQUAL(parts[2], "Content-Type:text/plain");
-    BOOST_REQUIRE_EQUAL(parts[3], "Server:test_server");
-    BOOST_REQUIRE_EQUAL(parts[4], "body-content");
+    SEASTAR_BOOST_REQUIRE_EQUAL(parts[0], "200");
+    SEASTAR_BOOST_REQUIRE_EQUAL(parts[1], "OK");
+    SEASTAR_BOOST_REQUIRE_EQUAL(parts[2], "Content-Type:text/plain");
+    SEASTAR_BOOST_REQUIRE_EQUAL(parts[3], "Server:test_server");
+    SEASTAR_BOOST_REQUIRE_EQUAL(parts[4], "body-content");
 
     return make_ready_future<>();
 }

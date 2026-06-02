@@ -28,6 +28,7 @@
 #include <seastar/http/request.hh>
 #include <seastar/util/short_streams.hh>
 #include <string>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 using namespace util;
@@ -69,7 +70,7 @@ SEASTAR_TEST_CASE(test_read_all) {
             for (auto&& buf: all) {
                 s += seastar::to_sstring(std::move(buf));
             };
-            BOOST_REQUIRE_EQUAL(s, test);
+            SEASTAR_BOOST_REQUIRE_EQUAL(s, test);
         };
         input_stream<char> inp(data_source(std::make_unique<test_source_impl>(5, 15)));
         check_read_all(inp, "abcdefghijklmno");
@@ -82,13 +83,13 @@ SEASTAR_TEST_CASE(test_read_all) {
         BOOST_REQUIRE(empty_inp.eof());
 
         input_stream<char> inp_cont(data_source(std::make_unique<test_source_impl>(5, 15)));
-        BOOST_REQUIRE_EQUAL(to_sstring(read_entire_stream_contiguous(inp_cont).get()), "abcdefghijklmno");
+        SEASTAR_BOOST_REQUIRE_EQUAL(to_sstring(read_entire_stream_contiguous(inp_cont).get()), "abcdefghijklmno");
         BOOST_REQUIRE(inp_cont.eof());
         input_stream<char> inp_cont2(data_source(std::make_unique<test_source_impl>(5, 16)));
-        BOOST_REQUIRE_EQUAL(to_sstring(read_entire_stream_contiguous(inp_cont2).get()), "abcdefghijklmnop");
+        SEASTAR_BOOST_REQUIRE_EQUAL(to_sstring(read_entire_stream_contiguous(inp_cont2).get()), "abcdefghijklmnop");
         BOOST_REQUIRE(inp_cont2.eof());
         input_stream<char> empty_inp_cont(data_source(std::make_unique<test_source_impl>(5, 0)));
-        BOOST_REQUIRE_EQUAL(to_sstring(read_entire_stream_contiguous(empty_inp_cont).get()), "");
+        SEASTAR_BOOST_REQUIRE_EQUAL(to_sstring(read_entire_stream_contiguous(empty_inp_cont).get()), "");
         BOOST_REQUIRE(empty_inp_cont.eof());
     });
 }
@@ -119,14 +120,14 @@ SEASTAR_THREAD_TEST_CASE(test_read_exactly) {
             auto buf = in.read_exactly(bs).get();
             total += buf.size();
             if (buf.size() != bs) {
-                BOOST_REQUIRE_LT(buf.size(), bs);
+                SEASTAR_BOOST_REQUIRE_LT(buf.size(), bs);
                 if (buf.size() != 0) {
                     buf = in.read_exactly(bs).get();
-                    BOOST_REQUIRE_EQUAL(buf.size(), 0);
+                    SEASTAR_BOOST_REQUIRE_EQUAL(buf.size(), 0);
                 }
                 break;
             }
         }
-        BOOST_REQUIRE_EQUAL(total, total_size);
+        SEASTAR_BOOST_REQUIRE_EQUAL(total, total_size);
     }
 }

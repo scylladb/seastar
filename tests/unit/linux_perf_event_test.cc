@@ -20,11 +20,12 @@
 
 #include <boost/test/unit_test.hpp>
 #include <seastar/testing/linux_perf_event.hh>
+#include "test_comparisons.hh"
 
 BOOST_AUTO_TEST_CASE(test_always_zero_reads_zero) {
     auto event = linux_perf_event::always_zero();
-    BOOST_CHECK_EQUAL(event.read(), 0u);
-    BOOST_CHECK_EQUAL(event.read(), 0u);
+    SEASTAR_BOOST_CHECK_EQUAL(event.read(), 0u);
+    SEASTAR_BOOST_CHECK_EQUAL(event.read(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(test_always_zero_enable_disable) {
@@ -32,15 +33,15 @@ BOOST_AUTO_TEST_CASE(test_always_zero_enable_disable) {
     // These should be no-ops and not crash
     event.enable();
     event.disable();
-    BOOST_CHECK_EQUAL(event.read(), 0u);
+    SEASTAR_BOOST_CHECK_EQUAL(event.read(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(test_always_zero_move) {
     auto event = linux_perf_event::always_zero();
     auto event2 = std::move(event);
-    BOOST_CHECK_EQUAL(event2.read(), 0u);
+    SEASTAR_BOOST_CHECK_EQUAL(event2.read(), 0u);
 
     linux_perf_event event3 = linux_perf_event::always_zero();
     event3 = std::move(event2);
-    BOOST_CHECK_EQUAL(event3.read(), 0u);
+    SEASTAR_BOOST_CHECK_EQUAL(event3.read(), 0u);
 }

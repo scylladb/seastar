@@ -43,6 +43,7 @@
 #include <seastar/util/later.hh>
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/reactor.hh>
+#include "test_comparisons.hh"
 
 #include <boost/range/numeric.hpp>
 
@@ -375,14 +376,14 @@ SEASTAR_TEST_CASE(test_rpc_connect) {
                 }).get();
                 auto sum = env.proto().make_client<int (int, int)>(1);
                 auto result = sum(c1, 2, 3).get();
-                BOOST_REQUIRE_EQUAL(result, 2 + 3);
+                SEASTAR_BOOST_REQUIRE_EQUAL(result, 2 + 3);
             }).handle_exception([] (auto ep) {
                 BOOST_FAIL("No exception expected");
             }).finally([factory = std::move(factory), i, j = j & 1] {
                 if (i == 1 && j == 1) {
-                    BOOST_REQUIRE_EQUAL(factory->use_compression, 2);
+                    SEASTAR_BOOST_REQUIRE_EQUAL(factory->use_compression, 2);
                 } else {
-                    BOOST_REQUIRE_EQUAL(factory->use_compression, 0);
+                    SEASTAR_BOOST_REQUIRE_EQUAL(factory->use_compression, 0);
                 }
             });
             fs.emplace_back(std::move(f));
@@ -409,10 +410,10 @@ SEASTAR_TEST_CASE(test_rpc_connect_multi_compression_algo) {
         }).get();
         auto sum = env.proto().make_client<int (int, int)>(1);
         auto result = sum(c1, 2, 3).get();
-        BOOST_REQUIRE_EQUAL(result, 2 + 3);
+        SEASTAR_BOOST_REQUIRE_EQUAL(result, 2 + 3);
     }).finally([factory1 = std::move(factory1), factory2 = std::move(factory2)] {
-        BOOST_REQUIRE_EQUAL(factory1->use_compression, 0);
-        BOOST_REQUIRE_EQUAL(factory2->use_compression, 2);
+        SEASTAR_BOOST_REQUIRE_EQUAL(factory1->use_compression, 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(factory2->use_compression, 2);
     });
 }
 
@@ -471,7 +472,7 @@ SEASTAR_TEST_CASE(test_rpc_cancel) {
         } catch(rpc::canceled_error&) {
             good += 10*rpc_executed;
         };
-        BOOST_REQUIRE_EQUAL(good, 11);
+        SEASTAR_BOOST_REQUIRE_EQUAL(good, 11);
     });
 }
 
@@ -491,7 +492,7 @@ SEASTAR_TEST_CASE(test_message_to_big) {
         } catch(...) {
             good = false;
         }
-        BOOST_REQUIRE_EQUAL(good, true);
+        SEASTAR_BOOST_REQUIRE_EQUAL(good, true);
     });
 }
 
@@ -545,7 +546,7 @@ future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_clien
         test_rpc_proto::client c(env.proto(), {}, env.make_socket(), ipv4_addr());
         future<> server_done = make_ready_future();
         env.register_handler(1, [&](int i, rpc::source<int> source) {
-            BOOST_REQUIRE_EQUAL(i, 666);
+            SEASTAR_BOOST_REQUIRE_EQUAL(i, 666);
             auto sink = source.make_sink<serializer, sstring>();
             auto sink_loop = seastar::async([sink] () mutable {
                 for (auto i = 0; i < 100; i++) {
@@ -597,7 +598,7 @@ future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_clien
                 while (!r.client_source_closed) {
                     auto data = source().get();
                     if (data) {
-                        BOOST_REQUIRE_EQUAL(std::get<0>(*data), "seastar");
+                        SEASTAR_BOOST_REQUIRE_EQUAL(std::get<0>(*data), "seastar");
                     } else {
                         r.client_source_closed = true;
                     }
@@ -1193,7 +1194,7 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
                 });
             }
         );
-        BOOST_CHECK_EQUAL(actual_size, buffer.size);
+        SEASTAR_BOOST_CHECK_EQUAL(actual_size, buffer.size);
     };
 
     for (auto& in_func : inputs) {
@@ -1204,11 +1205,11 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
         sanity_check(compressed);
 
         // Remove headroom
-        BOOST_CHECK_GE(compressed.size, headroom);
+        SEASTAR_BOOST_CHECK_GE(compressed.size, headroom);
         compressed.size -= headroom;
         seastar::visit(compressed.bufs,
             [&] (temporary_buffer<char>& buf) {
-                BOOST_CHECK_GE(buf.size(), headroom);
+                SEASTAR_BOOST_CHECK_GE(buf.size(), headroom);
                 buf.trim_front(headroom);
             },
             [&] (std::vector<temporary_buffer<char>>& bufs) {
@@ -1233,11 +1234,11 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
             auto decompressed = compressor->decompress(std::move(received));
             sanity_check(decompressed);
 
-            BOOST_CHECK_EQUAL(decompressed.size, std::get<2>(in).size);
+            SEASTAR_BOOST_CHECK_EQUAL(decompressed.size, std::get<2>(in).size);
 
             auto out_l = linearize(decompressed);
 
-            BOOST_CHECK_EQUAL(in_l.size(), out_l.size());
+            SEASTAR_BOOST_CHECK_EQUAL(in_l.size(), out_l.size());
             BOOST_CHECK(in_l == out_l);
         }
     }
@@ -1296,7 +1297,7 @@ SEASTAR_TEST_CASE(test_max_absolute_timeout) {
         auto until = seastar::lowres_clock::now() + std::chrono::milliseconds(200);
         while (seastar::lowres_clock::now() <= until) {
             auto result = sum(c1, rpc::rpc_clock_type::time_point::max(), 2, 3).get();
-            BOOST_REQUIRE_EQUAL(result, 2 + 3);
+            SEASTAR_BOOST_REQUIRE_EQUAL(result, 2 + 3);
         }
     });
 }
@@ -1310,7 +1311,7 @@ SEASTAR_TEST_CASE(test_max_relative_timeout) {
         // The following call used to always hang, when max()+now()
         // overflowed and appeared to be a negative timeout.
         auto result = sum(c1, rpc::rpc_clock_type::duration::max(), 2, 3).get();
-        BOOST_REQUIRE_EQUAL(result, 2 + 3);
+        SEASTAR_BOOST_REQUIRE_EQUAL(result, 2 + 3);
     });
 }
 
@@ -1321,8 +1322,8 @@ SEASTAR_TEST_CASE(test_rpc_tuple) {
         }).get();
         auto f1 = env.proto().make_client<rpc::tuple<int, long> ()>(1);
         auto result = f1(c1).get();
-        BOOST_REQUIRE_EQUAL(std::get<0>(result), 1);
-        BOOST_REQUIRE_EQUAL(std::get<1>(result), 0x7'0000'0000L);
+        SEASTAR_BOOST_REQUIRE_EQUAL(std::get<0>(result), 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(std::get<1>(result), 0x7'0000'0000L);
     });
 }
 
@@ -1462,7 +1463,7 @@ SEASTAR_TEST_CASE(test_unregister_handler) {
             BOOST_REQUIRE(!unregister_future.available());
             handler_go_promise.set_value();
             unregister_future.get();
-            BOOST_REQUIRE_EQUAL(response_future.get(), "before_unregister");
+            SEASTAR_BOOST_REQUIRE_EQUAL(response_future.get(), "before_unregister");
         }
     });
 }
@@ -1488,7 +1489,7 @@ SEASTAR_TEST_CASE(test_loggers) {
 SEASTAR_TEST_CASE(test_connection_id_format) {
     rpc::connection_id cid = rpc::connection_id::make_id(0x123, 1);
     std::string res = format("{}", cid);
-    BOOST_REQUIRE_EQUAL(res, "1230001");
+    SEASTAR_BOOST_REQUIRE_EQUAL(res, "1230001");
     return make_ready_future<>();
 }
 
@@ -1500,15 +1501,15 @@ SEASTAR_TEST_CASE(test_client_info) {
         const rpc::client_info& const_info = *const_cast<rpc::client_info*>(&info);
 
         info.attach_auxiliary("key", 0);
-        BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary<int>("key"), 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary<int>("key"), 0);
         info.retrieve_auxiliary<int>("key") = 1;
-        BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary<int>("key"), 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary<int>("key"), 1);
 
-        BOOST_REQUIRE_EQUAL(info.retrieve_auxiliary_opt<int>("key"), &info.retrieve_auxiliary<int>("key"));
-        BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary_opt<int>("key"), &const_info.retrieve_auxiliary<int>("key"));
+        SEASTAR_BOOST_REQUIRE_EQUAL(info.retrieve_auxiliary_opt<int>("key"), &info.retrieve_auxiliary<int>("key"));
+        SEASTAR_BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary_opt<int>("key"), &const_info.retrieve_auxiliary<int>("key"));
 
-        BOOST_REQUIRE_EQUAL(info.retrieve_auxiliary_opt<int>("missing"), nullptr);
-        BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary_opt<int>("missing"), nullptr);
+        SEASTAR_BOOST_REQUIRE_EQUAL(info.retrieve_auxiliary_opt<int>("missing"), nullptr);
+        SEASTAR_BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary_opt<int>("missing"), nullptr);
 
         return make_ready_future<>();
     });
@@ -1557,7 +1558,7 @@ SEASTAR_TEST_CASE(test_rpc_abort_connection) {
         test_rpc_proto::client c1(env.proto(), {}, env.make_socket(), ipv4_addr());
         int arrived = 0;
         env.register_handler(1, [&arrived] (rpc::client_info& cinfo, int x) {
-            BOOST_REQUIRE_EQUAL(x, arrived++);
+            SEASTAR_BOOST_REQUIRE_EQUAL(x, arrived++);
             if (arrived == 2) {
                 cinfo.server.abort_connection(cinfo.conn_id);
             }
@@ -1566,10 +1567,10 @@ SEASTAR_TEST_CASE(test_rpc_abort_connection) {
             return 0;
         }).get();
         auto f = env.proto().make_client<int (int)>(1);
-        BOOST_REQUIRE_EQUAL(f(c1, 0).get(), 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(f(c1, 0).get(), 0);
         BOOST_REQUIRE_THROW(f(c1, 1).get(), rpc::closed_error);
         BOOST_REQUIRE_THROW(f(c1, 2).get(), rpc::closed_error);
-        BOOST_REQUIRE_EQUAL(arrived, 2);
+        SEASTAR_BOOST_REQUIRE_EQUAL(arrived, 2);
         c1.stop().get();
     });
 }
@@ -1608,8 +1609,8 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_metric_domains) {
     };
 
     // Negotiation messages also count, so +1 for default domain and +2 for "dom" one
-    BOOST_CHECK_EQUAL(get_metrics("rpc_client_sent_messages", "dom1"), 4);
-    BOOST_CHECK_EQUAL(get_metrics("rpc_client_sent_messages", "dom2"), 9);
+    SEASTAR_BOOST_CHECK_EQUAL(get_metrics("rpc_client_sent_messages", "dom1"), 4);
+    SEASTAR_BOOST_CHECK_EQUAL(get_metrics("rpc_client_sent_messages", "dom2"), 9);
 }
 
 // Extract a piece of contiguous data from the front of the buffer (and trim the extracted front away).
@@ -1752,15 +1753,15 @@ SEASTAR_THREAD_TEST_CASE(test_compressor_empty_frames) {
         // Perform an RPC once to initialize the connection and compressors.
         env.register_handler(1, []() { return 42; }).get();
         auto proto_client = env.proto().make_client<int()>(1);
-        BOOST_REQUIRE_EQUAL(proto_client(c).get(), 42);
+        SEASTAR_BOOST_REQUIRE_EQUAL(proto_client(c).get(), 42);
         BOOST_REQUIRE(client_tracker._compressor);
         BOOST_REQUIRE(server_tracker._compressor);
         // Check that both compressors can send metadata to each other.
         for (int i = 0; i < 3; ++i) {
             client_tracker._compressor->send_metadata(2*i);
-            BOOST_REQUIRE_EQUAL(server_tracker._compressor->receive_metadata().get(), 2*i);
+            SEASTAR_BOOST_REQUIRE_EQUAL(server_tracker._compressor->receive_metadata().get(), 2*i);
             server_tracker._compressor->send_metadata(2*i+1);
-            BOOST_REQUIRE_EQUAL(client_tracker._compressor->receive_metadata().get(), 2*i+1);
+            SEASTAR_BOOST_REQUIRE_EQUAL(client_tracker._compressor->receive_metadata().get(), 2*i+1);
         }
     }).get();
 }

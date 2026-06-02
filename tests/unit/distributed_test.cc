@@ -34,6 +34,7 @@
 #include <seastar/util/later.hh>
 #include <mutex>
 #include <ranges>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -171,7 +172,7 @@ SEASTAR_TEST_CASE(test_map_reduce_lifetime) {
                 return x.map_reduce(reduce{result}, map{}).then([&result] {
                     long n = this_smp_shard_count() - 1;
                     long expected = (n * (n + 1) * (2*n + 1)) / 6;
-                    BOOST_REQUIRE_EQUAL(result, expected);
+                    SEASTAR_BOOST_REQUIRE_EQUAL(result, expected);
                 });
             });
         });
@@ -210,7 +211,7 @@ SEASTAR_TEST_CASE(test_map_reduce0_lifetime) {
             return x.map_reduce0(map{}, 0L, reduce{}).then([] (long result) {
                 long n = this_smp_shard_count() - 1;
                 long expected = (n * (n + 1) * (2*n + 1)) / 6;
-                BOOST_REQUIRE_EQUAL(result, expected);
+                SEASTAR_BOOST_REQUIRE_EQUAL(result, expected);
             });
         });
     });
@@ -234,9 +235,9 @@ SEASTAR_TEST_CASE(test_map_lifetime) {
     return do_with_distributed<X>([] (sharded<X>& x) {
         return x.start().then([&x] {
             return x.map(map{}).then([] (std::vector<int> result) {
-                BOOST_REQUIRE_EQUAL(result.size(), this_smp_shard_count());
+                SEASTAR_BOOST_REQUIRE_EQUAL(result.size(), this_smp_shard_count());
                 for (size_t i = 0; i < (size_t)this_smp_shard_count(); i++) {
-                    BOOST_REQUIRE_EQUAL(result[i], i * i);
+                    SEASTAR_BOOST_REQUIRE_EQUAL(result[i], i * i);
                 }
             });
         });
@@ -299,10 +300,10 @@ SEASTAR_TEST_CASE(test_smp_invoke_on_others) {
         }).get();
 
         for (unsigned i = 0; i < this_smp_shard_count(); i++) {
-            BOOST_REQUIRE_EQUAL(calls[i].size(), this_smp_shard_count() - 1);
+            SEASTAR_BOOST_REQUIRE_EQUAL(calls[i].size(), this_smp_shard_count() - 1);
             for (unsigned f = 0; f < this_smp_shard_count(); f++) {
                 auto r = std::find(calls[i].begin(), calls[i].end(), f);
-                BOOST_REQUIRE_EQUAL(r == calls[i].end(), i == f);
+                SEASTAR_BOOST_REQUIRE_EQUAL(r == calls[i].end(), i == f);
             }
         }
     });

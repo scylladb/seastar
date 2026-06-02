@@ -29,6 +29,7 @@
 #include <tuple>
 #include <utility>
 #include <vector>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -64,10 +65,10 @@ SEASTAR_TEST_CASE(test_header_parsing) {
     for (auto& tset : tests) {
         parser.init();
         BOOST_REQUIRE(parser(tset.buf()).get().has_value());
-        BOOST_REQUIRE_NE(parser.failed(), tset.parsable);
+        SEASTAR_BOOST_REQUIRE_NE(parser.failed(), tset.parsable);
         if (tset.parsable) {
             auto req = parser.get_parsed_request();
-            BOOST_REQUIRE_EQUAL(req->get_header(std::move(tset.header_name)), std::move(tset.header_value));
+            SEASTAR_BOOST_REQUIRE_EQUAL(req->get_header(std::move(tset.header_name)), std::move(tset.header_value));
         }
     }
     return make_ready_future<>();

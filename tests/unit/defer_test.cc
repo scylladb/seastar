@@ -23,6 +23,7 @@
 
 #include <boost/test/unit_test.hpp>
 #include <seastar/util/defer.hh>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -56,9 +57,9 @@ BOOST_AUTO_TEST_CASE(test_defer_runs_once_when_moved) {
         {
             auto d2 = std::move(d);
         }
-        BOOST_REQUIRE_EQUAL(1, ran);
+        SEASTAR_BOOST_REQUIRE_EQUAL(1, ran);
     }
-    BOOST_REQUIRE_EQUAL(1, ran);
+    SEASTAR_BOOST_REQUIRE_EQUAL(1, ran);
 }
 
 BOOST_AUTO_TEST_CASE(test_defer_does_not_run_when_moved_after_cancelled) {
@@ -72,5 +73,5 @@ BOOST_AUTO_TEST_CASE(test_defer_does_not_run_when_moved_after_cancelled) {
             auto d2 = std::move(d);
         }
     }
-    BOOST_REQUIRE_EQUAL(0, ran);
+    SEASTAR_BOOST_REQUIRE_EQUAL(0, ran);
 }

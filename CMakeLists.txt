@@ -67,7 +67,7 @@ option (Seastar_SSTRING
 
 option (Seastar_DEPRECATED_OSTREAM_FORMATTERS
   "Enable operator<< for formatting standard library containers, which will be deprecated in future"
-  ON)
+  OFF)
 
 set (Seastar_API_LEVEL
   "9"

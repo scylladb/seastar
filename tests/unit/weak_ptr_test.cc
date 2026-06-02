@@ -24,6 +24,7 @@
 
 #include <boost/test/unit_test.hpp>
 #include <seastar/core/weak_ptr.hh>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -65,7 +66,7 @@ BOOST_AUTO_TEST_CASE(test_base_class_weak_ptr) {
 
     auto get_checker = [] (weak_ptr<baseclass> p) {
         return [p = std::move(p)] (bool v) {
-            BOOST_REQUIRE_EQUAL(bool(p), v);
+            SEASTAR_BOOST_REQUIRE_EQUAL(bool(p), v);
         };
     };
 

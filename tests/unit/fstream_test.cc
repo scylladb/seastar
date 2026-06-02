@@ -43,6 +43,7 @@
 #include <boost/range/irange.hpp>
 #include <seastar/util/closeable.hh>
 #include <seastar/util/alloc_failure_injector.hh>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 namespace fs = std::filesystem;
@@ -154,7 +155,7 @@ SEASTAR_TEST_CASE(test_consume_skip_bytes) {
                 if (_count < 8000) {
                     auto delta = std::min(buf.size(), 8000 - _count);
                     for (auto c : buf.share(0, delta)) {
-                        BOOST_REQUIRE_EQUAL(c, 'a');
+                        SEASTAR_BOOST_REQUIRE_EQUAL(c, 'a');
                     }
                     buf.trim_front(delta);
                     _count += delta;
@@ -168,7 +169,7 @@ SEASTAR_TEST_CASE(test_consume_skip_bytes) {
                     return make_ready_future<consumption_result_type>(continue_consuming{});
                 } else {
                     for (auto c : buf) {
-                        BOOST_REQUIRE_EQUAL(c, 'b');
+                        SEASTAR_BOOST_REQUIRE_EQUAL(c, 'b');
                     }
                     _count += buf.size();
                     if (_count < 14384) {
@@ -241,7 +242,7 @@ future<> test_consume_until_end(uint64_t size) {
             }).then([f] {
                 return f.size();
             }).then([size, f] (size_t real_size) {
-                BOOST_REQUIRE_EQUAL(size, real_size);
+                SEASTAR_BOOST_REQUIRE_EQUAL(size, real_size);
             }).then([size, f] {
                 auto consumer = [offset = uint64_t(0), size] (temporary_buffer<char> buf) mutable -> future<input_stream<char>::unconsumed_remainder> {
                     if (!buf) {
@@ -414,8 +415,8 @@ SEASTAR_TEST_CASE(test_fstream_slow_start) {
             // no history we should start with a buffer sizes somewhere in
             // (0, buffer_size) range.
             mock_file->set_read_size_verifier([&] (size_t length) {
-                BOOST_CHECK_LE(length, initial_read_size.value_or(buffer_size - 1));
-                BOOST_CHECK_GE(length, initial_read_size.value_or(1));
+                SEASTAR_BOOST_CHECK_LE(length, initial_read_size.value_or(buffer_size - 1));
+                SEASTAR_BOOST_CHECK_GE(length, initial_read_size.value_or(1));
                 previous_buffer_length = length;
                 if (!initial_read_size) {
                     initial_read_size = length;
@@ -425,16 +426,16 @@ SEASTAR_TEST_CASE(test_fstream_slow_start) {
             // Slow start phase
             while (true) {
                 // We should leave slow start before reading the whole file.
-                BOOST_CHECK_LT(total_read, file_size);
+                SEASTAR_BOOST_CHECK_LT(total_read, file_size);
 
                 mock_file->set_allowed_read_requests(requests_at_slow_start);
                 auto buf = fstr.read().get();
-                BOOST_CHECK_GT(buf.size(), 0u);
+                SEASTAR_BOOST_CHECK_GT(buf.size(), 0u);
 
                 mock_file->set_read_size_verifier([&] (size_t length) {
                     // There is no reason to reduce buffer size.
-                    BOOST_CHECK_LE(length, std::min(previous_buffer_length * 2, buffer_size));
-                    BOOST_CHECK_GE(length, previous_buffer_length);
+                    SEASTAR_BOOST_CHECK_LE(length, std::min(previous_buffer_length * 2, buffer_size));
+                    SEASTAR_BOOST_CHECK_GE(length, previous_buffer_length);
                     previous_buffer_length = length;
                 });
 
@@ -456,7 +457,7 @@ SEASTAR_TEST_CASE(test_fstream_slow_start) {
 
             mock_file->set_allowed_read_requests(requests_at_full_speed);
             auto buf = fstr.read().get();
-            BOOST_CHECK_EQUAL(buf.size(), 0u);
+            SEASTAR_BOOST_CHECK_EQUAL(buf.size(), 0u);
             SEASTAR_ASSERT(buf.size() == 0);
         };
 
@@ -472,7 +473,7 @@ SEASTAR_TEST_CASE(test_fstream_slow_start) {
 
             mock_file->set_allowed_read_requests(requests_at_full_speed);
             auto buf = fstr.read().get();
-            BOOST_CHECK_EQUAL(buf.size(), 0u);
+            SEASTAR_BOOST_CHECK_EQUAL(buf.size(), 0u);
         };
 
         auto read_and_skip_a_lot = [&] (auto fstr) {
@@ -482,8 +483,8 @@ SEASTAR_TEST_CASE(test_fstream_slow_start) {
             mock_file->set_allowed_read_requests(std::numeric_limits<size_t>::max());
             mock_file->set_read_size_verifier([&] (size_t length) {
                 // There is no reason to reduce buffer size.
-                BOOST_CHECK_LE(length, previous_buffer_size);
-                BOOST_CHECK_GE(length, initial_read_size.value_or(1));
+                SEASTAR_BOOST_CHECK_LE(length, previous_buffer_size);
+                SEASTAR_BOOST_CHECK_GE(length, initial_read_size.value_or(1));
                 previous_buffer_size = length;
             });
             while (total_read != file_size) {
@@ -499,14 +500,14 @@ SEASTAR_TEST_CASE(test_fstream_slow_start) {
             }
 
             // We should be back at slow start at this stage.
-            BOOST_CHECK_LT(previous_buffer_size, buffer_size);
+            SEASTAR_BOOST_CHECK_LT(previous_buffer_size, buffer_size);
             if (initial_read_size) {
-                BOOST_CHECK_EQUAL(previous_buffer_size, *initial_read_size);
+                SEASTAR_BOOST_CHECK_EQUAL(previous_buffer_size, *initial_read_size);
             }
 
             mock_file->set_allowed_read_requests(requests_at_full_speed);
             auto buf = fstr.read().get();
-            BOOST_CHECK_EQUAL(buf.size(), 0u);
+            SEASTAR_BOOST_CHECK_EQUAL(buf.size(), 0u);
 
         };
 

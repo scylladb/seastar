@@ -21,6 +21,7 @@
 
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include "test_comparisons.hh"
 
 #include <seastar/core/timer.hh>
 #include <seastar/core/reactor.hh>
@@ -116,7 +117,7 @@ void test_timer_with_scheduling_groups() {
         timer<Clock> t2(sg2, make_callback_checking_sg(sg2));
         t2.arm(10ms);
         sleep(500ms).get();
-        BOOST_REQUIRE_EQUAL(expirations, 2);
+        SEASTAR_BOOST_REQUIRE_EQUAL(expirations, 2);
     }).get();
     destroy_scheduling_group(sg1).get();
     destroy_scheduling_group(sg2).get();

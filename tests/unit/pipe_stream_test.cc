@@ -21,6 +21,7 @@
 
 #include <sys/ioctl.h>
 #include <termios.h>
+#include "test_comparisons.hh"
 
 #include <seastar/core/fstream.hh>
 #include <seastar/core/seastar.hh>
@@ -53,7 +54,7 @@ SEASTAR_THREAD_TEST_CASE(pipe_stream_roundtrip) {
     out.flush().get();
 
     auto buf = in.read_exactly(payload.size()).get();
-    BOOST_REQUIRE_EQUAL(sstring(buf.get(), buf.size()), payload);
+    SEASTAR_BOOST_REQUIRE_EQUAL(sstring(buf.get(), buf.size()), payload);
 
     out.close().get();
     in.close().get();
@@ -112,7 +113,7 @@ SEASTAR_THREAD_TEST_CASE(pipe_pty_stream_roundtrip) {
     out.flush().get();
 
     auto buf = in.read_exactly(payload.size()).get();
-    BOOST_REQUIRE_EQUAL(sstring(buf.get(), buf.size()), payload);
+    SEASTAR_BOOST_REQUIRE_EQUAL(sstring(buf.get(), buf.size()), payload);
 
     out.close().get();
     in.close().get();

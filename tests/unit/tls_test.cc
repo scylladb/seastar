@@ -22,6 +22,7 @@
 
 #include <ranges>
 #include <iostream>
+#include "test_comparisons.hh"
 
 #include <seastar/core/do_with.hh>
 #include <seastar/core/sstring.hh>
@@ -101,7 +102,7 @@ static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> c
                                         return make_ready_future<std::optional<bool>>(std::nullopt);
                                     }
                                     BOOST_CHECK(buffer.size() > 8);
-                                    BOOST_CHECK_EQUAL(buffer.substr(0, 5), sstring("HTTP/"));
+                                    SEASTAR_BOOST_CHECK_EQUAL(buffer.substr(0, 5), sstring("HTTP/"));
                                     return make_ready_future<std::optional<bool>>(true);
                                 });
                             });
@@ -260,7 +261,7 @@ SEASTAR_TEST_CASE(test_alpn_client_server) {
             auto s = co_await server.accept();
             auto alpn = co_await tls::get_selected_alpn_protocol(s.connection);
             BOOST_CHECK(alpn.has_value());
-            BOOST_CHECK_EQUAL(*alpn, "h2");
+            SEASTAR_BOOST_CHECK_EQUAL(*alpn, "h2");
             co_return;
         },
         [addr]() mutable -> future<> {
@@ -270,7 +271,7 @@ SEASTAR_TEST_CASE(test_alpn_client_server) {
             auto c = co_await tls::connect(b.build_certificate_credentials(), addr, client_opts);
             auto alpn = co_await tls::get_selected_alpn_protocol(c);
             BOOST_CHECK(alpn.has_value());
-            BOOST_CHECK_EQUAL(*alpn, "h2");
+            SEASTAR_BOOST_CHECK_EQUAL(*alpn, "h2");
             co_return;
         }
     );
@@ -750,8 +751,8 @@ SEASTAR_TEST_CASE(test_x509_client_server_cert_validation_fail) {
             std::rethrow_exception(ep);
         } catch (tls::verification_error& e) {
             // Verify exception contains info on subject/issuer
-            BOOST_REQUIRE_NE(sstring(e.what()).find("Issuer"), sstring::npos);
-            BOOST_REQUIRE_NE(sstring(e.what()).find("Subject"), sstring::npos);
+            SEASTAR_BOOST_REQUIRE_NE(sstring(e.what()).find("Issuer"), sstring::npos);
+            SEASTAR_BOOST_REQUIRE_NE(sstring(e.what()).find("Subject"), sstring::npos);
             // ok.
         } catch (...) {
             BOOST_FAIL("Unexpected exception");
@@ -1050,7 +1051,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
         in.read().get(); // ignore - just want eof
         in.close().get();
 
-        BOOST_CHECK_EQUAL(sstring(buf.begin(), buf.end()), "apa");
+        SEASTAR_BOOST_CHECK_EQUAL(sstring(buf.begin(), buf.end()), "apa");
     }
 }
 
@@ -1218,7 +1219,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_by_move) {
         // ok
     }
 
-    BOOST_REQUIRE_EQUAL(changed.size(), 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(changed.size(), 0);
 
     p = promise();
 
@@ -1228,7 +1229,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_by_move) {
     // now it should reload
     p.get_future().get();
 
-    BOOST_REQUIRE_EQUAL(changed.size(), 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(changed.size(), 2);
     changed.clear();
 
     // again, without delete
@@ -1303,7 +1304,7 @@ SEASTAR_THREAD_TEST_CASE(test_closed_write) {
             try {
                 std::rethrow_exception(ep2);
             } catch (std::exception& e2) {
-                BOOST_REQUIRE_EQUAL(std::string(e1.what()), std::string(e2.what()));
+                SEASTAR_BOOST_REQUIRE_EQUAL(std::string(e1.what()), std::string(e2.what()));
                 return;
             }
         }
@@ -2009,7 +2010,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates_with_only_shard0_notify) {
         in.read().get(); // ignore - just want eof
         in.close().get();
 
-        BOOST_CHECK_EQUAL(sstring(buf.begin(), buf.end()), "apa");
+        SEASTAR_BOOST_CHECK_EQUAL(sstring(buf.begin(), buf.end()), "apa");
     }
 }
 
@@ -2018,8 +2019,8 @@ SEASTAR_TEST_CASE(test_tls_cipher_suite_and_protocol_version, *enable_if_with_ne
     co_await certs->set_system_trust();
 
     auto c = co_await tls::connect(certs, co_await google_address(), tls::tls_options{ .server_name = google_name });
-    BOOST_CHECK_EQUAL(co_await tls::get_cipher_suite(c), "TLS_AES_256_GCM_SHA384");
-    BOOST_CHECK_EQUAL(co_await tls::get_protocol_version(c), "TLS1.3");
+    SEASTAR_BOOST_CHECK_EQUAL(co_await tls::get_cipher_suite(c), "TLS_AES_256_GCM_SHA384");
+    SEASTAR_BOOST_CHECK_EQUAL(co_await tls::get_protocol_version(c), "TLS1.3");
 }
 
 SEASTAR_TEST_CASE(test_cipher_suite_and_protocol_version_for_non_tls_connection, *enable_if_with_networking()) {
@@ -2131,7 +2132,7 @@ SEASTAR_THREAD_TEST_CASE(test_send_recv_alloc_limits) {
 
         auto stats_after = memory::stats();
 
-        BOOST_CHECK_EQUAL(stats_after.large_allocations(), stats_before.large_allocations());
+        SEASTAR_BOOST_CHECK_EQUAL(stats_after.large_allocations(), stats_before.large_allocations());
     }
 }
 
@@ -2182,7 +2183,7 @@ SEASTAR_THREAD_TEST_CASE(test_session_close_with_unread_data) {
         BOOST_TEST_MESSAGE(fmt::format("Wrote {} bytes in {:.3f} seconds\n", bytes_sent, delay.count()));
         out.close().handle_exception([] (auto x) {}).get();
         s.shutdown_input();
-        BOOST_CHECK_LT(delay.count(), 1.0);
+        SEASTAR_BOOST_CHECK_LT(delay.count(), 1.0);
     });
 
     seastar::when_all(std::move(c), std::move(s)).discard_result().get();
@@ -2237,7 +2238,7 @@ SEASTAR_THREAD_TEST_CASE(test_send_two_large) {
             bytes_received += buf.size();
         }
 
-        BOOST_CHECK_EQUAL(bytes_received, total_size);
+        SEASTAR_BOOST_CHECK_EQUAL(bytes_received, total_size);
         BOOST_CHECK(std::equal(expected.get(), expected.get() + total_size, received_data.get()));
 
         in.close().get();

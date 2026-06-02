@@ -10,9 +10,10 @@
 #include <seastar/http/response_parser.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/memory-data-source.hh>
+#include <fmt/ranges.h>
 #include "loopback_socket.hh"
+#include "test_comparisons.hh"
 
-BOOST_TEST_DONT_PRINT_LOG_VALUE(std::vector<seastar::sstring>)
 
 using namespace seastar;
 using namespace seastar::experimental;
@@ -92,7 +93,7 @@ future<> test_websocket_handshake_common(std::string subprotocol) {
         if (it != websocket_accept.end()) {
             websocket_accept.erase(websocket_accept.begin(), it);
         }
-        BOOST_REQUIRE_EQUAL(websocket_accept, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+        SEASTAR_BOOST_REQUIRE_EQUAL(websocket_accept, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
         for (auto& header : resp->_headers) {
             std::cout << header.first << ':' << header.second << std::endl;
         }
@@ -174,7 +175,7 @@ future<> test_websocket_handler_registration_common(std::string subprotocol) {
 
         auto response = input.read_exactly(6).get();
         auto response_str = std::string(response.begin(), response.end());
-        BOOST_REQUIRE_EQUAL(rs_frame, response_str);
+        SEASTAR_BOOST_REQUIRE_EQUAL(rs_frame, response_str);
     });
 }
 
@@ -229,7 +230,7 @@ SEASTAR_TEST_CASE(test_websocket_parser_split) {
             }
 
             SEASTAR_ASSERT(!parser.is_valid());
-            BOOST_REQUIRE_EQUAL(0, parser.result().size());
+            SEASTAR_BOOST_REQUIRE_EQUAL(0, parser.result().size());
 
             std::vector<sstring> expected = {
                 "TEST1",
@@ -237,7 +238,7 @@ SEASTAR_TEST_CASE(test_websocket_parser_split) {
                 "TEST3",
             };
 
-            BOOST_REQUIRE_EQUAL(results, expected);
+            SEASTAR_BOOST_REQUIRE_EQUAL(results, expected);
         }
     });
 }
@@ -294,7 +295,7 @@ SEASTAR_TEST_CASE(test_websocket_client_server) {
 
     co_await client_done.get_future();
 
-    BOOST_REQUIRE_EQUAL(received_data, "hello");
+    SEASTAR_BOOST_REQUIRE_EQUAL(received_data, "hello");
 
     // Shut down cleanly: close client first (sends CLOSE frame), then server
     co_await client_conn.close();

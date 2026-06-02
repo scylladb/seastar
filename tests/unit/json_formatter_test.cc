@@ -20,6 +20,7 @@
  * Copyright (C) 2016 ScyllaDB.
  */
 #include <vector>
+#include "test_comparisons.hh"
 
 #include <seastar/core/do_with.hh>
 #include <seastar/testing/test_case.hh>
@@ -37,39 +38,39 @@ static_assert(internal::is_string_like<std::string>);
 static_assert(internal::is_string_like<sstring>);
 
 SEASTAR_TEST_CASE(test_simple_values) {
-    BOOST_CHECK_EQUAL("3", formatter::to_json(3));
-    BOOST_CHECK_EQUAL("3", formatter::to_json(3.0));
-    BOOST_CHECK_EQUAL("3.5", formatter::to_json(3.5));
-    BOOST_CHECK_EQUAL("true", formatter::to_json(true));
-    BOOST_CHECK_EQUAL("false", formatter::to_json(false));
+    SEASTAR_BOOST_CHECK_EQUAL("3", formatter::to_json(3));
+    SEASTAR_BOOST_CHECK_EQUAL("3", formatter::to_json(3.0));
+    SEASTAR_BOOST_CHECK_EQUAL("3.5", formatter::to_json(3.5));
+    SEASTAR_BOOST_CHECK_EQUAL("true", formatter::to_json(true));
+    SEASTAR_BOOST_CHECK_EQUAL("false", formatter::to_json(false));
 
-    BOOST_CHECK_EQUAL("\"apa\"", formatter::to_json("apa")); // to_json(const char*)
-    BOOST_CHECK_EQUAL("\"apa\"", formatter::to_json(sstring("apa"))); // to_json(const sstring&)
-    BOOST_CHECK_EQUAL("\"apa\"", formatter::to_json("apa", 3)); // to_json(const char*, size_t)
+    SEASTAR_BOOST_CHECK_EQUAL("\"apa\"", formatter::to_json("apa")); // to_json(const char*)
+    SEASTAR_BOOST_CHECK_EQUAL("\"apa\"", formatter::to_json(sstring("apa"))); // to_json(const sstring&)
+    SEASTAR_BOOST_CHECK_EQUAL("\"apa\"", formatter::to_json("apa", 3)); // to_json(const char*, size_t)
 
     using namespace std::string_literals;
     sstring str = "\0 COWA\bU\nGA [{\r}]\x1a"s,
             expected = "\"\\u0000 COWA\\bU\\nGA [{\\r}]\\u001A\""s;
-    BOOST_CHECK_EQUAL(expected, formatter::to_json(str)); // to_json(const sstring&)
-    BOOST_CHECK_EQUAL(expected, formatter::to_json(str.c_str(), str.size())); // to_json(const char*, size_t)
+    SEASTAR_BOOST_CHECK_EQUAL(expected, formatter::to_json(str)); // to_json(const sstring&)
+    SEASTAR_BOOST_CHECK_EQUAL(expected, formatter::to_json(str.c_str(), str.size())); // to_json(const char*, size_t)
 
     return make_ready_future();
 }
 
 SEASTAR_TEST_CASE(test_collections) {
-    BOOST_CHECK_EQUAL("{1:2,3:4}", formatter::to_json(std::map<int,int>({{1,2},{3,4}})));
-    BOOST_CHECK_EQUAL("[1,2,3,4]", formatter::to_json(std::vector<int>({1,2,3,4})));
-    BOOST_CHECK_EQUAL("[{1:2},{3:4}]", formatter::to_json(std::vector<std::pair<int,int>>({{1,2},{3,4}})));
-    BOOST_CHECK_EQUAL("[{1:2},{3:4}]", formatter::to_json(std::vector<std::map<int,int>>({{{1,2}},{{3,4}}})));
-    BOOST_CHECK_EQUAL("[[1,2],[3,4]]", formatter::to_json(std::vector<std::vector<int>>({{1,2},{3,4}})));
+    SEASTAR_BOOST_CHECK_EQUAL("{1:2,3:4}", formatter::to_json(std::map<int,int>({{1,2},{3,4}})));
+    SEASTAR_BOOST_CHECK_EQUAL("[1,2,3,4]", formatter::to_json(std::vector<int>({1,2,3,4})));
+    SEASTAR_BOOST_CHECK_EQUAL("[{1:2},{3:4}]", formatter::to_json(std::vector<std::pair<int,int>>({{1,2},{3,4}})));
+    SEASTAR_BOOST_CHECK_EQUAL("[{1:2},{3:4}]", formatter::to_json(std::vector<std::map<int,int>>({{{1,2}},{{3,4}}})));
+    SEASTAR_BOOST_CHECK_EQUAL("[[1,2],[3,4]]", formatter::to_json(std::vector<std::vector<int>>({{1,2},{3,4}})));
 
     return make_ready_future();
 }
 
 SEASTAR_TEST_CASE(test_ranges) {
-    BOOST_CHECK_EQUAL("[1,2,3,4]", formatter::to_json(std::views::iota(1, 5)));
+    SEASTAR_BOOST_CHECK_EQUAL("[1,2,3,4]", formatter::to_json(std::views::iota(1, 5)));
 #ifdef __cpp_lib_ranges_enumerate
-    BOOST_CHECK_EQUAL("[{0:5},{1:6},{2:7},{3:8}]", formatter::to_json(std::views::iota(5, 9) | std::views::enumerate));
+    SEASTAR_BOOST_CHECK_EQUAL("[{0:5},{1:6},{2:7},{3:8}]", formatter::to_json(std::views::iota(5, 9) | std::views::enumerate));
 #endif
     return make_ready_future();
 }
@@ -77,10 +78,10 @@ SEASTAR_TEST_CASE(test_ranges) {
 SEASTAR_TEST_CASE(test_strings) {
     sstring s = "hello, world";
     const char* expected = "\"hello, world\"";
-    BOOST_CHECK_EQUAL(expected, formatter::to_json(s));
-    BOOST_CHECK_EQUAL(expected, formatter::to_json(std::string(s)));
-    BOOST_CHECK_EQUAL(expected, formatter::to_json(std::string_view(s)));
-    BOOST_CHECK_EQUAL(expected, formatter::to_json(s.c_str()));
+    SEASTAR_BOOST_CHECK_EQUAL(expected, formatter::to_json(s));
+    SEASTAR_BOOST_CHECK_EQUAL(expected, formatter::to_json(std::string(s)));
+    SEASTAR_BOOST_CHECK_EQUAL(expected, formatter::to_json(std::string_view(s)));
+    SEASTAR_BOOST_CHECK_EQUAL(expected, formatter::to_json(s.c_str()));
 
     // Test that a type with a user-defined conversion to sstring
     // (but not to std::string_view) works with to_json via a single
@@ -90,7 +91,7 @@ SEASTAR_TEST_CASE(test_strings) {
         operator sstring() const { return value; }
     };
     sstring_convertible sc{s};
-    BOOST_CHECK_EQUAL(expected, formatter::to_json(sc));
+    SEASTAR_BOOST_CHECK_EQUAL(expected, formatter::to_json(sc));
 
     return make_ready_future();
 }
@@ -120,7 +121,7 @@ SEASTAR_TEST_CASE(test_jsonable) {
     obj.values.push(2);
     obj.values.push(3);
 
-    BOOST_CHECK_EQUAL("{\"subject\": \"foo\", \"values\": [1,2,3]}", formatter::to_json(obj));
+    SEASTAR_BOOST_CHECK_EQUAL("{\"subject\": \"foo\", \"values\": [1,2,3]}", formatter::to_json(obj));
     return make_ready_future();
 }
 
@@ -134,7 +135,7 @@ void formatter_check_expected(sstring expected, F f, bool close = true) {
         out.close().get();
     }
 
-    BOOST_CHECK_EQUAL(expected, ss.str());
+    SEASTAR_BOOST_CHECK_EQUAL(expected, ss.str());
 }
 
 SEASTAR_THREAD_TEST_CASE(test_stream_range_as_array_simple) {

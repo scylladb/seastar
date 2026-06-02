@@ -25,6 +25,7 @@
 #include <boost/test/unit_test.hpp>
 #include <iostream>
 #include <seastar/core/slab.hh>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -98,7 +99,7 @@ BOOST_AUTO_TEST_CASE(test_allocation_2) {
     auto class_size = slab.class_size(size);
     auto per_slab_page = max_object_size / class_size;
     auto available_slab_pages = slab_limit_size / max_object_size;
-    BOOST_REQUIRE_EQUAL(allocations, per_slab_page * available_slab_pages);
+    SEASTAR_BOOST_REQUIRE_EQUAL(allocations, per_slab_page * available_slab_pages);
 
     free_vector<item>(slab, items);
     std::cout << __FUNCTION__ << " done!\n";
@@ -121,7 +122,7 @@ BOOST_AUTO_TEST_CASE(test_allocation_with_lru) {
         BOOST_REQUIRE(item != nullptr);
         _cache.push_front(*item);
     }
-    BOOST_REQUIRE_EQUAL(evictions, max * 999);
+    SEASTAR_BOOST_REQUIRE_EQUAL(evictions, max * 999);
 
     _cache.clear();
 

@@ -20,6 +20,7 @@
  */
 
 #include <seastar/testing/thread_test_case.hh>
+#include "test_comparisons.hh"
 
 #include <seastar/core/shard_id.hh>
 #include <seastar/core/sharded.hh>
@@ -95,8 +96,8 @@ SEASTAR_THREAD_TEST_CASE(test_const_map_reduces) {
     sharded<peering_counter> c;
     c.start().get();
 
-    BOOST_REQUIRE_EQUAL(c.local().count().get(), this_smp_shard_count());
-    BOOST_REQUIRE_EQUAL(c.local().count_from(1).get(), this_smp_shard_count() + 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(c.local().count().get(), this_smp_shard_count());
+    SEASTAR_BOOST_REQUIRE_EQUAL(c.local().count_from(1).get(), this_smp_shard_count() + 1);
 
     c.stop().get();
 }
@@ -105,10 +106,10 @@ SEASTAR_THREAD_TEST_CASE(test_member_map_reduces) {
     sharded<peering_counter> c;
     c.start().get();
 
-    BOOST_REQUIRE_EQUAL(std::as_const(c.local()).count_const().get(), this_smp_shard_count());
-    BOOST_REQUIRE_EQUAL(c.local().count_mutate().get(), this_smp_shard_count());
-    BOOST_REQUIRE_EQUAL(std::as_const(c.local()).count_from_const(1).get(), this_smp_shard_count() + 1);
-    BOOST_REQUIRE_EQUAL(c.local().count_from_mutate(1).get(), this_smp_shard_count() + 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(std::as_const(c.local()).count_const().get(), this_smp_shard_count());
+    SEASTAR_BOOST_REQUIRE_EQUAL(c.local().count_mutate().get(), this_smp_shard_count());
+    SEASTAR_BOOST_REQUIRE_EQUAL(std::as_const(c.local()).count_from_const(1).get(), this_smp_shard_count() + 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(c.local().count_from_mutate(1).get(), this_smp_shard_count() + 1);
     c.stop().get();
 }
 
@@ -181,15 +182,15 @@ public:
 class service {
 public:
     void fn_local(argument& arg) {
-        BOOST_REQUIRE_EQUAL(arg.get(), this_shard_id());
+        SEASTAR_BOOST_REQUIRE_EQUAL(arg.get(), this_shard_id());
     }
 
     void fn_sharded(sharded<argument>& arg) {
-        BOOST_REQUIRE_EQUAL(arg.local().get(), this_shard_id());
+        SEASTAR_BOOST_REQUIRE_EQUAL(arg.local().get(), this_shard_id());
     }
 
     void fn_sharded_param(int arg) {
-        BOOST_REQUIRE_EQUAL(arg, this_shard_id());
+        SEASTAR_BOOST_REQUIRE_EQUAL(arg, this_shard_id());
     }
 };
 
@@ -264,10 +265,10 @@ SEASTAR_THREAD_TEST_CASE(invoke_on_range_contiguous) {
 
     auto f3 = s.invoke_on(coordinator_id, [mid, half1_id, half2_id] (coordinator_synced_shard_map& s) {
         for (unsigned i = 0; i < mid; ++i) {
-            BOOST_REQUIRE_EQUAL(half1_id, s.get_synced(i));
+            SEASTAR_BOOST_REQUIRE_EQUAL(half1_id, s.get_synced(i));
         }
         for (unsigned i = mid; i < this_smp_shard_count(); ++i) {
-            BOOST_REQUIRE_EQUAL(half2_id, s.get_synced(i));
+            SEASTAR_BOOST_REQUIRE_EQUAL(half2_id, s.get_synced(i));
         }
     });
     f3.get();
@@ -293,10 +294,10 @@ SEASTAR_THREAD_TEST_CASE(invoke_on_range_fragmented) {
 
     auto f3 = s.invoke_on(coordinator_id, [even_id, odd_id] (coordinator_synced_shard_map& s) {
         for (unsigned i = 0; i < this_smp_shard_count(); i += 2) {
-            BOOST_REQUIRE_EQUAL(even_id, s.get_synced(i));
+            SEASTAR_BOOST_REQUIRE_EQUAL(even_id, s.get_synced(i));
         }
         for (unsigned i = 1; i < this_smp_shard_count(); i += 2) {
-            BOOST_REQUIRE_EQUAL(odd_id, s.get_synced(i));
+            SEASTAR_BOOST_REQUIRE_EQUAL(odd_id, s.get_synced(i));
         }
     });
     f3.get();

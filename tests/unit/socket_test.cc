@@ -40,6 +40,7 @@
 #include <seastar/net/api.hh>
 #include <seastar/net/posix-stack.hh>
 #include <stdexcept>
+#include "test_comparisons.hh"
 
 #include <optional>
 #include <tuple>
@@ -115,7 +116,7 @@ SEASTAR_TEST_CASE(socket_skip_test) {
 SEASTAR_TEST_CASE(test_file_desc_fdinfo) {
     auto fd = file_desc::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     auto info = fd.fdinfo();
-    BOOST_REQUIRE_EQUAL(info.substr(0, 8), "socket:[");
+    SEASTAR_BOOST_REQUIRE_EQUAL(info.substr(0, 8), "socket:[");
     return make_ready_future<>();
 }
 
@@ -132,7 +133,7 @@ SEASTAR_TEST_CASE(socket_on_close_test) {
             connected_socket cln = connect(ipv4_addr("127.0.0.1", 12345)).get();
 
             auto close_wait_fiber = cln.wait_input_shutdown().then([&] {
-                BOOST_REQUIRE_EQUAL(server_closed, true);
+                SEASTAR_BOOST_REQUIRE_EQUAL(server_closed, true);
                 client_notified = true;
                 fmt::print("Client: server closed\n");
             });
@@ -166,7 +167,7 @@ SEASTAR_TEST_CASE(socket_on_close_test) {
 
             for (int i = 0; i < 3; i++) {
                 auto buf = in.read().get();
-                BOOST_REQUIRE_EQUAL(client_notified, false);
+                SEASTAR_BOOST_REQUIRE_EQUAL(client_notified, false);
                 out.write(std::move(buf)).get();
                 out.flush().get();
                 fmt::print("Server: served\n");
@@ -195,7 +196,7 @@ SEASTAR_TEST_CASE(socket_on_close_local_shutdown_test) {
             connected_socket cln = connect(ipv4_addr("127.0.0.1", 12345)).get();
 
             auto close_wait_fiber = cln.wait_input_shutdown().then([&] {
-                BOOST_REQUIRE_EQUAL(server_closed, false);
+                SEASTAR_BOOST_REQUIRE_EQUAL(server_closed, false);
                 client_notified = true;
                 fmt::print("Client: socket closed\n");
             });
@@ -207,7 +208,7 @@ SEASTAR_TEST_CASE(socket_on_close_local_shutdown_test) {
             do {
                 seastar::yield().get();
             } while (!client_notified && std::chrono::steady_clock::now() < fin);
-            BOOST_REQUIRE_EQUAL(client_notified, true);
+            SEASTAR_BOOST_REQUIRE_EQUAL(client_notified, true);
 
             out.write("hello").get();
             out.flush().get();
@@ -274,7 +275,7 @@ SEASTAR_THREAD_TEST_CASE(socket_accept_abort_test) {
             BOOST_FAIL("Accept didn't resolve into exception");
         } catch (const std::system_error& e) {
             BOOST_REQUIRE(!too_late);
-            BOOST_REQUIRE_EQUAL(e.code(), std::error_code(ECONNABORTED, std::system_category()));
+            SEASTAR_BOOST_REQUIRE_EQUAL(e.code(), std::error_code(ECONNABORTED, std::system_category()));
         }
     });
 
@@ -312,7 +313,7 @@ SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
         auto sockopt = [&](int option) {
             int val{};
             int ret = server.get_sockopt(SOL_SOCKET, option, &val, sizeof(val));
-            BOOST_REQUIRE_EQUAL(ret, 0);
+            SEASTAR_BOOST_REQUIRE_EQUAL(ret, 0);
             return val;
         };
 
@@ -342,26 +343,26 @@ SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
     // The latter condition could plausibly fail if the OS clamped the size
     // at a small amount, but this is unlikely for the chosen buffer sizes.
 
-    BOOST_CHECK_LT(send_small, send_big);
-    BOOST_CHECK_LT(recv_small, recv_big);
+    SEASTAR_BOOST_CHECK_LT(send_small, send_big);
+    SEASTAR_BOOST_CHECK_LT(recv_small, recv_big);
 
-    BOOST_CHECK_GE(send_small, small_size);
-    BOOST_CHECK_GE(send_big, big_size);
+    SEASTAR_BOOST_CHECK_GE(send_small, small_size);
+    SEASTAR_BOOST_CHECK_GE(send_big, big_size);
 
-    BOOST_CHECK_GE(recv_small, small_size * 2);
-    BOOST_CHECK_GE(recv_big, big_size * 2);
+    SEASTAR_BOOST_CHECK_GE(recv_small, small_size * 2);
+    SEASTAR_BOOST_CHECK_GE(recv_big, big_size * 2);
 
     // not much to check here with "default" sizes, but let's at least call it
     // and check that we get a reasonable answer
     auto [send_default, recv_default] = buf_size({}, {});
 
-    BOOST_CHECK_GE(send_default, 4096);
-    BOOST_CHECK_GE(recv_default, 4096);
+    SEASTAR_BOOST_CHECK_GE(send_default, 4096);
+    SEASTAR_BOOST_CHECK_GE(recv_default, 4096);
 
     // we don't really know the default socket size and it can vary by kernel
     // config, but 20 MB should be enough for everyone.
-    BOOST_CHECK_LT(send_default, 20'000'000);
-    BOOST_CHECK_LT(recv_default, 20'000'000);
+    SEASTAR_BOOST_CHECK_LT(send_default, 20'000'000);
+    SEASTAR_BOOST_CHECK_LT(recv_default, 20'000'000);
 }
 
 static
@@ -510,15 +511,15 @@ test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protoc
     client_done.get_future().get();
     server.stop().get();
     auto results = client.get();
-    BOOST_REQUIRE_EQUAL(results.attempts, 100);
-    BOOST_REQUIRE_EQUAL(results.bad_socket, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(results.attempts, 100);
+    SEASTAR_BOOST_REQUIRE_EQUAL(results.bad_socket, 0);
     // We can have bad binds due to other connection using the ports.
     // 20 should be plenty of margin.
-    BOOST_REQUIRE_LE(results.bad_bind, 20);
-    BOOST_REQUIRE_EQUAL(results.bad_connect, 0);
-    BOOST_REQUIRE_EQUAL(results.bad_proxy_send, 0);
-    BOOST_REQUIRE_EQUAL(results.bad_recv, 0);
-    BOOST_REQUIRE_EQUAL(results.bad_shard, 0);
+    SEASTAR_BOOST_REQUIRE_LE(results.bad_bind, 20);
+    SEASTAR_BOOST_REQUIRE_EQUAL(results.bad_connect, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(results.bad_proxy_send, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(results.bad_recv, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(results.bad_shard, 0);
 }
 
 SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv4_test) {
@@ -546,8 +547,8 @@ SEASTAR_THREAD_TEST_CASE(inet_local_remote_address_sanity) {
     auto ar = ar_f.get();
     auto ss = std::move(ar.connection);
 
-    BOOST_CHECK_EQUAL(cs->local_address(), ss.remote_address());
-    BOOST_CHECK_EQUAL(cs->remote_address(), ss.local_address());
+    SEASTAR_BOOST_CHECK_EQUAL(cs->local_address(), ss.remote_address());
+    SEASTAR_BOOST_CHECK_EQUAL(cs->remote_address(), ss.local_address());
 
     // Now disconnect the server socket on the kernel level
     // For that -- write some data into client, then close the client. When

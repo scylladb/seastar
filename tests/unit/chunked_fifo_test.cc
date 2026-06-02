@@ -20,7 +20,6 @@
  */
 
 
-#include <boost/test/tools/old/interface.hpp>
 #define BOOST_TEST_MODULE core
 
 #include <boost/test/tools/context.hpp>
@@ -36,6 +35,7 @@
 #if __has_include(<version>)
 #include <version>
 #endif
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -50,29 +50,29 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_small) {
     // Check all the methods of chunked_fifo but with a trivial type (int) and
     // only a few elements - and in particular a single chunk is enough.
     chunked_fifo<int> fifo;
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
-    BOOST_REQUIRE_EQUAL(fifo.empty(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), true);
     fifo.push_back(3);
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
-    BOOST_REQUIRE_EQUAL(fifo.empty(), false);
-    BOOST_REQUIRE_EQUAL(fifo.front(), 3);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 3);
     fifo.push_back(17);
-    BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
-    BOOST_REQUIRE_EQUAL(fifo.empty(), false);
-    BOOST_REQUIRE_EQUAL(fifo.front(), 3);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 3);
     fifo.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
-    BOOST_REQUIRE_EQUAL(fifo.empty(), false);
-    BOOST_REQUIRE_EQUAL(fifo.front(), 17);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 17);
     fifo.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
-    BOOST_REQUIRE_EQUAL(fifo.empty(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), true);
     // The previously allocated chunk should have been freed, and now
     // a new one will need to be allocated:
     fifo.push_back(57);
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
-    BOOST_REQUIRE_EQUAL(fifo.empty(), false);
-    BOOST_REQUIRE_EQUAL(fifo.front(), 57);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), 57);
     // check miscelleneous methods (at least they shouldn't crash)
     fifo.clear();
     fifo.shrink_to_fit();
@@ -91,16 +91,16 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_fullchunk) {
     for (int i = 0; i < static_cast<int>(N); i++) {
         fifo.push_back(i);
     }
-    BOOST_REQUIRE_EQUAL(fifo.size(), N);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), N);
     fifo.push_back(N);
-    BOOST_REQUIRE_EQUAL(fifo.size(), N+1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), N+1);
     for (int i = 0 ; i < static_cast<int>(N+1); i++) {
-        BOOST_REQUIRE_EQUAL(fifo.front(), i);
-        BOOST_REQUIRE_EQUAL(fifo.size(), N+1-i);
+        SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), i);
+        SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), N+1-i);
         fifo.pop_front();
     }
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
-    BOOST_REQUIRE_EQUAL(fifo.empty(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), true);
 }
 
 struct trackable_totals {
@@ -157,21 +157,21 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_pop_n) {
                 // note that we add 2 and delete 1 element for every element added in
                 // fill_and_reset so that affects the numbers below
 
-                BOOST_REQUIRE_EQUAL(fifo.size(), size);
-                BOOST_REQUIRE_EQUAL(ctor_calls.cons_called, size * 2);
-                BOOST_REQUIRE_EQUAL(ctor_calls.dtor_called, size);
+                SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), size);
+                SEASTAR_BOOST_REQUIRE_EQUAL(ctor_calls.cons_called, size * 2);
+                SEASTAR_BOOST_REQUIRE_EQUAL(ctor_calls.dtor_called, size);
 
                 fifo.pop_front_n(pop_count);
 
-                BOOST_REQUIRE_EQUAL(fifo.size(), size - pop_count);
-                BOOST_REQUIRE_EQUAL(ctor_calls.cons_called, size * 2);
-                BOOST_REQUIRE_EQUAL(ctor_calls.dtor_called, size + pop_count);
+                SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), size - pop_count);
+                SEASTAR_BOOST_REQUIRE_EQUAL(ctor_calls.cons_called, size * 2);
+                SEASTAR_BOOST_REQUIRE_EQUAL(ctor_calls.dtor_called, size + pop_count);
 
                 fifo.emplace_back(ctor_calls);
 
-                BOOST_REQUIRE_EQUAL(fifo.size(), size - pop_count + 1);
-                BOOST_REQUIRE_EQUAL(ctor_calls.cons_called, size * 2 + 1);
-                BOOST_REQUIRE_EQUAL(ctor_calls.dtor_called, size + pop_count);
+                SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), size - pop_count + 1);
+                SEASTAR_BOOST_REQUIRE_EQUAL(ctor_calls.cons_called, size * 2 + 1);
+                SEASTAR_BOOST_REQUIRE_EQUAL(ctor_calls.dtor_called, size + pop_count);
             }
         }
     }
@@ -185,15 +185,15 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_big) {
     for (int i=0; i < static_cast<int>(N); i++) {
         fifo.push_back(i);
     }
-    BOOST_REQUIRE_EQUAL(fifo.size(), N);
-    BOOST_REQUIRE_EQUAL(fifo.empty(), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), N);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), false);
     for (int i = 0 ; i < static_cast<int>(N); i++) {
-        BOOST_REQUIRE_EQUAL(fifo.front(), i);
-        BOOST_REQUIRE_EQUAL(fifo.size(), N-i);
+        SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front(), i);
+        SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), N-i);
         fifo.pop_front();
     }
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
-    BOOST_REQUIRE_EQUAL(fifo.empty(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), true);
 }
 
 BOOST_AUTO_TEST_CASE(chunked_fifo_constructor) {
@@ -215,17 +215,17 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_constructor) {
     for (unsigned i = 0; i < N; i++) {
         fifo.emplace_back(i, &constructed, &destructed);
     }
-    BOOST_REQUIRE_EQUAL(fifo.size(), N);
-    BOOST_REQUIRE_EQUAL(constructed, N);
-    BOOST_REQUIRE_EQUAL(destructed, 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), N);
+    SEASTAR_BOOST_REQUIRE_EQUAL(constructed, N);
+    SEASTAR_BOOST_REQUIRE_EQUAL(destructed, 0u);
     for (unsigned i = 0 ; i < N; i++) {
-        BOOST_REQUIRE_EQUAL(fifo.front().val, static_cast<int>(i));
-        BOOST_REQUIRE_EQUAL(fifo.size(), N-i);
+        SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front().val, static_cast<int>(i));
+        SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), N-i);
         fifo.pop_front();
-        BOOST_REQUIRE_EQUAL(destructed, i+1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(destructed, i+1);
     }
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
-    BOOST_REQUIRE_EQUAL(fifo.empty(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), true);
     // Check that destructing a fifo also destructs the objects it still
     // contains
     constructed = destructed = 0;
@@ -233,15 +233,15 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_constructor) {
         chunked_fifo<typ> fifo;
         for (unsigned i = 0; i < N; i++) {
             fifo.emplace_back(i, &constructed, &destructed);
-            BOOST_REQUIRE_EQUAL(fifo.front().val, 0);
-            BOOST_REQUIRE_EQUAL(fifo.size(), i+1);
-            BOOST_REQUIRE_EQUAL(fifo.empty(), false);
-            BOOST_REQUIRE_EQUAL(constructed, i+1);
-            BOOST_REQUIRE_EQUAL(destructed, 0u);
+            SEASTAR_BOOST_REQUIRE_EQUAL(fifo.front().val, 0);
+            SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), i+1);
+            SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), false);
+            SEASTAR_BOOST_REQUIRE_EQUAL(constructed, i+1);
+            SEASTAR_BOOST_REQUIRE_EQUAL(destructed, 0u);
         }
     }
-    BOOST_REQUIRE_EQUAL(constructed, N);
-    BOOST_REQUIRE_EQUAL(destructed, N);
+    SEASTAR_BOOST_REQUIRE_EQUAL(constructed, N);
+    SEASTAR_BOOST_REQUIRE_EQUAL(destructed, N);
 }
 
 BOOST_AUTO_TEST_CASE(chunked_fifo_copy_move_test) {
@@ -259,37 +259,37 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_copy_move_test) {
         }
     };
 
-    BOOST_REQUIRE_EQUAL(calls.cons_called, 0);
-    BOOST_REQUIRE_EQUAL(calls.ccons_called, 0);
-    BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
-    BOOST_REQUIRE_EQUAL(calls.dtor_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.cons_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.ccons_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.dtor_called, 0);
 
     fill(0, fifo1);
 
-    BOOST_REQUIRE_EQUAL(calls.cons_called, 0);
-    BOOST_REQUIRE_EQUAL(calls.ccons_called, 0);
-    BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
-    BOOST_REQUIRE_EQUAL(calls.dtor_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.cons_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.ccons_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.dtor_called, 0);
 
     fill(5, fifo1);
 
-    BOOST_REQUIRE_EQUAL(calls.cons_called, 5);
-    BOOST_REQUIRE_EQUAL(calls.ccons_called, 0);
-    BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
-    BOOST_REQUIRE_EQUAL(calls.dtor_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.cons_called, 5);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.ccons_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.dtor_called, 0);
 
     {
         auto fifox{fifo1}; // copy ctor
 
-        BOOST_REQUIRE_EQUAL(calls.cons_called, 5);
-        BOOST_REQUIRE_EQUAL(calls.ccons_called, 5);
-        BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
-        BOOST_REQUIRE_EQUAL(calls.dtor_called, 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(calls.cons_called, 5);
+        SEASTAR_BOOST_REQUIRE_EQUAL(calls.ccons_called, 5);
+        SEASTAR_BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(calls.dtor_called, 0);
     }
 
-    BOOST_REQUIRE_EQUAL(calls.dtor_called, 5);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.dtor_called, 5);
     fifo1.clear();
-    BOOST_REQUIRE_EQUAL(calls.dtor_called, 10);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.dtor_called, 10);
 
     fill(5, fifo1);
 
@@ -297,43 +297,43 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_copy_move_test) {
         // move ctor, no element ctors are called at all
         auto fifox{std::move(fifo1)};
 
-        BOOST_REQUIRE_EQUAL(calls.cons_called, 5);
-        BOOST_REQUIRE_EQUAL(calls.ccons_called, 0);
-        BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
-        BOOST_REQUIRE_EQUAL(calls.dtor_called, 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(calls.cons_called, 5);
+        SEASTAR_BOOST_REQUIRE_EQUAL(calls.ccons_called, 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(calls.dtor_called, 0);
     }
 
     fill(5, fifo1);
 
     fifo2 = fifo1;
 
-    BOOST_REQUIRE_EQUAL(calls.cons_called, 5);
-    BOOST_REQUIRE_EQUAL(calls.ccons_called, 5);
-    BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
-    BOOST_REQUIRE_EQUAL(calls.dtor_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.cons_called, 5);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.ccons_called, 5);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.dtor_called, 0);
 
     fifo1.clear();
 
-    BOOST_REQUIRE_EQUAL(calls.cons_called, 5);
-    BOOST_REQUIRE_EQUAL(calls.ccons_called, 5);
-    BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
-    BOOST_REQUIRE_EQUAL(calls.dtor_called, 5);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.cons_called, 5);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.ccons_called, 5);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.dtor_called, 5);
 
     fifo2 = fifo1;
 
-    BOOST_REQUIRE_EQUAL(calls.cons_called, 5);
-    BOOST_REQUIRE_EQUAL(calls.ccons_called, 5);
-    BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
-    BOOST_REQUIRE_EQUAL(calls.dtor_called, 10);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.cons_called, 5);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.ccons_called, 5);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.dtor_called, 10);
 
     fill(5, fifo1);
 
     fifo2 = std::move(fifo1);
 
-    BOOST_REQUIRE_EQUAL(calls.cons_called, 5);
-    BOOST_REQUIRE_EQUAL(calls.ccons_called, 0);
-    BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
-    BOOST_REQUIRE_EQUAL(calls.dtor_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.cons_called, 5);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.ccons_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.dtor_called, 0);
 
     fill(1, fifo1);
     fill(2, fifo2);
@@ -341,10 +341,10 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_copy_move_test) {
 
     fifo1 = fifo2;
 
-    BOOST_REQUIRE_EQUAL(calls.cons_called, 0);
-    BOOST_REQUIRE_EQUAL(calls.ccons_called, 2);
-    BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
-    BOOST_REQUIRE_EQUAL(calls.dtor_called, 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.cons_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.ccons_called, 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.mcons_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(calls.dtor_called, 1);
 }
 
 BOOST_AUTO_TEST_CASE(chunked_copy_ctor) {
@@ -384,15 +384,15 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_construct_fail) {
         }
     };
     chunked_fifo<typ> fifo;
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
-    BOOST_REQUIRE_EQUAL(fifo.empty(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), true);
     try {
         fifo.emplace_back();
     } catch(my_exception) {
         // expected, ignore
     }
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
-    BOOST_REQUIRE_EQUAL(fifo.empty(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), true);
 }
 
 BOOST_AUTO_TEST_CASE(chunked_fifo_construct_fail2) {
@@ -410,8 +410,8 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_construct_fail2) {
         }
     };
     chunked_fifo<typ, 2> fifo;
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
-    BOOST_REQUIRE_EQUAL(fifo.empty(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), true);
     fifo.emplace_back(false);
     fifo.emplace_back(false);
     try {
@@ -419,14 +419,14 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_construct_fail2) {
     } catch(my_exception) {
         // expected, ignore
     }
-    BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
-    BOOST_REQUIRE_EQUAL(fifo.empty(), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 2u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), false);
     fifo.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
-    BOOST_REQUIRE_EQUAL(fifo.empty(), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), false);
     fifo.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
-    BOOST_REQUIRE_EQUAL(fifo.empty(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.empty(), true);
 }
 
 BOOST_AUTO_TEST_CASE(chunked_fifo_equals_op) {
@@ -453,7 +453,7 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_copy) {
     BOOST_CHECK(empty_copy.empty());
 
     auto vec123_copy = vec123;
-    BOOST_CHECK_EQUAL(vec123.size(), 3);
+    SEASTAR_BOOST_CHECK_EQUAL(vec123.size(), 3);
     BOOST_CHECK(vec123_copy == vec123);
 }
 
@@ -467,14 +467,14 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_assignment) {
     vec = empty;
     BOOST_CHECK(vec.empty());
     vec = vec123;
-    BOOST_CHECK_EQUAL(vec.size(), 3);
+    SEASTAR_BOOST_CHECK_EQUAL(vec.size(), 3);
     BOOST_CHECK(vec == vec123);
     vec = {};
     BOOST_CHECK(vec.empty());
 
     // move assignment
     vec = std::move(vec123);
-    BOOST_CHECK_EQUAL(vec.size(), 3);
+    SEASTAR_BOOST_CHECK_EQUAL(vec.size(), 3);
     BOOST_CHECK(vec123.empty());
 }
 
@@ -648,13 +648,13 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_const_iterator) {
 BOOST_AUTO_TEST_CASE(chunked_fifo_no_free_chunks_retained) {
     chunked_fifo<int, 1, 0> fifo;
     fifo.push_back(42);
-    BOOST_REQUIRE_EQUAL(fifo.nfree_chunks(), 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.nfree_chunks(), 0);
     fifo.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo.nfree_chunks(), 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo.nfree_chunks(), 0);
 
     chunked_fifo<int, 1, 1> fifo_1;
     fifo_1.push_back(42);
-    BOOST_REQUIRE_EQUAL(fifo_1.nfree_chunks(), 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo_1.nfree_chunks(), 0);
     fifo_1.pop_front();
-    BOOST_REQUIRE_EQUAL(fifo_1.nfree_chunks(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fifo_1.nfree_chunks(), 1);
 }

@@ -23,8 +23,9 @@
 
 #include <boost/test/unit_test.hpp>
 #include <seastar/core/simple-stream.hh>
+#include <fmt/ranges.h>
+#include "test_comparisons.hh"
 
-BOOST_TEST_DONT_PRINT_LOG_VALUE(std::vector<char>)
 
 using namespace seastar;
 
@@ -48,18 +49,18 @@ static void write_read_test(Input in, Output out)
 
     auto actual_aa = std::vector<char>(4);
     in.read(actual_aa.data(), actual_aa.size());
-    BOOST_CHECK_EQUAL(aa, actual_aa);
+    SEASTAR_BOOST_CHECK_EQUAL(aa, actual_aa);
 
     auto actual_bb = std::vector<char>(3);
     in.read(actual_bb.data(), actual_bb.size());
-    BOOST_CHECK_EQUAL(bb, actual_bb);
+    SEASTAR_BOOST_CHECK_EQUAL(bb, actual_bb);
 
     actual_aa.resize(1024);
     BOOST_CHECK_THROW(in.read(actual_aa.data(), actual_aa.size()), std::out_of_range);
 
     auto actual_cc = std::vector<char>(2);
     in.read(actual_cc.data(), actual_cc.size());
-    BOOST_CHECK_EQUAL(cc, actual_cc);
+    SEASTAR_BOOST_CHECK_EQUAL(cc, actual_cc);
 
     BOOST_CHECK_THROW(in.read(actual_aa.data(), 1), std::out_of_range);
 }

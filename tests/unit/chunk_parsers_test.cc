@@ -30,6 +30,7 @@
 #include <tuple>
 #include <utility>
 #include <vector>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -65,12 +66,12 @@ SEASTAR_TEST_CASE(test_size_and_extensions_parsing) {
     for (auto& tset : tests) {
         parser.init();
         BOOST_REQUIRE(parser(tset.buf()).get().has_value());
-        BOOST_REQUIRE_NE(parser.failed(), tset.parsable);
+        SEASTAR_BOOST_REQUIRE_NE(parser.failed(), tset.parsable);
         if (tset.parsable) {
-            BOOST_REQUIRE_EQUAL(parser.get_size(), std::move(tset.size));
+            SEASTAR_BOOST_REQUIRE_EQUAL(parser.get_size(), std::move(tset.size));
             auto exts = parser.get_parsed_extensions();
             for (auto& ext : tset.extensions) {
-                BOOST_REQUIRE_EQUAL(exts[ext.first], ext.second);
+                SEASTAR_BOOST_REQUIRE_EQUAL(exts[ext.first], ext.second);
             }
         }
     }
@@ -110,10 +111,10 @@ SEASTAR_TEST_CASE(test_trailer_headers_parsing) {
     for (auto& tset : tests) {
         parser.init();
         BOOST_REQUIRE(parser(tset.buf()).get().has_value());
-        BOOST_REQUIRE_NE(parser.failed(), tset.parsable);
+        SEASTAR_BOOST_REQUIRE_NE(parser.failed(), tset.parsable);
         if (tset.parsable) {
             auto heads = parser.get_parsed_headers();
-            BOOST_REQUIRE_EQUAL(heads[std::move(tset.header_name)], std::move(tset.header_value));
+            SEASTAR_BOOST_REQUIRE_EQUAL(heads[std::move(tset.header_name)], std::move(tset.header_value));
         }
     }
     return make_ready_future<>();

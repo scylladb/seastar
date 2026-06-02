@@ -22,6 +22,7 @@
 #define BOOST_TEST_MODULE core
 
 #include <seastar/util/program-options.hh>
+#include "test_comparisons.hh"
 
 #include <boost/program_options.hpp>
 #include <boost/test/unit_test.hpp>
@@ -55,9 +56,9 @@ BOOST_AUTO_TEST_CASE(string_map) {
     const auto& ages = vars["ages"].as<program_options::string_map>();
 
     // `string_map` values can be specified multiple times. The last association takes precedence.
-    BOOST_REQUIRE_EQUAL(ages.at("joe"), "11");
-    BOOST_REQUIRE_EQUAL(ages.at("phil"), "18");
-    BOOST_REQUIRE_EQUAL(ages.at("sally"), "20");
+    SEASTAR_BOOST_REQUIRE_EQUAL(ages.at("joe"), "11");
+    SEASTAR_BOOST_REQUIRE_EQUAL(ages.at("phil"), "18");
+    SEASTAR_BOOST_REQUIRE_EQUAL(ages.at("sally"), "20");
 
     BOOST_REQUIRE_THROW(parse(desc, {"--ages", "tim:"}), bpo::invalid_option_value);
 }

@@ -52,7 +52,8 @@ target_include_directories (app_memcached_test_ascii
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${Seastar_APP_MEMCACHED_BINARY_DIR}
-    ${Seastar_APP_MEMCACHED_SOURCE_DIR})
+    ${Seastar_APP_MEMCACHED_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/tests/unit)
 
 target_compile_definitions (app_memcached_test_ascii
   PRIVATE SEASTAR_TESTING_MAIN)

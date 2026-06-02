@@ -26,8 +26,9 @@
 #include <seastar/util/memory-data-source.hh>
 #include "ascii.hh"
 #include <seastar/core/loop.hh>
+#include <fmt/ranges.h>
+#include "test_comparisons.hh"
 
-BOOST_TEST_DONT_PRINT_LOG_VALUE(std::vector<seastar::sstring>)
 
 using namespace seastar;
 using namespace net;
@@ -241,19 +242,19 @@ SEASTAR_TEST_CASE(test_get_parsing) {
             return parse(make_packet({"get key1\r\n"}))
                     .then([] (auto p) {
                 BOOST_REQUIRE(p->_state == parser_type::state::cmd_get);
-                BOOST_REQUIRE_EQUAL(as_strings(p->_keys), std::vector<sstring>({"key1"}));
+                SEASTAR_BOOST_REQUIRE_EQUAL(as_strings(p->_keys), std::vector<sstring>({"key1"}));
             });
         }).then([make_packet] {
             return parse(make_packet({"get key1 key2\r\n"}))
                     .then([] (auto p) {
                 BOOST_REQUIRE(p->_state == parser_type::state::cmd_get);
-                BOOST_REQUIRE_EQUAL(as_strings(p->_keys), std::vector<sstring>({"key1", "key2"}));
+                SEASTAR_BOOST_REQUIRE_EQUAL(as_strings(p->_keys), std::vector<sstring>({"key1", "key2"}));
             });
         }).then([make_packet] {
             return parse(make_packet({"get key1 key2 key3\r\n"}))
                     .then([] (auto p) {
                 BOOST_REQUIRE(p->_state == parser_type::state::cmd_get);
-                BOOST_REQUIRE_EQUAL(as_strings(p->_keys), std::vector<sstring>({"key1", "key2", "key3"}));
+                SEASTAR_BOOST_REQUIRE_EQUAL(as_strings(p->_keys), std::vector<sstring>({"key1", "key2", "key3"}));
             });
         });
     });

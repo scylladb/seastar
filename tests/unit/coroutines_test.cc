@@ -24,6 +24,8 @@
 #include <ranges>
 #include <any>
 #include <expected>
+#include <fmt/ranges.h>
+#include "test_comparisons.hh"
 
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/coroutine.hh>
@@ -108,12 +110,12 @@ future<int> failing_coroutine2() noexcept {
 }
 
 SEASTAR_TEST_CASE(test_simple_coroutines) {
-    BOOST_REQUIRE_EQUAL(co_await old_fashioned_continuations(), 42);
-    BOOST_REQUIRE_EQUAL(co_await simple_coroutine(), 53);
-    BOOST_REQUIRE_EQUAL(ready_coroutine().get(), 64);
+    SEASTAR_BOOST_REQUIRE_EQUAL(co_await old_fashioned_continuations(), 42);
+    SEASTAR_BOOST_REQUIRE_EQUAL(co_await simple_coroutine(), 53);
+    SEASTAR_BOOST_REQUIRE_EQUAL(ready_coroutine().get(), 64);
     BOOST_REQUIRE(co_await tuple_coroutine() == std::tuple(1, 2.));
     BOOST_REQUIRE_EXCEPTION((void)co_await failing_coroutine(), int, [] (auto v) { return v == 42; });
-    BOOST_CHECK_EQUAL(co_await failing_coroutine().then_wrapped([] (future<int> f) -> future<int> {
+    SEASTAR_BOOST_CHECK_EQUAL(co_await failing_coroutine().then_wrapped([] (future<int> f) -> future<int> {
         BOOST_REQUIRE(f.failed());
         try {
             std::rethrow_exception(f.get_exception());
@@ -122,7 +124,7 @@ SEASTAR_TEST_CASE(test_simple_coroutines) {
         }
     }), 42);
     BOOST_REQUIRE_EXCEPTION((void)co_await failing_coroutine2(), int, [] (auto v) { return v == 17; });
-    BOOST_CHECK_EQUAL(co_await failing_coroutine2().then_wrapped([] (future<int> f) -> future<int> {
+    SEASTAR_BOOST_CHECK_EQUAL(co_await failing_coroutine2().then_wrapped([] (future<int> f) -> future<int> {
         BOOST_REQUIRE(f.failed());
         try {
             std::rethrow_exception(f.get_exception());
@@ -146,7 +148,7 @@ SEASTAR_TEST_CASE(test_abandond_coroutine) {
         p1.set_value();
         co_await p2.get_future();
     }
-    BOOST_CHECK_EQUAL(co_await std::move(*f), 1);
+    SEASTAR_BOOST_CHECK_EQUAL(co_await std::move(*f), 1);
 }
 
 SEASTAR_TEST_CASE(test_scheduling_group) {
@@ -184,7 +186,7 @@ SEASTAR_TEST_CASE(test_scheduling_group) {
         co_await std::move(f2);
         BOOST_REQUIRE(current_scheduling_group() == default_scheduling_group());
         p2.set_value();
-        BOOST_REQUIRE_EQUAL(co_await std::move(f_ret), 42);
+        SEASTAR_BOOST_REQUIRE_EQUAL(co_await std::move(f_ret), 42);
         BOOST_REQUIRE(current_scheduling_group() == default_scheduling_group());
     } catch (...) {
         ex = std::current_exception();
@@ -333,8 +335,8 @@ SEASTAR_TEST_CASE(test_all_simple) {
         [] { return make_ready_future<int>(1); },
         [] { return make_ready_future<int>(2); }
     );
-    BOOST_REQUIRE_EQUAL(a, 1);
-    BOOST_REQUIRE_EQUAL(b, 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(a, 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(b, 2);
 }
 
 SEASTAR_TEST_CASE(test_all_permutations) {
@@ -354,12 +356,12 @@ SEASTAR_TEST_CASE(test_all_permutations) {
             make_delayed_future_returning_nr(4),
             make_delayed_future_returning_nr(5)
         );
-        BOOST_REQUIRE_EQUAL(a, 0);
-        BOOST_REQUIRE_EQUAL(b, 1);
-        BOOST_REQUIRE_EQUAL(c, 2);
-        BOOST_REQUIRE_EQUAL(d, 3);
-        BOOST_REQUIRE_EQUAL(e, 4);
-        BOOST_REQUIRE_EQUAL(f, 5);
+        SEASTAR_BOOST_REQUIRE_EQUAL(a, 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(b, 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(c, 2);
+        SEASTAR_BOOST_REQUIRE_EQUAL(d, 3);
+        SEASTAR_BOOST_REQUIRE_EQUAL(e, 4);
+        SEASTAR_BOOST_REQUIRE_EQUAL(f, 5);
     } while (std::ranges::next_permutation(delays).found);
 }
 
@@ -405,8 +407,8 @@ SEASTAR_TEST_CASE(test_all_heterogeneous_types) {
             co_return 2L;
         }
     );
-    BOOST_REQUIRE_EQUAL(a, 1);
-    BOOST_REQUIRE_EQUAL(b, 2L);
+    SEASTAR_BOOST_REQUIRE_EQUAL(a, 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(b, 2L);
 }
 
 SEASTAR_TEST_CASE(test_all_noncopyable_types) {
@@ -415,7 +417,7 @@ SEASTAR_TEST_CASE(test_all_noncopyable_types) {
             co_return std::make_unique<int>(6);
         }
     );
-    BOOST_REQUIRE_EQUAL(*a, 6);
+    SEASTAR_BOOST_REQUIRE_EQUAL(*a, 6);
 }
 
 SEASTAR_TEST_CASE(test_all_throw_in_input_func) {
@@ -438,10 +440,10 @@ SEASTAR_TEST_CASE(test_all_throw_in_input_func) {
             }
         );
     } catch (int n) {
-        BOOST_REQUIRE_EQUAL(n, 9);
+        SEASTAR_BOOST_REQUIRE_EQUAL(n, 9);
         exception_seen = true;
     }
-    BOOST_REQUIRE_EQUAL(nr_completed, 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(nr_completed, 2);
     BOOST_REQUIRE(exception_seen);
 }
 
@@ -467,11 +469,11 @@ static future<> check_coroutine_throws(auto fun) {
     // while quitting the coroutine.
     int counter = 0;
     BOOST_REQUIRE_THROW(co_await fun(counter), Ex);
-    BOOST_REQUIRE_EQUAL(counter, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(counter, 0);
     co_await fun(counter).then_wrapped([&counter] (auto f) {
         BOOST_REQUIRE(f.failed());
         BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), Ex);
-        BOOST_REQUIRE_EQUAL(counter, 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(counter, 0);
     });
 }
 
@@ -557,7 +559,7 @@ SEASTAR_TEST_CASE(generator)
         accum += i;
         return seastar::make_ready_future<>();
     });
-    BOOST_REQUIRE_EQUAL(accum, 45);
+    SEASTAR_BOOST_REQUIRE_EQUAL(accum, 45);
 
     // test ability of seastar::max_concurrent_for_each to deal with move-only views
     accum = 0;
@@ -565,7 +567,7 @@ SEASTAR_TEST_CASE(generator)
         accum += i;
         return seastar::make_ready_future<>();
     });
-    BOOST_REQUIRE_EQUAL(accum, 45);
+    SEASTAR_BOOST_REQUIRE_EQUAL(accum, 45);
 }
 
 #endif
@@ -577,7 +579,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each_empty) {
     co_await coroutine::parallel_for_each(values, [&] (int x) {
         ++count;
     });
-    BOOST_REQUIRE_EQUAL(count, 0); // the test will hang if it doesn't work.
+    SEASTAR_BOOST_REQUIRE_EQUAL(count, 0); // the test will hang if it doesn't work.
 }
 
 SEASTAR_TEST_CASE(test_parallel_for_each_exception) {
@@ -598,7 +600,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each_exception) {
     // An exception thrown by the functor must be propagated
     BOOST_REQUIRE_THROW(co_await std::move(f0), std::runtime_error);
     // Functor must be called on all values, even if there's an exception
-    BOOST_REQUIRE_EQUAL(count, values.size());
+    SEASTAR_BOOST_REQUIRE_EQUAL(count, values.size());
 
     count = 0;
     throw_at = dist(eng) % values.size();
@@ -611,7 +613,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each_exception) {
         }
     });
     BOOST_REQUIRE_THROW(co_await std::move(f1), std::runtime_error);
-    BOOST_REQUIRE_EQUAL(count, values.size());
+    SEASTAR_BOOST_REQUIRE_EQUAL(count, values.size());
 }
 
 SEASTAR_TEST_CASE(test_parallel_for_each) {
@@ -626,7 +628,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each) {
     co_await coroutine::parallel_for_each(values, [&sum_of_squares] (int x) {
         sum_of_squares += x * x;
     });
-    BOOST_REQUIRE_EQUAL(sum_of_squares, expected);
+    SEASTAR_BOOST_REQUIRE_EQUAL(sum_of_squares, expected);
 
     // Test non-ready futures
     sum_of_squares = 0;
@@ -636,7 +638,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each) {
         }
         sum_of_squares += x * x;
     });
-    BOOST_REQUIRE_EQUAL(sum_of_squares, expected);
+    SEASTAR_BOOST_REQUIRE_EQUAL(sum_of_squares, expected);
 
     // Test legacy subrange
     sum_of_squares = 0;
@@ -646,7 +648,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each) {
         }
         sum_of_squares += x * x;
     });
-    BOOST_REQUIRE_EQUAL(sum_of_squares, 10);
+    SEASTAR_BOOST_REQUIRE_EQUAL(sum_of_squares, 10);
 
     // clang 13.0.1 doesn't support subrange
     // so provide also a Iterator/Sentinel based constructor.
@@ -660,7 +662,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each) {
         }
         sum_of_squares += x * x;
     });
-    BOOST_REQUIRE_EQUAL(sum_of_squares, 10);
+    SEASTAR_BOOST_REQUIRE_EQUAL(sum_of_squares, 10);
 #endif
 }
 
@@ -698,7 +700,7 @@ SEASTAR_TEST_CASE(test_void_as_future_without_preemption_check) {
 
 SEASTAR_TEST_CASE(test_non_void_as_future) {
     auto f = co_await coroutine::as_future(make_ready_future<int>(42));
-    BOOST_REQUIRE_EQUAL(f.get(), 42);
+    SEASTAR_BOOST_REQUIRE_EQUAL(f.get(), 42);
 
     f = co_await coroutine::as_future(make_exception_future<int>(std::runtime_error("exception")));
     BOOST_REQUIRE_THROW(f.get(), std::runtime_error);
@@ -706,7 +708,7 @@ SEASTAR_TEST_CASE(test_non_void_as_future) {
     auto p = promise<int>();
     (void)sleep(1ms).then([&] { p.set_value(314); });
     f = co_await coroutine::as_future(p.get_future());
-    BOOST_REQUIRE_EQUAL(f.get(), 314);
+    SEASTAR_BOOST_REQUIRE_EQUAL(f.get(), 314);
 
     auto gen_exception = [] () -> future<int> {
         co_await sleep(1ms);
@@ -718,7 +720,7 @@ SEASTAR_TEST_CASE(test_non_void_as_future) {
 
 SEASTAR_TEST_CASE(test_non_void_as_future_without_preemption_check) {
     auto f = co_await coroutine::as_future_without_preemption_check(make_ready_future<int>(42));
-    BOOST_REQUIRE_EQUAL(f.get(), 42);
+    SEASTAR_BOOST_REQUIRE_EQUAL(f.get(), 42);
 
     f = co_await coroutine::as_future_without_preemption_check(make_exception_future<int>(std::runtime_error("exception")));
     BOOST_REQUIRE_THROW(f.get(), std::runtime_error);
@@ -726,7 +728,7 @@ SEASTAR_TEST_CASE(test_non_void_as_future_without_preemption_check) {
     auto p = promise<int>();
     (void)sleep(1ms).then([&] { p.set_value(314); });
     f = co_await coroutine::as_future_without_preemption_check(p.get_future());
-    BOOST_REQUIRE_EQUAL(f.get(), 314);
+    SEASTAR_BOOST_REQUIRE_EQUAL(f.get(), 314);
 
     auto gen_exception = [] () -> future<int> {
         co_await sleep(1ms);
@@ -793,7 +795,7 @@ SEASTAR_TEST_CASE(test_lambda_coroutine_in_continuation) {
         (void)boo;
         co_return std::sin(n);
     }));
-    BOOST_REQUIRE_EQUAL(sin1, sin2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(sin1, sin2);
 }
 
 #ifdef __cpp_explicit_this_parameter
@@ -807,7 +809,7 @@ SEASTAR_TEST_CASE(test_lambda_value_capture_coroutine) {
     // f1 is not ready at this point (due to the yield). Verify that the capture
     // group was copied to the coroutine frame.
     auto n = co_await std::move(f1);
-    BOOST_REQUIRE_EQUAL(n, 9);
+    SEASTAR_BOOST_REQUIRE_EQUAL(n, 9);
 }
 
 SEASTAR_TEST_CASE(test_lambda_value_capture_continuation) {
@@ -816,7 +818,7 @@ SEASTAR_TEST_CASE(test_lambda_value_capture_continuation) {
         co_await yield();
         co_return *p + 2;
     }).then([] (int n) {
-        BOOST_REQUIRE_EQUAL(n, 9);
+        SEASTAR_BOOST_REQUIRE_EQUAL(n, 9);
     });
 }
 
@@ -866,7 +868,7 @@ do_run_try_future_test(F underlying_func, int& ctor_dtor_counter, bool& run_past
         counter_ref c1{ctor_dtor_counter};
         counter_ref c2{ctor_dtor_counter};
 
-        BOOST_REQUIRE_GT(ctor_dtor_counter, 0);
+        SEASTAR_BOOST_REQUIRE_GT(ctor_dtor_counter, 0);
 
         using return_future_type = std::invoke_result_t<F>;
         using return_type = typename return_future_type::value_type;
@@ -904,7 +906,7 @@ do_run_try_future_test(F underlying_func, int& ctor_dtor_counter, bool& run_past
         const auto cxx_exception_before = seastar::engine().cxx_exceptions();
         return func().then_wrapped([cxx_exception_before] (auto&& fut) {
             const auto cxx_exception_after = seastar::engine().cxx_exceptions();
-            BOOST_REQUIRE_EQUAL(cxx_exception_before, cxx_exception_after);
+            SEASTAR_BOOST_REQUIRE_EQUAL(cxx_exception_before, cxx_exception_after);
             return std::move(fut);
         });
     });
@@ -930,7 +932,7 @@ future<> run_try_future_test(F underlying_func, std::optional<std::any> expected
         } else {
             auto res = co_await do_run_try_future_test<CheckPreempt>(std::move(underlying_func), ctor_dtor_counter, run_past);
             BOOST_REQUIRE(expected_value);
-            BOOST_REQUIRE_EQUAL(res.value, std::any_cast<return_type>(*expected_value));
+            SEASTAR_BOOST_REQUIRE_EQUAL(res.value, std::any_cast<return_type>(*expected_value));
         }
     } catch (test_exception&) {
         BOOST_REQUIRE(throws);
@@ -938,8 +940,8 @@ future<> run_try_future_test(F underlying_func, std::optional<std::any> expected
         BOOST_FAIL(fmt::format("Unexpected exception {}", std::current_exception()));
     }
 
-    BOOST_REQUIRE_EQUAL(run_past, !throws);
-    BOOST_REQUIRE_EQUAL(ctor_dtor_counter, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(run_past, !throws);
+    SEASTAR_BOOST_REQUIRE_EQUAL(ctor_dtor_counter, 0);
 }
 
 SEASTAR_TEST_CASE(test_try_future) {
@@ -965,8 +967,8 @@ future<int> co_return_tup_int_clv() {
 }
 
 SEASTAR_TEST_CASE(test_std_expected_void_specialization) {
-    BOOST_REQUIRE_EQUAL(co_await co_return_tup_int_rv(), 42);
-    BOOST_REQUIRE_EQUAL(co_await co_return_tup_int_clv(), 42);
+    SEASTAR_BOOST_REQUIRE_EQUAL(co_await co_return_tup_int_rv(), 42);
+    SEASTAR_BOOST_REQUIRE_EQUAL(co_await co_return_tup_int_clv(), 42);
 }
 
 #else
@@ -1015,13 +1017,13 @@ future<std::vector<int> &> co_return_reference() {
 SEASTAR_TEST_CASE(test_co_return_conversions) {
     std::ignore = co_await i2e();
     std::ignore = co_await e2i();
-    BOOST_REQUIRE_EQUAL(co_await co_return_vector(0), (std::vector<std::string>{}));
+    SEASTAR_BOOST_REQUIRE_EQUAL(co_await co_return_vector(0), (std::vector<std::string>{}));
     // gcc 13.3 will ICE if we inline the expected values here
     std::vector<std::string> foo_x2{"foo", "foo"};
-    BOOST_REQUIRE_EQUAL(co_await co_return_vector(2), foo_x2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(co_await co_return_vector(2), foo_x2);
     std::vector<std::string> foo_x3{"foo", "foo", "foo"};
-    BOOST_REQUIRE_EQUAL(co_await co_return_vector(3), foo_x3);
-    BOOST_REQUIRE_EQUAL(&co_await co_return_reference(), &static_vector);
+    SEASTAR_BOOST_REQUIRE_EQUAL(co_await co_return_vector(3), foo_x3);
+    BOOST_REQUIRE(&co_await co_return_reference() == &static_vector);
 }
 
 future<thrower_on_copy> co_return_thrower_on_copy() {
@@ -1042,14 +1044,14 @@ SEASTAR_TEST_CASE(test_co_return_copy_counter) {
     {
         copy_move_counter cc;
         std::ignore = co_return_copy_counter_const_lv(cc);
-        BOOST_CHECK_EQUAL(cc.shared->copies, 1);
-        BOOST_CHECK_EQUAL(cc.shared->moves, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(cc.shared->copies, 1);
+        SEASTAR_BOOST_CHECK_EQUAL(cc.shared->moves, 0);
     }
     {
         copy_move_counter cc;
         std::ignore = co_await co_return_copy_counter_const_lv(cc);
-        BOOST_CHECK_EQUAL(cc.shared->copies, 1);
-        BOOST_CHECK_EQUAL(cc.shared->moves, copy_move_counter::co_await_moves);
+        SEASTAR_BOOST_CHECK_EQUAL(cc.shared->copies, 1);
+        SEASTAR_BOOST_CHECK_EQUAL(cc.shared->moves, copy_move_counter::co_await_moves);
     }
 }
 
@@ -1069,12 +1071,12 @@ SEASTAR_TEST_CASE(test_co_return_move_counter) {
         {
             move_counter mc;
             std::ignore = (*fnptr)(std::move(mc));
-            BOOST_CHECK_EQUAL(mc.shared->moves, 1);
+            SEASTAR_BOOST_CHECK_EQUAL(mc.shared->moves, 1);
         }
         {
             move_counter mc;
             std::ignore = co_await (*fnptr)(std::move(mc));
-            BOOST_CHECK_EQUAL(mc.shared->moves, 1 + copy_move_counter::co_await_moves);
+            SEASTAR_BOOST_CHECK_EQUAL(mc.shared->moves, 1 + copy_move_counter::co_await_moves);
         }
     }
 }
