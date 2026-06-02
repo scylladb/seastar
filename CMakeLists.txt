@@ -730,6 +730,7 @@ add_library (seastar
   src/core/fsqual.cc
   src/core/fstream.cc
   src/core/future.cc
+  src/core/task_profiler.cc
   src/core/future-util.cc
   src/core/linux-aio.cc
   src/core/memory.cc

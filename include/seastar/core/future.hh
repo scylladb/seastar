@@ -33,6 +33,7 @@
 #include <source_location>
 
 #include <seastar/core/task.hh>
+#include <seastar/core/task_profiler.hh>
 #include <seastar/core/thread_impl.hh>
 #include <seastar/core/function_traits.hh>
 #include <seastar/core/shard_id.hh>
@@ -868,11 +869,13 @@ protected:
     void set_task(task* task) noexcept {
         _task = task;
         _task_shard = this_shard_id();
+        task_profiler::on_task_suspend(*task);
     }
     void assert_task_shard() const noexcept;
 #else
     void set_task(task* task) noexcept {
         _task = task;
+        task_profiler::on_task_suspend(*task);
     }
     void assert_task_shard() const noexcept { }
 #endif
