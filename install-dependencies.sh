@@ -61,6 +61,9 @@ debian_packages=(
     ragel
     stow
     systemtap-sdt-dev
+    liblttng-ust-dev
+    lttng-tools
+    babeltrace2
     valgrind
     xfslibs-dev
 )
@@ -105,6 +108,9 @@ redhat_packages=(
     python3-pyyaml
     stow
     systemtap-sdt-devel
+    lttng-ust-devel
+    lttng-tools
+    babeltrace2
     valgrind-devel
     xfsprogs-devel
     yaml-cpp-devel
