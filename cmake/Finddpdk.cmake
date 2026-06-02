@@ -151,7 +151,7 @@ endforeach ()
 pkg_check_modules (libarchive_PC QUIET libarchive)
 list(APPEND dpdk_dependencies ${libarchive_PC_LIBRARIES})
 
-if (dpdk_FOUND AND NOT (TARGET dpdk))
+if (dpdk_FOUND AND NOT (TARGET DPDK::dpdk))
   get_filename_component (library_suffix "${dpdk_EAL_LIBRARY}" LAST_EXT)
   # strictly speaking, we should have being using check_c_compiler_flag()
   # here, but we claim Seastar as a project written in CXX language, and
