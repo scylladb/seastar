@@ -306,7 +306,7 @@ private:
         void rename(sstring new_name, sstring new_shortname);
     private:
         void register_stats();
-        internal::log_buf::inserter_iterator do_dump(seastar::internal::log_buf::inserter_iterator it) const;
+        void do_dump() const;
     };
 
     struct task_queue_group final : public sched_entity {
