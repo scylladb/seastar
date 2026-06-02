@@ -87,6 +87,17 @@ macro (seastar_find_dependencies)
     seastar_find_dep (dpdk)
   endif()
   seastar_find_dep (fmt 8.1.1 REQUIRED)
+  # clang >= 20 enforces consteval strictly enough that fmt < 11 fails to
+  # compile fmt/chrono.h's FMT_STRING("{:.{}f}") path. Catch this here
+  # rather than letting users hit the cryptic chrono.h error during build.
+  if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
+      AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 20
+      AND fmt_VERSION VERSION_LESS 11)
+    message (FATAL_ERROR
+      "clang ${CMAKE_CXX_COMPILER_VERSION} requires fmt >= 11 "
+      "(found ${fmt_VERSION}). Re-run configure.py with --cook fmt "
+      "to build a newer fmt locally.")
+  endif ()
   seastar_find_dep (lz4 1.7.3 REQUIRED)
   seastar_find_dep (GnuTLS 3.7.4)
   seastar_find_dep (OpenSSL 3.0)
