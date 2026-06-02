@@ -1,3 +1,7 @@
 [submodule "dpdk"]
 	path = dpdk
 	url = ../dpdk
+
+[submodule "ngtcp2"]
+	path = ngtcp2
+	url = https://github.com/TusikNusik/ngtcp2

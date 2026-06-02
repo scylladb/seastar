@@ -254,6 +254,10 @@ cat <<'EOF' > "${build_dir}/Cooking.cmake"
 #
 
 macro (project name)
+  if (Cooking_USE_CMAKE_PROJECT_COMMAND)
+    _project (${name} ${ARGN})
+  endif ()
+
   set (_cooking_dir ${CMAKE_CURRENT_BINARY_DIR}/_cooking)
 
   if (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)

@@ -15,8 +15,16 @@ jobs:
       image: alpine:latest
 
     steps:
+    - name: Install git for checkout
+      run: |
+        apk update
+        apk add --no-cache git
+
     - name: Checkout repository
       uses: actions/checkout@v4
+
+    - name: Checkout ngtcp2 submodule
+      run: git submodule update --init ngtcp2
 
     - name: Install build dependencies
       run: |
