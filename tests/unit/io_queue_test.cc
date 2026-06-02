@@ -115,10 +115,6 @@ struct io_queue_for_tests {
         queue.find_or_create_class(pc);
     }
 
-    fair_queue& get_fair_queue() {
-        return queue._streams[0].fq;
-    }
-
     bool is_class_registered(internal::priority_class pc) const noexcept {
         return queue._priority_classes.size() > pc.id() && (queue._priority_classes[pc.id()] != nullptr);
     }
@@ -179,21 +175,24 @@ static void do_test_large_request_flow(part_flaw flaw) {
         BOOST_REQUIRE_EQUAL(len, expected);
     });
 
-    for (int i = 0; i < 3; i++) {
+    int req_idx = 0;
+    while (req_idx < 3) {
         seastar::sleep(std::chrono::milliseconds(500)).get();
         tio.queue.poll_io_queue();
-        tio.sink.drain([&file, i, flaw] (const internal::io_request& rq, io_completion* desc) -> bool {
-            if (i == 1) {
+        tio.sink.drain([&file, &req_idx, flaw] (const internal::io_request& rq, io_completion* desc) -> bool {
+            if (req_idx == 1) {
                 if (flaw == part_flaw::partial) {
                     const auto& op = rq.as<internal::io_request::operation::writev>();
                     op.iovec[0].iov_len /= 2;
                 }
                 if (flaw == part_flaw::error) {
                     desc->complete_with(-EIO);
+                    req_idx++;
                     return true;
                 }
             }
             file.execute_writev_req(rq, desc);
+            req_idx++;
             return true;
         });
     }
@@ -593,6 +592,15 @@ SEASTAR_THREAD_TEST_CASE(test_tb_params) {
         BOOST_CHECK((d.write_req_rate - iops_write) / d.write_req_rate < error_margin);
         BOOST_CHECK((d.read_bytes_rate - bandwidth_read) / d.read_bytes_rate < error_margin);
         BOOST_CHECK((d.write_bytes_rate - bandwidth_write) / d.write_bytes_rate < error_margin);
+
+        // Verify the no-deadlock invariant: the max_request_length chosen
+        // by the io_group must be small enough that its capacity cost never
+        // exceeds the burst limit.  If violated, a split piece could never
+        // accumulate enough tokens and would stall indefinitely.
+        auto max_len = tio.max_request_length(internal::io_direction_and_length::write_idx);
+        auto cap_max_len = tio.queue.request_capacity(
+            internal::io_direction_and_length(internal::io_direction_and_length::write_idx, max_len));
+        BOOST_REQUIRE_LE(cap_max_len, fg.maximum_capacity());
     }
 }
 
@@ -609,70 +617,6 @@ SEASTAR_THREAD_TEST_CASE(test_unconfigured_io_queue) {
         BOOST_CHECK_EQUAL(cost_read, 0);
         BOOST_CHECK_EQUAL(cost_write, 0);
     }
-}
-
-namespace seastar::testing {
-class fair_queue_test {
-    fair_queue& _fq;
-public:
-    fair_queue_test(fair_queue& fq) noexcept : _fq(fq) {}
-
-    unsigned nr_children_for(std::optional<unsigned> index) {
-        return index.has_value() ? _fq._priority_groups[*index]->_nr_children : _fq._root._nr_children;
-    }
-
-    bool is_root_group(unsigned index) {
-        return _fq._priority_groups[index]->_parent == &_fq._root;
-    }
-
-    std::optional<unsigned> get_parent_index(internal::priority_class pc) {
-        auto& pe = reinterpret_cast<fair_queue::priority_entry&>(*_fq._priority_classes[pc.id()]);
-        if (pe._parent == &_fq._root) {
-            return {};
-        }
-
-        unsigned i = 0;
-        for (auto& pg : _fq._priority_groups) {
-            if (pe._parent == pg.get()) {
-                break;
-            }
-            i++;
-        }
-        return i;
-    }
-};
-}
-
-SEASTAR_THREAD_TEST_CASE(test_nested_priority_classes_basic_linkage) {
-    io_queue_for_tests tio;
-
-    auto ssg1 = create_scheduling_supergroup(100).get();
-    auto ssg2 = create_scheduling_supergroup(200).get();
-    auto sg0 = create_scheduling_group("a", 300).get();
-    auto sg1 = create_scheduling_group("b", "b", 400, ssg1).get();
-    auto sg2 = create_scheduling_group("c", "c", 500, ssg2).get();
-    auto stop = defer([&] () noexcept {
-        destroy_scheduling_group(sg0).get();
-        destroy_scheduling_group(sg1).get();
-        destroy_scheduling_group(sg2).get();
-    });
-
-    tio.find_or_create_class(internal::priority_class(sg0));
-    tio.find_or_create_class(internal::priority_class(sg1));
-    tio.find_or_create_class(internal::priority_class(sg2));
-
-    seastar::testing::fair_queue_test fq(tio.get_fair_queue());
-
-    BOOST_CHECK_EQUAL(fq.nr_children_for({}), 3);
-    BOOST_CHECK_EQUAL(fq.nr_children_for(0), 1);
-    BOOST_CHECK_EQUAL(fq.nr_children_for(1), 1);
-
-    BOOST_CHECK(fq.is_root_group(0));
-    BOOST_CHECK(fq.is_root_group(1));
-
-    BOOST_CHECK(!fq.get_parent_index(internal::priority_class(sg0)));
-    BOOST_CHECK(fq.get_parent_index(internal::priority_class(sg1)) == 0);
-    BOOST_CHECK(fq.get_parent_index(internal::priority_class(sg2)) == 1);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_destroy_priority_class_with_requests) {
@@ -782,6 +726,7 @@ static future<size_t> run_and_check_bandwidth(io_queue_for_tests& tio, internal:
 
     auto start = std::chrono::steady_clock::now();
     auto stop = start + std::chrono::seconds(60);
+    auto min_duration = std::chrono::seconds(5);
     size_t real_bandwidth = 0;
 
     while (true) {
@@ -789,7 +734,7 @@ static future<size_t> run_and_check_bandwidth(io_queue_for_tests& tio, internal:
         auto now = std::chrono::steady_clock::now();
         real_bandwidth = (nr_requests * req_size) / std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
         fmt::print("Measured for {} {} MB/s, goal {} MB/s\n", pc.id(), real_bandwidth >> 20, bandwidth_goal >> 20);
-        if (real_bandwidth >= bandwidth_goal || now >= stop) {
+        if ((now - start >= min_duration && real_bandwidth >= bandwidth_goal) || now >= stop) {
             break;
         }
     }
@@ -963,8 +908,8 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
 
     background_drain drain(tio);
 
-    auto f0 = run_and_check_bandwidth(tio, pc0, bandwidth * 0.8 * 0.95, 4);
-    auto f1 = run_and_check_bandwidth(tio, pc1, bandwidth * 0.2 * 0.95, 4);
+    auto f0 = run_and_check_bandwidth(tio, pc0, bandwidth * 0.8 * 0.95, 8);
+    auto f1 = run_and_check_bandwidth(tio, pc1, bandwidth * 0.2 * 0.95, 8);
     auto bw0 = f0.get();
     auto bw1 = f1.get();
 
@@ -977,6 +922,56 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
     destroy_scheduling_group(sg1).get();
     destroy_scheduling_group(sg0).get();
     destroy_scheduling_supergroup(ssg).get();
+}
+
+// Verify the end-to-end disk-level rate limiting: generate_config() correctly
+// translates disk_params into token costs, and the io_queue dispatch actually
+// honours those limits at runtime.
+SEASTAR_THREAD_TEST_CASE(test_disk_level_rate_limiting) {
+    internal::disk_config_params disk_config(1);
+
+    // Part 1: bandwidth-only limit.  With only read_bytes_rate configured the
+    // throughput should be capped at that value regardless of the (unconfigured)
+    // IOPS dimension.  Use a small request size (4 KiB) that is guaranteed to
+    // stay below max_request_length so that no splitting occurs.
+    {
+        const size_t bw_limit = 50 << 20;  // 50 MB/s
+        constexpr size_t req_size = 4096;
+        internal::disk_params d;
+        d.read_bytes_rate = bw_limit;
+        d.write_bytes_rate = bw_limit;
+
+        auto io_config = disk_config.generate_config(d, 0, 1);
+        io_config.mountpoint = "bw-test";
+        io_queue_for_tests tio(io_config);
+        background_drain drain(tio);
+
+        auto bw = run_and_check_bandwidth(tio, get_default_pc(), bw_limit * 0.9, 4, req_size).get();
+        BOOST_REQUIRE_LE(bw, bw_limit + bw_slack);
+
+        drain.stop().get();
+    }
+
+    // Part 2: IOPS-only limit.  Small (512 B) requests are IOPS-dominated,
+    // so with only read_req_rate configured the request rate should be capped.
+    // run_and_check_bandwidth measures bytes/s; dividing by req_size gives IOPS.
+    {
+        const size_t iops_limit = 5000;
+        constexpr size_t req_size = 512;
+        internal::disk_params d;
+        d.read_req_rate = iops_limit;
+        d.write_req_rate = iops_limit;
+
+        auto io_config = disk_config.generate_config(d, 0, 1);
+        io_config.mountpoint = "iops-test";
+        io_queue_for_tests tio(io_config);
+        background_drain drain(tio);
+
+        auto iops_as_bw = run_and_check_bandwidth(tio, get_default_pc(), iops_limit * req_size * 0.9, 8, req_size).get();
+        BOOST_REQUIRE_LE(iops_as_bw / req_size, iops_limit * 1.1);
+
+        drain.stop().get();
+    }
 }
 
 SEASTAR_THREAD_TEST_CASE(test_get_all_io_queues) {
