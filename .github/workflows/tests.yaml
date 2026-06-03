@@ -40,6 +40,28 @@ jobs:
       enables: --enable-dpdk
       options: --cook dpdk --dpdk-machine corei7-avx
 
+  build_with_dual_tls:
+    name: "Test with both TLS backends"
+    uses: ./.github/workflows/test.yaml
+    strategy:
+      fail-fast: false
+    with:
+      compiler: clang++
+      standard: 23
+      mode: debug
+      options: --tls-mode=both
+
+  build_with_openssl_tls:
+    name: "Test with OpenSSL TLS backend only"
+    uses: ./.github/workflows/test.yaml
+    strategy:
+      fail-fast: false
+    with:
+      compiler: clang++
+      standard: 23
+      mode: debug
+      options: --tls-mode=openssl
+
   build_with_cxx_modules:
     name: "Test with C++20 modules enabled"
     uses: ./.github/workflows/test.yaml

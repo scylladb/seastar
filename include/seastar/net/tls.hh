@@ -48,10 +48,31 @@ class socket_address;
  * Relatively thin SSL wrapper for socket IO.
  * (Can be expanded to other IO forms).
  *
- * The current underlying mechanism is
- * gnutls, however, all interfaces are kept
- * agnostic, so in theory it could be replaced
- * with OpenSSL or similar.
+ * Two underlying mechanisms are supported, GnuTLS and OpenSSL. Each one can
+ * be enabled or disabled at build time (\c Seastar_GNUTLS, \c Seastar_OPENSSL).
+ * When both are compiled in (\c SEASTAR_TLS_DUAL_BACKEND), the active backend
+ * is chosen at reactor startup via the \c --crypto-provider option; when only
+ * one is compiled in, that backend is fixed for the lifetime of the program.
+ *
+ * The interfaces here are kept agnostic so that either backend can be used
+ * without changes to client code.
+ *
+ * \section backend_lifetime When backend-dependent state is valid
+ *
+ * Several entry points below expose state that comes from the active backend
+ * (\ref error_category, \ref backend_name, the \c ERROR_* globals, and any
+ * function that internally creates a TLS session, credentials, or DH params).
+ *
+ * - In **single-backend** builds the backend is fixed at compile time. All
+ *   of these entry points are valid at any time, including from static
+ *   initializers and from unit tests that never start a reactor. The
+ *   \c ERROR_* globals are additionally declared \c const and statically
+ *   initialized to the backend's constants.
+ * - In **dual-backend** builds the backend is installed by
+ *   \c smp::configure() at reactor startup. Calling any backend-dependent
+ *   entry point before that point is undefined; the \c ERROR_* globals in
+ *   particular are zero-initialized and silently read as 0. Build with a
+ *   single TLS backend if you need them to be valid unconditionally.
  *
  */
 namespace tls {
@@ -696,39 +717,49 @@ namespace tls {
     std::ostream& operator<<(std::ostream&, subject_alt_name_type);
 
     /**
-     * Error handling.
+     * The error_category instance used by exceptions thrown by TLS.
      *
-     * The error_category instance used by exceptions thrown by TLS
+     * See \ref backend_lifetime for when this is valid to call.
      */
     const std::error_category& error_category();
 
     /**
      * Returns the name of the active TLS backend (e.g. "gnutls", "openssl").
+     *
+     * See \ref backend_lifetime for when this is valid to call.
      */
     const char* backend_name();
 
     /**
-     * The more common error codes encountered in TLS.
-     * Not an exhaustive list. Add exports as needed.
+     * The more common error codes encountered in TLS. Not an exhaustive
+     * list — add exports as needed.
+     *
+     * See \ref backend_lifetime for when these are valid to read.
      */
-    extern int ERROR_UNKNOWN_COMPRESSION_ALGORITHM;
-    extern int ERROR_UNKNOWN_CIPHER_TYPE;
-    extern int ERROR_INVALID_SESSION;
-    extern int ERROR_UNEXPECTED_HANDSHAKE_PACKET;
-    extern int ERROR_UNKNOWN_CIPHER_SUITE;
-    extern int ERROR_UNKNOWN_ALGORITHM;
-    extern int ERROR_UNSUPPORTED_SIGNATURE_ALGORITHM;
-    extern int ERROR_SAFE_RENEGOTIATION_FAILED;
-    extern int ERROR_UNSAFE_RENEGOTIATION_DENIED;
-    extern int ERROR_UNKNOWN_SRP_USERNAME;
-    extern int ERROR_PREMATURE_TERMINATION;
-    extern int ERROR_PUSH;
-    extern int ERROR_PULL;
-    extern int ERROR_UNEXPECTED_PACKET;
-    extern int ERROR_UNSUPPORTED_VERSION;
-    extern int ERROR_NO_CIPHER_SUITES;
-    extern int ERROR_DECRYPTION_FAILED;
-    extern int ERROR_MAC_VERIFY_FAILED;
+#ifdef SEASTAR_TLS_DUAL_BACKEND
+#define SEASTAR_TLS_ERROR_QUALIFIERS extern
+#else
+#define SEASTAR_TLS_ERROR_QUALIFIERS extern const
+#endif
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_UNKNOWN_COMPRESSION_ALGORITHM;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_UNKNOWN_CIPHER_TYPE;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_INVALID_SESSION;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_UNEXPECTED_HANDSHAKE_PACKET;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_UNKNOWN_CIPHER_SUITE;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_UNKNOWN_ALGORITHM;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_UNSUPPORTED_SIGNATURE_ALGORITHM;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_SAFE_RENEGOTIATION_FAILED;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_UNSAFE_RENEGOTIATION_DENIED;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_UNKNOWN_SRP_USERNAME;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_PREMATURE_TERMINATION;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_PUSH;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_PULL;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_UNEXPECTED_PACKET;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_UNSUPPORTED_VERSION;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_NO_CIPHER_SUITES;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_DECRYPTION_FAILED;
+    SEASTAR_TLS_ERROR_QUALIFIERS int ERROR_MAC_VERIFY_FAILED;
+#undef SEASTAR_TLS_ERROR_QUALIFIERS
 }
 }
 
