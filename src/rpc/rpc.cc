@@ -805,8 +805,7 @@ void client::wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h,
     }
     if (cancel) {
         cancel->cancel_wait = [this, id] {
-            _outstanding[id]->cancel();
-            _outstanding.erase(id);
+            _outstanding.take(id)->cancel();
         };
         h->pcancel = cancel;
         cancel->wait_back_pointer = &h->pcancel;
@@ -815,8 +814,7 @@ void client::wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h,
 }
 void client::wait_timed_out(id_type id) {
     _stats.timeout++;
-    _outstanding[id]->timeout();
-    _outstanding.erase(id);
+    _outstanding.take(id)->timeout();
 }
 
 future<> client::stop() noexcept {
@@ -996,12 +994,9 @@ future<> client::loop(client_options ops, const socket_address& addr, const sock
                 continue;
             }
             auto&& [msg_id, ht, data] = co_await read_response_frame_compressed(_connected->read_buf);
-            auto it = _outstanding.find(std::abs(msg_id));
             if (!data) {
                 _error = true;
-            } else if (it != _outstanding.end()) {
-                auto handler = std::move(it->second);
-                _outstanding.erase(it);
+            } else if (auto handler = _outstanding.take(std::abs(msg_id))) {
                 (*handler)(*this, msg_id, std::move(data.value()));
                 if (ht) {
                     _stats.delay_samples++;

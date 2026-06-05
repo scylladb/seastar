@@ -44,6 +44,7 @@
 #include <seastar/core/semaphore.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/log.hh>
+#include <seastar/util/log_indexed_container.hh>
 
 namespace bi = boost::intrusive;
 
@@ -555,7 +556,13 @@ public:
         virtual ~reply_handler() {}
     };
 private:
-    std::unordered_map<id_type, std::unique_ptr<reply_handler_base>> _outstanding;
+    // In-flight reply handlers keyed by message id, using log_indexed_container
+    // to avoid large contiguous rehash allocations.
+    // Note: no_wait verbs consume a message id without inserting a handler;
+    // those ids produce an out-of-range lookup on reply, handled gracefully.
+    using reply_table = log_indexed_container<std::unique_ptr<reply_handler_base>, id_type>;
+
+    reply_table _outstanding;
     socket_address _server_addr, _local_addr;
     client_options _options;
     weak_ptr<client> _parent; // for stream clients

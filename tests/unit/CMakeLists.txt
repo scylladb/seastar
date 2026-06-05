@@ -321,6 +321,10 @@ seastar_add_test (chunked_fifo
   KIND BOOST
   SOURCES chunked_fifo_test.cc)
 
+seastar_add_test (log_indexed_container
+  KIND BOOST
+  SOURCES log_indexed_container_test.cc)
+
 seastar_add_test (linux_perf_event
   KIND BOOST
   SOURCES linux_perf_event_test.cc ../perf/linux_perf_event.cc)
