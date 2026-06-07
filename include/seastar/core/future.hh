@@ -1288,10 +1288,12 @@ using futurize_t = typename futurize<T>::type;
 /// @}
 
 template<typename Func, typename... Args>
-auto futurize_invoke(Func&& func, Args&&... args) noexcept;
+futurize_t<std::invoke_result_t<Func&&, Args&&...>>
+futurize_invoke(Func&& func, Args&&... args) noexcept;
 
 template<typename Func, typename... Args>
-auto futurize_apply(Func&& func, std::tuple<Args...>&& args) noexcept;
+futurize_t<std::invoke_result_t<Func, Args&&...>>
+futurize_apply(Func&& func, std::tuple<Args...>&& args) noexcept;
 
 /// \addtogroup future-module
 /// @{
@@ -2290,13 +2292,15 @@ internal::futurize_base<void>::make_exception_future(Arg&& arg) noexcept {
 }
 
 template<typename Func, typename... Args>
-auto futurize_invoke(Func&& func, Args&&... args) noexcept {
+futurize_t<std::invoke_result_t<Func&&, Args&&...>>
+futurize_invoke(Func&& func, Args&&... args) noexcept {
     using futurator = futurize<std::invoke_result_t<Func, Args&&...>>;
     return futurator::invoke(std::forward<Func>(func), std::forward<Args>(args)...);
 }
 
 template<typename Func, typename... Args>
-auto futurize_apply(Func&& func, std::tuple<Args...>&& args) noexcept {
+futurize_t<std::invoke_result_t<Func, Args&&...>>
+futurize_apply(Func&& func, std::tuple<Args...>&& args) noexcept {
     using futurator = futurize<std::invoke_result_t<Func, Args&&...>>;
     return futurator::apply(std::forward<Func>(func), std::move(args));
 }
