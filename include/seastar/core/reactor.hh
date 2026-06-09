@@ -109,6 +109,11 @@ class smp;
 
 class reactor_backend_selector;
 
+struct async_worker_allocation {
+    resource::cpuset async_workers_cpuset;
+    resource::cpuset reactor_cpuset;
+};
+
 class reactor_backend;
 struct pollfn;
 
@@ -175,6 +180,8 @@ private:
     friend class reactor_backend_epoll;
     friend class reactor_backend_aio;
     friend class reactor_backend_uring;
+    friend class reactor_backend_uring_base;
+    friend class reactor_backend_asymmetric_uring;
     friend class reactor_backend_selector;
     friend struct reactor_options;
     friend class aio_storage_context;
