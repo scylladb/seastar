@@ -111,7 +111,16 @@ future<> sleep_abortable(typename Clock::duration dur, abort_source& as) {
                 sc = std::move(*sc_opt);
                 tmr.arm(dur);
             } else {
-                done.set_exception(sleep_aborted());
+                // Try to preserve a custom exception if one was provided, relying on
+                // comparing the exception pointers. This relies on get_default_exception
+                // always providing a pointer to the same exception object.
+                // See scylladb/seastar#3452.
+                const auto& ex = as.abort_requested_exception_ptr();
+                if (ex != as.get_default_exception()) {
+                    done.set_exception(ex);
+                } else {
+                    done.set_exception(sleep_aborted());
+                }
             }
         }
     };
