@@ -648,7 +648,7 @@ private:
 
     void emit_one_metrics(YAML::Emitter& out, sstring m_name, bool check_class_metrics = true) {
         if (auto v = get_one_metrics(m_name, check_class_metrics); v.has_value()) {
-            out << YAML::Key << m_name << YAML::Value << *v;
+            out << YAML::Key << std::string(m_name) << YAML::Value << *v;
         }
     }
 
@@ -1206,7 +1206,7 @@ public:
     future<> emit_results(YAML::Emitter& out) {
         return _finished.wait(_cl.size()).then([this, &out] {
             for (auto& cl: _cl) {
-                out << YAML::Key << cl->name();
+                out << YAML::Key << std::string(cl->name());
                 out << YAML::BeginMap;
                 cl->emit_results(out);
                 out << YAML::EndMap;
