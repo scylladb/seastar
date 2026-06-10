@@ -197,6 +197,17 @@ SEASTAR_THREAD_TEST_CASE(test_sleep_abortable_already_aborted_with_exception) {
     });
 }
 
+// Companion to the above: when the already-aborted source carries no custom
+// exception (plain request_abort), sleep_abortable still fails with
+// sleep_aborted, matching the during-sleep path. See scylladb/seastar#3452.
+SEASTAR_THREAD_TEST_CASE(test_sleep_abortable_already_aborted_no_exception) {
+    abort_source as;
+    as.request_abort();
+    auto f = sleep_abortable(10s, as);
+
+    BOOST_REQUIRE_THROW(f.get(), sleep_aborted);
+}
+
 SEASTAR_THREAD_TEST_CASE(test_destroy_with_moved_subscriptions) {
     auto as = std::make_unique<abort_source>();
     int aborted = 0;
