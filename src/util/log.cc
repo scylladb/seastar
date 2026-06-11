@@ -639,30 +639,28 @@ std::ostream& operator<<(std::ostream& out, const std::exception_ptr& eptr) {
     try {
         std::rethrow_exception(eptr);
     } catch(...) {
-        auto tp = abi::__cxa_current_exception_type();
-        if (tp) {
-            out << seastar::pretty_type_name(*tp);
-        } else {
-            // This case shouldn't happen...
-            out << "<unknown exception>";
-        }
-        // Print more information on some familiar exception types
+        // Print what() for std::exception; fall back to the type name otherwise.
         try {
             throw;
         } catch (const seastar::nested_exception& ne) {
-            out << fmt::format(": {} (while cleaning up after {})", ne.inner, ne.outer);
-        } catch (const std::system_error& e) {
-            out << " (error " << e.code() << ", " << e.what() << ")";
+            out << fmt::format("{} (while cleaning up after {})", ne.inner, ne.outer);
         } catch (const std::exception& e) {
-            out << " (" << e.what() << ")";
+            out << e.what();
         } catch (...) {
-            // no extra info
+            auto tp = abi::__cxa_current_exception_type();
+            if (tp) {
+                out << seastar::pretty_type_name(*tp);
+            } else {
+                out << "<unknown exception>";
+            }
         }
 
         try {
             throw;
         } catch (const std::nested_exception& ne) {
-            out << ": " << ne.nested_ptr();
+            if (ne.nested_ptr()) {
+                out << ": " << ne.nested_ptr();
+            }
         } catch (...) {
             // do nothing
         }
@@ -671,11 +669,11 @@ std::ostream& operator<<(std::ostream& out, const std::exception_ptr& eptr) {
 }
 
 std::ostream& operator<<(std::ostream& out, const std::exception& e) {
-    return out << seastar::pretty_type_name(typeid(e)) << " (" << e.what() << ")";
+    return out << e.what();
 }
 
 std::ostream& operator<<(std::ostream& out, const std::system_error& e) {
-    return out << seastar::pretty_type_name(typeid(e)) << " (error " << e.code() << ", " << e.what() << ")";
+    return out << e.what();
 }
 
 }

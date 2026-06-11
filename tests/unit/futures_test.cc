@@ -451,7 +451,7 @@ SEASTAR_TEST_CASE(test_get_on_exceptional_promise) {
 
 static void check_finally_exception(std::exception_ptr ex) {
   BOOST_REQUIRE_EQUAL(fmt::format("{}", ex),
-        "seastar::nested_exception: test_exception (bar) (while cleaning up after test_exception (foo))");
+        "bar (while cleaning up after foo)");
   try {
       // convert to the concrete type nested_exception
       std::rethrow_exception(ex);

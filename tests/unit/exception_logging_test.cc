@@ -87,17 +87,14 @@ void exception_generator(uint32_t test_instance, int nesting_level) {
 // thrown by the  exception generator function with a specific output.
 std::string exception_generator_str(uint32_t test_instance,int nesting_level) {
     std::ostringstream ret;
-    const std::string runtime_err_str = "std::runtime_error";
     const std::string unknown_obj_str = "unknown_obj";
     const std::string nested_exception_with_unknown_obj_str = "std::_Nested_exception<unknown_obj>";
-    const std::string nested_exception_with_runtime_err_str = "std::_Nested_exception<std::runtime_error>";
 
     for(; nesting_level > 0; nesting_level--) {
         if (test_instance & 1) {
             fmt::print(ret, "{}", nested_exception_with_unknown_obj_str);
         } else {
-            fmt::print(ret, "{} (Exception Level {})", nested_exception_with_runtime_err_str,
-                       nesting_level);
+            fmt::print(ret, "Exception Level {}", nesting_level);
         }
         ret << ": ";
         test_instance >>= 1;
@@ -107,7 +104,7 @@ std::string exception_generator_str(uint32_t test_instance,int nesting_level) {
     if (test_instance & 1) {
         fmt::print(ret, "{}", unknown_obj_str);
     } else {
-        fmt::print(ret, "{} (Exception Level {})", runtime_err_str, nesting_level);
+        fmt::print(ret, "Exception Level {}", nesting_level);
     }
     return ret.str();
 }
@@ -140,7 +137,7 @@ BOOST_AUTO_TEST_CASE(nested_exception_logging2) {
         log_msg << std::current_exception();
     }
 
-    BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("std::nested_exception: <no exception>"));
+    BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("std::nested_exception"));
 }
 
 class very_important_exception : public std::exception {
@@ -171,7 +168,7 @@ BOOST_AUTO_TEST_CASE(nested_exception_logging3) {
         }
     }
 
-    std::string expected_string("std::_Nested_exception<unknown_obj>: std::_Nested_exception<std::system_error> (error generic:1, my error: Operation not permitted): very_important_exception (very important information)");
+    std::string expected_string("std::_Nested_exception<unknown_obj>: my error: Operation not permitted: very important information");
 
     BOOST_REQUIRE_EQUAL(log_msg.str(), expected_string);
 }
@@ -222,7 +219,7 @@ BOOST_AUTO_TEST_CASE(throw_with_backtrace_exception_logging) {
     }
 
 #ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
-    auto regex_str = "backtraced<std::runtime_error> \\(throw_with_backtrace_exception_logging Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?\\)";
+    auto regex_str = "throw_with_backtrace_exception_logging Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?";
     check_regex_match(log_msg.str(), regex_str);
 #endif
 }
@@ -240,7 +237,7 @@ BOOST_AUTO_TEST_CASE(throw_with_backtrace_nested_exception_logging) {
     }
 
 #ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
-    auto regex_str = "std::_Nested_exception<unknown_obj>.*backtraced<std::runtime_error> \\(outer Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?\\)";
+    auto regex_str = "std::_Nested_exception<unknown_obj>.*outer Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?";
     check_regex_match(log_msg.str(), regex_str);
 #endif
 }
@@ -264,7 +261,7 @@ BOOST_AUTO_TEST_CASE(throw_with_backtrace_seastar_nested_exception_logging) {
     }
 
 #ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
-    auto regex_str = "seastar::nested_exception:.*backtraced<std::runtime_error> \\(inner Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?\\)"
+    auto regex_str = "inner Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?"
             " \\(while cleaning up after unknown_obj\\)";
     check_regex_match(log_msg.str(), regex_str);
 #endif
@@ -290,8 +287,8 @@ BOOST_AUTO_TEST_CASE(double_throw_with_backtrace_seastar_nested_exception_loggin
     BOOST_TEST_MESSAGE(log_msg.str());
 
 #ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
-    auto regex_str = "seastar::nested_exception:.*backtraced<std::runtime_error> \\(inner Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?\\)"
-            " \\(while cleaning up after .*backtraced<std::runtime_error> \\(outer Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?\\)\\)";
+    auto regex_str = "inner Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?"
+            " \\(while cleaning up after outer Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?\\)";
     check_regex_match(log_msg.str(), regex_str);
 #endif
 }
