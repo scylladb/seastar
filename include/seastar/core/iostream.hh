@@ -47,6 +47,7 @@
 #include <memory>
 #include <optional>
 #include <variant>
+#include <utility>
 #include <vector>
 
 namespace bi = boost::intrusive;
@@ -503,9 +504,38 @@ public:
         : _fd(std::move(fd)), _buffer_size(size), _trim_to_size(opts.trim_to_size), _batch_flushes(opts.batch_flushes && _fd.can_batch_flushes()) {}
     output_stream(data_sink fd) noexcept
         : _fd(std::move(fd)), _buffer_size(_fd.buffer_size()), _trim_to_size(true) {}
-    output_stream(output_stream&&) noexcept = default;
+    output_stream(output_stream&& o) noexcept
+        : _fd(std::move(o._fd))
+        , _buf(std::move(o._buf))
+        , _zc_bufs(std::move(o._zc_bufs))
+        , _buffer_size(std::exchange(o._buffer_size, 0))
+        , _end(std::exchange(o._end, 0))
+        , _zc_len(std::exchange(o._zc_len, 0))
+        , _trim_to_size(std::exchange(o._trim_to_size, false))
+        , _batch_flushes(std::exchange(o._batch_flushes, false))
+        , _in_batch(std::exchange(o._in_batch, std::nullopt))
+        , _flush(std::exchange(o._flush, false))
+        , _flushing(std::exchange(o._flushing, false))
+        , _ex(std::move(o._ex))
+    {}
     [[deprecated("Output stream cannot be move-assigned, consider move-constructing the target in place")]]
-    output_stream& operator=(output_stream&&) noexcept = default;
+    output_stream& operator=(output_stream&& o) noexcept {
+        if (this != &o) {
+            _fd = std::move(o._fd);
+            _buf = std::move(o._buf);
+            _zc_bufs = std::move(o._zc_bufs);
+            _buffer_size = std::exchange(o._buffer_size, 0);
+            _end = std::exchange(o._end, 0);
+            _zc_len = std::exchange(o._zc_len, 0);
+            _trim_to_size = std::exchange(o._trim_to_size, false);
+            _batch_flushes = std::exchange(o._batch_flushes, false);
+            _in_batch = std::exchange(o._in_batch, std::nullopt);
+            _flush = std::exchange(o._flush, false);
+            _flushing = std::exchange(o._flushing, false);
+            _ex = std::move(o._ex);
+        }
+        return *this;
+    }
     ~output_stream() {
         if (_batch_flushes) {
             SEASTAR_ASSERT(!_in_batch && "Was this stream properly closed?");
