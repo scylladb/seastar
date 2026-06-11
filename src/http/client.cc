@@ -31,6 +31,7 @@
 #include <seastar/core/when_all.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/http/client.hh>
+#include <seastar/http/common.hh>
 #include <seastar/http/request.hh>
 #include <seastar/http/reply.hh>
 #include <seastar/http/response_parser.hh>
@@ -343,20 +344,22 @@ future<> client::make_request(const request& req, reply_handler& handle, std::op
 
 future<> client::maybe_retry_request(std::exception_ptr ex,
                                      unsigned retry_count,
+                                     httpd::operation_type method,
                                      const request& req,
                                      reply_handler& handle,
                                      const retry_strategy& strategy,
                                      std::optional<reply::status_type> expected,
                                      abort_source* as) {
-    return strategy.should_retry(ex, retry_count).then([this, ex = std::move(ex), retry_count, &req, &handle, &strategy, as, expected](bool retry) mutable {
+    return strategy.should_retry(ex, retry_count).then([this, ex = std::move(ex), retry_count, method, &req, &handle, &strategy, as, expected](bool retry) mutable {
         if (!retry) {
             return make_exception_future<>(std::move(ex));
         }
+        ++_http_stats[method].retries;
         return with_new_connection([this, &req, &handle, as, expected](connection& con) {
                                        return do_make_request(con, req, handle, as, expected);
                                    },
-                                   as).handle_exception([this, retry_count, &req, &handle, &strategy, as, expected](std::exception_ptr ex) {
-            return maybe_retry_request(std::move(ex), retry_count + 1, req, handle, strategy, expected, as);
+                                   as).handle_exception([this, retry_count, method, &req, &handle, &strategy, as, expected](std::exception_ptr ex) {
+            return maybe_retry_request(std::move(ex), retry_count + 1, method, req, handle, strategy, expected, as);
         });
     });
 }
@@ -370,13 +373,18 @@ future<> client::make_request(const request& req, reply_handler& handle, const r
     } catch (...) {
         return current_exception_as_future();
     }
+    auto method = httpd::str2type(req._method);
+    ++_http_stats[method].ops;
+    auto start = lowres_clock::now();
     return with_connection([this, &req, &handle, as, expected] (connection& con) {
         return do_make_request(con, req, handle, as, expected);
-    }, as).handle_exception([this, &req, &handle, &strategy, as, expected] (std::exception_ptr ex) {
+    }, as).handle_exception([this, method, &req, &handle, &strategy, as, expected] (std::exception_ptr ex) {
         if (as && as->abort_requested()) {
             return make_exception_future<>(as->abort_requested_exception_ptr());
         }
-        return maybe_retry_request(std::move(ex), 0, req, handle, strategy, expected, as);
+        return maybe_retry_request(std::move(ex), 0, method, req, handle, strategy, expected, as);
+    }).finally([this, method, start] {
+        _http_stats[method].latency += std::chrono::duration<double>(lowres_clock::now() - start);
     });
 }
 

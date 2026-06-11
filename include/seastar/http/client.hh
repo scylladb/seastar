@@ -21,8 +21,11 @@
 
 #pragma once
 
+#include <array>
+#include <chrono>
 #include <boost/intrusive/list.hpp>
 #include <seastar/net/api.hh>
+#include <seastar/http/common.hh>
 #include <seastar/http/connection_factory.hh>
 #include <seastar/http/reply.hh>
 #include <seastar/http/retry_strategy.hh>
@@ -42,6 +45,33 @@ namespace http {
 class client;
 struct request;
 struct reply;
+
+/**
+ * \brief Per-HTTP-method I/O statistics
+ *
+ * Counters are accumulated for the lifetime of the owning \ref client and
+ * cover all requests of a single \ref httpd::operation_type.
+ */
+struct http_method_stats {
+    /// Number of completed requests (both successful and failed)
+    uint64_t ops = 0;
+    /// Number of retry attempts performed across all requests
+    uint64_t retries = 0;
+    /// Cumulative request latency; divide by \ref ops to get the average
+    std::chrono::duration<double> latency{0};
+};
+
+/**
+ * \brief Per-method HTTP client statistics, indexed by \ref httpd::operation_type
+ */
+class client_stats {
+    static constexpr size_t num_methods = httpd::operation_type::NUM_OPERATION;
+    std::array<http_method_stats, num_methods> methods{};
+public:
+    http_method_stats& operator[](httpd::operation_type method) { return methods[method]; }
+
+    const http_method_stats& operator[](httpd::operation_type method) const { return methods[method]; }
+};
 
 namespace internal {
 
@@ -163,6 +193,7 @@ private:
     condition_variable _wait_con;
     util::integrated_length<unsigned, lowres_clock, std::chrono::microseconds> _requests_queued;
     connections_list_t _pool;
+    http::client_stats _http_stats;
 
     using connection_ptr = seastar::shared_ptr<connection>;
 
@@ -180,6 +211,7 @@ private:
 
     future<> maybe_retry_request(std::exception_ptr ex,
                                  unsigned retry_count,
+                                 httpd::operation_type method,
                                  const request& req,
                                  reply_handler& handle,
                                  const retry_strategy& strategy,
@@ -374,6 +406,15 @@ public:
      */
     const auto& integrated_requests_queued() const noexcept {
         return _requests_queued;
+    }
+
+    /**
+     * \brief Returns the per-method HTTP statistics
+     *
+     * This is a container holding per-method I/O statistics indexed by operation type.
+     */
+    const http::client_stats& get_stats() const noexcept {
+        return _http_stats;
     }
 };
 
