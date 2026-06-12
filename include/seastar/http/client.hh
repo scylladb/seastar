@@ -28,6 +28,7 @@
 #include <seastar/http/retry_strategy.hh>
 #include <seastar/core/condition-variable.hh>
 #include <seastar/core/iostream.hh>
+#include <seastar/core/semaphore.hh>
 #include <seastar/util/integrated-length.hh>
 
 namespace bi = boost::intrusive;
@@ -163,6 +164,12 @@ private:
     condition_variable _wait_con;
     util::integrated_length<unsigned, lowres_clock, std::chrono::microseconds> _requests_queued;
     connections_list_t _pool;
+    // Admission slots for in-flight requests, kept in sync with _max_connections.
+    // A caller can reserve a slot (see reserve_connection()) before launching a
+    // request so that no more requests are admitted than there are connections,
+    // applying backpressure to the producer instead of queueing buffer-bearing
+    // requests internally.
+    semaphore _request_slots;
 
     using connection_ptr = seastar::shared_ptr<connection>;
 
@@ -327,6 +334,21 @@ public:
      * \param nr -- the new limit on the number of connections
      */
     future<> set_maximum_connections(unsigned nr);
+
+    /**
+     * \brief Reserve a slot to issue one request
+     *
+     * Resolves once the number of outstanding reservations drops below the
+     * maximum connection count, returning RAII units that must be held for the
+     * whole duration of the request. Holding a reservation guarantees the
+     * subsequent make_request() finds (or can open) a connection without being
+     * queued internally. Callers that launch requests in the background (without
+     * awaiting make_request()) should reserve a slot first so that backpressure
+     * reaches the producer rather than accumulating buffer-bearing requests.
+     *
+     * \param as -- optional abort source to interrupt the wait
+     */
+    future<semaphore_units<>> reserve_connection(abort_source* as = nullptr);
 
     /**
      * \brief Closes the client
