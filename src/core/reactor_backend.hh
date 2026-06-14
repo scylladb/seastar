@@ -408,10 +408,15 @@ class reactor_backend_configurator {
 public:
     virtual const resource::cpuset& configured_cpuset() const = 0;
     virtual void verify_allocations(const std::vector<resource::cpu>& allocations) const = 0;
+    virtual void initialize_shard_configuration_and_topology(shard_id id, const std::vector<resource::cpu>& allocations) = 0;
     virtual void initialize_shard_configuration(shard_id id) = 0;
     virtual reactor_config finalize_apply_shard_configuration(shard_id id, reactor_config cfg) = 0;
     virtual ~reactor_backend_configurator() = default;
 };
+
+namespace uring {
+    struct numa_assignment;
+}
 
 #ifdef SEASTAR_HAVE_URING
 
@@ -425,11 +430,13 @@ try_create_attached_asymmetric_uring(int uring_fd, bool throw_on_error);
 std::optional<::io_uring>
 try_create_base_asymmetric_uring(unsigned worker_cpu, bool throw_on_error);
 
-unsigned select_worker_cpu(seastar::shard_id shard_id, const resource::cpuset& worker_cpus);
+struct numa_assignment {
+    unsigned networking_core;
+    unsigned networking_group;
+    bool is_master;
+};
 
-bool is_master_shard(seastar::shard_id shard_id, const resource::cpuset& worker_cpus) noexcept;
-
-unsigned get_uring_group_id(seastar::shard_id shard_id, const resource::cpuset& worker_cpus) noexcept;
+std::shared_ptr<std::vector<numa_assignment>> compute_assignments(const std::vector<resource::cpu>& allocations, const resource::cpuset& networking_cores);
 
 // QUEUE_LEN is more or less arbitrary. Too low and we'll be
 // issuing too small batches, too high and we require too much locked
