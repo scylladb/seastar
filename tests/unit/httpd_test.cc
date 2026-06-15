@@ -249,6 +249,12 @@ SEASTAR_TEST_CASE(test_decode_url) {
     const auto& a = req.get_query_param_array("a");
     auto expected_a = std::vector<sstring>{"!", "#$#"};
     BOOST_REQUIRE(a == expected_a);
+    req._url = "/a?q=%25%s%1G";
+    req.parse_query_param();
+    BOOST_REQUIRE_EQUAL(req.get_query_param("q"), "%%s%1G");
+    req._url = "/a?q=%2g";
+    req.parse_query_param();
+    BOOST_REQUIRE_EQUAL(req.get_query_param("q"), "%2g");
     return make_ready_future<>();
 }
 
@@ -259,13 +265,13 @@ SEASTAR_TEST_CASE(test_decode_path) {
     req.param.set("param2", "/same%2Ba%2Bb");
     req.param.set("param3", "/another_param");
     req.param.set("param4", "/yet%20another");
-    req.param.set("invalid_param", "/%2");
+    req.param.set("incomplete_escape", "/%2");
 
     BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "a+b");
     BOOST_REQUIRE_EQUAL(req.get_path_param("param2"), "same+a+b");
     BOOST_REQUIRE_EQUAL(req.get_path_param("param3"), "another_param");
     BOOST_REQUIRE_EQUAL(req.get_path_param("param4"), "yet another");
-    BOOST_REQUIRE_EQUAL(req.get_path_param("invalid_param"), "");
+    BOOST_REQUIRE_EQUAL(req.get_path_param("incomplete_escape"), "%2");
     BOOST_REQUIRE_EQUAL(req.get_path_param("missing_param"), "");
     return make_ready_future<>();
 }
