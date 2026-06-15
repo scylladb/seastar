@@ -167,14 +167,27 @@ SEASTAR_TEST_CASE(test_nested_throw_helper) {
     return make_ready_future<>();
 }
 
-// Cannot be a SEASTAR_TEST_CASE, because of recursion of seastar::test::run.
-BOOST_AUTO_TEST_CASE(test_nested_throw) {
+// Dummy test that on its own does nothing.
+SEASTAR_TEST_CASE(test_nested_exception_future_helper) {
+    try {
+        return test_nested_throw_helper_instance.run_test_case();
+    } catch (...) {
+        return make_exception_future<>(std::current_exception());
+    }
+}
+
+template<typename T>
+void exception_message_check_helper(const T& instance) {
     // make helper throw its nested test failure
     do_throw = true;
+    auto def = defer([]() noexcept {
+        do_throw = false;
+    });
+
     try {
         // fake "normal" test invoke. This will push the test into the main
         // runner etc. The exception will be thrown.
-        const_cast<test_nested_throw_helper&>(test_nested_throw_helper_instance).run();
+        const_cast<T&>(instance).run();
     } catch (boost::execution_exception& e) {
         // Should get a cpp exception failure
         BOOST_REQUIRE_EQUAL(e.code(), boost::execution_exception::error_code::cpp_exception_error);
@@ -183,5 +196,15 @@ BOOST_AUTO_TEST_CASE(test_nested_throw) {
         // Should have the outer message
         BOOST_REQUIRE(e.what().find("Message 2") != std::string::npos);
     }
+}
+
+// Cannot be a SEASTAR_TEST_CASE, because of recursion of seastar::test::run.
+BOOST_AUTO_TEST_CASE(test_nested_throw) {
+    exception_message_check_helper(test_nested_throw_helper_instance);
+}
+
+// Cannot be a SEASTAR_TEST_CASE, because of recursion of seastar::test::run.
+BOOST_AUTO_TEST_CASE(test_nested_throw_return_exception_future) {
+    exception_message_check_helper(test_nested_exception_future_helper_instance);
 }
 

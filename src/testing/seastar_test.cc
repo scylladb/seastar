@@ -74,8 +74,7 @@ add_exception_message(const std::exception* ep, bool rec, char *out, char *end) 
     return loc;
 }
 
-[[noreturn]]
-static void repackage_exception_and_rethrow(const std::exception* ep) {
+static future<> repackage_exception_and_rethrow(const std::exception* ep) {
     // Note: using a static buffer for formatting, same as boost::test code,
     // so we make it less prone to fail in failure handling for OOM
     // situations etc.
@@ -83,7 +82,7 @@ static void repackage_exception_and_rethrow(const std::exception* ep) {
     static char buf[REPORT_ERROR_BUFFER_SIZE];
 
     auto loc = add_exception_message(ep, false, buf, buf + sizeof(buf) - 1);
-    boost:: BOOST_TEST_I_THROW(boost::execution_exception(boost::execution_exception::cpp_exception_error, buf, loc));
+    return make_exception_future<>(boost::execution_exception(boost::execution_exception::cpp_exception_error, buf, loc));
 }
 
 void seastar_test::run() {
@@ -95,17 +94,19 @@ void seastar_test::run() {
 
     set_abort_on_internal_error(true);
 
-    global_test_runner().run_sync([this] {
+    global_test_runner().run_sync([this]() -> future<> {
         // #3165 - do exception catch here already, and package
         // the info into an execution_exception, potentially including
         // nestedness etc.
-        try {
-            return run_test_case();
-        } catch (std::exception& e) {
-            repackage_exception_and_rethrow(&e);
-        } catch (...) {
-            repackage_exception_and_rethrow(nullptr);
-        }
+        return futurize_invoke(std::bind(&seastar_test::run_test_case, this)).handle_exception([](std::exception_ptr e) {
+            try {
+                std::rethrow_exception(e);
+            } catch (std::exception& e) {
+                return repackage_exception_and_rethrow(&e);
+            } catch (...) {
+                return repackage_exception_and_rethrow(nullptr);
+            }
+        });
     });
 }
 
