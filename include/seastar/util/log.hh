@@ -218,7 +218,6 @@ public:
         uint64_t _dropped_messages = 0;
 
     private:
-        bool check();
         bool has_dropped_messages() const { return bool(_dropped_messages); }
         uint64_t get_and_reset_dropped_messages() {
             return std::exchange(_dropped_messages, 0);
@@ -226,6 +225,12 @@ public:
 
     public:
         explicit rate_limit(std::chrono::milliseconds interval);
+
+    /// Checks, if the rate limit has been already reached. If not - starts the rate limiting interval.
+    /// You should ignore messages if `rate_limited()` returns true and process if it returns false.
+    ///
+    /// \return true if the rate limit has been reached before and is still active, false otherwise.
+        bool rate_limited();
     };
 
 public:
@@ -283,7 +288,7 @@ public:
     ///
     template <typename... Args>
     void log(log_level level, rate_limit& rl, format_info_t<Args...> fmt, Args&&... args) noexcept {
-        if (is_enabled(level) && rl.check()) {
+        if (is_enabled(level) && !rl.rate_limited()) {
             try {
                 lambda_log_writer writer([&] (internal::log_buf::inserter_iterator it) {
                     if (rl.has_dropped_messages()) {
@@ -309,7 +314,7 @@ public:
     /// buffer directly, avoiding the use of any intermediary buffers.
     /// This is rate-limited version, see \ref rate_limit.
     void log(log_level level, rate_limit& rl, log_writer& writer, format_info_t<> fmt = {}) noexcept {
-        if (is_enabled(level) && rl.check()) {
+        if (is_enabled(level) && !rl.rate_limited()) {
             try {
                 lambda_log_writer writer_wrapper([&] (internal::log_buf::inserter_iterator it) {
                     if (rl.has_dropped_messages()) {
