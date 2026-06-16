@@ -950,6 +950,9 @@ client::metrics::~metrics() {
 client::client(const logger& l, void* s, client_options ops, socket socket, const socket_address& addr, const socket_address& local)
         : rpc::connection(l, s), _socket(std::move(socket)), _server_addr(addr), _local_addr(local), _options(ops), _metrics(*this)
 {
+    // Reduce rehash frequency and keep per-rehash allocations small to avoid oversized allocations.
+    _outstanding.max_load_factor(8);
+    _outstanding.reserve(4096);
     _socket.set_reuseaddr(ops.reuseaddr);
     // Run client in the background.
     // Communicate result via _stopped.
