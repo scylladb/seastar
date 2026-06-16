@@ -228,8 +228,16 @@ client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, 
         , _max_connections(max_connections)
         , _max_bytes_to_drain(max_bytes_to_drain)
         , _retry_strategy(std::move(retry_strategy))
+        , _request_slots(max_connections)
 {
     assert(_retry_strategy);
+}
+
+future<semaphore_units<>> client::reserve_connection(abort_source* as) {
+    if (as) {
+        return get_units(_request_slots, 1, *as);
+    }
+    return get_units(_request_slots, 1);
 }
 
 future<client::connection_ptr> client::get_connection(abort_source* as) {
@@ -296,12 +304,16 @@ future<> client::shrink_connections() {
 }
 
 future<> client::set_maximum_connections(unsigned nr) {
+    // Keep the request-admission slots in lock-step with the connection limit so
+    // reserve_connection() always reflects the current capacity.
     if (nr > _max_connections) {
+        _request_slots.signal(nr - _max_connections);
         _max_connections = nr;
         _wait_con.broadcast();
         return make_ready_future<>();
     }
 
+    _request_slots.consume(_max_connections - nr);
     _max_connections = nr;
     return shrink_connections();
 }
