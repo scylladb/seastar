@@ -1164,6 +1164,17 @@ if (Seastar_LTTNG)
 
   target_link_libraries (seastar
     PRIVATE LTTng::UST)
+
+  # lttng-ust headers contain a VLA whose bound can be zero on aarch64,
+  # which UBSan flags as undefined behaviour.  This is a bug in lttng-ust
+  # itself; suppress the check only for the two compilation units that
+  # instantiate the lttng probe internals, and only on affected platforms.
+  if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+    set_source_files_properties (
+      src/core/io_trace.cc
+      src/core/reactor_trace.cc
+      PROPERTIES COMPILE_OPTIONS "-fno-sanitize=vla-bound")
+  endif ()
 endif ()
 
 check_cxx_compiler_flag ("-Werror=unused-result" ErrorUnused_FOUND)
