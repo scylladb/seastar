@@ -1166,7 +1166,8 @@ if (Seastar_LTTNG)
   list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_LTTNG_UST)
 
   target_sources (seastar
-    PRIVATE src/core/io_trace.cc)
+    PRIVATE src/core/io_trace.cc
+    PRIVATE src/core/reactor_trace.cc)
 
   target_link_libraries (seastar
     PRIVATE LTTng::UST)
