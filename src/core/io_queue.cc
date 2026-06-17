@@ -274,8 +274,12 @@ public:
         return _tokens[stream_idx].try_consume(cost);
     }
 
-    void add_tokens(unsigned stream_idx, capacity_t amount) noexcept {
-        _tokens[stream_idx].refill(amount);
+    capacity_t add_tokens(unsigned stream_idx, capacity_t amount) noexcept {
+        return _tokens[stream_idx].refill(amount);
+    }
+
+    bool pouch_full(unsigned stream_idx) const noexcept {
+        return _tokens[stream_idx].full();
     }
 
     void add_child(priority_entity& child) noexcept {
@@ -302,19 +306,34 @@ public:
         }
         for (unsigned si = 0; si < _tokens.size(); si++) {
             auto available = drain_tokens(si);
-            if (available == 0) {
-                continue;
-            }
-            capacity_t distributed = 0;
-            for (auto* child : _children) {
-                if (child->is_dispatchable()) {
-                    auto amount = capacity_t(double(available) * child->demand() / _active_children_demand);
-                    child->add_tokens(si, amount);
+            // Distribute tokens proportionally by demand.  If a child's
+            // pouch overflows (hits burst_limit), collect the overflow and
+            // re-distribute among siblings that still have room.  The loop
+            // is bounded by the number of children (each pass saturates at
+            // least one child).
+            auto taker_demand = _active_children_demand;
+            while (available > 0) {
+                capacity_t distributed = 0;
+                capacity_t overflow = 0;
+                uint32_t overflowed_demand = 0;
+                for (auto* child : _children) {
+                    if (!child->is_dispatchable() || child->pouch_full(si)) {
+                        continue;
+                    }
+                    auto amount = capacity_t(double(available) * child->demand() / taker_demand);
+                    auto ov = child->add_tokens(si, amount);
+                    if (ov > 0) {
+                        overflowed_demand += child->demand();
+                        overflow += ov;
+                    }
                     distributed += amount;
                 }
-            }
-            if (distributed < available) {
-                add_tokens(si, available - distributed);
+
+                if (distributed < available) {
+                    add_tokens(si, available - distributed);
+                }
+                taker_demand -= overflowed_demand;
+                available = overflow;
             }
         }
         for (auto* child : _children) {
