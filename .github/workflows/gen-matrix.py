@@ -62,7 +62,7 @@ COMPILERS: list[str] = (
     [f"clang++-{v}" for v in CLANG_VERSIONS]
     + [f"g++-{v}"   for v in GCC_VERSIONS]
 )
-STANDARDS: list[int] = [20, 23]
+STANDARDS: list[int] = [23, 26]
 MODES: list[str] = ["debug", "release", "sanitize"]
 ARCHS: list[str] = ["x86", "arm"]
 
