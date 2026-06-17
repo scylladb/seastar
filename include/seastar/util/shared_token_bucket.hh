@@ -369,11 +369,17 @@ public:
         explicit tokens(T burst_limit) noexcept : _burst_limit(burst_limit) {}
 
         /*
-         * Add amount tokens to the pouch, saturating at burst_limit. The cap
-         * prevents unbounded accumulation while the owner is idle or stalled.
+         * Add amount tokens to the pouch, saturating at burst_limit.
+         * Returns any overflow that could not be absorbed.
          */
-        void refill(T amount) noexcept {
-            _available = std::min(_available + amount, _burst_limit);
+        T refill(T amount) noexcept {
+            auto sum = _available + amount;
+            if (sum > _burst_limit) {
+                _available = _burst_limit;
+                return sum - _burst_limit;
+            }
+            _available = sum;
+            return T(0);
         }
 
         /*
@@ -393,6 +399,7 @@ public:
         }
 
         T available() const noexcept { return _available; }
+        bool full() const noexcept { return _available >= _burst_limit; }
     };
 
     /*
