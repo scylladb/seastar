@@ -33,6 +33,7 @@
 #include <fstream>
 #include <ranges>
 #include <regex>
+#include <seastar/util/log-level.hh>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -2731,7 +2732,15 @@ void reactor::register_metrics() {
     });
 }
 
-seastar::internal::log_buf::inserter_iterator reactor::task_queue::do_dump(seastar::internal::log_buf::inserter_iterator it) const {
+void reactor::task_queue::do_dump() const {
+    static thread_local logger::rate_limit rate_limit(std::chrono::seconds(10));
+
+    if (rate_limit.rate_limited() || !seastar_logger.is_enabled(log_level::warn)) {
+        // Rate limit was hit or `warning` level is not enabled, we skip dumping the queue.
+        return;
+    }
+    seastar_logger.log(log_level::warn, "Too long queue accumulated for {} ({} tasks)", _name, _q.size());
+
     memory::scoped_critical_alloc_section _;
     std::unordered_map<std::pair<std::string_view, int>, std::pair<unsigned, task*>> infos;
     for (const auto& tp : _q) {
@@ -2743,24 +2752,27 @@ seastar::internal::log_buf::inserter_iterator reactor::task_queue::do_dump(seast
         ++count;
         task = tp;
     }
-    it = fmt::format_to(it, "Too long queue accumulated for {} ({} tasks)\n", _name, _q.size());
-    auto dump_task = [](auto it, task& task) {
-        const auto rp = task.get_resume_point();
-        const std::string_view file_name = rp.file_name();
-        return file_name.empty()
-            ? fmt::format_to(it, "{}\n", typeid(task).name())
-            : fmt::format_to(it, "{}:{}:{}\n", file_name, rp.line(), rp.column());
-    };
+
     for (const auto& ti : infos) {
         auto [ count, task ] = ti.second;
-        it = fmt::format_to(it, " {}: ", count);
-        it = dump_task(it, *task);
-        for (auto* t = task->waiting_task(); t; t = t->waiting_task()) {
-            it = fmt::format_to(it, "        ");
-            it = dump_task(it, *t);
+        auto count_text = " " + std::to_string(count);
+        count_text += ":";
+        if (count_text.size() < 8)
+            count_text.resize(8, ' ');
+
+        for (auto t = task; t; t = t->waiting_task()) {
+            const auto rp = t->get_resume_point();
+            const std::string_view file_name = rp.file_name();
+            if (file_name.empty()) {
+                seastar_logger.log(log_level::warn, "{}{}", count_text, typeid(t).name());
+            }
+            else {
+                seastar_logger.log(log_level::warn, "{}{}:{}:{}", count_text, rp.file_name(), rp.line(), rp.column());
+            }
+            count_text = "        ";
         }
     }
-    return it;
+    seastar_logger.log(log_level::warn, "End of dump for {} ({} tasks)", _name, _q.size());
 }
 
 bool reactor::task_queue::run_tasks() {
@@ -2790,9 +2802,7 @@ bool reactor::task_queue::run_tasks() {
                 r.reset_preemption_monitor();
                 lowres_clock::update();
 
-                static thread_local logger::rate_limit rate_limit(std::chrono::seconds(10));
-                logger::lambda_log_writer writer([this] (auto it) { return do_dump(it); });
-                seastar_logger.log(log_level::warn, rate_limit, writer);
+                do_dump();
                 if (r._cfg.abort_on_too_long_task_queue) {
                     auto msg = fmt::format("Too long task queue: {}, max_task_backlog={}", _q.size(), r._cfg.max_task_backlog);
                     on_fatal_internal_error(seastar_logger, msg);

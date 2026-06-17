@@ -314,14 +314,14 @@ logger::~logger() {
 
 static thread_local std::array<char, 8192> static_log_buf;
 
-bool logger::rate_limit::check() {
+bool logger::rate_limit::rate_limited() {
     const auto now = clock::now();
     if (now < _next) {
         ++_dropped_messages;
-        return false;
+        return true;
     }
     _next = now + _interval;
-    return true;
+    return false;
 }
 
 logger::rate_limit::rate_limit(std::chrono::milliseconds interval)
