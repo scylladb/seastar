@@ -244,7 +244,7 @@ def identify_best_standard(cpp_standards, compiler):
 
 
 if not args.cpp_standard:
-    cpp_standards = ['23', '20']
+    cpp_standards = ['26', '23']
     args.cpp_standard = identify_best_standard(cpp_standards, compiler=args.cxx)
 
 # Resolve compiler cache

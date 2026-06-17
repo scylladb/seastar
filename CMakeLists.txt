@@ -145,7 +145,7 @@ set (CMAKE_CXX_FLAGS_SANITIZE
   FORCE)
 
 set (CMAKE_CXX_STANDARD
-  "23"
+  "26"
   CACHE
   STRING
   "C++ standard to build with.")

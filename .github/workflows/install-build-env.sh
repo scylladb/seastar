@@ -87,18 +87,17 @@ if [[ "$ENABLE_CCACHE" != "false" ]]; then
     ccache_opt=(--compiler-cache=ccache)
 fi
 
-# --cook fmt for clang >= 20: the system libfmt-dev on ubuntu:26.04 is
+# --cook fmt for clang >= 20 or C++26: the system libfmt-dev on ubuntu:26.04 is
 # 10.1.1, and clang-20+ enforces consteval strictly enough to reject
-# fmt/chrono.h's FMT_STRING("{:.{}f}") path. The gcc matrix items
-# work fine with the system fmt. The check is version-guarded rather
+# fmt/chrono.h's FMT_STRING("{:.{}f}") path. C++26 requires a fmt fix
+# for std::optional formatting (https://github.com/fmtlib/fmt/issues/4760)
+# The check is version-guarded rather
 # than blanket-applied so future pre-20 clang versions in the matrix
 # don't pay the build cost.
 cook_args=()
-if [[ "$COMPILER" == clang++-* ]]; then
-    clang_ver="${COMPILER#clang++-}"
-    if [ "$clang_ver" -ge 20 ]; then
-        cook_args=(--cook fmt)
-    fi
+clang_ver="${COMPILER#clang++-}"
+if [[ "$COMPILER" == clang++-* && "$clang_ver" -ge 20 || "$STANDARD" -ge 26 ]] ; then
+    cook_args=(--cook fmt)
 fi
 
 group "configure.py"
