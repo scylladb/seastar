@@ -747,6 +747,7 @@ static future<size_t> run_and_check_bandwidth(io_queue_for_tests& tio, internal:
 struct background_drain {
     io_queue_for_tests& tio;
     bool keep_going;
+    std::chrono::microseconds poll_interval;
     future<> done;
 
     future<> start_draining() {
@@ -758,14 +759,19 @@ struct background_drain {
                     desc->complete_with(op.size);
                     return true;
                 });
-                maybe_yield().get();
+                if (poll_interval.count() > 0) {
+                    seastar::sleep(poll_interval).get();
+                } else {
+                    maybe_yield().get();
+                }
             }
         });
     }
 
-    background_drain(io_queue_for_tests& t)
+    background_drain(io_queue_for_tests& t, std::chrono::microseconds interval = {})
         : tio(t)
         , keep_going(true)
+        , poll_interval(interval)
         , done(start_draining())
     { }
 
@@ -972,6 +978,80 @@ SEASTAR_THREAD_TEST_CASE(test_disk_level_rate_limiting) {
 
         drain.stop().get();
     }
+}
+
+// Verify that a high-share but low-activity class does not waste tokens.
+// Class A has 10x the shares of class B but always has just 1 request
+// queued (parallelism=1).  A stays active in the dispatch tree, receiving
+// 91% of tokens per tick, but only consuming one request's worth.  The
+// excess accumulates in A's pouch until it hits burst_limit, after which
+// subsequent refills silently overflow — starving B.
+//
+// In a work-conserving scheduler, B should get close to the full disk
+// throughput since A barely uses any.  Without the fix, B is limited to
+// its proportional share (~9%).
+SEASTAR_THREAD_TEST_CASE(test_idle_class_does_not_waste_tokens) {
+    internal::disk_config_params disk_config(1);
+
+    const size_t bw_limit = 50 << 20;  // 50 MB/s
+    constexpr size_t req_size = 4096;
+    constexpr unsigned parallelism_a = 2;
+
+    internal::disk_params d;
+    d.read_bytes_rate = bw_limit;
+    d.write_bytes_rate = bw_limit;
+
+    auto io_config = disk_config.generate_config(d, 0, 1);
+    io_config.mountpoint = "work-conserve-test";
+    io_queue_for_tests tio(io_config);
+
+    auto sg_a = create_scheduling_group("a", 1000).get();
+    auto pc_a = internal::priority_class(sg_a);
+    auto sg_b = create_scheduling_group("b", 100).get();
+    auto pc_b = internal::priority_class(sg_b);
+
+    // Poll at a realistic interval so that tokens accumulate between polls.
+    // A tight-loop drain (as on idle CPU) replenishes per-nanosecond, which
+    // prevents the pouch from filling.  A 500µs interval mimics a loaded
+    // reactor and lets the overflow redistribution path trigger.
+    background_drain drain(tio, std::chrono::microseconds(500));
+
+    // A: high-shares, low activity — parallelism=2 keeps at most 2 requests
+    // queued.  Each poll, A dispatches 2 requests but receives far more
+    // tokens than that from its 91% proportional share.  The excess
+    // overflows and must be redistributed to B.
+    bool a_keep_going = true;
+    uint64_t a_nr_requests = 0;
+    auto a_submitter = parallel_for_each(std::views::iota(0u, parallelism_a), [&] (auto) {
+        return do_until([&a_keep_going] { return !a_keep_going; }, [&] {
+            return tio.queue_request(pc_a,
+                internal::io_direction_and_length(internal::io_direction_and_length::read_idx, req_size),
+                internal::io_request::make_write(0, 0, nullptr, req_size, false),
+                nullptr, {}).then([&a_nr_requests] (auto) {
+                    a_nr_requests++;
+                    return make_ready_future<>();
+                });
+        });
+    });
+
+    // B: saturated — 8 parallel submitters keeping the queue full.
+    auto f_b = run_and_check_bandwidth(tio, pc_b, bw_limit / 2, 8, req_size);
+
+    auto bw_b = f_b.get();
+
+    a_keep_going = false;
+    a_submitter.get();
+    drain.stop().get();
+
+    fmt::print("A: {} requests, B: {} MB/s, disk: {} MB/s\n",
+               a_nr_requests, bw_b >> 20, bw_limit >> 20);
+
+    // B should get at least 50% of the disk bandwidth.  Without the fix,
+    // A's overflowing tokens are lost and B is starved to ~4 MB/s.
+    BOOST_REQUIRE_GE(bw_b, bw_limit / 2);
+
+    destroy_scheduling_group(sg_b).get();
+    destroy_scheduling_group(sg_a).get();
 }
 
 SEASTAR_THREAD_TEST_CASE(test_get_all_io_queues) {
