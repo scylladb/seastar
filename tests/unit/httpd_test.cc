@@ -2210,6 +2210,24 @@ BOOST_AUTO_TEST_CASE(test_path_decode_changed) {
     BOOST_REQUIRE_EQUAL(result, expected_chars);
 }
 
+// https://url.spec.whatwg.org/#percent-encoded-bytes — if '%' is not followed by
+// two ASCII hex digits, emit '%' and continue (see spec example %25%s%1G -> %%s%1G).
+BOOST_AUTO_TEST_CASE(test_path_decode_invalid_percent_sequence) {
+    sstring result;
+    BOOST_REQUIRE(http::internal::path_decode("%25%s%1G", result));
+    BOOST_REQUIRE_EQUAL(result, "%%s%1G");
+    BOOST_REQUIRE(http::internal::path_decode("%2g", result));
+    BOOST_REQUIRE_EQUAL(result, "%2g");
+    BOOST_REQUIRE(http::internal::path_decode("x%", result));
+    BOOST_REQUIRE_EQUAL(result, "x%");
+}
+
+BOOST_AUTO_TEST_CASE(test_url_decode_invalid_percent_sequence) {
+    sstring result;
+    BOOST_REQUIRE(http::internal::url_decode("%25%s%1G", result));
+    BOOST_REQUIRE_EQUAL(result, "%%s%1G");
+}
+
 namespace seastar::http {
 std::ostream& boost_test_print_type(std::ostream& os, reply::status_class sc) {
     constexpr std::string_view status_strings[] {
