@@ -640,10 +640,14 @@ std::ostream& operator<<(std::ostream& out, const std::exception_ptr& eptr) {
         std::rethrow_exception(eptr);
     } catch(...) {
         // Print what() for std::exception; fall back to the type name otherwise.
+        // system_error additionally carries an error code that what() does not
+        // include, so keep that without the verbose type-name prefix.
         try {
             throw;
         } catch (const seastar::nested_exception& ne) {
             out << fmt::format("{} (while cleaning up after {})", ne.inner, ne.outer);
+        } catch (const std::system_error& e) {
+            out << e.what() << " (error " << e.code() << ")";
         } catch (const std::exception& e) {
             out << e.what();
         } catch (...) {
@@ -673,7 +677,7 @@ std::ostream& operator<<(std::ostream& out, const std::exception& e) {
 }
 
 std::ostream& operator<<(std::ostream& out, const std::system_error& e) {
-    return out << e.what();
+    return out << e.what() << " (error " << e.code() << ")";
 }
 
 }

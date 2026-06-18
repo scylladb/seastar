@@ -168,7 +168,7 @@ BOOST_AUTO_TEST_CASE(nested_exception_logging3) {
         }
     }
 
-    std::string expected_string("std::_Nested_exception<unknown_obj>: my error: Operation not permitted: very important information");
+    std::string expected_string("std::_Nested_exception<unknown_obj>: my error: Operation not permitted (error generic:1): very important information");
 
     BOOST_REQUIRE_EQUAL(log_msg.str(), expected_string);
 }
