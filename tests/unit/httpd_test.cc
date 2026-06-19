@@ -249,6 +249,12 @@ SEASTAR_TEST_CASE(test_decode_url) {
     const auto& a = req.get_query_param_array("a");
     auto expected_a = std::vector<sstring>{"!", "#$#"};
     BOOST_REQUIRE(a == expected_a);
+    req._url = "/a?q=%25%s%1G";
+    req.parse_query_param();
+    BOOST_REQUIRE_EQUAL(req.get_query_param("q"), "%%s%1G");
+    req._url = "/a?q=%2g";
+    req.parse_query_param();
+    BOOST_REQUIRE_EQUAL(req.get_query_param("q"), "%2g");
     return make_ready_future<>();
 }
 
@@ -259,14 +265,44 @@ SEASTAR_TEST_CASE(test_decode_path) {
     req.param.set("param2", "/same%2Ba%2Bb");
     req.param.set("param3", "/another_param");
     req.param.set("param4", "/yet%20another");
-    req.param.set("invalid_param", "/%2");
+    req.param.set("incomplete_escape", "/%2");
 
     BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "a+b");
     BOOST_REQUIRE_EQUAL(req.get_path_param("param2"), "same+a+b");
     BOOST_REQUIRE_EQUAL(req.get_path_param("param3"), "another_param");
     BOOST_REQUIRE_EQUAL(req.get_path_param("param4"), "yet another");
-    BOOST_REQUIRE_EQUAL(req.get_path_param("invalid_param"), "");
+    BOOST_REQUIRE_EQUAL(req.get_path_param("incomplete_escape"), "%2");
     BOOST_REQUIRE_EQUAL(req.get_path_param("missing_param"), "");
+    return make_ready_future<>();
+}
+
+// Exhaustive table of WHATWG percent-decoding edge cases, exercised directly
+// against url_decode/path_decode. Both always succeed now: an invalid or
+// incomplete escape is emitted literally rather than failing the decode.
+SEASTAR_TEST_CASE(test_url_decode_edge_cases) {
+    struct { std::string_view in; std::string_view url; std::string_view path; } cases[] = {
+        // input            url_decode (+ -> space)   path_decode (+ kept)
+        {"",                "",                        ""},
+        {"abc",             "abc",                     "abc"},
+        {"%41",             "A",                       "A"},
+        {"%4a",             "J",                       "J"},        // lower-case hex
+        {"%4A",             "J",                       "J"},        // upper-case hex
+        {"a+b",             "a b",                     "a+b"},      // '+' only decoded by url_decode
+        {"%2g",             "%2g",                     "%2g"},      // bad 2nd nibble -> literal
+        {"%g2",             "%g2",                     "%g2"},      // bad 1st nibble -> literal
+        {"%gg",             "%gg",                     "%gg"},
+        {"%",               "%",                       "%"},        // trailing '%'
+        {"%2",              "%2",                      "%2"},       // trailing single hex digit
+        {"%%41",            "%A",                      "%A"},       // literal '%' then a real escape
+        {"%25%s%1G",        "%%s%1G",                  "%%s%1G"},   // WHATWG spec example
+    };
+    for (auto& c : cases) {
+        sstring out;
+        BOOST_REQUIRE(seastar::http::internal::url_decode(c.in, out));
+        BOOST_REQUIRE_EQUAL(out, sstring(c.url));
+        BOOST_REQUIRE(seastar::http::internal::path_decode(c.in, out));
+        BOOST_REQUIRE_EQUAL(out, sstring(c.path));
+    }
     return make_ready_future<>();
 }
 
