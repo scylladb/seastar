@@ -201,6 +201,7 @@ class posix_server_socket_impl : public server_socket_impl {
     socket_address _sa;
     int _protocol;
     pollable_fd _lfd;
+    int _listen_backlog;
     conntrack _conntrack;
     server_socket::load_balancing_algorithm _lba;
     shard_id _fixed_cpu;
@@ -210,23 +211,30 @@ public:
     explicit posix_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
         server_socket::load_balancing_algorithm lba, shard_id fixed_cpu,
         bool proxy_protocol,
-        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _lba(lba), _fixed_cpu(fixed_cpu), _proxy_protocol(proxy_protocol), _allocator(allocator) {}
+        int listen_backlog,
+        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _listen_backlog(listen_backlog), _lba(lba), _fixed_cpu(fixed_cpu), _proxy_protocol(proxy_protocol), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
+    virtual void set_listen_backlog(int backlog) override;
+    virtual int get_listen_backlog() const override;
 };
 
 class posix_reuseport_server_socket_impl : public server_socket_impl {
     socket_address _sa;
     int _protocol;
     pollable_fd _lfd;
+    int _listen_backlog;
     std::pmr::polymorphic_allocator<char>* _allocator;
 public:
     explicit posix_reuseport_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
-        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _allocator(allocator) {}
+        int listen_backlog,
+        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _listen_backlog(listen_backlog), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
+    virtual void set_listen_backlog(int backlog) override;
+    virtual int get_listen_backlog() const override;
 };
 
 class posix_network_stack : public network_stack {
