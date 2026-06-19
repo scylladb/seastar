@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <vector>
 #include <chrono>
+#include "test_comparisons.hh"
 
 #include <seastar/core/thread.hh>
 #include <seastar/testing/random.hh>
@@ -40,8 +41,8 @@ SEASTAR_TEST_CASE(test_create_stage_from_lvalue_function_object) {
     return seastar::async([] {
         auto dont_move = [obj = make_shared<int>(53)] { return *obj; };
         auto stage = seastar::make_execution_stage("test", dont_move);
-        BOOST_REQUIRE_EQUAL(stage().get(), 53);
-        BOOST_REQUIRE_EQUAL(dont_move(), 53);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stage().get(), 53);
+        SEASTAR_BOOST_REQUIRE_EQUAL(dont_move(), 53);
     });
 }
 
@@ -49,7 +50,7 @@ SEASTAR_TEST_CASE(test_create_stage_from_rvalue_function_object) {
     return seastar::async([] {
         auto dont_copy = [obj = std::make_unique<int>(42)] { return *obj; };
         auto stage = seastar::make_execution_stage("test", std::move(dont_copy));
-        BOOST_REQUIRE_EQUAL(stage().get(), 42);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stage().get(), 42);
     });
 }
 
@@ -60,7 +61,7 @@ int func() {
 SEASTAR_TEST_CASE(test_create_stage_from_function) {
     return seastar::async([] {
         auto stage = seastar::make_execution_stage("test", func);
-        BOOST_REQUIRE_EQUAL(stage().get(), 64);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stage().get(), 64);
     });
 }
 
@@ -93,7 +94,7 @@ SEASTAR_TEST_CASE(test_simple_stage_returning_int) {
             }
         }, [] (int original, future<int> result) {
             if (original % 2) {
-                BOOST_REQUIRE_EQUAL(original * 2, result.get());
+                SEASTAR_BOOST_REQUIRE_EQUAL(original * 2, result.get());
             } else {
                 BOOST_REQUIRE_EXCEPTION(result.get(), int, [&] (int v) { return original == v; });
             }
@@ -111,7 +112,7 @@ SEASTAR_TEST_CASE(test_simple_stage_returning_future_int) {
             }
         }, [] (int original, future<int> result) {
             if (original % 2) {
-                BOOST_REQUIRE_EQUAL(original * 2, result.get());
+                SEASTAR_BOOST_REQUIRE_EQUAL(original * 2, result.get());
             } else {
                 BOOST_REQUIRE_EXCEPTION(result.get(), int, [&] (int v) { return original == v; });
             }
@@ -171,7 +172,7 @@ SEASTAR_TEST_CASE(test_rref_decays_to_value) {
         }
 
         for (size_t i = 0; i < 100; i++) {
-            BOOST_REQUIRE_EQUAL(fs[i].get(), i);
+            SEASTAR_BOOST_REQUIRE_EQUAL(fs[i].get(), i);
         }
     });
 }
@@ -192,7 +193,7 @@ SEASTAR_TEST_CASE(test_lref_does_not_decay) {
         for (auto&& f : fs) {
             f.get();
         }
-        BOOST_REQUIRE_EQUAL(value, 100);
+        SEASTAR_BOOST_REQUIRE_EQUAL(value, 100);
     });
 }
 
@@ -212,7 +213,7 @@ SEASTAR_TEST_CASE(test_explicit_reference_wrapper_is_not_unwrapped) {
         for (auto&& f : fs) {
             f.get();
         }
-        BOOST_REQUIRE_EQUAL(value, 100);
+        SEASTAR_BOOST_REQUIRE_EQUAL(value, 100);
     });
 }
 
@@ -234,9 +235,9 @@ SEASTAR_TEST_CASE(test_function_is_class_member) {
         }
 
         for (auto i = 0; i < 100; i++) {
-            BOOST_REQUIRE_EQUAL(fs[i].get(), i - 1);
+            SEASTAR_BOOST_REQUIRE_EQUAL(fs[i].get(), i - 1);
         }
-        BOOST_REQUIRE_EQUAL(object.value, 99);
+        SEASTAR_BOOST_REQUIRE_EQUAL(object.value, 99);
     });
 }
 
@@ -251,7 +252,7 @@ SEASTAR_TEST_CASE(test_function_is_const_class_member) {
         auto stage = seastar::make_execution_stage("test", &foo::member);
 
         const foo object;
-        BOOST_REQUIRE_EQUAL(stage(&object).get(), 999);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stage(&object).get(), 999);
     });
 }
 
@@ -259,8 +260,8 @@ SEASTAR_TEST_CASE(test_stage_stats) {
     return seastar::async([] {
         auto stage = seastar::make_execution_stage("test", [] { });
 
-        BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_enqueued, 0u);
-        BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_executed, 0u);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_enqueued, 0u);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_executed, 0u);
 
         auto fs = std::vector<future<>>();
         static constexpr auto call_count = 53u;
@@ -268,14 +269,14 @@ SEASTAR_TEST_CASE(test_stage_stats) {
             fs.emplace_back(stage());
         }
 
-        BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_enqueued, call_count);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_enqueued, call_count);
 
         for (auto i = 0u; i < call_count; i++) {
             fs[i].get();
-            BOOST_REQUIRE_GE(stage.get_stats().tasks_scheduled, 1u);
-            BOOST_REQUIRE_GE(stage.get_stats().function_calls_executed, i);
+            SEASTAR_BOOST_REQUIRE_GE(stage.get_stats().tasks_scheduled, 1u);
+            SEASTAR_BOOST_REQUIRE_GE(stage.get_stats().function_calls_executed, i);
         }
-        BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_executed, call_count);
+        SEASTAR_BOOST_REQUIRE_EQUAL(stage.get_stats().function_calls_executed, call_count);
     });
 }
 
@@ -328,7 +329,7 @@ SEASTAR_THREAD_TEST_CASE(test_inheriting_concrete_execution_stage_reference_para
     // mostly a compile test, but take the opportunity to test that passing
     // by reference preserves the address
     auto check_ref = [] (a_struct& ref, a_struct* ptr) {
-        BOOST_REQUIRE_EQUAL(&ref, ptr);
+        SEASTAR_BOOST_REQUIRE_EQUAL(&ref, ptr);
     };
     auto es = seastar::inheriting_concrete_execution_stage<void, a_struct&, a_struct*>("stage", check_ref);
     a_struct obj;
@@ -338,9 +339,9 @@ SEASTAR_THREAD_TEST_CASE(test_inheriting_concrete_execution_stage_reference_para
 SEASTAR_THREAD_TEST_CASE(test_execution_stage_rename) {
     auto do_nothing = []{};
     auto stage = seastar::make_execution_stage("test", do_nothing);
-    BOOST_REQUIRE_EQUAL(stage.name(), "test");
+    SEASTAR_BOOST_REQUIRE_EQUAL(stage.name(), "test");
 
     // Default behaviour - should not change the name
     stage.update_name_and_metric_group();
-    BOOST_REQUIRE_EQUAL(stage.name(), "test");
+    SEASTAR_BOOST_REQUIRE_EQUAL(stage.name(), "test");
 }

@@ -24,6 +24,7 @@
 #include <seastar/core/posix.hh>
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/testing/test_case.hh>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -43,13 +44,13 @@ using namespace seastar;
 // backend-agnostic so it is exercised for all available backends.
 SEASTAR_TEST_CASE(pollable_fd_state_completion_reuse_test) {
     int sv[2];
-    BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, sv), 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, sv), 0);
 
     pollable_fd reader(file_desc::from_fd(sv[0]));
 
     // Write two bytes so both polls below complete without blocking.
     const char data[] = "ab";
-    BOOST_REQUIRE_EQUAL(::write(sv[1], data, 2), 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(::write(sv[1], data, 2), 2);
 
     // First co_await readable() — first use of _completion_pollin.
     // await_resume() calls detach_promise(), setting _pr._state = nullptr.

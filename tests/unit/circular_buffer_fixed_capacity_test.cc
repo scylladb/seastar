@@ -26,6 +26,7 @@
 #include <deque>
 #include <random>
 #include <seastar/core/circular_buffer_fixed_capacity.hh>
+#include "test_comparisons.hh"
 
 #include <boost/range/algorithm/sort.hpp>
 #include <boost/range/algorithm/equal.hpp>
@@ -66,40 +67,40 @@ BOOST_AUTO_TEST_CASE(test_edge_cases) {
         circular_buffer_fixed_capacity<int_with_stats, 16> cb;
         BOOST_REQUIRE(cb.begin() == cb.end());
         cb.push_front(get_val(3));  // underflows indexes
-        BOOST_REQUIRE_EQUAL(cb[0], 3);
+        BOOST_REQUIRE(int(cb[0]) == 3);
         BOOST_REQUIRE(cb.begin() < cb.end());
         cb.push_back(get_val(4));
-        BOOST_REQUIRE_EQUAL(cb.size(), 2u);
-        BOOST_REQUIRE_EQUAL(cb[0], 3);
-        BOOST_REQUIRE_EQUAL(cb[1], 4);
+        SEASTAR_BOOST_REQUIRE_EQUAL(cb.size(), 2u);
+        BOOST_REQUIRE(int(cb[0]) == 3);
+        BOOST_REQUIRE(int(cb[1]) == 4);
         cb.pop_back();
-        BOOST_REQUIRE_EQUAL(cb.back(), 3);
+        BOOST_REQUIRE(int(cb.back()) == 3);
         cb.push_front(get_val(1));
         cb.pop_back();
-        BOOST_REQUIRE_EQUAL(cb.back(), 1);
+        BOOST_REQUIRE(int(cb.back()) == 1);
 
-        BOOST_REQUIRE_EQUAL(num_deleted, 5);
-        BOOST_REQUIRE_EQUAL(num_moved, 3);
+        SEASTAR_BOOST_REQUIRE_EQUAL(num_deleted, 5);
+        SEASTAR_BOOST_REQUIRE_EQUAL(num_moved, 3);
 
         cb.push_front(get_val(0));
         cb.push_back(get_val(2));
-        BOOST_REQUIRE_EQUAL(cb.size(), 3);
-        BOOST_REQUIRE_EQUAL(cb[0], 0);
-        BOOST_REQUIRE_EQUAL(cb[1], 1);
-        BOOST_REQUIRE_EQUAL(cb[2], 2);
-        BOOST_REQUIRE_EQUAL(num_deleted, 7);
-        BOOST_REQUIRE_EQUAL(num_moved, 5);
+        SEASTAR_BOOST_REQUIRE_EQUAL(cb.size(), 3);
+        BOOST_REQUIRE(int(cb[0]) == 0);
+        BOOST_REQUIRE(int(cb[1]) == 1);
+        BOOST_REQUIRE(int(cb[2]) == 2);
+        SEASTAR_BOOST_REQUIRE_EQUAL(num_deleted, 7);
+        SEASTAR_BOOST_REQUIRE_EQUAL(num_moved, 5);
 
         circular_buffer_fixed_capacity<int_with_stats, 16> cb2 = std::move(cb);
-        BOOST_REQUIRE_EQUAL(cb2.size(), 3);
-        BOOST_REQUIRE_EQUAL(cb2[0], 0);
-        BOOST_REQUIRE_EQUAL(cb2[1], 1);
-        BOOST_REQUIRE_EQUAL(cb2[2], 2);
-        BOOST_REQUIRE_EQUAL(num_deleted, 7);
-        BOOST_REQUIRE_EQUAL(num_moved, 8);
+        SEASTAR_BOOST_REQUIRE_EQUAL(cb2.size(), 3);
+        BOOST_REQUIRE(int(cb2[0]) == 0);
+        BOOST_REQUIRE(int(cb2[1]) == 1);
+        BOOST_REQUIRE(int(cb2[2]) == 2);
+        SEASTAR_BOOST_REQUIRE_EQUAL(num_deleted, 7);
+        SEASTAR_BOOST_REQUIRE_EQUAL(num_moved, 8);
     }
-    BOOST_REQUIRE_EQUAL(num_deleted, 13);
-    BOOST_REQUIRE_EQUAL(num_moved, 8);
+    SEASTAR_BOOST_REQUIRE_EQUAL(num_deleted, 13);
+    SEASTAR_BOOST_REQUIRE_EQUAL(num_moved, 8);
 }
 
 using deque = std::deque<int>;
@@ -130,7 +131,7 @@ BOOST_AUTO_TEST_CASE(test_random_walk) {
             if (!d.empty()) {
                 auto n = d.back();
                 auto m = c.back();
-                BOOST_REQUIRE_EQUAL(n, m);
+                SEASTAR_BOOST_REQUIRE_EQUAL(n, m);
                 c.pop_back();
                 d.pop_back();
             }
@@ -139,7 +140,7 @@ BOOST_AUTO_TEST_CASE(test_random_walk) {
             if (!d.empty()) {
                 auto n = d.front();
                 auto m = c.front();
-                BOOST_REQUIRE_EQUAL(n, m);
+                SEASTAR_BOOST_REQUIRE_EQUAL(n, m);
                 c.pop_front();
                 d.pop_front();
             }
@@ -154,7 +155,7 @@ BOOST_AUTO_TEST_CASE(test_random_walk) {
                 auto idx = u(rand);
                 auto m = c[idx];
                 auto n = c[idx];
-                BOOST_REQUIRE_EQUAL(m, n);
+                SEASTAR_BOOST_REQUIRE_EQUAL(m, n);
             }
             break;
         case 6:
@@ -168,7 +169,7 @@ BOOST_AUTO_TEST_CASE(test_random_walk) {
         default:
             abort();
         }
-        BOOST_REQUIRE_EQUAL(c.size(), d.size());
+        SEASTAR_BOOST_REQUIRE_EQUAL(c.size(), d.size());
         BOOST_REQUIRE(boost::equal(c, d));
     }
 }

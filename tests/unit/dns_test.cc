@@ -21,6 +21,7 @@
  */
 #include <vector>
 #include <algorithm>
+#include "test_comparisons.hh"
 
 #include <seastar/core/do_with.hh>
 #include <seastar/testing/test_case.hh>
@@ -43,9 +44,9 @@ static future<> test_resolve(dns_resolver::options opts) {
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     for (auto hostname : {"seastar.io", "scylladb.com", "kernel.org", "www.google.com"}) {
         hostent e = co_await d.get_host_by_name(hostname, inet_address::family::INET);
-        BOOST_REQUIRE_EQUAL(e.addr_list.size(), e.addr_entries.size());
+        SEASTAR_BOOST_REQUIRE_EQUAL(e.addr_list.size(), e.addr_entries.size());
         for (auto i = 0ul; i < e.addr_entries.size(); ++i) {
-            BOOST_REQUIRE_EQUAL(e.addr_entries[i].addr, e.addr_list[i]);
+            SEASTAR_BOOST_REQUIRE_EQUAL(e.addr_entries[i].addr, e.addr_list[i]);
             BOOST_REQUIRE(e.addr_entries[i].ttl.count() != 0);
         }
 
@@ -91,8 +92,8 @@ SEASTAR_TEST_CASE(test_resolve_numeric,
     auto d = ::make_lw_shared<dns_resolver>(engine().net(), dns_resolver::options());
     return d->get_host_by_name("127.0.0.1").then_wrapped([d](future<hostent> f) {
         auto ent = f.get();
-        BOOST_REQUIRE_EQUAL(ent.addr_entries.size(), 1);
-        BOOST_REQUIRE_EQUAL(ent.addr_entries[0].ttl.count(), std::numeric_limits<signed int>::max());
+        SEASTAR_BOOST_REQUIRE_EQUAL(ent.addr_entries.size(), 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(ent.addr_entries[0].ttl.count(), std::numeric_limits<signed int>::max());
     }).finally([d]{
         return d->close();
     });
@@ -177,8 +178,8 @@ static future<> test_srv() {
         BOOST_REQUIRE(!records.empty());
         for (auto& record : records) {
             // record.target should end with "gmail.com"
-            BOOST_REQUIRE_GT(record.target.size(), gmail_domain.size());
-            BOOST_REQUIRE_EQUAL(record.target.compare(record.target.size() - gmail_domain.size(),
+            SEASTAR_BOOST_REQUIRE_GT(record.target.size(), gmail_domain.size());
+            SEASTAR_BOOST_REQUIRE_EQUAL(record.target.compare(record.target.size() - gmail_domain.size(),
                                                       gmail_domain.size(),
                                                       gmail_domain),
                                 0);

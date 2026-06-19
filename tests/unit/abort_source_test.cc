@@ -22,6 +22,7 @@
 #include <exception>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include "test_comparisons.hh"
 
 #include <seastar/core/gate.hh>
 #include <seastar/core/sleep.hh>
@@ -39,10 +40,10 @@ SEASTAR_TEST_CASE(test_abort_source_notifies_subscriber) {
     auto st_opt = as.subscribe([&signalled] () noexcept {
         signalled = true;
     });
-    BOOST_REQUIRE_EQUAL(true, bool(st_opt));
+    SEASTAR_BOOST_REQUIRE_EQUAL(true, bool(st_opt));
     as.request_abort();
-    BOOST_REQUIRE_EQUAL(true, signalled);
-    BOOST_REQUIRE_EQUAL(false, bool(st_opt));
+    SEASTAR_BOOST_REQUIRE_EQUAL(true, signalled);
+    SEASTAR_BOOST_REQUIRE_EQUAL(false, bool(st_opt));
     BOOST_REQUIRE_THROW(as.check(), abort_requested_exception);
     return make_ready_future<>();
 }
@@ -53,10 +54,10 @@ SEASTAR_TEST_CASE(test_abort_source_subscription_unregister) {
     auto st_opt = as.subscribe([&signalled] () noexcept {
         signalled = true;
     });
-    BOOST_REQUIRE_EQUAL(true, bool(st_opt));
+    SEASTAR_BOOST_REQUIRE_EQUAL(true, bool(st_opt));
     st_opt = { };
     as.request_abort();
-    BOOST_REQUIRE_EQUAL(false, signalled);
+    SEASTAR_BOOST_REQUIRE_EQUAL(false, signalled);
     return make_ready_future<>();
 }
 
@@ -64,7 +65,7 @@ SEASTAR_TEST_CASE(test_abort_source_rejects_subscription) {
     auto as = abort_source();
     as.request_abort();
     auto st_opt = as.subscribe([] () noexcept { });
-    BOOST_REQUIRE_EQUAL(false, bool(st_opt));
+    SEASTAR_BOOST_REQUIRE_EQUAL(false, bool(st_opt));
     return make_ready_future<>();
 }
 
@@ -128,7 +129,7 @@ SEASTAR_TEST_CASE(test_request_abort_with_exception) {
     try {
         std::rethrow_exception(*aborted_ex);
     } catch (const std::runtime_error& e) {
-        BOOST_REQUIRE_EQUAL(e.what(), expected_message);
+        SEASTAR_BOOST_REQUIRE_EQUAL(e.what(), expected_message);
         caught_exception = true;
     }
     BOOST_REQUIRE(caught_exception);
@@ -141,7 +142,7 @@ SEASTAR_TEST_CASE(test_request_abort_with_exception) {
     try {
         std::rethrow_exception(*aborted_ex);
     } catch (const std::runtime_error& e) {
-        BOOST_REQUIRE_EQUAL(e.what(), expected_message);
+        SEASTAR_BOOST_REQUIRE_EQUAL(e.what(), expected_message);
         caught_exception = true;
     }
     BOOST_REQUIRE(caught_exception);
@@ -155,7 +156,7 @@ SEASTAR_TEST_CASE(test_request_abort_with_exception) {
     try {
         std::rethrow_exception(*aborted_ex);
     } catch (const std::runtime_error& e) {
-        BOOST_REQUIRE_EQUAL(e.what(), expected_message);
+        SEASTAR_BOOST_REQUIRE_EQUAL(e.what(), expected_message);
         caught_exception = true;
     }
     BOOST_REQUIRE(caught_exception);
@@ -174,7 +175,7 @@ SEASTAR_THREAD_TEST_CASE(test_sleep_abortable_with_exception) {
     try {
         f.get();
     } catch (const std::runtime_error& e) {
-        BOOST_REQUIRE_EQUAL(e.what(), expected_message);
+        SEASTAR_BOOST_REQUIRE_EQUAL(e.what(), expected_message);
         caught_exception = true;
     }
     BOOST_REQUIRE(caught_exception);
@@ -190,7 +191,7 @@ SEASTAR_THREAD_TEST_CASE(test_destroy_with_moved_subscriptions) {
     auto sub4 = as->subscribe([&] () noexcept { ++aborted; });
     sub4 = std::move(sub3);
     as.reset();
-    BOOST_REQUIRE_EQUAL(aborted, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(aborted, 0);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_request_abort_twice) {
@@ -207,12 +208,12 @@ SEASTAR_THREAD_TEST_CASE(test_on_abort_call_after_abort) {
         BOOST_REQUIRE(!signalled_ex);
         signalled_ex = *ex;
     });
-    BOOST_REQUIRE_EQUAL(bool(sub), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(bool(sub), true);
     BOOST_REQUIRE(signalled_ex == nullptr);
 
     // on_abort should trigger the subscribed callback
     as.request_abort_ex(std::make_exception_ptr(std::runtime_error("signaled")));
-    BOOST_REQUIRE_EQUAL(bool(sub), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(bool(sub), false);
     BOOST_REQUIRE(signalled_ex != nullptr);
     BOOST_REQUIRE_THROW(std::rethrow_exception(signalled_ex), std::runtime_error);
 
@@ -229,12 +230,12 @@ SEASTAR_THREAD_TEST_CASE(test_on_abort_call_before_abort) {
         BOOST_REQUIRE(!signalled_ex);
         signalled_ex = *ex;
     });
-    BOOST_REQUIRE_EQUAL(bool(sub), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(bool(sub), true);
     BOOST_REQUIRE(signalled_ex == nullptr);
 
     // on_abort should trigger the subscribed callback
     sub->on_abort(std::make_exception_ptr(std::runtime_error("signaled")));
-    BOOST_REQUIRE_EQUAL(bool(sub), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(bool(sub), false);
     BOOST_REQUIRE(signalled_ex != nullptr);
     BOOST_REQUIRE_THROW(std::rethrow_exception(signalled_ex), std::runtime_error);
 
@@ -255,7 +256,7 @@ SEASTAR_THREAD_TEST_CASE(test_subscribe_aborted_source) {
 
     // subscription is expected to evaluate to false
     // if abort_source was already aborted
-    BOOST_REQUIRE_EQUAL(bool(sub), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(bool(sub), false);
     BOOST_REQUIRE(signalled_ex == nullptr);
 
     // on_abort should trigger the subscribed callback
@@ -280,25 +281,25 @@ SEASTAR_THREAD_TEST_CASE(test_subscription_callback_lifetime) {
     auto sub = std::make_unique<optimized_optional<abort_source::subscription>>(as.subscribe([&, when_destroyed = std::move(when_destroyed)] (const std::optional<std::exception_ptr>& ex) noexcept {
         callback_called++;
     }));
-    BOOST_REQUIRE_EQUAL(bool(sub), true);
-    BOOST_REQUIRE_EQUAL(bool(*sub), true);
-    BOOST_REQUIRE_EQUAL(callback_destroyed, false);
-    BOOST_REQUIRE_EQUAL(callback_called, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(bool(sub), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(bool(*sub), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(callback_destroyed, false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(callback_called, 0);
 
     // on_abort should trigger the subscribed callback
     as.request_abort_ex(std::make_exception_ptr(std::runtime_error("signaled")));
-    BOOST_REQUIRE_EQUAL(bool(*sub), false);
-    BOOST_REQUIRE_EQUAL(callback_destroyed, false);
-    BOOST_REQUIRE_EQUAL(callback_called, 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(bool(*sub), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(callback_destroyed, false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(callback_called, 1);
 
     // on_abort is single-shot
     (*sub)->on_abort(std::make_exception_ptr(std::runtime_error("signaled")));
-    BOOST_REQUIRE_EQUAL(callback_destroyed, false);
-    BOOST_REQUIRE_EQUAL(callback_called, 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(callback_destroyed, false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(callback_called, 1);
 
     sub.reset();
-    BOOST_REQUIRE_EQUAL(callback_destroyed, true);
-    BOOST_REQUIRE_EQUAL(callback_called, 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(callback_destroyed, true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(callback_called, 1);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_abort_on_expiry) {
@@ -316,7 +317,7 @@ SEASTAR_THREAD_TEST_CASE(test_abort_on_expiry) {
     manual_clock::advance(1s);
     yield().get();
     BOOST_REQUIRE(abort.abort_source().abort_requested());
-    BOOST_REQUIRE_EQUAL(called, 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(called, 1);
     BOOST_REQUIRE(ex != nullptr);
     BOOST_REQUIRE_THROW(std::rethrow_exception(ex), timed_out_error);
 }

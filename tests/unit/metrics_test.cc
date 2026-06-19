@@ -39,6 +39,7 @@
 #include <seastar/testing/test_runner.hh>
 #include <boost/range/irange.hpp>
 #include <ranges>
+#include "test_comparisons.hh"
 
 SEASTAR_TEST_CASE(test_add_group) {
     using namespace seastar::metrics;
@@ -187,12 +188,12 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_add_labels) {
     rl[0].expr = "test_counter_.*";
 
     sm::metric_relabeling_result success = sm::set_relabel_configs(rl).get();
-    BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
-    BOOST_CHECK_EQUAL(count_by_label("level"), 1);
+    SEASTAR_BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
+    SEASTAR_BOOST_CHECK_EQUAL(count_by_label("level"), 1);
     app_metrics.add_group("test", {
         sm::make_counter("counter_2", sm::description("counter 2"), [] { return 2; })
     });
-    BOOST_CHECK_EQUAL(count_by_label("level"), 2);
+    SEASTAR_BOOST_CHECK_EQUAL(count_by_label("level"), 2);
     sm::set_relabel_configs({}).get();
 }
 
@@ -226,14 +227,14 @@ SEASTAR_THREAD_TEST_CASE(test_metrics_family_aggregate) {
     int count = 0;
     for (auto&& md : (*values->metadata)) {
         if (md.mf.name == "test_gauge_1") {
-            BOOST_CHECK_EQUAL(md.mf.aggregate_labels.size(), 1);
-            BOOST_CHECK_EQUAL(md.mf.aggregate_labels[0], "lb");
+            SEASTAR_BOOST_CHECK_EQUAL(md.mf.aggregate_labels.size(), 1);
+            SEASTAR_BOOST_CHECK_EQUAL(md.mf.aggregate_labels[0], "lb");
         } else {
-            BOOST_CHECK_EQUAL(md.mf.aggregate_labels.size(), 0);
+            SEASTAR_BOOST_CHECK_EQUAL(md.mf.aggregate_labels.size(), 0);
         }
         count++;
     }
-    BOOST_CHECK_EQUAL(count, 2);
+    SEASTAR_BOOST_CHECK_EQUAL(count, 2);
     app_metrics.add_group("test", {
         sm::make_gauge("gauge1_1", sm::description("gague 1"), [] { return 1; })(lb("1")),
         sm::make_gauge("gauge1_1", sm::description("gague 1"), [] { return 2; })(lb("2")),
@@ -244,17 +245,17 @@ SEASTAR_THREAD_TEST_CASE(test_metrics_family_aggregate) {
     count = 0;
     for (auto&& md : (*values->metadata)) {
         if (md.mf.name == "test_gauge_1") {
-            BOOST_CHECK_EQUAL(md.mf.aggregate_labels.size(), 1);
-            BOOST_CHECK_EQUAL(md.mf.aggregate_labels[0], "lb");
+            SEASTAR_BOOST_CHECK_EQUAL(md.mf.aggregate_labels.size(), 1);
+            SEASTAR_BOOST_CHECK_EQUAL(md.mf.aggregate_labels[0], "lb");
         } else if (md.mf.name == "test_gauge1_1") {
-            BOOST_CHECK_EQUAL(md.mf.aggregate_labels.size(), 2);
-            BOOST_CHECK_EQUAL(md.mf.aggregate_labels[0], "ll");
+            SEASTAR_BOOST_CHECK_EQUAL(md.mf.aggregate_labels.size(), 2);
+            SEASTAR_BOOST_CHECK_EQUAL(md.mf.aggregate_labels[0], "ll");
         } else {
-            BOOST_CHECK_EQUAL(md.mf.aggregate_labels.size(), 0);
+            SEASTAR_BOOST_CHECK_EQUAL(md.mf.aggregate_labels.size(), 0);
         }
         count++;
     }
-    BOOST_CHECK_EQUAL(count, 4);
+    SEASTAR_BOOST_CHECK_EQUAL(count, 4);
     std::vector<sm::relabel_config> rl1;
     sm::set_relabel_configs(rl1).get();
 }
@@ -268,7 +269,7 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_drop_label_prevent_runtime_conflicts) {
         sm::make_counter("counter_1", sm::description("counter 1"), [] { return 0; }),
         sm::make_counter("counter_1", sm::description("counter 1"), { sm::label_instance("lev", "2")}, [] { return 0; })
     });
-    BOOST_CHECK_EQUAL(count_by_label("lev"), 1);
+    SEASTAR_BOOST_CHECK_EQUAL(count_by_label("lev"), 1);
 
     std::vector<sm::relabel_config> rl(1);
     rl[0].source_labels = {"lev"};
@@ -277,15 +278,15 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_drop_label_prevent_runtime_conflicts) {
     rl[0].action = sm::relabel_config::relabel_action::drop_label;
     // Dropping the lev label would cause a conflict, but not crash the system
     sm::metric_relabeling_result success = sm::set_relabel_configs(rl).get();
-    BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 1);
-    BOOST_CHECK_EQUAL(count_by_label("lev"), 0);
-    BOOST_CHECK_EQUAL(count_by_label("err"), 1);
+    SEASTAR_BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 1);
+    SEASTAR_BOOST_CHECK_EQUAL(count_by_label("lev"), 0);
+    SEASTAR_BOOST_CHECK_EQUAL(count_by_label("err"), 1);
 
     //reseting all the labels to their original state
     success = sm::set_relabel_configs({}).get();
-    BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
-    BOOST_CHECK_EQUAL(count_by_label("lev"), 1);
-    BOOST_CHECK_EQUAL(count_by_label("err"), 0);
+    SEASTAR_BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
+    SEASTAR_BOOST_CHECK_EQUAL(count_by_label("lev"), 1);
+    SEASTAR_BOOST_CHECK_EQUAL(count_by_label("err"), 0);
     sm::set_relabel_configs({}).get();
 }
 
@@ -307,9 +308,9 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_enable_disable_skip_when_empty) {
     rl[1].action = sm::relabel_config::relabel_action::keep;
     // We just disable all metrics besides those mark as lev3
     sm::metric_relabeling_result success = sm::set_relabel_configs(rl).get();
-    BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
-    BOOST_CHECK_EQUAL(count_by_label(""), 3);
-    BOOST_CHECK_EQUAL(count_by_fun([](const seastar::metrics::impl::metric_series_metadata& mi) {
+    SEASTAR_BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
+    SEASTAR_BOOST_CHECK_EQUAL(count_by_label(""), 3);
+    SEASTAR_BOOST_CHECK_EQUAL(count_by_fun([](const seastar::metrics::impl::metric_series_metadata& mi) {
         return mi.should_skip_when_empty() == sm::skip_when_empty::yes;
     }), 0);
 
@@ -326,9 +327,9 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_enable_disable_skip_when_empty) {
     rl2[2].action = sm::relabel_config::relabel_action::skip_when_empty;
 
     success = sm::set_relabel_configs(rl2).get();
-    BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
-    BOOST_CHECK_EQUAL(count_by_label(""), 3);
-    BOOST_CHECK_EQUAL(count_by_fun([](const seastar::metrics::impl::metric_series_metadata& mi) {
+    SEASTAR_BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
+    SEASTAR_BOOST_CHECK_EQUAL(count_by_label(""), 3);
+    SEASTAR_BOOST_CHECK_EQUAL(count_by_fun([](const seastar::metrics::impl::metric_series_metadata& mi) {
         return mi.should_skip_when_empty() == sm::skip_when_empty::yes;
     }), 3);
     // clear the configuration
@@ -349,8 +350,8 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_enable_disable_skip_when_empty) {
     rl3[2].action = sm::relabel_config::relabel_action::report_when_empty;
 
     success = sm::set_relabel_configs(rl3).get();
-    BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
-    BOOST_CHECK_EQUAL(count_by_fun([](const seastar::metrics::impl::metric_series_metadata& mi) {
+    SEASTAR_BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
+    SEASTAR_BOOST_CHECK_EQUAL(count_by_fun([](const seastar::metrics::impl::metric_series_metadata& mi) {
         return mi.should_skip_when_empty() == sm::skip_when_empty::yes;
     }), 0);
     sm::set_relabel_configs({}).get();
@@ -376,9 +377,9 @@ SEASTAR_THREAD_TEST_CASE(test_estimated_histogram) {
         min = next;
         next *= 2;
     }
-    BOOST_CHECK_EQUAL(histogram1.count(), 64);
+    SEASTAR_BOOST_CHECK_EQUAL(histogram1.count(), 64);
     for (size_t i = 0; i < 64; i++) {
-        BOOST_CHECK_EQUAL(histogram1.get(i), 1);
+        SEASTAR_BOOST_CHECK_EQUAL(histogram1.get(i), 1);
     }
     min = std::chrono::microseconds(512);
     next = min*2;
@@ -390,26 +391,26 @@ SEASTAR_THREAD_TEST_CASE(test_estimated_histogram) {
         min = next;
         next *= 2;
     }
-    BOOST_CHECK_EQUAL(histogram2.count(), 32);
+    SEASTAR_BOOST_CHECK_EQUAL(histogram2.count(), 32);
     for (size_t i = 0; i < 32; i++) {
-        BOOST_CHECK_EQUAL(histogram2.get(i), 1);
+        SEASTAR_BOOST_CHECK_EQUAL(histogram2.get(i), 1);
     }
     for (size_t i = 33; i < 64; i++) {
-        BOOST_CHECK_EQUAL(histogram2.get(i), 0);
+        SEASTAR_BOOST_CHECK_EQUAL(histogram2.get(i), 0);
     }
     histogram1.merge(histogram2);
-    BOOST_CHECK_EQUAL(histogram1.count(), 96);
+    SEASTAR_BOOST_CHECK_EQUAL(histogram1.count(), 96);
     for (size_t i = 0; i < 32; i++) {
-        BOOST_CHECK_EQUAL(histogram1.get(i), 2);
+        SEASTAR_BOOST_CHECK_EQUAL(histogram1.get(i), 2);
     }
     for (size_t i = 33; i < 64; i++) {
-        BOOST_CHECK_EQUAL(histogram1.get(i), 1);
+        SEASTAR_BOOST_CHECK_EQUAL(histogram1.get(i), 1);
     }
     auto mh = histogram1.to_metrics_histogram();
     for (size_t i = 0; i < 32; i++) {
-        BOOST_CHECK_EQUAL(mh.buckets[i].count, 2 + i*2);
+        SEASTAR_BOOST_CHECK_EQUAL(mh.buckets[i].count, 2 + i*2);
     }
     for (size_t i = 33; i < 64; i++) {
-        BOOST_CHECK_EQUAL(mh.buckets[i].count, 33 + i);
+        SEASTAR_BOOST_CHECK_EQUAL(mh.buckets[i].count, 33 + i);
     }
 }

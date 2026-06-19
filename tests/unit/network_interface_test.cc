@@ -27,6 +27,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/util/log.hh>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -39,7 +40,7 @@ static_assert(std::is_nothrow_move_constructible_v<net::ethernet_address>);
 SEASTAR_TEST_CASE(list_interfaces) {
     // just verifying we have something. And can access all the stuff.
     auto interfaces = engine().net().network_interfaces();
-    BOOST_REQUIRE_GT(interfaces.size(), 0);
+    SEASTAR_BOOST_REQUIRE_GT(interfaces.size(), 0);
 
     for (auto& nif : interfaces) {
         niflog.info("Iface: {}, index = {}, mtu = {}, loopback = {}, virtual = {}, up = {}",
@@ -74,12 +75,12 @@ SEASTAR_TEST_CASE(match_ipv6_scope) {
 
         net::inet_address na(text);
 
-        BOOST_REQUIRE_EQUAL(na.as_ipv6_address(), i->as_ipv6_address());
+        SEASTAR_BOOST_REQUIRE_EQUAL(na.as_ipv6_address(), i->as_ipv6_address());
         // also verify that the inet_address itself matches
-        BOOST_REQUIRE_EQUAL(na, *i);
+        SEASTAR_BOOST_REQUIRE_EQUAL(na, *i);
         // and that inet_address _without_ scope matches.
-        BOOST_REQUIRE_EQUAL(net::inet_address(na.as_ipv6_address()), *i);
-        BOOST_REQUIRE_EQUAL(na.scope(), nif.index());
+        SEASTAR_BOOST_REQUIRE_EQUAL(net::inet_address(na.as_ipv6_address()), *i);
+        SEASTAR_BOOST_REQUIRE_EQUAL(na.scope(), nif.index());
         // and that they are not ipv4 addresses
         BOOST_REQUIRE_THROW(i->as_ipv4_address(), std::invalid_argument);
         BOOST_REQUIRE_THROW(na.as_ipv4_address(), std::invalid_argument);
@@ -92,18 +93,18 @@ SEASTAR_TEST_CASE(match_ipv6_scope) {
 }
 
 SEASTAR_TEST_CASE(is_standard_addresses_sanity) {
-    BOOST_REQUIRE_EQUAL(net::inet_address("127.0.0.1").is_loopback(), true);
-    BOOST_REQUIRE_EQUAL(net::inet_address("127.0.0.11").is_loopback(), true);
-    BOOST_REQUIRE_EQUAL(net::inet_address(::in_addr{INADDR_ANY}).is_addr_any(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(net::inet_address("127.0.0.1").is_loopback(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(net::inet_address("127.0.0.11").is_loopback(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(net::inet_address(::in_addr{INADDR_ANY}).is_addr_any(), true);
     auto addr = net::inet_address("1.2.3.4");
-    BOOST_REQUIRE_EQUAL(addr.is_loopback(), false);
-    BOOST_REQUIRE_EQUAL(addr.is_addr_any(), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(addr.is_loopback(), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(addr.is_addr_any(), false);
 
-    BOOST_REQUIRE_EQUAL(net::inet_address("::1").is_loopback(), true);
-    BOOST_REQUIRE_EQUAL(net::inet_address(::in6addr_any).is_addr_any(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(net::inet_address("::1").is_loopback(), true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(net::inet_address(::in6addr_any).is_addr_any(), true);
     auto addr6 = net::inet_address("acf1:f5e5:5a99:337f:ebe2:c57e:0e27:69c6");
-    BOOST_REQUIRE_EQUAL(addr6.is_loopback(), false);
-    BOOST_REQUIRE_EQUAL(addr6.is_addr_any(), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(addr6.is_loopback(), false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(addr6.is_addr_any(), false);
 
     return make_ready_future<>();
 }
@@ -125,7 +126,7 @@ SEASTAR_TEST_CASE(test_inet_address_format) {
 
     for (auto expected : tests) {
         net::inet_address addr{expected};
-        BOOST_CHECK_EQUAL(fmt::to_string(addr), expected);
+        SEASTAR_BOOST_CHECK_EQUAL(fmt::to_string(addr), expected);
     }
 
     // scoped addresses
@@ -136,7 +137,7 @@ SEASTAR_TEST_CASE(test_inet_address_format) {
             net::inet_address addr{fmt::format("{}%{}", address, zone)};
             // we always use the zone-id to represent the zone
             auto expected = fmt::format("{}%{}", address, zone_id);
-            BOOST_CHECK_EQUAL(fmt::to_string(addr), expected);
+            SEASTAR_BOOST_CHECK_EQUAL(fmt::to_string(addr), expected);
         }
         // one of them would suffice
         break;

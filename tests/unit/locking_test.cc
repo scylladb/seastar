@@ -24,6 +24,7 @@
 #include <exception>
 #include <ranges>
 #include <stdexcept>
+#include "test_comparisons.hh"
 
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
@@ -70,11 +71,11 @@ SEASTAR_TEST_CASE(test_rwlock_exclusive) {
     return do_with(rwlock(), unsigned(0), [] (rwlock& l, unsigned& counter) {
         return parallel_for_each(std::views::iota(0, 10), [&l, &counter] (int idx) {
             return with_lock(l.for_write(), [&counter] {
-                BOOST_REQUIRE_EQUAL(counter, 0u);
+                SEASTAR_BOOST_REQUIRE_EQUAL(counter, 0u);
                 ++counter;
                 return sleep(1ms).then([&counter] {
                     --counter;
-                    BOOST_REQUIRE_EQUAL(counter, 0u);
+                    SEASTAR_BOOST_REQUIRE_EQUAL(counter, 0u);
                 });
             });
         });
@@ -92,8 +93,8 @@ SEASTAR_TEST_CASE(test_rwlock_shared) {
                 });
             });
         }).finally([&counter, &max] {
-            BOOST_REQUIRE_EQUAL(counter, 0u);
-            BOOST_REQUIRE_NE(max, 0u);
+            SEASTAR_BOOST_REQUIRE_EQUAL(counter, 0u);
+            SEASTAR_BOOST_REQUIRE_NE(max, 0u);
         });
     });
 }
@@ -239,11 +240,11 @@ SEASTAR_TEST_CASE(test_shared_mutex_exclusive) {
     return do_with(shared_mutex(), unsigned(0), [] (shared_mutex& sm, unsigned& counter) {
         return parallel_for_each(std::views::iota(0, 10), [&sm, &counter] (int idx) {
             return with_lock(sm, [&counter] {
-                BOOST_REQUIRE_EQUAL(counter, 0u);
+                SEASTAR_BOOST_REQUIRE_EQUAL(counter, 0u);
                 ++counter;
                 return sleep(1ms).then([&counter] {
                     --counter;
-                    BOOST_REQUIRE_EQUAL(counter, 0u);
+                    SEASTAR_BOOST_REQUIRE_EQUAL(counter, 0u);
                 });
             });
         });
@@ -261,8 +262,8 @@ SEASTAR_TEST_CASE(test_shared_mutex_shared) {
                 });
             });
         }).finally([&counter, &max] {
-            BOOST_REQUIRE_EQUAL(counter, 0u);
-            BOOST_REQUIRE_NE(max, 0u);
+            SEASTAR_BOOST_REQUIRE_EQUAL(counter, 0u);
+            SEASTAR_BOOST_REQUIRE_NE(max, 0u);
         });
     });
 }
@@ -363,7 +364,7 @@ SEASTAR_THREAD_TEST_CASE(test_with_shared_typed_return_nothrow_move_func) {
     auto res = with_shared(sm, [expected] {
         return expected;
     }).get();
-    BOOST_REQUIRE_EQUAL(res, expected);
+    SEASTAR_BOOST_REQUIRE_EQUAL(res, expected);
 
     try {
         with_shared(sm, [expected] {
@@ -374,7 +375,7 @@ SEASTAR_THREAD_TEST_CASE(test_with_shared_typed_return_nothrow_move_func) {
         }).get();
         BOOST_FAIL("No exception was thrown");
     } catch (const expected_exception& e) {
-        BOOST_REQUIRE_EQUAL(e.value, expected);
+        SEASTAR_BOOST_REQUIRE_EQUAL(e.value, expected);
     } catch (const std::exception& e) {
         BOOST_FAIL(format("Unexpected exception type: {}", e.what()));
     }
@@ -391,7 +392,7 @@ SEASTAR_THREAD_TEST_CASE(test_with_shared_typed_return_throwing_move_func) {
                 auto expected = std::move(exp);
                 return expected.value;
             }).get();
-            BOOST_REQUIRE_EQUAL(res, expected_value);
+            SEASTAR_BOOST_REQUIRE_EQUAL(res, expected_value);
             done = true;
         } catch (const moved_exception& e) {
         } catch (const std::exception& e) {
@@ -407,7 +408,7 @@ SEASTAR_THREAD_TEST_CASE(test_with_lock_typed_return_nothrow_move_func) {
     auto res = with_lock(sm, [expected] {
         return expected;
     }).get();
-    BOOST_REQUIRE_EQUAL(res, expected);
+    SEASTAR_BOOST_REQUIRE_EQUAL(res, expected);
 
     try {
         with_lock(sm, [expected] {
@@ -418,7 +419,7 @@ SEASTAR_THREAD_TEST_CASE(test_with_lock_typed_return_nothrow_move_func) {
         }).get();
         BOOST_FAIL("No exception was thrown");
     } catch (const expected_exception& e) {
-        BOOST_REQUIRE_EQUAL(e.value, expected);
+        SEASTAR_BOOST_REQUIRE_EQUAL(e.value, expected);
     } catch (const std::exception& e) {
         BOOST_FAIL(format("Unexpected exception type: {}", e.what()));
     }
@@ -435,7 +436,7 @@ SEASTAR_THREAD_TEST_CASE(test_with_lock_typed_return_throwing_move_func) {
                 auto expected = std::move(exp);
                 return expected.value;
             }).get();
-            BOOST_REQUIRE_EQUAL(res, expected_value);
+            SEASTAR_BOOST_REQUIRE_EQUAL(res, expected_value);
             done = true;
         } catch (const moved_exception& e) {
         } catch (const std::exception& e) {
@@ -477,11 +478,11 @@ SEASTAR_TEST_CASE(test_shared_mutex_exclusive_locks) {
 
     co_await coroutine::parallel_for_each(std::views::iota(0, 10), coroutine::lambda([&sm, &counter] (auto&&) -> future<> {
         const auto ulock = co_await get_unique_lock(sm);
-        BOOST_REQUIRE_EQUAL(counter, 0u);
+        SEASTAR_BOOST_REQUIRE_EQUAL(counter, 0u);
         ++counter;
         co_await sleep(1ms);
         --counter;
-        BOOST_REQUIRE_EQUAL(counter, 0u);
+        SEASTAR_BOOST_REQUIRE_EQUAL(counter, 0u);
     }));
 }
 

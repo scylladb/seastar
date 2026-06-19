@@ -30,6 +30,7 @@
 #include <deque>
 #include <sstream>
 #include "memory-data-sink.hh"
+#include "test_comparisons.hh"
 
 using namespace seastar;
 using namespace net;
@@ -287,7 +288,7 @@ SEASTAR_THREAD_TEST_CASE(test_simple_write) {
 
     auto value = value1 + value2 + value3;
 
-    BOOST_REQUIRE_EQUAL(ss.str(), value);
+    SEASTAR_BOOST_REQUIRE_EQUAL(ss.str(), value);
 }
 
 namespace seastar::testing {
@@ -323,7 +324,7 @@ SEASTAR_THREAD_TEST_CASE(test_mixed_mode_write) {
 
     out.close().get();
 
-    BOOST_REQUIRE_EQUAL(ss.str(), "test");
+    SEASTAR_BOOST_REQUIRE_EQUAL(ss.str(), "test");
 }
 
 // Simple (mainly compilation) test for basic_memory_data_sink implementation over standard collections
@@ -335,10 +336,10 @@ void do_test_memory_data_sink() {
     for (unsigned i = 0; i < 3; i++) {
         s.put(temporary_buffer<char>::copy_of(fmt::to_string(i))).get();
     }
-    BOOST_REQUIRE_EQUAL(col.size(), 3);
+    SEASTAR_BOOST_REQUIRE_EQUAL(col.size(), 3);
     auto it = col.begin();
     for (unsigned i = 0; i < 3; i++) {
-        BOOST_REQUIRE_EQUAL(internal::to_sstring<std::string>(*it), fmt::to_string(i));
+        SEASTAR_BOOST_REQUIRE_EQUAL(internal::to_sstring<std::string>(*it), fmt::to_string(i));
         it++;
     }
 }

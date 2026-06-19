@@ -25,6 +25,7 @@
 #include <boost/test/unit_test.hpp>
 #include <exception>
 #include <sstream>
+#include "test_comparisons.hh"
 
 using namespace seastar::net;
 
@@ -36,19 +37,19 @@ BOOST_AUTO_TEST_CASE(test_valid_config_with_pci_address) {
 
     // eth0 tests
     BOOST_REQUIRE(device_configs.find("eth0") != device_configs.end());
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth0").hw_cfg.pci_address, "0000:06:00.0");
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.dhcp, false);
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.ip, "192.168.100.10");
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.gateway, "192.168.100.1");
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.netmask, "255.255.255.0");
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth0").hw_cfg.pci_address, "0000:06:00.0");
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.dhcp, false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.ip, "192.168.100.10");
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.gateway, "192.168.100.1");
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.netmask, "255.255.255.0");
 
     // eth1 tests
     BOOST_REQUIRE(device_configs.find("eth1") != device_configs.end());
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth1").hw_cfg.pci_address, "0000:06:00.1");
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.dhcp, true);
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.ip, "");
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.gateway, "");
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.netmask, "");
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth1").hw_cfg.pci_address, "0000:06:00.1");
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.dhcp, true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.ip, "");
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.gateway, "");
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.netmask, "");
 }
 
 BOOST_AUTO_TEST_CASE(test_valid_config_with_port_index) {
@@ -59,19 +60,19 @@ BOOST_AUTO_TEST_CASE(test_valid_config_with_port_index) {
 
     // eth0 tests
     BOOST_REQUIRE(device_configs.find("eth0") != device_configs.end());
-    BOOST_REQUIRE_EQUAL(*device_configs.at("eth0").hw_cfg.port_index, 0u);
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.dhcp, false);
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.ip, "192.168.100.10");
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.gateway, "192.168.100.1");
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.netmask, "255.255.255.0");
+    SEASTAR_BOOST_REQUIRE_EQUAL(*device_configs.at("eth0").hw_cfg.port_index, 0u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.dhcp, false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.ip, "192.168.100.10");
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.gateway, "192.168.100.1");
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.netmask, "255.255.255.0");
 
     // eth1 tests
     BOOST_REQUIRE(device_configs.find("eth1") != device_configs.end());
-    BOOST_REQUIRE_EQUAL(*device_configs.at("eth1").hw_cfg.port_index, 1u);
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.dhcp, true);
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.ip, "");
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.gateway, "");
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.netmask, "");
+    SEASTAR_BOOST_REQUIRE_EQUAL(*device_configs.at("eth1").hw_cfg.port_index, 1u);
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.dhcp, true);
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.ip, "");
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.gateway, "");
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth1").ip_cfg.netmask, "");
 }
 
 BOOST_AUTO_TEST_CASE(test_valid_config_single_device) {
@@ -82,11 +83,11 @@ BOOST_AUTO_TEST_CASE(test_valid_config_single_device) {
 
     // eth0 tests
     BOOST_REQUIRE(device_configs.find("eth0") != device_configs.end());
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth0").hw_cfg.pci_address, "0000:06:00.0");
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.dhcp, false);
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.ip, "192.168.100.10");
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.gateway, "192.168.100.1");
-    BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.netmask, "255.255.255.0");
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth0").hw_cfg.pci_address, "0000:06:00.0");
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.dhcp, false);
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.ip, "192.168.100.10");
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.gateway, "192.168.100.1");
+    SEASTAR_BOOST_REQUIRE_EQUAL(device_configs.at("eth0").ip_cfg.netmask, "255.255.255.0");
 }
 
 BOOST_AUTO_TEST_CASE(test_unsupported_key) {

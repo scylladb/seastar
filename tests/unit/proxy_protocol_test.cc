@@ -23,6 +23,7 @@
 #include <seastar/core/seastar.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/net/api.hh>
+#include "test_comparisons.hh"
 
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
@@ -321,8 +322,8 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_local_mode) {
     // With LOCAL mode, addresses should be real connection addresses, not from header
     // We can't check exact match since the client port is ephemeral, but we can verify
     // that the addresses are not the fake proxy addresses and the IPs match
-    BOOST_REQUIRE_EQUAL(addrs.local, socket_address(listen_addr));
-    BOOST_REQUIRE_EQUAL(addrs.remote, client_actual_local);
+    SEASTAR_BOOST_REQUIRE_EQUAL(addrs.local, socket_address(listen_addr));
+    SEASTAR_BOOST_REQUIRE_EQUAL(addrs.remote, client_actual_local);
 }
 
 SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_local_mode_wrong_family) {
@@ -357,8 +358,8 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_ipv4_addresses) {
     ss.abort_accept();
 
     // Verify addresses match what was sent in the header
-    BOOST_REQUIRE_EQUAL(addrs.remote, socket_address(expected_remote));
-    BOOST_REQUIRE_EQUAL(addrs.local, socket_address(expected_local));
+    SEASTAR_BOOST_REQUIRE_EQUAL(addrs.remote, socket_address(expected_remote));
+    SEASTAR_BOOST_REQUIRE_EQUAL(addrs.local, socket_address(expected_local));
 }
 
 SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_ipv6_addresses) {
@@ -387,8 +388,8 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_ipv6_addresses) {
     ss.abort_accept();
 
     // Verify addresses match what was sent in the header
-    BOOST_REQUIRE_EQUAL(addrs.remote, socket_address(expected_remote));
-    BOOST_REQUIRE_EQUAL(addrs.local, socket_address(expected_local));
+    SEASTAR_BOOST_REQUIRE_EQUAL(addrs.remote, socket_address(expected_remote));
+    SEASTAR_BOOST_REQUIRE_EQUAL(addrs.local, socket_address(expected_local));
 }
 
 SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_invalid_version) {
@@ -528,8 +529,8 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_with_tlvs) {
     ss.abort_accept();
 
     // Verify addresses still work correctly despite TLVs
-    BOOST_REQUIRE_EQUAL(addrs.remote, socket_address(expected_remote));
-    BOOST_REQUIRE_EQUAL(addrs.local, socket_address(expected_local));
+    SEASTAR_BOOST_REQUIRE_EQUAL(addrs.remote, socket_address(expected_remote));
+    SEASTAR_BOOST_REQUIRE_EQUAL(addrs.local, socket_address(expected_local));
 }
 
 SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_extreme_ports) {
@@ -558,8 +559,8 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_extreme_ports) {
     auto [addrs] = when_all_succeed(std::move(server), std::move(client)).get();
     ss.abort_accept();
 
-    BOOST_REQUIRE_EQUAL(addrs.remote.port(), 0);
-    BOOST_REQUIRE_EQUAL(addrs.local.port(), 65535);
+    SEASTAR_BOOST_REQUIRE_EQUAL(addrs.remote.port(), 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(addrs.local.port(), 65535);
 }
 
 SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_unspec_family) {

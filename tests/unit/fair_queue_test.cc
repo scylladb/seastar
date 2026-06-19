@@ -34,6 +34,7 @@
 #include <seastar/core/print.hh>
 #include <boost/range/irange.hpp>
 #include <chrono>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -173,9 +174,9 @@ public:
         for (auto i = 0ul; i < ratios.size(); ++i) {
             int min_expected = ratios[i] * (_results[0] - expected_error);
             int max_expected = ratios[i] * (_results[0] + expected_error);
-            BOOST_CHECK_GE(_results[i], min_expected);
-            BOOST_CHECK_LE(_results[i], max_expected);
-            BOOST_CHECK_EQUAL(_exceptions[i].size(), 0);
+            SEASTAR_BOOST_CHECK_GE(_results[i], min_expected);
+            SEASTAR_BOOST_CHECK_LE(_results[i], max_expected);
+            SEASTAR_BOOST_CHECK_EQUAL(_exceptions[i].size(), 0);
         }
     }
 
@@ -196,7 +197,7 @@ public:
         average_result /= adjusted_results.size();
         for (auto ar : adjusted_results) {
             auto dev = std::abs(ar - average_result) / average_result;
-            BOOST_CHECK_LE(dev, error);
+            SEASTAR_BOOST_CHECK_LE(dev, error);
         }
     }
 
@@ -208,7 +209,7 @@ public:
         }
         std::cout << str <<std::endl;
         for (unsigned i = 0; i < _results.size(); i++) {
-            BOOST_CHECK_EQUAL(_results[i], values[i]);
+            SEASTAR_BOOST_CHECK_EQUAL(_results[i], values[i]);
         }
     }
 };
@@ -615,9 +616,9 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_nested_wakeups) {
             }
 
             auto res = env.tick(targets.size());
-            BOOST_REQUIRE_EQUAL(res, targets.size());
+            SEASTAR_BOOST_REQUIRE_EQUAL(res, targets.size());
             res = env.tick(1);
-            BOOST_REQUIRE_EQUAL(res, 0);
+            SEASTAR_BOOST_REQUIRE_EQUAL(res, 0);
         } while (next());
     }
 }

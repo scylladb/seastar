@@ -1,6 +1,7 @@
 #define BOOST_TEST_MODULE core
 
 #include <seastar/util/variant_utils.hh>
+#include "test_comparisons.hh"
 
 #include <boost/test/unit_test.hpp>
 
@@ -59,7 +60,7 @@ BOOST_AUTO_TEST_CASE(test_visit_can_return_reference) {
       variant_t{true},
       [](const int& i) -> noncopyable_type& { return t; },
       [](const bool& b) -> noncopyable_type& { return t; });
-    BOOST_REQUIRE_EQUAL(
+    SEASTAR_BOOST_REQUIRE_EQUAL(
       std::addressof(std_visit_ref), std::addressof(ss_visit_ref));
-    BOOST_REQUIRE_EQUAL(std::addressof(t), std::addressof(std_visit_ref));
+    SEASTAR_BOOST_REQUIRE_EQUAL(std::addressof(t), std::addressof(std_visit_ref));
 }

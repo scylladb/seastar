@@ -25,6 +25,7 @@
 #include <boost/test/unit_test.hpp>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/sleep.hh>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -58,7 +59,7 @@ BOOST_AUTO_TEST_CASE(app_standard_memory_allocator) {
                 return make_ready_future<int>(expected_status);
             });
         });
-    BOOST_CHECK_EQUAL(actual_status, expected_status);
+    SEASTAR_BOOST_CHECK_EQUAL(actual_status, expected_status);
 }
 
 BOOST_AUTO_TEST_CASE(return_0_for_func_returning_void) {
@@ -67,7 +68,7 @@ BOOST_AUTO_TEST_CASE(return_0_for_func_returning_void) {
     char* args[] = {prog_name.data()};
     int status = app.run(std::size(args), std::data(args),
                          [] { return make_ready_future(); });
-    BOOST_CHECK_EQUAL(status, 0);
+    SEASTAR_BOOST_CHECK_EQUAL(status, 0);
 }
 
 BOOST_AUTO_TEST_CASE(return_status_for_func_returning_int) {
@@ -80,5 +81,5 @@ BOOST_AUTO_TEST_CASE(return_status_for_func_returning_int) {
          [expected_status] {
              return make_ready_future<int>(expected_status);
          });
-    BOOST_CHECK_EQUAL(actual_status, expected_status);
+    SEASTAR_BOOST_CHECK_EQUAL(actual_status, expected_status);
 }

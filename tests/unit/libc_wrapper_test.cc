@@ -21,6 +21,7 @@
  */
 #include <coroutine>
 #include <iostream>
+#include "test_comparisons.hh"
 
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/reactor.hh>
@@ -40,5 +41,5 @@ SEASTAR_TEST_CASE(getgrnam_group_name_does_not_exist_test) {
 SEASTAR_TEST_CASE(getgrnam_group_name_exists_test) {
     std::optional<struct group_details> grp = co_await getgrnam("root");
     BOOST_REQUIRE(grp.has_value());
-    BOOST_REQUIRE_EQUAL(grp.value().group_name.c_str(), "root");
+    SEASTAR_BOOST_REQUIRE_EQUAL(grp.value().group_name.c_str(), "root");
 }

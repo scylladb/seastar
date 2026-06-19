@@ -43,6 +43,7 @@
 #include <seastar/util/defer.hh>
 #include <seastar/util/later.hh>
 #include <seastar/util/integrated-length.hh>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -163,20 +164,20 @@ static void do_test_large_request_flow(part_flaw flaw) {
     .then([&file, &values, &limits, flaw] (size_t len) {
         size_t expected = limits.max_write;
 
-        BOOST_REQUIRE_EQUAL(file.data[0 * limits.max_write], values[0]);
+        SEASTAR_BOOST_REQUIRE_EQUAL(file.data[0 * limits.max_write], values[0]);
 
         if (flaw == part_flaw::none) {
-            BOOST_REQUIRE_EQUAL(file.data[1 * limits.max_write], values[1]);
-            BOOST_REQUIRE_EQUAL(file.data[2 * limits.max_write], values[2]);
+            SEASTAR_BOOST_REQUIRE_EQUAL(file.data[1 * limits.max_write], values[1]);
+            SEASTAR_BOOST_REQUIRE_EQUAL(file.data[2 * limits.max_write], values[2]);
             expected += 2 * limits.max_write;
         }
 
         if (flaw == part_flaw::partial) {
-            BOOST_REQUIRE_EQUAL(file.data[1 * limits.max_write], values[1]);
+            SEASTAR_BOOST_REQUIRE_EQUAL(file.data[1 * limits.max_write], values[1]);
             expected += limits.max_write / 2;
         }
 
-        BOOST_REQUIRE_EQUAL(len, expected);
+        SEASTAR_BOOST_REQUIRE_EQUAL(len, expected);
     });
 
     for (int i = 0; i < 3; i++) {
@@ -365,20 +366,20 @@ SEASTAR_TEST_CASE(test_request_buffer_split) {
         BOOST_REQUIRE(parts[idx].req.opcode() == req.opcode());
         const auto& op = req.as<internal::io_request::operation::read>();
         const auto& sub_op = parts[idx].req.as<internal::io_request::operation::read>();
-        BOOST_REQUIRE_EQUAL(sub_op.fd, op.fd);
-        BOOST_REQUIRE_EQUAL(sub_op.pos, pos);
-        BOOST_REQUIRE_EQUAL(sub_op.size, size);
-        BOOST_REQUIRE_EQUAL(sub_op.addr, reinterpret_cast<void*>(mem));
-        BOOST_REQUIRE_EQUAL(sub_op.nowait_works, op.nowait_works);
-        BOOST_REQUIRE_EQUAL(parts[idx].iovecs.size(), 0);
-        BOOST_REQUIRE_EQUAL(parts[idx].size, sub_op.size);
+        SEASTAR_BOOST_REQUIRE_EQUAL(sub_op.fd, op.fd);
+        SEASTAR_BOOST_REQUIRE_EQUAL(sub_op.pos, pos);
+        SEASTAR_BOOST_REQUIRE_EQUAL(sub_op.size, size);
+        SEASTAR_BOOST_REQUIRE_EQUAL(sub_op.addr, reinterpret_cast<void*>(mem));
+        SEASTAR_BOOST_REQUIRE_EQUAL(sub_op.nowait_works, op.nowait_works);
+        SEASTAR_BOOST_REQUIRE_EQUAL(parts[idx].iovecs.size(), 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(parts[idx].size, sub_op.size);
     };
 
     // No split
     {
         internal::io_request req = internal::io_request::make_read(5, 13, reinterpret_cast<void*>(0x420), 17, true);
         auto parts = req.split(21);
-        BOOST_REQUIRE_EQUAL(parts.size(), 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(parts.size(), 1);
         ensure(parts, req, 0, 13, 17, 0x420);
     }
 
@@ -386,7 +387,7 @@ SEASTAR_TEST_CASE(test_request_buffer_split) {
     {
         internal::io_request req = internal::io_request::make_read(7, 24, reinterpret_cast<void*>(0x4321), 24, true);
         auto parts = req.split(12);
-        BOOST_REQUIRE_EQUAL(parts.size(), 2);
+        SEASTAR_BOOST_REQUIRE_EQUAL(parts.size(), 2);
         ensure(parts, req, 0, 24,      12, 0x4321);
         ensure(parts, req, 1, 24 + 12, 12, 0x4321 + 12);
     }
@@ -395,7 +396,7 @@ SEASTAR_TEST_CASE(test_request_buffer_split) {
     {
         internal::io_request req = internal::io_request::make_read(9, 42, reinterpret_cast<void*>(0x1234), 33, true);
         auto parts = req.split(13);
-        BOOST_REQUIRE_EQUAL(parts.size(), 3);
+        SEASTAR_BOOST_REQUIRE_EQUAL(parts.size(), 3);
         ensure(parts, req, 0, 42,      13, 0x1234);
         ensure(parts, req, 1, 42 + 13, 13, 0x1234 + 13);
         ensure(parts, req, 2, 42 + 26,  7, 0x1234 + 26);
@@ -462,23 +463,23 @@ SEASTAR_TEST_CASE(test_request_iovec_split) {
                 }
             }
         }
-        BOOST_REQUIRE_EQUAL(fill_match, true);
-        BOOST_REQUIRE_EQUAL(train_match, true);
+        SEASTAR_BOOST_REQUIRE_EQUAL(fill_match, true);
+        SEASTAR_BOOST_REQUIRE_EQUAL(train_match, true);
     };
 
     auto ensure = [] (const std::vector<internal::io_request::part>& parts, const internal::io_request& req, int idx, uint64_t pos) {
         BOOST_REQUIRE(parts[idx].req.opcode() == req.opcode());
         const auto& op = req.as<internal::io_request::operation::writev>();
         const auto& sub_op = parts[idx].req.as<internal::io_request::operation::writev>();
-        BOOST_REQUIRE_EQUAL(sub_op.fd, op.fd);
-        BOOST_REQUIRE_EQUAL(sub_op.pos, pos);
-        BOOST_REQUIRE_EQUAL(sub_op.iov_len, parts[idx].iovecs.size());
-        BOOST_REQUIRE_EQUAL(sub_op.nowait_works, op.nowait_works);
-        BOOST_REQUIRE_EQUAL(parts[idx].size, internal::iovec_len(parts[idx].iovecs));
+        SEASTAR_BOOST_REQUIRE_EQUAL(sub_op.fd, op.fd);
+        SEASTAR_BOOST_REQUIRE_EQUAL(sub_op.pos, pos);
+        SEASTAR_BOOST_REQUIRE_EQUAL(sub_op.iov_len, parts[idx].iovecs.size());
+        SEASTAR_BOOST_REQUIRE_EQUAL(sub_op.nowait_works, op.nowait_works);
+        SEASTAR_BOOST_REQUIRE_EQUAL(parts[idx].size, internal::iovec_len(parts[idx].iovecs));
 
         for (unsigned iov = 0; iov < parts[idx].iovecs.size(); iov++) {
-            BOOST_REQUIRE_EQUAL(sub_op.iovec[iov].iov_base, parts[idx].iovecs[iov].iov_base);
-            BOOST_REQUIRE_EQUAL(sub_op.iovec[iov].iov_len, parts[idx].iovecs[iov].iov_len);
+            SEASTAR_BOOST_REQUIRE_EQUAL(sub_op.iovec[iov].iov_base, parts[idx].iovecs[iov].iov_base);
+            SEASTAR_BOOST_REQUIRE_EQUAL(sub_op.iovec[iov].iov_len, parts[idx].iovecs[iov].iov_len);
         }
     };
 
@@ -519,18 +520,18 @@ SEASTAR_TEST_CASE(test_request_iovec_split) {
         seastar_logger.debug("Split {} into {}-bytes ({} parts)", total, max_len, nr_parts);
         auto parts = req.split(max_len);
         show_request_parts(parts, large_buffer);
-        BOOST_REQUIRE_EQUAL(parts.size(), nr_parts);
+        SEASTAR_BOOST_REQUIRE_EQUAL(parts.size(), nr_parts);
 
         size_t parts_total = 0;
         for (unsigned p = 0; p < nr_parts; p++) {
             ensure(parts, req, p, file_off + parts_total);
             if (p < nr_parts - 1) {
-                BOOST_REQUIRE_EQUAL(parts[p].size, max_len);
+                SEASTAR_BOOST_REQUIRE_EQUAL(parts[p].size, max_len);
             }
             parts_total += parts[p].size;
             bump_buffer(parts[p].iovecs);
         }
-        BOOST_REQUIRE_EQUAL(parts_total, total);
+        SEASTAR_BOOST_REQUIRE_EQUAL(parts_total, total);
         check_buffer(total, 2);
 
         if (parts.size() == 1) {
@@ -599,15 +600,15 @@ SEASTAR_THREAD_TEST_CASE(test_tb_params) {
 SEASTAR_THREAD_TEST_CASE(test_unconfigured_io_queue) {
     io_queue_for_tests tio;
 
-    BOOST_CHECK_EQUAL(tio.max_request_length(internal::io_direction_and_length::read_idx), tio.request_length_limit());
-    BOOST_CHECK_EQUAL(tio.max_request_length(internal::io_direction_and_length::write_idx), tio.request_length_limit());
+    SEASTAR_BOOST_CHECK_EQUAL(tio.max_request_length(internal::io_direction_and_length::read_idx), tio.request_length_limit());
+    SEASTAR_BOOST_CHECK_EQUAL(tio.max_request_length(internal::io_direction_and_length::write_idx), tio.request_length_limit());
 
     for (uint64_t reqsize = 512; reqsize < 128 << 10; reqsize <<= 1) {
         auto cost_read = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::read_idx, reqsize));
         auto cost_write = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::write_idx, reqsize));
 
-        BOOST_CHECK_EQUAL(cost_read, 0);
-        BOOST_CHECK_EQUAL(cost_write, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(cost_read, 0);
+        SEASTAR_BOOST_CHECK_EQUAL(cost_write, 0);
     }
 }
 
@@ -663,9 +664,9 @@ SEASTAR_THREAD_TEST_CASE(test_nested_priority_classes_basic_linkage) {
 
     seastar::testing::fair_queue_test fq(tio.get_fair_queue());
 
-    BOOST_CHECK_EQUAL(fq.nr_children_for({}), 3);
-    BOOST_CHECK_EQUAL(fq.nr_children_for(0), 1);
-    BOOST_CHECK_EQUAL(fq.nr_children_for(1), 1);
+    SEASTAR_BOOST_CHECK_EQUAL(fq.nr_children_for({}), 3);
+    SEASTAR_BOOST_CHECK_EQUAL(fq.nr_children_for(0), 1);
+    SEASTAR_BOOST_CHECK_EQUAL(fq.nr_children_for(1), 1);
 
     BOOST_CHECK(fq.is_root_group(0));
     BOOST_CHECK(fq.is_root_group(1));
@@ -692,7 +693,7 @@ SEASTAR_THREAD_TEST_CASE(test_destroy_priority_class_with_requests) {
         desc->complete_with(1);
         return true;
     });
-    BOOST_REQUIRE_EQUAL(fx.get(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(fx.get(), 1);
 
     BOOST_REQUIRE(tio.is_class_registered(pc));
     tio.queue.destroy_priority_class(internal::priority_class(sg));
@@ -731,8 +732,8 @@ SEASTAR_THREAD_TEST_CASE(test_gauge_integrator_test) {
         fmt::print("value={:<6d} integral={:<10d} duration={:<4d} result={:<6d}\n",
             value, delta, seconds.count(), delta / seconds.count()
         );
-        BOOST_REQUIRE_GE(delta / seconds.count(), (unsigned short)(value * 0.9));
-        BOOST_REQUIRE_LE(delta / seconds.count(), (unsigned short)(value * 1.9));
+        SEASTAR_BOOST_REQUIRE_GE(delta / seconds.count(), (unsigned short)(value * 0.9));
+        SEASTAR_BOOST_REQUIRE_LE(delta / seconds.count(), (unsigned short)(value * 1.9));
     }
 
     // step two -- check disperse values
@@ -751,8 +752,8 @@ SEASTAR_THREAD_TEST_CASE(test_gauge_integrator_test) {
         fmt::print("value=[{:d},{:d}] integral={:<10d} duration={:<4d} result={:<6d}\n",
             min_v, max_v, delta, seconds.count(), delta / seconds.count()
         );
-        BOOST_REQUIRE_GE(delta / seconds.count(), min_v);
-        BOOST_REQUIRE_LE(delta / seconds.count(), max_v);
+        SEASTAR_BOOST_REQUIRE_GE(delta / seconds.count(), min_v);
+        SEASTAR_BOOST_REQUIRE_LE(delta / seconds.count(), max_v);
     }
     fmt::print("done\n");
 }
@@ -843,7 +844,7 @@ SEASTAR_THREAD_TEST_CASE(test_class_bandwidth_throttler) {
     background_drain drain(tio);
 
     auto bw = run_and_check_bandwidth(tio, pc, bandwidth * 0.9).get();
-    BOOST_REQUIRE_LE(bw, bandwidth * 1.15);
+    SEASTAR_BOOST_REQUIRE_LE(bw, bandwidth * 1.15);
 
     drain.stop().get();
     destroy_scheduling_group(sg).get();
@@ -862,7 +863,7 @@ SEASTAR_THREAD_TEST_CASE(test_class_group_bandwidth_throttler) {
     background_drain drain(tio);
 
     auto bw = run_and_check_bandwidth(tio, pc, bandwidth * 0.9).get();
-    BOOST_REQUIRE_LE(bw, bandwidth + burst + bw_slack);
+    SEASTAR_BOOST_REQUIRE_LE(bw, bandwidth + burst + bw_slack);
 
     drain.stop().get();
     destroy_scheduling_group(sg).get();
@@ -897,10 +898,10 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler) {
     auto bw1 = f1.get();
 
     // None of the classes must exceed its personal bandwidth
-    BOOST_REQUIRE_LE(bw0, bandwidth + burst + bw_slack);
-    BOOST_REQUIRE_LE(bw1, bandwidth + burst + bw_slack);
+    SEASTAR_BOOST_REQUIRE_LE(bw0, bandwidth + burst + bw_slack);
+    SEASTAR_BOOST_REQUIRE_LE(bw1, bandwidth + burst + bw_slack);
     // Both classes must not exceed the group bandwidth
-    BOOST_REQUIRE_LE(bw0 + bw1, group_bandwidth + burst + bw_slack);
+    SEASTAR_BOOST_REQUIRE_LE(bw0 + bw1, group_bandwidth + burst + bw_slack);
 
     drain.stop().get();
     destroy_scheduling_group(sg1).get();
@@ -935,9 +936,9 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_1_unlimited) {
     auto bw1 = f1.get();
 
     // Limited class must not exceed its personal bandwidth
-    BOOST_REQUIRE_LE(bw0, bandwidth + burst + bw_slack);
+    SEASTAR_BOOST_REQUIRE_LE(bw0, bandwidth + burst + bw_slack);
     // Both classes must not exceed the group bandwidth
-    BOOST_REQUIRE_LE(bw0 + bw1, group_bandwidth + burst + bw_slack);
+    SEASTAR_BOOST_REQUIRE_LE(bw0 + bw1, group_bandwidth + burst + bw_slack);
 
     drain.stop().get();
     destroy_scheduling_group(sg1).get();
@@ -969,9 +970,9 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
     auto bw1 = f1.get();
 
     // Check that shares are roughly respected
-    BOOST_REQUIRE_LE(float(bw0) / float(bw1), 4.05);
-    BOOST_REQUIRE_GE(float(bw0) / float(bw1), 3.95);
-    BOOST_REQUIRE_LE(bw0 + bw1, bandwidth + burst + bw_slack);
+    SEASTAR_BOOST_REQUIRE_LE(float(bw0) / float(bw1), 4.05);
+    SEASTAR_BOOST_REQUIRE_GE(float(bw0) / float(bw1), 3.95);
+    SEASTAR_BOOST_REQUIRE_LE(bw0 + bw1, bandwidth + burst + bw_slack);
 
     drain.stop().get();
     destroy_scheduling_group(sg1).get();

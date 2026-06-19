@@ -30,6 +30,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/util/internal/iovec_utils.hh>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -56,7 +57,7 @@ static void do_test_detach_buffers(size_t initial_buffers, std::vector<size_t> i
     auto merge_buffers = [] (const std::vector<temporary_buffer<char>>& bufs) {
         size_t len = 0;
         for (auto& b : bufs) {
-            BOOST_REQUIRE_NE(b.size(), 0);
+            SEASTAR_BOOST_REQUIRE_NE(b.size(), 0);
             len += b.size();
         }
         temporary_buffer<char> res(len);
@@ -124,12 +125,12 @@ BOOST_AUTO_TEST_CASE(test_iovec_trim_front) {
             BOOST_REQUIRE(res.empty());
         } else {
             BOOST_REQUIRE(res.size() > 0);
-            BOOST_REQUIRE_EQUAL(*reinterpret_cast<char*>(res[0].iov_base), data[l]);
-            BOOST_REQUIRE_NE(res[0].iov_len, 0);
+            SEASTAR_BOOST_REQUIRE_EQUAL(*reinterpret_cast<char*>(res[0].iov_base), data[l]);
+            SEASTAR_BOOST_REQUIRE_NE(res[0].iov_len, 0);
             size_t total = std::accumulate(res.begin(), res.end(), size_t(0), [] (size_t s, const auto& b) { return s + b.iov_len; });
-            BOOST_REQUIRE_EQUAL(total, 15 - l);
+            SEASTAR_BOOST_REQUIRE_EQUAL(total, 15 - l);
             if (res.size() > 1) {
-                BOOST_REQUIRE_EQUAL(*reinterpret_cast<char*>(res[1].iov_base), data[l + res[0].iov_len]);
+                SEASTAR_BOOST_REQUIRE_EQUAL(*reinterpret_cast<char*>(res[1].iov_base), data[l + res[0].iov_len]);
             }
         }
     }
@@ -169,8 +170,8 @@ BOOST_AUTO_TEST_CASE(test_iovec_trim_front_zero_length) {
         iovs.push_back(iovec{ &dummy, 0 });
         iovs.push_back(iovec{ (void*)data, 3 });
         auto res = internal::iovec_trim_front(std::span(iovs), 0);
-        BOOST_REQUIRE_EQUAL(res.size(), 1);
-        BOOST_REQUIRE_EQUAL(res[0].iov_len, 3);
-        BOOST_REQUIRE_EQUAL(*reinterpret_cast<const char*>(res[0].iov_base), 'a');
+        SEASTAR_BOOST_REQUIRE_EQUAL(res.size(), 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(res[0].iov_len, 3);
+        SEASTAR_BOOST_REQUIRE_EQUAL(*reinterpret_cast<const char*>(res[0].iov_base), 'a');
     }
 }

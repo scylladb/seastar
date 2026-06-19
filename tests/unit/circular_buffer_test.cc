@@ -28,6 +28,7 @@
 #include <deque>
 #include <random>
 #include <ranges>
+#include "test_comparisons.hh"
 #if __has_include(<version>)
 #include <version>
 #endif
@@ -60,9 +61,9 @@ BOOST_AUTO_TEST_CASE(test_erasing) {
     BOOST_REQUIRE(!buf.empty());
     {
         auto i = buf.begin();
-        BOOST_REQUIRE_EQUAL(*i++, 1);
-        BOOST_REQUIRE_EQUAL(*i++, 3);
-        BOOST_REQUIRE_EQUAL(*i++, 5);
+        SEASTAR_BOOST_REQUIRE_EQUAL(*i++, 1);
+        SEASTAR_BOOST_REQUIRE_EQUAL(*i++, 3);
+        SEASTAR_BOOST_REQUIRE_EQUAL(*i++, 5);
         BOOST_REQUIRE(i == buf.end());
     }
 }
@@ -104,16 +105,16 @@ BOOST_AUTO_TEST_CASE(test_erasing_in_the_middle) {
     }
 
     auto i = buf.erase(buf.begin() + 3, buf.begin() + 6);
-    BOOST_REQUIRE_EQUAL(*i, 6);
+    SEASTAR_BOOST_REQUIRE_EQUAL(*i, 6);
 
     i = buf.begin();
-    BOOST_REQUIRE_EQUAL(*i++, 0);
-    BOOST_REQUIRE_EQUAL(*i++, 1);
-    BOOST_REQUIRE_EQUAL(*i++, 2);
-    BOOST_REQUIRE_EQUAL(*i++, 6);
-    BOOST_REQUIRE_EQUAL(*i++, 7);
-    BOOST_REQUIRE_EQUAL(*i++, 8);
-    BOOST_REQUIRE_EQUAL(*i++, 9);
+    SEASTAR_BOOST_REQUIRE_EQUAL(*i++, 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(*i++, 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(*i++, 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(*i++, 6);
+    SEASTAR_BOOST_REQUIRE_EQUAL(*i++, 7);
+    SEASTAR_BOOST_REQUIRE_EQUAL(*i++, 8);
+    SEASTAR_BOOST_REQUIRE_EQUAL(*i++, 9);
     BOOST_REQUIRE(i == buf.end());
 }
 

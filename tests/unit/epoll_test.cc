@@ -28,6 +28,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <sys/socket.h>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -82,5 +83,5 @@ SEASTAR_THREAD_TEST_CASE(epoll_busy_spin_on_socket_error_test) {
 
     // Expectation is that we would busy spin for 3 seconds, we check that we
     // are below 1.5 seconds to avoid any kind of flakiness.
-    BOOST_REQUIRE_LT(busy_ms, 1500);
+    SEASTAR_BOOST_REQUIRE_LT(busy_ms, 1500);
 }

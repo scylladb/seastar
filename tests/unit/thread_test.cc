@@ -32,6 +32,7 @@
 #include <seastar/util/assert.hh>
 #include <sys/mman.h>
 #include <signal.h>
+#include "test_comparisons.hh"
 
 #include <valgrind/valgrind.h>
 
@@ -44,7 +45,7 @@ SEASTAR_TEST_CASE(test_thread_1) {
             x = "abc";
         });
         return t1->join().then([&x, t1] {
-            BOOST_REQUIRE_EQUAL(x, "abc");
+            SEASTAR_BOOST_REQUIRE_EQUAL(x, "abc");
             delete t1;
         });
     });
@@ -67,10 +68,10 @@ SEASTAR_TEST_CASE(test_thread_2) {
         for (int i = 0; i < n; ++i) {
             x.threads.emplace_back(std::bind(&tmp::thread_fn, &x));
         }
-        BOOST_REQUIRE_EQUAL(x.counter, 0);
+        SEASTAR_BOOST_REQUIRE_EQUAL(x.counter, 0);
         x.sem1.signal(n);
         return x.sem2.wait(n).then([&x, n] {
-            BOOST_REQUIRE_EQUAL(x.counter, n);
+            SEASTAR_BOOST_REQUIRE_EQUAL(x.counter, n);
             return parallel_for_each(x.threads.begin(), x.threads.end(), std::mem_fn(&thread::join));
         });
     });
@@ -84,13 +85,13 @@ SEASTAR_TEST_CASE(test_thread_async) {
         return x + y;
     };
     return async(concat, x, y).then([] (sstring xy) {
-        BOOST_REQUIRE_EQUAL(xy, "xy");
+        SEASTAR_BOOST_REQUIRE_EQUAL(xy, "xy");
     });
 }
 
 SEASTAR_TEST_CASE(test_thread_async_immed) {
     return async([] { return 3; }).then([] (int three) {
-        BOOST_REQUIRE_EQUAL(three, 3);
+        SEASTAR_BOOST_REQUIRE_EQUAL(three, 3);
     });
 }
 
@@ -100,7 +101,7 @@ SEASTAR_TEST_CASE(test_thread_async_nested) {
             return 3;
         }).get();
     }).then([] (int three) {
-        BOOST_REQUIRE_EQUAL(three, 3);
+        SEASTAR_BOOST_REQUIRE_EQUAL(three, 3);
     });
 }
 
@@ -163,7 +164,7 @@ SEASTAR_TEST_CASE(test_thread_custom_stack_size) {
     thread_attributes attr;
     attr.stack_size = 16384;
     return async(attr, concat, x, y).then([] (sstring xy) {
-        BOOST_REQUIRE_EQUAL(xy, "xy");
+        SEASTAR_BOOST_REQUIRE_EQUAL(xy, "xy");
     });
 }
 
@@ -248,7 +249,7 @@ seastar::future<> test_thread_custom_stack_size_failure::run_test_case() const {
     thread_attributes attr;
     attr.stack_size = 16384;
     return async(attr, concat, x, y).then([] (sstring xy) {
-        BOOST_REQUIRE_EQUAL(xy, "xy");
+        SEASTAR_BOOST_REQUIRE_EQUAL(xy, "xy");
         BOOST_REQUIRE(stack_guard_bypassed);
         auto ret = sigaction(SIGSEGV, &default_old_sigsegv_handler, nullptr);
         if (ret) {
@@ -258,7 +259,7 @@ seastar::future<> test_thread_custom_stack_size_failure::run_test_case() const {
         // The same function with a default stack will not trigger
         // a segfault, because its stack is much bigger than 10KiB
         return async(concat, x, y).then([] (sstring xy) {
-            BOOST_REQUIRE_EQUAL(xy, "xy");
+            SEASTAR_BOOST_REQUIRE_EQUAL(xy, "xy");
         });
     });
 }

@@ -21,6 +21,7 @@
 
 #include <exception>
 #include <functional>
+#include "test_comparisons.hh"
 
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/gate.hh>
@@ -47,7 +48,7 @@ static future<> check_gate_closed_exception(Func func) {
         co_await futurize_invoke(func);
         BOOST_FAIL("func was expected to throw gate_closed_exception");
     } catch (const gate_closed_exception& e) {
-        BOOST_REQUIRE_EQUAL(e.what(), "gate closed");
+        SEASTAR_BOOST_REQUIRE_EQUAL(e.what(), "gate closed");
     } catch (...) {
         BOOST_FAIL(format("unexpected exception: {}", std::current_exception()));
     }
@@ -56,26 +57,26 @@ static future<> check_gate_closed_exception(Func func) {
 SEASTAR_TEST_CASE(basic_gate_test) {
     gate g;
 
-    BOOST_REQUIRE_EQUAL(g.get_count(), 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(g.get_count(), 0);
     BOOST_REQUIRE(!g.is_closed());
     BOOST_REQUIRE_NO_THROW(g.check());
-    BOOST_REQUIRE_EQUAL(g.get_count(), 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(g.get_count(), 0);
     BOOST_REQUIRE_NO_THROW(g.enter());
-    BOOST_REQUIRE_EQUAL(g.get_count(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(g.get_count(), 1);
     auto gh0 = g.try_hold();
     BOOST_REQUIRE(gh0.has_value());
-    BOOST_REQUIRE_EQUAL(g.get_count(), 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(g.get_count(), 2);
     auto gh1 = g.hold();
-    BOOST_REQUIRE_EQUAL(g.get_count(), 3);
+    SEASTAR_BOOST_REQUIRE_EQUAL(g.get_count(), 3);
     BOOST_REQUIRE(!g.is_closed());
     auto f = g.close();
     BOOST_REQUIRE(!f.available());
     g.leave();
-    BOOST_REQUIRE_EQUAL(g.get_count(), 2);
+    SEASTAR_BOOST_REQUIRE_EQUAL(g.get_count(), 2);
     gh0->release();
-    BOOST_REQUIRE_EQUAL(g.get_count(), 1);
+    SEASTAR_BOOST_REQUIRE_EQUAL(g.get_count(), 1);
     gh1.release();
-    BOOST_REQUIRE_EQUAL(g.get_count(), 0);
+    SEASTAR_BOOST_REQUIRE_EQUAL(g.get_count(), 0);
     BOOST_REQUIRE_NO_THROW(co_await std::move(f));
     BOOST_REQUIRE(g.is_closed());
 }
@@ -113,7 +114,7 @@ static future<> check_named_gate_closed_exception(Func func, sstring name) {
         co_await futurize_invoke(func);
         BOOST_FAIL("func was expected to throw gate_closed_exception");
     } catch (const gate_closed_exception& e) {
-        BOOST_REQUIRE_EQUAL(e.what(), fmt::format("{} gate closed", name));
+        SEASTAR_BOOST_REQUIRE_EQUAL(e.what(), fmt::format("{} gate closed", name));
     } catch (...) {
         BOOST_FAIL(format("unexpected exception: {}", std::current_exception()));
     }

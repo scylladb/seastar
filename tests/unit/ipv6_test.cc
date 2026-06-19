@@ -25,6 +25,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/util/log.hh>
+#include "test_comparisons.hh"
 
 using namespace seastar;
 
@@ -59,11 +60,11 @@ SEASTAR_TEST_CASE(udp_packet_test) {
         return f2.then([sc = std::move(sc), src](auto pkt) mutable {
             auto a = sc.local_address();
             sc.close();
-            BOOST_REQUIRE_EQUAL(src, pkt.get_src());
+            SEASTAR_BOOST_REQUIRE_EQUAL(src, pkt.get_src());
             auto dst = pkt.get_dst();
             // Don't always get a dst address.
             if (dst != socket_address()) {
-                BOOST_REQUIRE_EQUAL(a, pkt.get_dst());
+                SEASTAR_BOOST_REQUIRE_EQUAL(a, pkt.get_dst());
             }
         });
     });
@@ -118,10 +119,10 @@ SEASTAR_TEST_CASE(ipv6_equal_test) {
     socket_address sock_addr4(ipv6_addr(str_addr3, port));
     socket_address sock_addr5(ipv6_addr(str_addr1, port2));
 
-    BOOST_CHECK_NE(sock_addr1, sock_addr2);
-    BOOST_CHECK_EQUAL(sock_addr1, sock_addr3);
-    BOOST_CHECK_NE(sock_addr1, sock_addr4);
-    BOOST_CHECK_NE(sock_addr1, sock_addr5);
+    SEASTAR_BOOST_CHECK_NE(sock_addr1, sock_addr2);
+    SEASTAR_BOOST_CHECK_EQUAL(sock_addr1, sock_addr3);
+    SEASTAR_BOOST_CHECK_NE(sock_addr1, sock_addr4);
+    SEASTAR_BOOST_CHECK_NE(sock_addr1, sock_addr5);
 
     return make_ready_future();
 }
