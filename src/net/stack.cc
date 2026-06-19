@@ -232,6 +232,19 @@ socket_address server_socket::local_address() const noexcept {
     return _ssi->local_address();
 }
 
+void server_socket::set_listen_backlog(int backlog) {
+    if (_ssi && !_aborted) {
+        _ssi->set_listen_backlog(backlog);
+    }
+}
+
+void net::server_socket_impl::set_listen_backlog(int backlog) {
+    // Log no more than once per 10 s.
+    static thread_local logger::rate_limit rate_limit(std::chrono::seconds(10));
+    seastar_logger.log(log_level::warn, rate_limit,
+            "This server socket cannot change the listen backlog, so it ignores the new value {}", backlog);
+}
+
 network_interface::network_interface(shared_ptr<net::network_interface_impl> impl) noexcept
     : _impl(std::move(impl))
 {}

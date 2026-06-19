@@ -359,6 +359,11 @@ public:
     /// asked for port 0 appears here under the port it was actually given.
     std::vector<socket_address> listening_addresses() const;
 
+    /// Change the listen backlog of this shard's listeners; see
+    /// server_socket::set_listen_backlog(). Affects only the current shard, and
+    /// only the sockets that already started listening.
+    void set_listen_backlog(int backlog);
+
     // Starting the accept loop is not something a caller has to do: listen() starts one
     // for the socket it creates, and listen(server_socket&&) for the socket it is given,
     // so calling these on top of that starts a second loop on a socket that already has
@@ -447,6 +452,10 @@ public:
     future<> listen(socket_address addr, http_server::server_credentials_ptr credentials);
     future<> listen(socket_address addr, listen_options lo);
     future<> listen(socket_address addr, listen_options lo, http_server::server_credentials_ptr credentials);
+
+    /// Change the listen backlog of the listeners on all shards; see
+    /// http_server::set_listen_backlog().
+    future<> set_listen_backlog(int backlog);
     sharded<http_server>& server();
 };
 }

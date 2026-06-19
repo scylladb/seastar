@@ -751,6 +751,10 @@ socket_address posix_server_socket_impl::local_address() const {
     return _lfd.get_file_desc().get_address();
 }
 
+void posix_server_socket_impl::set_listen_backlog(int backlog) {
+    _lfd.get_file_desc().listen(backlog);
+}
+
 posix_ap_server_socket_impl::posix_ap_server_socket_impl(int protocol, socket_address sa, std::pmr::polymorphic_allocator<char>* allocator)
         : _protocol(protocol), _sa(sa), _allocator(allocator)
 {
@@ -790,6 +794,12 @@ future<accept_result> posix_ap_server_socket_impl::accept() {
 }
 
 void
+posix_ap_server_socket_impl::set_listen_backlog(int) {
+    // This shard has no accept queue of its own: it receives connections from
+    // the listening socket on shard 0. The call on shard 0 changes the queue.
+}
+
+void
 posix_ap_server_socket_impl::abort_accept() {
     auto t_sa = std::make_tuple(_protocol, _sa);
     conn_q.erase(t_sa);
@@ -814,6 +824,10 @@ posix_reuseport_server_socket_impl::abort_accept() {
 
 socket_address posix_reuseport_server_socket_impl::local_address() const {
     return _lfd.get_file_desc().get_address();
+}
+
+void posix_reuseport_server_socket_impl::set_listen_backlog(int backlog) {
+    _lfd.get_file_desc().listen(backlog);
 }
 
 void

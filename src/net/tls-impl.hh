@@ -367,6 +367,9 @@ public:
     socket_address local_address() const override {
         return _sock.local_address();
     }
+    void set_listen_backlog(int backlog) override {
+        _sock.set_listen_backlog(backlog);
+    }
 private:
 
     shared_ptr<server_credentials> _creds;

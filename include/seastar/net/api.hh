@@ -393,6 +393,26 @@ public:
     /// \see listen(socket_address sa, listen_options opts)
     socket_address local_address() const noexcept;
 
+    /// Change the listen backlog of a socket that is already listening.
+    ///
+    /// On POSIX, this calls listen() again on the listening socket. The
+    /// connections in the accept queue stay, also when the new value is
+    /// smaller. The value has the meaning of listen_options::listen_backlog:
+    /// it applies to each listening socket, and the kernel caps it at
+    /// net.core.somaxconn.
+    ///
+    /// Call it on every shard that called listen(), as with listen() itself.
+    /// On a shard that only receives connections from the listening socket of
+    /// another shard, the call does nothing. With SO_REUSEPORT, on the other
+    /// hand, each shard has its own listening socket and changes its own queue.
+    ///
+    /// After abort_accept(), the call does nothing. A server socket that
+    /// cannot change the backlog logs a warning and ignores the call.
+    ///
+    /// \param backlog the new length of the accept queue
+    /// \throws std::system_error if listen() fails
+    void set_listen_backlog(int backlog);
+
     /// Check whether the \c server_socket is listening on any address.
     ///
     /// \return true if this \c socket_address is bound to an address,
