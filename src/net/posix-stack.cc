@@ -755,6 +755,15 @@ socket_address posix_server_socket_impl::local_address() const {
     return _lfd.get_file_desc().get_address();
 }
 
+void posix_server_socket_impl::set_listen_backlog(int backlog) {
+    _lfd.get_file_desc().listen(backlog);
+    _listen_backlog = backlog;
+}
+
+int posix_server_socket_impl::get_listen_backlog() const {
+    return _listen_backlog;
+}
+
 posix_ap_server_socket_impl::posix_ap_server_socket_impl(int protocol, socket_address sa, std::pmr::polymorphic_allocator<char>* allocator)
         : _protocol(protocol), _sa(sa), _allocator(allocator)
 {
@@ -793,6 +802,14 @@ future<accept_result> posix_ap_server_socket_impl::accept() {
 }
 
 void
+posix_ap_server_socket_impl::set_listen_backlog(int backlog) {
+    // A proxy: it owns no listening file descriptor, hence no accept queue to size.
+    throw std::system_error(EOPNOTSUPP, std::system_category(),
+            "set_listen_backlog: this shard holds a proxy for a listening socket owned by "
+            "the main shard; update the backlog there (see http_server_control::set_listen_backlog)");
+}
+
+void
 posix_ap_server_socket_impl::abort_accept() {
     auto t_sa = std::make_tuple(_protocol, _sa);
     conn_q.erase(t_sa);
@@ -820,6 +837,15 @@ posix_reuseport_server_socket_impl::abort_accept() {
 
 socket_address posix_reuseport_server_socket_impl::local_address() const {
     return _lfd.get_file_desc().get_address();
+}
+
+void posix_reuseport_server_socket_impl::set_listen_backlog(int backlog) {
+    _lfd.get_file_desc().listen(backlog);
+    _listen_backlog = backlog;
+}
+
+int posix_reuseport_server_socket_impl::get_listen_backlog() const {
+    return _listen_backlog;
 }
 
 void
@@ -921,13 +947,13 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
         sa = inet_address(inet_address::family::INET);
     }
     if (sa.is_af_unix()) {
-        return server_socket(std::make_unique<posix_server_socket_impl>(0, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, opt.proxy_protocol, _allocator));
+        return server_socket(std::make_unique<posix_server_socket_impl>(0, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, opt.proxy_protocol, opt.listen_backlog, _allocator));
     }
     auto protocol = static_cast<int>(opt.proto);
     return _reuseport ?
-        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), _allocator))
+        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), opt.listen_backlog, _allocator))
         :
-        server_socket(std::make_unique<posix_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, opt.proxy_protocol, _allocator));
+        server_socket(std::make_unique<posix_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, opt.proxy_protocol, opt.listen_backlog, _allocator));
 }
 
 ::seastar::socket posix_network_stack::socket() {
@@ -951,7 +977,7 @@ posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
     }
     auto protocol = static_cast<int>(opt.proto);
     return posix_network_stack::_reuseport ?
-        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), _allocator))
+        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), opt.listen_backlog, _allocator))
         :
         server_socket(std::make_unique<posix_ap_server_socket_impl>(protocol, sa, _allocator));
 }

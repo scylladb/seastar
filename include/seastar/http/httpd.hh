@@ -203,6 +203,7 @@ public:
     future<> listen(socket_address addr, listen_options lo, server_credentials_ptr credentials);
     future<> listen(socket_address addr, listen_options lo);
     future<> listen(socket_address addr);
+    void set_listen_backlog(int backlog);
     future<> stop();
 
     future<> do_accepts(int which);
@@ -258,6 +259,15 @@ public:
     future<> listen(socket_address addr, http_server::server_credentials_ptr credentials);
     future<> listen(socket_address addr, listen_options lo);
     future<> listen(socket_address addr, listen_options lo, http_server::server_credentials_ptr credentials);
+
+    /// Update the listen backlog of the server's listeners.
+    ///
+    /// The whole sharded server shares a single listening socket -- and
+    /// therefore a single kernel accept queue -- owned by the main shard; the
+    /// update is therefore issued on the main shard alone.
+    ///
+    /// \return a future resolving with std::system_error (EOPNOTSUPP) on failure.
+    future<> set_listen_backlog(int backlog);
     sharded<http_server>& server();
 };
 }

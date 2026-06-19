@@ -427,6 +427,13 @@ future<> http_server::listen(socket_address addr) {
     lo.reuse_address = true;
     return listen(addr, lo);
 }
+
+void http_server::set_listen_backlog(int backlog) {
+    for (auto& listener : _listeners) {
+        listener.set_listen_backlog(backlog);
+    }
+}
+
 future<> http_server::stop() {
     future<> tasks_done = _task_gate.close();
     for (auto&& l : _listeners) {
@@ -545,6 +552,15 @@ future<> http_server_control::listen(socket_address addr, listen_options lo) {
 
 future<> http_server_control::listen(socket_address addr, listen_options lo, http_server::server_credentials_ptr credentials) {
     return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, listen_options, http_server::server_credentials_ptr)>(&http_server::listen, addr, lo, credentials);
+}
+
+future<> http_server_control::set_listen_backlog(int backlog) {
+    // Only the main shard holds a real listening socket: with SO_REUSEPORT
+    // disabled (see reactor::posix_reuseport_available()) the other shards get
+    // fd-less posix_ap_server_socket_impl proxies, whose set_listen_backlog()
+    // throws EOPNOTSUPP.  There is a single accept queue behind them all, so
+    // updating the main shard updates the server.
+    return _server_dist->invoke_on(0, &http_server::set_listen_backlog, backlog);
 }
 
 sharded<http_server>& http_server_control::server() {

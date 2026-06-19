@@ -70,6 +70,12 @@ public:
     virtual future<accept_result> accept() = 0;
     virtual void abort_accept() = 0;
     virtual socket_address local_address() const = 0;
+    /// Update the listen backlog on an already-listening socket.
+    /// Throws std::system_error (EOPNOTSUPP) if the implementation
+    /// does not support runtime backlog changes.
+    virtual void set_listen_backlog(int backlog);
+    /// Returns -1 if the implementation does not track the backlog value.
+    virtual int get_listen_backlog() const;
 };
 
 class datagram_channel_impl {
