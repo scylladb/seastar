@@ -1857,7 +1857,7 @@ public:
         };
         return readable_or_writeable(listenfd).then([this, &listenfd] {
             auto desc = std::make_unique<accept_completion>(listenfd);
-            auto req = internal::io_request::make_accept(listenfd.fd.get(), desc->posix_sockaddr(), desc->socklen_ptr(), SOCK_NONBLOCK | SOCK_CLOEXEC);
+            auto req = internal::io_request::make_accept(listenfd.fd.get(), desc->posix_sockaddr(), desc->socklen_ptr(), SOCK_CLOEXEC);
             return submit_request(std::move(desc), std::move(req));
         });
     }
@@ -2484,7 +2484,7 @@ public:
             }
         };
         auto desc = std::make_unique<accept_completion>(listenfd);
-        auto req = internal::io_request::make_accept(listenfd.fd.get(), desc->posix_sockaddr(), desc->socklen_ptr(), SOCK_NONBLOCK | SOCK_CLOEXEC);
+        auto req = internal::io_request::make_accept(listenfd.fd.get(), desc->posix_sockaddr(), desc->socklen_ptr(), SOCK_CLOEXEC);
         return submit_request(std::move(desc), std::move(req));
     }
 
