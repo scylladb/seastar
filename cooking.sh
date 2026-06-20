@@ -229,6 +229,17 @@ if [ -z "${ingredients_dir}" ]; then
     ingredients_dir="${cooking_dir}/installed"
 fi
 
+#
+# Validate recipe.
+#
+
+if [ -n "${recipe}" ]; then
+    if [ ! -f "${recipe}" ]; then
+        echo "Cooking: The '${recipe}' recipe does not exist!" >&2
+        exit 1
+    fi
+fi
+
 mkdir -p "${build_dir}"
 
 cat <<'EOF' > "${build_dir}/Cooking.cmake"
@@ -867,17 +878,6 @@ if [ -d "${ingredients_dir}" -a -z "${nested}" ]; then
 fi
 
 mkdir -p "${ingredients_dir}"
-
-#
-# Validate recipe.
-#
-
-if [ -n "${recipe}" ]; then
-    if [ ! -f "${recipe}" ]; then
-        echo "Cooking: The '${recipe}' recipe does not exist!" >&2
-        exit 1
-    fi
-fi
 
 #
 # Prepare lists of included and excluded ingredients.
