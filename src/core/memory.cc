@@ -1553,21 +1553,31 @@ abort_on_underflow(size_t size) {
 }
 
 [[gnu::always_inline]]
-inline void* allocate_large(size_t size, bool should_sample) {
+inline optional<unsigned> size_to_page_count(size_t size) {
     abort_on_underflow(size);
-    unsigned size_in_pages = (size + page_size - 1) >> page_bits;
-    if ((size_t(size_in_pages) << page_bits) < size) {
-        return nullptr; // (size + page_size - 1) caused an overflow
+    auto size_in_pages = (size + page_size - 1) >> page_bits;
+    if (size_in_pages > std::numeric_limits<unsigned>::max()) {
+        return {};
     }
-    return get_cpu_mem().allocate_large(size_in_pages, should_sample);
+    return static_cast<unsigned>(size_in_pages);
+}
 
+[[gnu::always_inline]]
+inline void* allocate_large(size_t size, bool should_sample) {
+    auto size_in_pages = size_to_page_count(size);
+    if (!size_in_pages) {
+        return nullptr;
+    }
+    return get_cpu_mem().allocate_large(*size_in_pages, should_sample);
 }
 
 void* allocate_large_aligned(size_t align, size_t size, bool should_sample) {
-    abort_on_underflow(size);
-    unsigned size_in_pages = (size + page_size - 1) >> page_bits;
+    auto size_in_pages = size_to_page_count(size);
+    if (!size_in_pages) {
+        return nullptr;
+    }
     unsigned align_in_pages = std::max(align, page_size) >> page_bits;
-    return get_cpu_mem().allocate_large_aligned(align_in_pages, size_in_pages, should_sample);
+    return get_cpu_mem().allocate_large_aligned(align_in_pages, *size_in_pages, should_sample);
 }
 
 void free_large(void* ptr) {
