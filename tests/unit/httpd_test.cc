@@ -2463,6 +2463,26 @@ SEASTAR_THREAD_TEST_CASE(test_write_reply_content) {
     BOOST_REQUIRE(s.ends_with("hello"));
 }
 
+SEASTAR_THREAD_TEST_CASE(test_write_reply_unknown_status) {
+    http::reply reply;
+    reply.set_version("1.1");
+    reply.set_status(static_cast<http::reply::status_type>(299));
+    reply.write_body("txt", sstring("hello"));
+
+    std::stringstream ss;
+    auto os = output_stream<char>(data_sink(std::make_unique<testing::memory_data_sink_impl>(ss)));
+    auto close_os = deferred_close(os);
+
+    reply.write_reply(os).get();
+    os.flush().get();
+
+    auto s = ss.str();
+    BOOST_REQUIRE(s.starts_with("HTTP/1.1 299 \r\n"));
+    BOOST_REQUIRE_NE(s.find("Content-Type: text/plain\r\n"), std::string::npos);
+    BOOST_REQUIRE_NE(s.find("Content-Length: 5\r\n"), std::string::npos);
+    BOOST_REQUIRE(s.ends_with("hello"));
+}
+
 SEASTAR_THREAD_TEST_CASE(test_write_reply_body_writer) {
     // Tests write_reply() for the body_writer (chunked) path:
     // - response line is correctly formatted
