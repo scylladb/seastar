@@ -751,7 +751,8 @@ dns_resolver::impl::poll_sockets() {
 #if ARES_VERSION >= 0x011300 && USE_CARES_EVENTFD
     // When using ARES_OPT_SOCK_STATE_CB with modern c-ares >= 1.34.0
     // we know exactly which sockets c-ares cares about through the callback
-    if (!_socket_monitors.empty()) {
+    bool processed = false;
+    for (;;) {
         // Most DNS queries use few sockets, so optimize for the common case by
         // stack-allocating a small buffer and only allocating on heap if needed
         constexpr int MAX_EVENTS = 16;
@@ -800,12 +801,12 @@ dns_resolver::impl::poll_sockets() {
 
         if (event_count > 0) {
             ares_process_fds(_channel, events, event_count, ARES_PROCESS_FLAG_NONE);
+            processed = true;
         } else {
-            // No sockets ready, just process timeouts
-            ares_process_fd(_channel, ARES_SOCKET_BAD, ARES_SOCKET_BAD);
+            break;
         }
-    } else {
-        // No sockets monitored, just handle timeouts
+    }
+    if (!processed) {
         ares_process_fd(_channel, ARES_SOCKET_BAD, ARES_SOCKET_BAD);
     }
 #elif USE_CARES_EVENTFD
