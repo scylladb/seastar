@@ -31,10 +31,13 @@
 
 #include <memory>
 #include <new>
+#include <limits>
 #include <vector>
 #include <future>
 #include <iostream>
 
+#include <cerrno>
+#include <cstdint>
 #include <malloc.h>
 #include <stdlib.h>
 
@@ -333,6 +336,32 @@ SEASTAR_TEST_CASE(test_bad_alloc_throws) {
     stats = seastar::memory::stats();
     BOOST_REQUIRE_EQUAL(malloc(size), nullptr);
     BOOST_CHECK_EQUAL(failed_allocs(), 1);
+
+    constexpr auto overflowing_page_count =
+        uint64_t(std::numeric_limits<unsigned>::max()) + 2;
+    if constexpr (std::numeric_limits<size_t>::max() / memory::page_size >= overflowing_page_count) {
+        auto truncating_aligned_size = size_t(overflowing_page_count) * memory::page_size;
+
+        // test that aligned allocations whose page count would overflow fail
+        stats = seastar::memory::stats();
+        BOOST_REQUIRE_EQUAL(aligned_alloc(memory::page_size, truncating_aligned_size), nullptr);
+        BOOST_CHECK_EQUAL(failed_allocs(), 1);
+
+        stats = seastar::memory::stats();
+        BOOST_REQUIRE_EQUAL(memalign(memory::page_size, truncating_aligned_size), nullptr);
+        BOOST_CHECK_EQUAL(failed_allocs(), 1);
+
+        stats = seastar::memory::stats();
+        void* p_aligned = nullptr;
+        BOOST_REQUIRE_EQUAL(posix_memalign(&p_aligned, memory::page_size, truncating_aligned_size), ENOMEM);
+        BOOST_REQUIRE_EQUAL(p_aligned, nullptr);
+        BOOST_CHECK_EQUAL(failed_allocs(), 1);
+
+        stats = seastar::memory::stats();
+        BOOST_REQUIRE_THROW(sink = operator new(
+                truncating_aligned_size, std::align_val_t(memory::page_size)), std::bad_alloc);
+        BOOST_CHECK_EQUAL(failed_allocs(), 1);
+    }
 
     // test that huge realloc on nullptr returns null
     stats = seastar::memory::stats();
