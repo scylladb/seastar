@@ -91,27 +91,27 @@ static const std::unordered_map<reply::status_type, std::string_view> status_str
     {reply::status_type::network_read_timeout, "598 Network Read Timeout"},
     {reply::status_type::network_connect_timeout, "599 Network Connect Timeout"}};
 
-template<typename Func>
-static auto with_string_view(reply::status_type status, Func&& func) -> std::invoke_result_t<Func, std::string_view> {
-  if (auto found = status_strings.find(status); found != status_strings.end()) [[likely]] {
-     return func(found->second);
-  }
-  auto dummy_buf = std::to_string(int(status));
-  return func(dummy_buf);
+static std::optional<std::string_view> find(reply::status_type status) {
+    if (auto found = status_strings.find(status); found != status_strings.end()) [[likely]] {
+        return found->second;
+    }
+    return std::nullopt;
 }
 
 } // namespace status_strings
 
 std::ostream& operator<<(std::ostream& os, reply::status_type st) {
-    return status_strings::with_string_view(st, [&](std::string_view txt) -> std::ostream& {
-        return os << txt;
-    });
+    if (auto status = status_strings::find(st); status) [[likely]] {
+        return os << *status;
+    }
+    return os << static_cast<int>(st);
 }
 
 sstring reply::response_line() const {
-    return status_strings::with_string_view(_status, [this](std::string_view txt) {
-        return seastar::format("HTTP/{} {}\r\n", _version, txt);
-    });
+    if (auto status = status_strings::find(_status); status) [[likely]] {
+        return seastar::format("HTTP/{} {}\r\n", _version, *status);
+    }
+    return seastar::format("HTTP/{} {} \r\n", _version, static_cast<int>(_status));
 }
 
 void reply::write_body(std::optional<std::string_view> content_type, body_writer_type&& body_writer) {
