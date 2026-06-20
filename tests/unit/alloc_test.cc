@@ -126,6 +126,119 @@ SEASTAR_TEST_CASE(test_aligned_alloc) {
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(test_large_alignment_larger_than_size) {
+    static constexpr size_t large_align = memory::huge_page_size < 512 * memory::page_size
+            ? memory::huge_page_size
+            : 512 * memory::page_size;
+    static constexpr size_t size = memory::page_size;
+    static_assert(large_align > size);
+
+    std::vector<void*> allocations;
+    allocations.reserve(4);
+    for (unsigned i = 0; i != 4; ++i) {
+        void* p = nullptr;
+        BOOST_REQUIRE_EQUAL(posix_memalign(&p, large_align, size), 0);
+        BOOST_REQUIRE(p != nullptr);
+        BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(p) % large_align, 0);
+        allocations.push_back(p);
+    }
+    for (auto p : allocations) {
+        free(p);
+    }
+
+    auto aligned = memalign(large_align, size);
+    BOOST_REQUIRE(aligned != nullptr);
+    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(aligned) % large_align, 0);
+    free(aligned);
+
+    // aligned_alloc requires size to be a multiple of alignment.
+    aligned = aligned_alloc(large_align, large_align);
+    BOOST_REQUIRE(aligned != nullptr);
+    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(aligned) % large_align, 0);
+    free(aligned);
+
+    void* (*volatile aligned_new)(size_t, std::align_val_t) = ::operator new;
+    auto p = aligned_new(size, std::align_val_t(large_align));
+    BOOST_REQUIRE(p != nullptr);
+    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(p) % large_align, 0);
+    ::operator delete(p, size, std::align_val_t(large_align));
+
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_large_aligned_new_with_misaligned_free_span) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+    constexpr size_t alignment = memory::huge_page_size;
+    constexpr size_t size = 8 * memory::page_size;
+    static_assert(size < alignment);
+
+    std::unique_ptr<void, decltype(&free)> backing(memalign(alignment, alignment), free);
+    BOOST_REQUIRE(backing != nullptr);
+    // Keep the aligned start live and return its buddy spans. The smallest
+    // free buddy starts at backing + size, so it cannot satisfy alignment.
+    auto original = backing.release();
+    auto original_address = reinterpret_cast<uintptr_t>(original);
+    auto shrunk = realloc(original, size);
+    backing.reset(shrunk ? shrunk : original);
+    auto candidate = malloc(size);
+    auto candidate_address = reinterpret_cast<uintptr_t>(candidate);
+    auto candidate_alignment = candidate_address % alignment;
+    free(candidate);
+
+    // Call indirectly so the compiler cannot assume the returned alignment
+    // from the standard operator new contract and remove the check.
+    void* (*volatile aligned_new)(size_t, std::align_val_t) = ::operator new;
+    auto p = aligned_new(size, std::align_val_t(alignment));
+    auto actual_alignment = reinterpret_cast<uintptr_t>(p) % alignment;
+    ::operator delete(p, size, std::align_val_t(alignment));
+    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(shrunk), original_address);
+    BOOST_REQUIRE_EQUAL(candidate_address, original_address + size);
+    BOOST_REQUIRE_NE(candidate_alignment, 0);
+    BOOST_REQUIRE_EQUAL(actual_alignment, 0);
+#endif
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_small_aligned_new_with_alignment_larger_than_size) {
+    void* (*volatile aligned_new)(size_t, std::align_val_t) = ::operator new;
+    for (size_t alignment : {size_t(64), memory::page_size}) {
+        for (size_t size : {size_t(0), size_t(1), size_t(32)}) {
+            std::vector<void*> allocations;
+            allocations.reserve(4);
+            for (unsigned i = 0; i != 4; ++i) {
+                auto p = aligned_new(size, std::align_val_t(alignment));
+                BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(p) % alignment, 0);
+                allocations.push_back(p);
+            }
+            for (auto p : allocations) {
+                ::operator delete(p, size, std::align_val_t(alignment));
+            }
+        }
+    }
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_aligned_new_with_overflowing_alignment) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+    constexpr auto overflowing_page_count =
+        uint64_t(std::numeric_limits<unsigned>::max()) + 1;
+    if constexpr (std::numeric_limits<size_t>::max() / memory::page_size >= overflowing_page_count) {
+        auto alignment = size_t(overflowing_page_count) * memory::page_size;
+        // Call indirectly so the compiler cannot assume the returned alignment.
+        void* (*volatile aligned_new)(size_t, std::align_val_t) = ::operator new;
+        void* (*volatile aligned_new_nothrow)(size_t, std::align_val_t, const std::nothrow_t&) = ::operator new;
+        for (size_t size : {size_t(0), size_t(1), sizeof(void*), sizeof(void*) + 1, memory::page_size}) {
+            auto p = aligned_new_nothrow(size, std::align_val_t(alignment), std::nothrow);
+            auto rejected = p == nullptr;
+            ::operator delete(p, std::align_val_t(alignment));
+            BOOST_REQUIRE(rejected);
+            BOOST_REQUIRE_THROW((void)aligned_new(size, std::align_val_t(alignment)), std::bad_alloc);
+        }
+    }
+#endif
+    return make_ready_future<>();
+}
+
 #ifdef __cpp_sized_deallocation
 SEASTAR_TEST_CASE(test_sized_delete) {
     for (size_t size = 0; size <= 65536; size++) {
