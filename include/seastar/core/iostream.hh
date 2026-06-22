@@ -599,6 +599,15 @@ private:
 template <typename CharType>
 future<> copy(input_stream<CharType>&, output_stream<CharType>&);
 
+/*!
+ * \brief copy exactly \c n bytes from the input stream to the output stream
+ *
+ * Throws \c std::runtime_error if the input stream reaches end-of-stream
+ * before \c n bytes have been copied.
+ */
+template <typename CharType>
+future<> copy_n(input_stream<CharType>&, output_stream<CharType>&, size_t n);
+
 }
 
 #include "iostream-impl.hh"

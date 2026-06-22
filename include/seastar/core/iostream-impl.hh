@@ -617,6 +617,7 @@ public:
         });
     }
 };
+
 /// \endcond
 
 }
@@ -626,6 +627,22 @@ extern template struct internal::stream_copy_consumer<char>;
 template <typename CharType>
 future<> copy(input_stream<CharType>& in, output_stream<CharType>& out) {
     return in.consume(internal::stream_copy_consumer<CharType>(out));
+}
+
+/// \brief copy exactly \c n bytes from the input stream to the output stream
+///
+/// \throws std::runtime_error if the input stream reaches end-of-stream before
+/// \c n bytes have been copied.
+template <typename CharType>
+future<> copy_n(input_stream<CharType>& in, output_stream<CharType>& out, size_t n) {
+    while (n != 0) {
+        auto buf = co_await in.read_up_to(n);
+        if (buf.empty()) {
+            throw std::runtime_error("copy_n: input stream reached end-of-stream before copying the requested number of bytes");
+        }
+        n -= buf.size();
+        co_await out.write(std::move(buf));
+    }
 }
 
 extern template future<> copy<char>(input_stream<char>&, output_stream<char>&);
