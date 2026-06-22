@@ -25,6 +25,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/random.hh>
+#include <seastar/util/memory-data-source.hh>
 #include <vector>
 #include <list>
 #include <deque>
@@ -267,6 +268,50 @@ SEASTAR_THREAD_TEST_CASE(test_move_after_batched_write) {
     }
     out.close().get();
     BOOST_REQUIRE_EQUAL(ss.str(), "smth");
+}
+
+namespace {
+
+// Build an input_stream that serves `data` as fixed-size chunks, using the
+// in-tree util::memory_data_source. Multiple chunks exercise copy_n's read
+// loop even for small inputs.
+input_stream<char> make_chunked_input_stream(std::string_view data, size_t chunk = 4) {
+    std::vector<temporary_buffer<char>> bufs;
+    for (size_t i = 0; i < data.size(); i += chunk) {
+        auto sz = std::min(chunk, data.size() - i);
+        bufs.emplace_back(data.data() + i, sz);
+    }
+    return util::as_input_stream(std::move(bufs));
+}
+
+}
+
+SEASTAR_THREAD_TEST_CASE(test_copy_n) {
+    const sstring src = "0123456789abcdef"; // 16 bytes; 4-byte chunks => multi-read
+
+    // copy_n copies exactly n bytes; check counts spanning the chunk boundary,
+    // and that the input retains exactly the unconsumed remainder afterwards.
+    for (size_t n : {size_t(0), size_t(1), size_t(4), size_t(5), size_t(13), src.size()}) {
+        std::stringstream ss;
+        auto in = make_chunked_input_stream(src);
+        auto out = output_stream<char>(testing::memory_data_sink(ss), 8);
+        copy_n(in, out, n).get();
+        out.close().get();
+        BOOST_REQUIRE_EQUAL(ss.str(), std::string(src.data(), n));
+
+        // The input must still have exactly the remaining bytes available.
+        auto rest = in.read_exactly(src.size() - n).get();
+        BOOST_REQUIRE_EQUAL(sstring(rest.get(), rest.size()), src.substr(n));
+    }
+
+    // Requesting more than the stream holds fails (exactly-n contract).
+    {
+        std::stringstream ss;
+        auto in = make_chunked_input_stream(src);
+        auto out = output_stream<char>(testing::memory_data_sink(ss), 8);
+        BOOST_REQUIRE_THROW(copy_n(in, out, src.size() + 1).get(), std::runtime_error);
+        out.close().get();
+    }
 }
 
 SEASTAR_THREAD_TEST_CASE(test_simple_write) {
