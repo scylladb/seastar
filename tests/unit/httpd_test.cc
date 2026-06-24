@@ -880,6 +880,47 @@ SEASTAR_TEST_CASE(content_length_limit) {
     });
 }
 
+SEASTAR_TEST_CASE(request_size_limit) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        server.set_request_size_limit(1024);
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+
+        future<> client = seastar::async([&lcf] {
+            auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
+            auto check_status = [&cln] (sstring header_value, http::reply::status_type expected) {
+                auto req = http::request::make("GET", "test", "/test");
+                if (!header_value.empty()) {
+                    req._headers["X-Big"] = std::move(header_value);
+                }
+                std::optional<http::reply::status_type> status;
+                cln.make_request(std::move(req), [&status] (const http::reply& rep, input_stream<char>&& in) {
+                    status = rep._status;
+                    return seastar::async([in = std::move(in)] () mutable {
+                        util::skip_entire_stream(in).get();
+                        in.close().get();
+                    });
+                }).get();
+                BOOST_REQUIRE(status.has_value());
+                BOOST_REQUIRE_EQUAL(status.value(), expected);
+            };
+
+            check_status("",                  http::reply::status_type::ok);
+            check_status(sstring(4096, 'x'),   http::reply::status_type::bad_request); // over limit
+
+            cln.close().get();
+        });
+
+        auto handler = new json_test_handler(json::stream_object("hello"));
+        server._routes.put(GET, "/test", handler);
+        server.do_accepts(0).get();
+
+        client.get();
+        server.stop().get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_client_unexpected_reply_status) {
     return seastar::async([] {
         class handl : public httpd::handler_base {

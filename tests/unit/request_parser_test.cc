@@ -72,3 +72,53 @@ SEASTAR_TEST_CASE(test_header_parsing) {
     }
     return make_ready_future<>();
 }
+
+SEASTAR_TEST_CASE(test_request_size_limit) {
+    struct test_set {
+        sstring msg;
+        size_t limit;
+        bool too_large;
+
+        temporary_buffer<char> buf() {
+            return temporary_buffer<char>(msg.c_str(), msg.size());
+        }
+    };
+
+    sstring big_uri = "GET /" + sstring(1024, 'a') + " HTTP/1.1\r\nHost: test\r\n\r\n";
+    sstring big_header = "GET /test HTTP/1.1\r\nX-Big: " + sstring(1024, 'a') + "\r\n\r\n";
+
+    std::vector<test_set> tests = {
+        { "GET /test HTTP/1.1\r\nHost: test\r\n\r\n", 64, false },
+        { big_uri, 64, true },
+        { big_header, 64, true },
+        { big_uri, 4096, false },
+    };
+
+    http_request_parser parser;
+    for (auto& tset : tests) {
+        parser.init();
+        parser.set_size_limit(tset.limit);
+        BOOST_REQUIRE(parser(tset.buf()).get().has_value());
+        BOOST_REQUIRE_EQUAL(parser.size_limit_exceeded(), tset.too_large);
+    }
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_request_size_limit_scattered) {
+    // The limit must hold when a single oversized header is split across
+    // buffers, since the parser accumulates it before the request completes.
+    sstring part1 = "GET /test HTTP/1.1\r\nX-Big: " + sstring(200, 'a');
+    sstring part2 = sstring(400, 'a') + "\r\n\r\n";
+    auto feed = [] (http_request_parser& parser, const sstring& s) {
+        return parser(temporary_buffer<char>(s.c_str(), s.size())).get();
+    };
+
+    http_request_parser parser;
+    parser.init();
+    parser.set_size_limit(512);
+    BOOST_REQUIRE(!feed(parser, part1).has_value());
+    BOOST_REQUIRE(!parser.size_limit_exceeded());
+    feed(parser, part2);
+    BOOST_REQUIRE(parser.size_limit_exceeded());
+    return make_ready_future<>();
+}

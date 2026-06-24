@@ -201,6 +201,7 @@ void connection::generate_error_reply_and_close(std::unique_ptr<http::request> r
 
 future<> connection::read_one() {
     _parser.init();
+    _parser.set_size_limit(_server.get_request_size_limit());
     return _read_buf.consume(_parser).then([this] () mutable {
         if (_parser.eof()) {
             _done = true;
@@ -214,6 +215,13 @@ future<> connection::read_one() {
 
         if (_tls) {
             req->protocol_name = "https";
+        }
+        if (_parser.size_limit_exceeded()) {
+            if (req->_version.empty()) {
+                req->_version = "1.1";
+            }
+            generate_error_reply_and_close(std::move(req), http::reply::status_type::bad_request, "Request header or URL too large");
+            return make_ready_future<>();
         }
         if (_parser.failed()) {
             if (req->_version.empty()) {
@@ -370,6 +378,14 @@ size_t http_server::get_content_length_limit() const {
 
 void http_server::set_content_length_limit(size_t limit) {
     _content_length_limit = limit;
+}
+
+size_t http_server::get_request_size_limit() const {
+    return _request_size_limit;
+}
+
+void http_server::set_request_size_limit(size_t limit) {
+    _request_size_limit = limit;
 }
 
 bool http_server::get_content_streaming() const {

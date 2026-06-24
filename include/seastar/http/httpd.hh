@@ -134,6 +134,7 @@ class http_server {
     sstring _date = http_date();
     timer<> _date_format_timer { [this] {_date = http_date();} };
     size_t _content_length_limit = std::numeric_limits<size_t>::max();
+    size_t _request_size_limit = 32 * 1024;
     bool _content_streaming = false;
     std::optional<sstring> _server_header = sstring("Seastar httpd");
     bool _generate_date_header = true;
@@ -155,6 +156,15 @@ public:
     size_t get_content_length_limit() const;
 
     void set_content_length_limit(size_t limit);
+
+    /// Returns the combined size limit for the request line and headers.
+    size_t get_request_size_limit() const;
+
+    /// Sets the combined size limit for the request line and headers. Requests
+    /// exceeding it are rejected with 400 Bad Request before the handler runs,
+    /// bounding the memory a client can force the server to buffer. Defaults to
+    /// 32 KiB.
+    void set_request_size_limit(size_t limit);
 
     bool get_content_streaming() const;
 
