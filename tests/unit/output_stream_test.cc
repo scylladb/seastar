@@ -260,13 +260,13 @@ SEASTAR_THREAD_TEST_CASE(test_flush_on_empty_buffer_does_not_push_empty_packet_d
 
 SEASTAR_THREAD_TEST_CASE(test_move_after_batched_write) {
     std::stringstream ss;
-    output_stream<char> out;
+    std::optional<output_stream<char>> out;
     {
         auto out2 = output_stream<char>(testing::memory_data_sink(ss), 8);
         out2.write(sstring("smth")).get();
-        out = std::move(out2);
+        out.emplace(std::move(out2));
     }
-    out.close().get();
+    out->close().get();
     BOOST_REQUIRE_EQUAL(ss.str(), "smth");
 }
 
