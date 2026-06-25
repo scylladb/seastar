@@ -364,10 +364,6 @@ future<bool> connection::generate_reply(std::unique_ptr<http::request> req) {
     });
 }
 
-void http_server::set_tls_credentials(server_credentials_ptr credentials) {
-    _credentials = credentials;
-}
-
 size_t http_server::get_content_length_limit() const {
     return _content_length_limit;
 }
