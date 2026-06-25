@@ -360,6 +360,9 @@ public:
         port,
         // This algorithm distributes all new connections to listen_options::fixed_cpu shard only.
         fixed,
+        // This algorithm distributes new connections to shards in a round-robin fashion,
+        // cycling through shards 0, 1, ..., N-1, 0, 1, ... regardless of current load.
+        round_robin,
         default_ = connection_distribution
     };
     /// Constructs a \c server_socket without being bound to any address
