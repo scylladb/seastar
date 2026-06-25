@@ -738,8 +738,10 @@ posix_server_socket_impl::accept() {
                 _allocator);
             co_return accept_result{connected_socket(std::move(csi)), sa};
         } else {
+            auto raw_fd = std::move(fd.get_file_desc());
+            fd.close();
             // FIXME: future is discarded
-            (void)smp::submit_to(cpu, [protocol = _protocol, ssa = _sa, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth), addr_data_opt = std::move(addr_data_opt), allocator = _allocator] () mutable {
+            (void)smp::submit_to(cpu, [protocol = _protocol, ssa = _sa, fd = std::move(raw_fd), sa, cth = std::move(cth), addr_data_opt = std::move(addr_data_opt), allocator = _allocator] () mutable {
                 posix_ap_server_socket_impl::move_connected_socket(protocol, ssa, pollable_fd(std::move(fd)), sa, std::move(cth), std::move(addr_data_opt), allocator);
             });
         }
@@ -765,7 +767,9 @@ posix_ap_server_socket_impl::posix_ap_server_socket_impl(int protocol, socket_ad
 }
 
 posix_ap_server_socket_impl::~posix_ap_server_socket_impl() {
-    ports.erase(std::make_tuple(_protocol, _sa));
+    auto t_sa = std::make_tuple(_protocol, _sa);
+    conn_q.erase(t_sa);
+    ports.erase(t_sa);
 }
 
 future<accept_result> posix_ap_server_socket_impl::accept() {
@@ -840,8 +844,11 @@ posix_ap_server_socket_impl::move_connected_socket(int protocol, socket_address 
             i->second.set_exception(std::current_exception());
         }
         sockets.erase(i);
-    } else {
+    } else if (ports.contains(t_sa)) {
         conn_q.emplace(std::piecewise_construct, std::make_tuple(t_sa), std::make_tuple(std::move(fd), std::move(addr), std::move(cth), std::move(addr_data_opt)));
+    } else {
+        // No one is listening anymore; drop the connection to avoid leaking it.
+        fd.close();
     }
 }
 
