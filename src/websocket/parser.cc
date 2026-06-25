@@ -92,6 +92,10 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
                 _masking_key = consume_be<uint32_t>(input);
             }
             _buffer = {};
+            if (!valid_payload_length()) {
+                _cstate = connection_state::error;
+                return websocket_parser::stop(std::move(data));
+            }
             _state = parsing_state::payload;
         } else {
             _buffer.append(data.get(), data.size());
