@@ -106,6 +106,14 @@ public:
         }
     }
 
+    // Emulate SHUT_WR: keep already-queued data and append an EOF marker after
+    // it, rather than discarding it the way abort() does.
+    future<> shutdown_output() noexcept {
+        shutdown();
+        // empty buffer = EOF, the same marker the data sink's close() uses
+        return _q.push_eventually(temporary_buffer<char>(0)).handle_exception([] (std::exception_ptr) {});
+    }
+
     future<> wait_input_shutdown() {
         SEASTAR_ASSERT(!_shutdown.has_value());
         _shutdown.emplace();
@@ -206,7 +214,7 @@ public:
     }
     void shutdown_output() override {
         (void)smp::submit_to(_tx->get_owner_shard(), [tx = _tx] {
-            (*tx)->abort();
+            return (*tx)->shutdown_output();
         });
     }
     void set_nodelay(bool nodelay) override {
