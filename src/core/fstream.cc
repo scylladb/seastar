@@ -40,6 +40,8 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/io_intent.hh>
+#include <seastar/core/do_with.hh>
+#include <seastar/net/packet.hh>
 #include <seastar/coroutine/exception.hh>
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
@@ -586,6 +588,7 @@ public:
     pipe_data_sink_impl(file_desc fd)
             : _fd(std::move(fd)) {}
 
+#if SEASTAR_API_LEVEL >= 9
     future<> put(std::span<temporary_buffer<char>> bufs) override {
         // Chain all buffer deleters and keep iov alive until write_all completes.
         deleter del;
@@ -603,6 +606,19 @@ public:
         auto iovspan = std::span<iovec>(iov);
         return _fd.write_all(iovspan).finally([del = std::move(del), iov = std::move(iov)] {});
     }
+#else
+    using data_sink_impl::put;
+    future<> put(temporary_buffer<char> buf) override {
+        auto data = buf.get();
+        auto size = buf.size();
+        return _fd.write_all(data, size).finally([buf = std::move(buf)] {});
+    }
+    future<> put(net::packet data) override {
+        return do_with(std::move(data), [this] (net::packet& p) {
+            return _fd.write_all(p);
+        });
+    }
+#endif
 
     future<> close() override {
         _fd.close();
