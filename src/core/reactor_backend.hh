@@ -40,6 +40,7 @@
 #include <bitset>
 #include <thread>
 #include <stack>
+#include <span>
 #include <memory>
 #include <vector>
 #include <optional>
