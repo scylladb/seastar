@@ -1143,7 +1143,7 @@ if (Seastar_IO_URING)
   target_compile_definitions (seastar
     PUBLIC SEASTAR_HAVE_URING)
   target_link_libraries (seastar
-    PRIVATE URING::uring)
+    PUBLIC URING::uring)
 endif ()
 
 if (Seastar_LD_FLAGS)
