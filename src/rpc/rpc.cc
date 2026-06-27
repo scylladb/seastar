@@ -805,8 +805,9 @@ void client::wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h,
     }
     if (cancel) {
         cancel->cancel_wait = [this, id] {
-            _outstanding[id]->cancel();
-            _outstanding.erase(id);
+            auto it = _outstanding.find(id);
+            it->second->cancel();
+            _outstanding.erase(it);
         };
         h->pcancel = cancel;
         cancel->wait_back_pointer = &h->pcancel;
@@ -815,8 +816,9 @@ void client::wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h,
 }
 void client::wait_timed_out(id_type id) {
     _stats.timeout++;
-    _outstanding[id]->timeout();
-    _outstanding.erase(id);
+    auto it = _outstanding.find(id);
+    it->second->timeout();
+    _outstanding.erase(it);
 }
 
 future<> client::stop() noexcept {
@@ -1329,10 +1331,10 @@ server::server(protocol_base* proto, server_socket ss, resource_limits limits, s
         : _proto(*proto), _ss(std::move(ss)), _limits(limits), _resources_available(limits.max_memory), _options(opts)
 {
     if (_options.streaming_domain) {
-        if (_servers.find(*_options.streaming_domain) != _servers.end()) {
+        auto [_, inserted] = _servers.try_emplace(*_options.streaming_domain, this);
+        if (!inserted) {
             throw std::runtime_error(format("An RPC server with the streaming domain {} is already exist", *_options.streaming_domain));
         }
-        _servers[*_options.streaming_domain] = this;
     }
     accept();
 }
