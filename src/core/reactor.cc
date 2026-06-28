@@ -1553,6 +1553,8 @@ void cpu_stall_detector::generate_trace() {
     buf.append(" ms");
     if (std::uncaught_exceptions() > 0) {
         buf.append(", backtrace omitted (uncaught exception in progress)\n");
+    } else if (thread_impl::is_context_switch_in_progress()) {
+        buf.append(", backtrace omitted (context switch in progress)\n");
     } else {
         print_with_backtrace(buf, _config.oneline);
     }
