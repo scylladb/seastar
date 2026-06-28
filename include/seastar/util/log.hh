@@ -574,12 +574,17 @@ struct fmt::formatter<seastar::internal::formattable_exception_ptr> {
     auto format(const seastar::internal::formattable_exception_ptr&, fmt::format_context& ctx) const -> decltype(ctx.out());
 };
 
+#ifdef SEASTAR_DEPRECATED_OSTREAM_FORMATTERS
 // Pretty-printer for exceptions to be logged, e.g., std::current_exception().
 namespace std {
+[[deprecated("Use {fmt} instead, or disable Seastar_DEPRECATED_OSTREAM_FORMATTERS and implement your own operator<<")]]
 std::ostream& operator<<(std::ostream&, const std::exception_ptr&);
+[[deprecated("Use {fmt} instead, or disable Seastar_DEPRECATED_OSTREAM_FORMATTERS and implement your own operator<<")]]
 std::ostream& operator<<(std::ostream&, const std::exception&);
+[[deprecated("Use {fmt} instead, or disable Seastar_DEPRECATED_OSTREAM_FORMATTERS and implement your own operator<<")]]
 std::ostream& operator<<(std::ostream&, const std::system_error&);
 }
+#endif
 
 // Seastar has no business defining a {fmt} formatter for std::exception_ptr,
 // a type it does not own; that is for the standard library or {fmt} to do (see

@@ -674,6 +674,7 @@ auto fmt::formatter<seastar::internal::formattable_exception_ptr>::format(
     return out;
 }
 
+#ifdef SEASTAR_DEPRECATED_OSTREAM_FORMATTERS
 namespace std {
 
 std::ostream& operator<<(std::ostream& out, const std::exception_ptr& eptr) {
@@ -689,3 +690,4 @@ std::ostream& operator<<(std::ostream& out, const std::system_error& e) {
 }
 
 }
+#endif
