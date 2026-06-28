@@ -37,6 +37,7 @@
 #include <type_traits>
 #include <fmt/core.h>
 #include <fmt/format.h>
+#include <fmt/std.h>
 
 /// \addtogroup logging
 /// @{
@@ -552,7 +553,5 @@ std::ostream& operator<<(std::ostream&, const std::system_error&);
 }
 
 template <> struct fmt::formatter<std::exception_ptr> : fmt::ostream_formatter {};
-template <> struct fmt::formatter<std::exception> : fmt::ostream_formatter {};
-template <> struct fmt::formatter<std::system_error> : fmt::ostream_formatter {};
 
 /// @}
