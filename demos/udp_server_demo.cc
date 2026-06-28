@@ -66,7 +66,7 @@ public:
         }
         if (_task) {
             co_await _task->handle_exception([](std::exception_ptr e) {
-                std::cerr << "exception in udp_server: " << e << "\n";
+                std::cerr << fmt::format("exception in udp_server: {}\n", seastar::formattable(e));
             });
         }
     }

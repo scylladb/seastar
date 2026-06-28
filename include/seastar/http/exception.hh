@@ -161,9 +161,7 @@ public:
     }
 
     json_exception(std::exception_ptr e) {
-        std::ostringstream exception_description;
-        exception_description << e;
-        set(exception_description.str(), http::reply::status_type::internal_server_error);
+        set(fmt::format("{}", seastar::formattable(e)), http::reply::status_type::internal_server_error);
     }
 private:
     void set(const std::string& msg, http::reply::status_type code) {

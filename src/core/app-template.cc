@@ -241,7 +241,7 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
     try {
         _smp->configure(_opts.smp_opts, _opts.reactor_opts);
     } catch (...) {
-        std::cerr << "Could not initialize seastar: " << std::current_exception() << std::endl;
+        std::cerr << fmt::format("Could not initialize seastar: {}\n", seastar::formattable(std::current_exception()));
         return 1;
     }
     _configuration = {std::move(configuration)};

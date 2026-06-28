@@ -124,7 +124,7 @@ BOOST_AUTO_TEST_CASE(nested_exception_logging1) {
             try {
                 exception_generator(inst, level);
             } catch(...) {
-                log_msg << std::current_exception();
+                log_msg << fmt::format("{}", seastar::formattable(std::current_exception()));
             }
             BOOST_REQUIRE_EQUAL(log_msg.str(), exception_generator_str(inst, level));
         }
@@ -137,7 +137,7 @@ BOOST_AUTO_TEST_CASE(nested_exception_logging2) {
     try {
         throw std::nested_exception();
     } catch(...) {
-        log_msg << std::current_exception();
+        log_msg << fmt::format("{}", seastar::formattable(std::current_exception()));
     }
 
     BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("std::nested_exception: <no exception>"));
@@ -166,7 +166,7 @@ BOOST_AUTO_TEST_CASE(nested_exception_logging3) {
             try {
                 std::throw_with_nested(unknown_obj("This is an unknown object"));
             } catch (...) {
-                log_msg << std::current_exception();
+                log_msg << fmt::format("{}", seastar::formattable(std::current_exception()));
             }
         }
     }
@@ -181,7 +181,7 @@ BOOST_AUTO_TEST_CASE(unknown_object_thrown_test) {
     try {
         throw unknown_obj("This is an unknown object");
     } catch(...) {
-        log_msg << std::current_exception();
+        log_msg << fmt::format("{}", seastar::formattable(std::current_exception()));
     }
 
     BOOST_REQUIRE_EQUAL(log_msg.str(), std::string("unknown_obj"));
@@ -218,7 +218,7 @@ BOOST_AUTO_TEST_CASE(throw_with_backtrace_exception_logging) {
     try {
         throw_with_backtrace<std::runtime_error>("throw_with_backtrace_exception_logging");
     } catch(...) {
-        log_msg << std::current_exception();
+        log_msg << fmt::format("{}", seastar::formattable(std::current_exception()));
     }
 
 #ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
@@ -235,7 +235,7 @@ BOOST_AUTO_TEST_CASE(throw_with_backtrace_nested_exception_logging) {
         try {
             std::throw_with_nested(unknown_obj("This is an unknown object"));
         } catch (...) {
-            log_msg << std::current_exception();
+            log_msg << fmt::format("{}", seastar::formattable(std::current_exception()));
         }
     }
 
@@ -258,7 +258,7 @@ BOOST_AUTO_TEST_CASE(throw_with_backtrace_seastar_nested_exception_logging) {
             try {
                 throw seastar::nested_exception(std::move(inner), std::move(outer));
             } catch (...) {
-                log_msg << std::current_exception();
+                log_msg << fmt::format("{}", seastar::formattable(std::current_exception()));
             }
         }
     }
@@ -283,7 +283,7 @@ BOOST_AUTO_TEST_CASE(double_throw_with_backtrace_seastar_nested_exception_loggin
             try {
                 throw seastar::nested_exception(std::move(inner), std::move(outer));
             } catch (...) {
-                log_msg << std::current_exception();
+                log_msg << fmt::format("{}", seastar::formattable(std::current_exception()));
             }
         }
     }

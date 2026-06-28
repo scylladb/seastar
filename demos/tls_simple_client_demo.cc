@@ -125,7 +125,7 @@ int main(int ac, char** av) {
                     });
                 });
             }).handle_exception([](auto ep) {
-                std::cerr << "Error: " << ep << std::endl;
+                std::cerr << fmt::format("Error: {}\n", seastar::formattable(ep));
             });
         }).finally([] {
             engine().exit(0);
