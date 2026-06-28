@@ -543,7 +543,36 @@ public:
 };
 
 /// \endcond
+namespace internal {
+
+/// Wrapper returned by \ref seastar::formattable() that carries a
+/// \c std::exception_ptr to be formatted by {fmt}.
+struct formattable_exception_ptr {
+    std::exception_ptr eptr;
+};
+
+}
+
+/// Wrap a \c std::exception_ptr so that it can be formatted with {fmt}, e.g.
+/// \c fmt::format("{}", seastar::formattable(eptr)).
+///
+/// The exception is printed as its pretty type name, followed by any extra
+/// detail available for well-known exception types (the \c what() message,
+/// and the error code for \c std::system_error), recursing into nested
+/// exceptions. An empty \c exception_ptr is printed as \c "<no exception>".
+///
+/// \param eptr the exception to format; copied (cheap, refcounted).
+inline internal::formattable_exception_ptr formattable(std::exception_ptr eptr) {
+    return internal::formattable_exception_ptr{std::move(eptr)};
+}
+
 } // end seastar namespace
+
+template <>
+struct fmt::formatter<seastar::internal::formattable_exception_ptr> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+    auto format(const seastar::internal::formattable_exception_ptr&, fmt::format_context& ctx) const -> decltype(ctx.out());
+};
 
 // Pretty-printer for exceptions to be logged, e.g., std::current_exception().
 namespace std {
@@ -552,6 +581,12 @@ std::ostream& operator<<(std::ostream&, const std::exception&);
 std::ostream& operator<<(std::ostream&, const std::system_error&);
 }
 
-template <> struct fmt::formatter<std::exception_ptr> : fmt::ostream_formatter {};
+template <>
+struct fmt::formatter<std::exception_ptr> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+    auto format(const std::exception_ptr& eptr, fmt::format_context& ctx) const -> decltype(ctx.out()) {
+        return fmt::format_to(ctx.out(), "{}", seastar::formattable(eptr));
+    }
+};
 
 /// @}

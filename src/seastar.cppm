@@ -491,6 +491,7 @@ using seastar::handle_signal;
 
 // Exception types
 using seastar::nested_exception;
+using seastar::formattable;
 using seastar::timed_out_error;
 using seastar::cancelled_error;
 using seastar::broken_promise;
