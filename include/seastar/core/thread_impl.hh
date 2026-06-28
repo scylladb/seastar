@@ -74,6 +74,7 @@ void yield();
 void switch_in(thread_context* to);
 void switch_out(thread_context* from);
 void init();
+bool is_context_switch_in_progress() noexcept;
 
 }
 }
