@@ -33,6 +33,7 @@
 #include <valgrind/valgrind.h>
 #include <exception>
 #include <utility>
+#include <atomic>
 #include <boost/intrusive/list.hpp>
 
 #include <seastar/core/thread.hh>
@@ -46,6 +47,10 @@ namespace seastar {
 
 thread_local jmp_buf_link g_unthreaded_context;
 thread_local jmp_buf_link* g_current_context;
+
+namespace {
+thread_local std::atomic_flag g_context_switch_in_progress{};
+}
 
 #ifdef SEASTAR_ASAN_ENABLED
 
@@ -125,38 +130,58 @@ void jmp_buf_link::final_switch_out()
 
 #else
 
+namespace {
+inline void begin_context_switch() noexcept {
+    g_context_switch_in_progress.test_and_set(std::memory_order_relaxed);
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+}
+
+inline void end_context_switch() noexcept {
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    g_context_switch_in_progress.clear(std::memory_order_relaxed);
+}
+}
+
 inline void jmp_buf_link::initial_switch_in(ucontext_t* initial_context, const void*, size_t)
 {
+    begin_context_switch();
     auto prev = std::exchange(g_current_context, this);
     link = prev;
     if (setjmp(prev->jmpbuf) == 0) {
         setcontext(initial_context);
     }
+    end_context_switch();
 }
 
 inline void jmp_buf_link::switch_in()
 {
+    begin_context_switch();
     auto prev = std::exchange(g_current_context, this);
     link = prev;
     if (setjmp(prev->jmpbuf) == 0) {
         longjmp(jmpbuf, 1);
     }
+    end_context_switch();
 }
 
 inline void jmp_buf_link::switch_out()
 {
+    begin_context_switch();
     g_current_context = link;
     if (setjmp(jmpbuf) == 0) {
         longjmp(g_current_context->jmpbuf, 1);
     }
+    end_context_switch();
 }
 
 inline void jmp_buf_link::initial_switch_in_completed()
 {
+    end_context_switch();
 }
 
 inline void jmp_buf_link::final_switch_out()
 {
+    begin_context_switch();
     g_current_context = link;
     longjmp(g_current_context->jmpbuf, 1);
 }
@@ -333,7 +358,13 @@ void switch_out(thread_context* from) {
     from->switch_out();
 }
 
+bool is_context_switch_in_progress() noexcept {
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    return g_context_switch_in_progress.test(std::memory_order_relaxed);
+}
+
 void init() {
+    g_context_switch_in_progress.clear(std::memory_order_seq_cst);
     g_unthreaded_context.link = nullptr;
     g_unthreaded_context.thread = nullptr;
     g_current_context = &g_unthreaded_context;
