@@ -581,8 +581,15 @@ std::ostream& operator<<(std::ostream&, const std::exception&);
 std::ostream& operator<<(std::ostream&, const std::system_error&);
 }
 
+// Seastar has no business defining a {fmt} formatter for std::exception_ptr,
+// a type it does not own; that is for the standard library or {fmt} to do (see
+// https://github.com/fmtlib/fmt/issues/4808). Until then we provide one, but
+// deprecate it in favour of seastar::formattable(), which wraps the pointer in
+// a Seastar-owned type. The deprecation is on parse() (which {fmt} odr-uses)
+// rather than on the specialization, so that it is diagnosed at the call site.
 template <>
 struct fmt::formatter<std::exception_ptr> {
+    [[deprecated("Use seastar::formattable(eptr) instead of formatting a std::exception_ptr directly")]]
     constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
     auto format(const std::exception_ptr& eptr, fmt::format_context& ctx) const -> decltype(ctx.out()) {
         return fmt::format_to(ctx.out(), "{}", seastar::formattable(eptr));
