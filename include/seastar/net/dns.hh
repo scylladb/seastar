@@ -98,6 +98,11 @@ struct srv_record {
  * stack of choice, though for "normal" non-test
  * querying, you are probably better of with the
  * global calls further down.
+ *
+ * \note Addresses come back in DNS-response order, not sorted per RFC 6724.
+ * c-ares's sort probes each address through a connected socket; this stack
+ * can't, so it is disabled. A caller that needs a routable address should dial
+ * the returned addresses in turn until one connects.
  */
 class dns_resolver {
 public:
