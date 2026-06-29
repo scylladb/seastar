@@ -28,14 +28,31 @@
 #include <signal.h>
 
 #include "core/thread_pool.hh"
+#include <seastar/core/format.hh>
 #include <seastar/util/assert.hh>
 
 namespace seastar {
 
-thread_pool::thread_pool(sstring name, file_desc& notify) : _notify_eventfd(notify), _worker_thread([this, name] { work(name); }) {
+thread_pool::thread_pool(unsigned id, file_desc& notify, bool separate_aio_queue)
+        : _notify_eventfd(notify)
+        , _main_worker(make_worker(seastar::format("syscall-{}", id))) {
+    if (separate_aio_queue) {
+        try {
+            _aio_worker = make_worker(seastar::format("syscall-aio-{}", id));
+        } catch (...) {
+            stop_worker(*_main_worker);
+            throw;
+        }
+    }
 }
 
-void thread_pool::work(sstring name) {
+std::unique_ptr<thread_pool::worker> thread_pool::make_worker(sstring name) {
+    auto w = std::make_unique<worker>();
+    w->thread.emplace([this, wp = w.get(), name] { work(name, *wp); });
+    return w;
+}
+
+void thread_pool::work(sstring name, worker& w) {
     pthread_setname_np(pthread_self(), name.c_str());
     sigset_t mask;
     sigfillset(&mask);
@@ -44,23 +61,23 @@ void thread_pool::work(sstring name) {
     std::array<syscall_work_queue::work_item*, syscall_work_queue::queue_length> tmp_buf;
     while (true) {
         uint64_t count;
-        auto r = ::read(inter_thread_wq._start_eventfd.get_read_fd(), &count, sizeof(count));
+        auto r = ::read(w.inter_thread_wq._start_eventfd.get_read_fd(), &count, sizeof(count));
         SEASTAR_ASSERT(r == sizeof(count));
-        if (_stopped.load(std::memory_order_relaxed)) {
+        if (w.stopped.load(std::memory_order_relaxed)) {
             break;
         }
         auto end = tmp_buf.data();
-        inter_thread_wq._pending.consume_all([&] (syscall_work_queue::work_item* wi) {
+        w.inter_thread_wq._pending.consume_all([&] (syscall_work_queue::work_item* wi) {
             *end++ = wi;
         });
         for (auto p = tmp_buf.data(); p != end; ++p) {
             auto wi = *p;
             wi->process();
-            inter_thread_wq._completed.push(wi);
+            w.inter_thread_wq._completed.push(wi);
 
-            // Prevent the following load of _main_thread_idle to be hoisted before the writes to _completed above.
+            // Prevent the following load of main_thread_idle to be hoisted before the writes to _completed above.
             std::atomic_thread_fence(std::memory_order_seq_cst);
-            if (_main_thread_idle.load(std::memory_order_relaxed)) {
+            if (w.main_thread_idle.load(std::memory_order_relaxed)) {
                 uint64_t one = 1;
                 auto res = ::write(_notify_eventfd.get(), &one, 8);
                 SEASTAR_ASSERT(res == 8 && "write(2) failed on _reactor._notify_eventfd");
@@ -69,10 +86,14 @@ void thread_pool::work(sstring name) {
     }
 }
 
+void thread_pool::stop_worker(worker& w) noexcept {
+    w.stopped.store(true, std::memory_order_relaxed);
+    w.inter_thread_wq._start_eventfd.signal(1);
+    w.thread->join();
+}
+
 thread_pool::~thread_pool() {
-    _stopped.store(true, std::memory_order_relaxed);
-    inter_thread_wq._start_eventfd.signal(1);
-    _worker_thread.join();
+    for_each_worker([this] (worker& w) { stop_worker(w); });
 }
 
 }

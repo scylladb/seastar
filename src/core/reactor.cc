@@ -1115,7 +1115,7 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
     , _id(id)
     , _cpu_stall_detector(internal::make_cpu_stall_detector())
     , _cpu_sched(nullptr, 0)
-    , _thread_pool(std::make_unique<thread_pool>(seastar::format("syscall-{}", id), _notify_eventfd)) {
+    , _thread_pool(std::make_unique<thread_pool>(id, _notify_eventfd, rbs.name() == "linux-aio")) {
     /*
      * The _backend assignment is here, not on the initialization list as
      * the chosen backend constructor may want to handle signals and thus

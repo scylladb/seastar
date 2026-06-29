@@ -23,6 +23,10 @@
 
 #include "syscall_work_queue.hh"
 
+#include <atomic>
+#include <memory>
+#include <optional>
+
 namespace seastar {
 
 class file_desc;
@@ -53,37 +57,70 @@ public:
 } // namespace internal
 
 class thread_pool {
+    struct worker {
+        syscall_work_queue inter_thread_wq;
+        std::atomic<bool> stopped = { false };
+        std::atomic<bool> main_thread_idle = { false };
+        // Initialized right after construction (see make_worker) so the thread's
+        // body can capture the owning thread_pool and this worker by reference.
+        std::optional<posix_thread> thread;
+    };
+
     file_desc& _notify_eventfd;
     internal::submit_metrics metrics;
-    syscall_work_queue inter_thread_wq;
-    posix_thread _worker_thread;
-    std::atomic<bool> _stopped = { false };
-    std::atomic<bool> _main_thread_idle = { false };
+    // Drains every blocking syscall except AIO submission fallbacks.
+    std::unique_ptr<worker> _main_worker;
+    // Drains blocking AIO read/write (io_submit) fallbacks. Only created when
+    // the reactor uses the linux-aio backend.
+    std::unique_ptr<worker> _aio_worker;
 public:
-    explicit thread_pool(sstring thread_name, file_desc& notify);
+    explicit thread_pool(unsigned id, file_desc& notify, bool separate_aio_queue);
     ~thread_pool();
     template <typename T, typename Func>
     future<T> submit(internal::thread_pool_submit_reason reason, Func func) noexcept {
         metrics.record_reason(reason);
-        return inter_thread_wq.submit<T>(std::move(func));
+        return select_worker(reason).inter_thread_wq.submit<T>(std::move(func));
     }
     uint64_t count(internal::thread_pool_submit_reason r) const { return metrics.count_for(r); }
 
-    unsigned complete() { return inter_thread_wq.complete(); }
+    unsigned complete() {
+        unsigned n = 0;
+        for_each_worker([&] (worker& w) { n += w.inter_thread_wq.complete(); });
+        return n;
+    }
     // Before we enter interrupt mode, we must make sure that the syscall thread will properly
     // generate signals to wake us up. This means we need to make sure that all modifications to
     // the pending and completed fields in the inter_thread_wq are visible to all threads.
     //
     // Simple release-acquire won't do because we also need to serialize all writes that happens
     // before the syscall thread loads this value, so we'll need full seq_cst.
-    void enter_interrupt_mode() { _main_thread_idle.store(true, std::memory_order_seq_cst); }
+    void enter_interrupt_mode() {
+        for_each_worker([] (worker& w) { w.main_thread_idle.store(true, std::memory_order_seq_cst); });
+    }
     // When we exit interrupt mode, however, we can safely used relaxed order. If any reordering
     // takes place, we'll get an extra signal and complete will be called one extra time, which is
     // harmless.
-    void exit_interrupt_mode() { _main_thread_idle.store(false, std::memory_order_relaxed); }
+    void exit_interrupt_mode() {
+        for_each_worker([] (worker& w) { w.main_thread_idle.store(false, std::memory_order_relaxed); });
+    }
 
 private:
-    void work(sstring thread_name);
+    template <typename Func>
+    void for_each_worker(Func&& fn) {
+        fn(*_main_worker);
+        if (_aio_worker) {
+            fn(*_aio_worker);
+        }
+    }
+    std::unique_ptr<worker> make_worker(sstring thread_name);
+    void stop_worker(worker& w) noexcept;
+    worker& select_worker(internal::thread_pool_submit_reason reason) noexcept {
+        if (_aio_worker && reason == internal::thread_pool_submit_reason::aio_fallback) {
+            return *_aio_worker;
+        }
+        return *_main_worker;
+    }
+    void work(sstring thread_name, worker& w);
 };
 
 
