@@ -192,6 +192,14 @@ The `--static` flag is needed to include transitive (private) dependencies of `l
 
 ## Development Tools
 
+### IO Tracing
+
+Seastar includes LTTng-UST tracepoints in the IO scheduler for
+low-overhead recording of IO request lifecycle events.  Install
+`liblttng-ust-dev` (Debian/Ubuntu) or `lttng-ust-devel` (Fedora/RHEL)
+before building to enable them.  See [doc/io-tracing.md](doc/io-tracing.md)
+for usage instructions.
+
 ### Pre-commit hooks
 
 This project uses [pre-commit](https://pre-commit.com/) to enforce some basic checks. These
