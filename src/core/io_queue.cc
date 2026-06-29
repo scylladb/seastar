@@ -313,11 +313,9 @@ public:
         , _fq_capacity(cap)
         , _iovs(std::move(iovs))
     {
-        io_log.trace("dev {} : req {} queue  len {} capacity {}", _ioq.id(), fmt::ptr(this), _dnl.length(), _fq_capacity);
     }
 
     virtual void set_exception(std::exception_ptr eptr) noexcept override {
-        io_log.trace("dev {} : req {} error", _ioq.id(), fmt::ptr(this));
         _pclass.on_error();
         _ioq.complete_request(*this, std::chrono::duration<double>(0.0));
         _pr.set_exception(eptr);
@@ -325,7 +323,6 @@ public:
     }
 
     virtual void complete(size_t res) noexcept override {
-        io_log.trace("dev {} : req {} complete", _ioq.id(), fmt::ptr(this));
         SEASTAR_IO_TRACE(io_queue_completed, this);
         auto now = io_queue::clock_type::now();
         auto delay = std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts);
@@ -343,7 +340,6 @@ public:
     }
 
     void dispatch() noexcept {
-        io_log.trace("dev {} : req {} submit", _ioq.id(), fmt::ptr(this));
         SEASTAR_IO_TRACE(io_queue_dispatched, this);
         auto now = io_queue::clock_type::now();
         _pclass.on_dispatch(_dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
