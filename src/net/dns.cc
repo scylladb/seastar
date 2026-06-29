@@ -547,8 +547,15 @@ dns_resolver::impl::get_host_by_name(sstring name, opt_family family)  {
 // in Gcc 11 (see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=96003).
 #pragma GCC diagnostic ignored "-Wnonnull"
 
+    // c-ares would sort multi-address results per RFC 6724, but that needs a
+    // getsockname callback we cannot provide; opt out. See scylladb/seastar#3456.
+    int ai_flags = ARES_AI_CANONNAME;
+#ifdef ARES_AI_NOSORT
+    ai_flags |= ARES_AI_NOSORT;
+#endif
+
     ares_addrinfo_hints hints = {
-        .ai_flags = ARES_AI_CANONNAME,
+        .ai_flags = ai_flags,
         .ai_family = af,
         .ai_socktype = 0,
         .ai_protocol = 0,
