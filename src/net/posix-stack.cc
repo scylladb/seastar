@@ -479,23 +479,26 @@ class posix_socket_impl final : public socket_impl {
             local = net::inet_address(sa.addr().in_family());
         }
         resolve_outgoing_address(sa);
-        return repeat([this, sa, local, proto, attempts = 0, requested_port = ntoh(local.as_posix_sockaddr_in().sin_port)] () mutable {
+        auto attempts = 0;
+        auto requested_port = ntoh(local.as_posix_sockaddr_in().sin_port);
+        do {
             _fd = file_desc::socket(sa.u.sa.sa_family, _sock_flags, int(proto));
             _fd.get_file_desc().setsockopt(SOL_SOCKET, SO_REUSEADDR, int(_reuseaddr));
             uint16_t port = attempts++ < 5 && requested_port == 0 && proto == transport::TCP ? u(random_engine) * this_smp_shard_count() + this_shard_id() : requested_port;
             local.as_posix_sockaddr_in().sin_port = hton(port);
-            return internal::posix_connect(_fd, sa, local).then_wrapped([port, requested_port] (future<> f) {
+            future<> f = co_await coroutine::as_future(internal::posix_connect(_fd, sa, local));
+            {
                 try {
                     f.get();
-                    return stop_iteration::yes;
+                    break;
                 } catch (std::system_error& err) {
                     if (port != requested_port && (err.code().value() == EADDRINUSE || err.code().value() == EADDRNOTAVAIL)) {
-                        return stop_iteration::no;
+                        continue;
                     }
                     throw;
                 }
-            });
-        });
+            }
+        } while (true);
     }
 
     /// an aux function to handle unix-domain-specific requests
