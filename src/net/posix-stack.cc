@@ -506,13 +506,12 @@ class posix_socket_impl final : public socket_impl {
         }
 
         _fd = file_desc::socket(sa.u.sa.sa_family, _sock_flags, 0);
-        return internal::posix_connect(_fd, sa, local).then(
-            [fd = _fd, allocator = _allocator](){
+        co_await internal::posix_connect(_fd, sa, local);
+        {
                 // a problem with 'private' interaction with 'unique_ptr'
-                std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl{AF_UNIX, 0, std::move(fd), allocator});
-                return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
-            }
-        );
+                std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl{AF_UNIX, 0, _fd, _allocator});
+                co_return connected_socket(std::move(csi));
+        }
     }
 
 public:
