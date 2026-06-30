@@ -646,7 +646,27 @@ struct future_state :  public future_state_base, private internal::uninitialized
 
     void clear() noexcept {
         if (_u.has_result()) {
+            // The wrapped value is conditionally constructed in move_it()
+            // (and similar code paths) under the same `_u.has_result()`
+            // predicate that gates destruction here. The two checks read
+            // the same state tag, so when we reach this destroy the
+            // value was constructed -- but GCC's -Wmaybe-uninitialized
+            // analysis cannot prove the cross-function correlation and
+            // sometimes (e.g. for foreign_ptr or std::expected payloads
+            // under -O2) flags this destroy as reading uninitialized
+            // memory. Suppress at the destroy site, mirroring the
+            // pragma already used around the memmove in move_it().
+            // -Wmaybe-uninitialized is GCC-only; clang puts both definite
+            // and maybe cases under -Wuninitialized and would error on
+            // the unknown warning group, so guard on the compiler.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
             std::destroy_at(&this->uninitialized_get());
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
         } else {
             _u.check_failure();
         }
