@@ -4322,6 +4322,11 @@ static void sigill_action(siginfo_t *info, ucontext_t* uc) noexcept {
     reraise_signal(SIGILL);
 }
 
+static void sigfpe_action(siginfo_t *info, ucontext_t* uc) noexcept {
+    print_with_backtrace("Floating point exception");
+    reraise_signal(SIGFPE);
+}
+
 // We don't need to handle SIGSEGV when asan is enabled.
 #ifdef SEASTAR_ASAN_ENABLED
 template<>
@@ -4438,6 +4443,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     install_oneshot_signal_handler<SIGSEGV, sigsegv_action>();
     install_oneshot_signal_handler<SIGABRT, sigabrt_action>();
     install_oneshot_signal_handler<SIGILL, sigill_action>();
+    install_oneshot_signal_handler<SIGFPE, sigfpe_action>();
 
 #ifdef SEASTAR_HAVE_DPDK
     const auto* native_stack = dynamic_cast<const net::native_stack_options*>(reactor_opts.network_stack.get_selected_candidate_opts());
