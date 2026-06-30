@@ -487,16 +487,14 @@ class posix_socket_impl final : public socket_impl {
             uint16_t port = attempts++ < 5 && requested_port == 0 && proto == transport::TCP ? u(random_engine) * this_smp_shard_count() + this_shard_id() : requested_port;
             local.as_posix_sockaddr_in().sin_port = hton(port);
             future<> f = co_await coroutine::as_future(internal::posix_connect(_fd, sa, local));
-            {
-                try {
-                    f.get();
-                    break;
-                } catch (std::system_error& err) {
-                    if (port != requested_port && (err.code().value() == EADDRINUSE || err.code().value() == EADDRNOTAVAIL)) {
-                        continue;
-                    }
-                    throw;
+            try {
+                f.get();
+                break;
+            } catch (std::system_error& err) {
+                if (port != requested_port && (err.code().value() == EADDRINUSE || err.code().value() == EADDRNOTAVAIL)) {
+                    continue;
                 }
+                throw;
             }
         } while (true);
     }
