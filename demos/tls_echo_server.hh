@@ -102,7 +102,7 @@ public:
                         });
                     }).handle_exception([this](auto ep) {
                         if (!_stopped) {
-                            std::cerr << "Error: " << ep << std::endl;
+                            std::cerr << fmt::format("Error: {}\n", seastar::formattable(ep));
                         }
                     }).then([this] {
                         return make_ready_future<stop_iteration>(_stopped ? stop_iteration::yes : stop_iteration::no);

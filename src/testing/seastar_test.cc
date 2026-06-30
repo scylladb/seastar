@@ -165,7 +165,7 @@ scoped_no_abort_on_internal_error::~scoped_no_abort_on_internal_error() {
 }
 
 void detail::warn_teardown_exception(const sstring& name, std::exception_ptr e) {
-    std::cerr << "Warning! Exception in fixture " << name << "::teardown. " << e << std::endl;
+    std::cerr << fmt::format("Warning! Exception in fixture {}::teardown. {}\n", name, seastar::formattable(e));
 }
 
 }

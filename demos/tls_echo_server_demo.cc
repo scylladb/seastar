@@ -63,7 +63,7 @@ int main(int ac, char** av) {
             try {
                 server.invoke_on_all(&echoserver::listen, socket_address(ia), sstring(crt), sstring(key), tls::client_auth::NONE).get();
             } catch (...) {
-                std::cerr << "Error: " << std::current_exception() << std::endl;
+                std::cerr << fmt::format("Error: {}\n", seastar::formattable(std::current_exception()));
                 return 1;
             }
             std::cout << "TLS echo server running at " << addr << ":" << port << std::endl;

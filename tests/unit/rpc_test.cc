@@ -1417,7 +1417,7 @@ SEASTAR_TEST_CASE(test_unregister_handler) {
         } catch (rpc::unknown_verb_error&) {
             // expected
         } catch (...) {
-            std::cerr << "call failed in an unexpected way: " << std::current_exception() << std::endl;
+            std::cerr << fmt::format("call failed in an unexpected way: {}\n", seastar::formattable(std::current_exception()));
             BOOST_REQUIRE(false);
         }
         BOOST_REQUIRE(!f_handler_called.available());
@@ -1438,7 +1438,7 @@ SEASTAR_TEST_CASE(test_unregister_handler) {
         } catch (rpc::unknown_verb_error&) {
             // expected
         } catch (...) {
-            std::cerr << "call failed in an unexpected way: " << std::current_exception() << std::endl;
+            std::cerr << fmt::format("call failed in an unexpected way: {}\n", seastar::formattable(std::current_exception()));
             BOOST_REQUIRE(false);
         }
 

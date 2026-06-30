@@ -220,7 +220,7 @@ SEASTAR_TEST_CASE(test_set_value_conversions) {
         promise<std::vector<std::string>> p;
         auto f = p.get_future();
         p.set_value({});
-        BOOST_REQUIRE_EQUAL(f.get(), (std::vector<std::string>{}));
+        BOOST_REQUIRE(f.get() == (std::vector<std::string>{}));
     }
     // brace-init-list: initializer_list<string> ctor
     {
@@ -228,7 +228,7 @@ SEASTAR_TEST_CASE(test_set_value_conversions) {
         auto f = p.get_future();
         p.set_value({"foo", "foo"});
         std::vector<std::string> foo_x2{"foo", "foo"};
-        BOOST_REQUIRE_EQUAL(f.get(), foo_x2);
+        BOOST_REQUIRE(f.get() == foo_x2);
     }
     // brace-init-list: (count, value) ctor
     {
@@ -236,7 +236,7 @@ SEASTAR_TEST_CASE(test_set_value_conversions) {
         auto f = p.get_future();
         p.set_value({3, "foo"});
         std::vector<std::string> foo_x3{"foo", "foo", "foo"};
-        BOOST_REQUIRE_EQUAL(f.get(), foo_x3);
+        BOOST_REQUIRE(f.get() == foo_x3);
     }
     // reference preserved
     {
@@ -316,7 +316,7 @@ SEASTAR_TEST_CASE(test_make_ready_future_conversions) {
     {
         auto f = make_ready_future<std::vector<std::string>>(3, "foo");
         std::vector<std::string> foo_x3{"foo", "foo", "foo"};
-        BOOST_REQUIRE_EQUAL(f.get(), foo_x3);
+        BOOST_REQUIRE(f.get() == foo_x3);
     }
     // reference preserved
     {

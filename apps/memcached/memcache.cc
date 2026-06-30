@@ -1353,7 +1353,7 @@ public:
         _chan.shutdown_input();
         _chan.shutdown_output();
         return _task->handle_exception([](std::exception_ptr e) {
-            std::cerr << "exception in udp_server " << e << '\n';
+            std::cerr << fmt::format("exception in udp_server {}\n", seastar::formattable(e));
         });
     }
 };
@@ -1418,7 +1418,7 @@ public:
     future<> stop() {
         _listener->abort_accept();
         return _task->handle_exception([](std::exception_ptr e) {
-            std::cerr << "exception in tcp_server " << e << '\n';
+            std::cerr << fmt::format("exception in tcp_server {}\n", seastar::formattable(e));
         });
     }
 };

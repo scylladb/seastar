@@ -34,6 +34,7 @@
 #include <fmt/chrono.h>
 #include <fmt/color.h>
 #include <fmt/ostream.h>
+#include <fmt/std.h>
 #include <boost/any.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/program_options.hpp>
@@ -630,31 +631,34 @@ logging_settings extract_settings(const options& opts) {
 
 }
 
-namespace std {
-std::ostream& operator<<(std::ostream& out, const std::exception_ptr& eptr) {
+auto fmt::formatter<seastar::internal::formattable_exception_ptr>::format(
+        const seastar::internal::formattable_exception_ptr& fe, fmt::format_context& ctx) const
+    -> decltype(ctx.out()) {
+    auto out = ctx.out();
+    const auto& eptr = fe.eptr;
     if (!eptr) {
-        out << "<no exception>";
-        return out;
+        return fmt::format_to(out, "<no exception>");
     }
     try {
         std::rethrow_exception(eptr);
     } catch(...) {
         auto tp = abi::__cxa_current_exception_type();
         if (tp) {
-            out << seastar::pretty_type_name(*tp);
+            out = fmt::format_to(out, "{}", seastar::pretty_type_name(*tp));
         } else {
             // This case shouldn't happen...
-            out << "<unknown exception>";
+            out = fmt::format_to(out, "<unknown exception>");
         }
         // Print more information on some familiar exception types
         try {
             throw;
         } catch (const seastar::nested_exception& ne) {
-            out << fmt::format(": {} (while cleaning up after {})", ne.inner, ne.outer);
+            out = fmt::format_to(out, ": {} (while cleaning up after {})",
+                    seastar::formattable(ne.inner), seastar::formattable(ne.outer));
         } catch (const std::system_error& e) {
-            out << " (error " << e.code() << ", " << e.what() << ")";
+            out = fmt::format_to(out, " (error {}, {})", e.code(), e.what());
         } catch (const std::exception& e) {
-            out << " (" << e.what() << ")";
+            out = fmt::format_to(out, " ({})", e.what());
         } catch (...) {
             // no extra info
         }
@@ -662,7 +666,7 @@ std::ostream& operator<<(std::ostream& out, const std::exception_ptr& eptr) {
         try {
             throw;
         } catch (const std::nested_exception& ne) {
-            out << ": " << ne.nested_ptr();
+            out = fmt::format_to(out, ": {}", seastar::formattable(ne.nested_ptr()));
         } catch (...) {
             // do nothing
         }
@@ -670,12 +674,20 @@ std::ostream& operator<<(std::ostream& out, const std::exception_ptr& eptr) {
     return out;
 }
 
+#ifdef SEASTAR_DEPRECATED_OSTREAM_FORMATTERS
+namespace std {
+
+std::ostream& operator<<(std::ostream& out, const std::exception_ptr& eptr) {
+    return out << fmt::format("{}", seastar::formattable(eptr));
+}
+
 std::ostream& operator<<(std::ostream& out, const std::exception& e) {
-    return out << seastar::pretty_type_name(typeid(e)) << " (" << e.what() << ")";
+    return out << fmt::format("{}", e);
 }
 
 std::ostream& operator<<(std::ostream& out, const std::system_error& e) {
-    return out << seastar::pretty_type_name(typeid(e)) << " (error " << e.code() << ", " << e.what() << ")";
+    return out << fmt::format("{}", e);
 }
 
 }
+#endif

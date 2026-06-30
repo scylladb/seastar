@@ -115,7 +115,7 @@ int main(int argc, char** argv)
             }
             return seastar::now();
         }).handle_exception([](auto ep) {
-            std::cerr << "Error: " << ep << std::endl;
+            std::cerr << fmt::format("Error: {}\n", seastar::formattable(ep));
         }).finally([] {
             seastar::engine().exit(0);
         });

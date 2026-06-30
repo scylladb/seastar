@@ -1015,12 +1015,12 @@ future<std::vector<int> &> co_return_reference() {
 SEASTAR_TEST_CASE(test_co_return_conversions) {
     std::ignore = co_await i2e();
     std::ignore = co_await e2i();
-    BOOST_REQUIRE_EQUAL(co_await co_return_vector(0), (std::vector<std::string>{}));
+    BOOST_REQUIRE(co_await co_return_vector(0) == (std::vector<std::string>{}));
     // gcc 13.3 will ICE if we inline the expected values here
     std::vector<std::string> foo_x2{"foo", "foo"};
-    BOOST_REQUIRE_EQUAL(co_await co_return_vector(2), foo_x2);
+    BOOST_REQUIRE(co_await co_return_vector(2) == foo_x2);
     std::vector<std::string> foo_x3{"foo", "foo", "foo"};
-    BOOST_REQUIRE_EQUAL(co_await co_return_vector(3), foo_x3);
+    BOOST_REQUIRE(co_await co_return_vector(3) == foo_x3);
     BOOST_REQUIRE_EQUAL(&co_await co_return_reference(), &static_vector);
 }
 
