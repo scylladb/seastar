@@ -507,8 +507,7 @@ class posix_socket_impl final : public socket_impl {
 
         _fd = file_desc::socket(sa.u.sa.sa_family, _sock_flags, 0);
         co_await internal::posix_connect(_fd, sa, local);
-        // a problem with 'private' interaction with 'unique_ptr'
-        std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl{AF_UNIX, 0, _fd, _allocator});
+        auto csi = std::make_unique<posix_connected_socket_impl>(AF_UNIX, 0, _fd, _allocator);
         co_return connected_socket(std::move(csi));
     }
 
@@ -523,7 +522,7 @@ public:
             return connect_unix_domain(sa, local);
         }
         return find_port_and_connect(sa, local, proto).then([this, sa, proto, allocator = _allocator] () mutable {
-            std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl(sa.family(), static_cast<int>(proto), _fd, allocator));
+            auto csi = std::make_unique<posix_connected_socket_impl>(sa.family(), static_cast<int>(proto), _fd, allocator);
             return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
         });
     }
@@ -772,8 +771,7 @@ future<accept_result> posix_ap_server_socket_impl::accept() {
         connection c = std::move(conni->second);
         conn_q.erase(conni);
         try {
-            std::unique_ptr<connected_socket_impl> csi(
-                    new posix_connected_socket_impl(_sa.family(), _protocol, std::move(c.fd), std::move(c.connection_tracking_handle), _allocator));
+            auto csi = std::make_unique<posix_connected_socket_impl>(_sa.family(), _protocol, std::move(c.fd), std::move(c.connection_tracking_handle), _allocator);
             return make_ready_future<accept_result>(accept_result{connected_socket(std::move(csi)), std::move(c.addr)});
         } catch (...) {
             return make_exception_future<accept_result>(std::current_exception());
@@ -803,8 +801,7 @@ posix_ap_server_socket_impl::abort_accept() {
 future<accept_result>
 posix_reuseport_server_socket_impl::accept() {
     return _lfd.accept().then_unpack([allocator = _allocator, protocol = _protocol] (pollable_fd fd, socket_address sa) {
-        std::unique_ptr<connected_socket_impl> csi(
-                new posix_connected_socket_impl(sa.family(), protocol, std::move(fd), allocator));
+        auto csi = std::make_unique<posix_connected_socket_impl>(sa.family(), protocol, std::move(fd), allocator);
         return make_ready_future<accept_result>(
             accept_result{connected_socket(std::move(csi)), sa});
     });
