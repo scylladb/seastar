@@ -59,43 +59,21 @@ struct default_io_exception_factory {
     }
 };
 
-io_throttler::io_throttler(config cfg, unsigned nr_queues)
+io_throttler::io_throttler(config cfg, unsigned /*nr_queues*/)
         : _token_bucket(fixed_point_factor,
                         std::max<capacity_t>(fixed_point_factor * token_bucket_t::rate_cast(cfg.rate_limit_duration).count(), tokens_capacity(cfg.limit_min_tokens)),
-                        tokens_capacity(cfg.min_tokens)
+                        tokens_capacity(cfg.min_tokens),
+                        true,
+                        cfg.tau
                        )
-        , _per_tick_threshold(_token_bucket.limit() / nr_queues)
 {
     if (tokens_capacity(cfg.min_tokens) > _token_bucket.threshold()) {
         throw std::runtime_error("Fair-group replenisher limit is lower than threshold");
     }
 }
 
-auto io_throttler::grab_capacity(capacity_t cap) noexcept -> capacity_t {
-    SEASTAR_ASSERT(cap <= _token_bucket.limit());
-    return _token_bucket.grab(cap);
-}
-
 void io_throttler::replenish_capacity(clock_type::time_point now) noexcept {
     _token_bucket.replenish(now);
-}
-
-void io_throttler::refund_tokens(capacity_t cap) noexcept {
-    _token_bucket.refund(cap);
-}
-
-void io_throttler::maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept {
-    auto now = clock_type::now();
-    auto extra = _token_bucket.accumulated_in(now - local_ts);
-
-    if (extra >= _token_bucket.threshold()) {
-        local_ts = now;
-        replenish_capacity(now);
-    }
-}
-
-auto io_throttler::capacity_deficiency(capacity_t from) const noexcept -> capacity_t {
-    return _token_bucket.deficiency(from);
 }
 
 struct io_group::priority_class_data {
@@ -127,168 +105,179 @@ struct io_group::priority_class_data {
     }
 };
 
-class io_queue::priority_class_data {
-    io_queue& _queue;
-    const internal::priority_class _pc;
+class io_queue::priority_entity {
+protected:
+    priority_entity* _parent;
     uint32_t _shares;
-    struct {
-        size_t bytes = 0;
-        uint64_t ops = 0;
+    bool _plugged{true};
+    // Snapshot of _plugged taken at the start of a poll_io_queue() dispatch
+    // pass.  Used by interior nodes (groups) to let sibling classes keep
+    // dispatching even when one of them triggers a parent-level bw throttle
+    // mid-pass.  Leaf classes consult their plug state live (see
+    // priority_class_data::plugged_latched()).
+    bool _plugged_latched{true};
+    // Per-stream token pouches used for dispatch (leaf classes) or staging
+    // before redistribution to children (interior nodes).
+    boost::container::static_vector<io_throttler::tokens, 2> _tokens;
+    // Children of this entity in the dispatch tree.  Leaf classes have an
+    // empty vector; interior nodes (groups, shard root) list their children.
+    std::vector<priority_entity*> _children;
+    // Running sum of shares() over children that are active and plugged.
+    // Serves as the denominator for proportional redistribution.
+    uint32_t _active_children_shares{0};
 
-        void add(size_t len) noexcept {
-            ops++;
-            bytes += len;
+    priority_entity(priority_entity* parent, uint32_t shares,
+                    boost::container::static_vector<stream, 2>& streams)
+            : _parent(parent)
+            , _shares(std::max(shares, 1u))
+    {
+        for (auto& st : streams) {
+            _tokens.emplace_back(st.out.token_bucket().limit());
         }
-    } _rwstat[2] = {}, _splits = {};
-    util::integrated_length<unsigned short, lowres_clock> _nr_queued;
-    util::integrated_length<unsigned short, lowres_clock> _nr_executing;
-    std::chrono::duration<double> _queue_time;
-    std::chrono::duration<double> _total_queue_time;
-    std::chrono::duration<double> _total_execution_time;
-    std::chrono::duration<double> _starvation_time;
-    io_queue::clock_type::time_point _activated;
+    }
 
-    class bandwidth_throttler {
-        io_group::priority_class_data::token_bucket_t& _tb;
-        uint64_t _replenish_head;
-        priority_class_data& _pc;
-        std::optional<unsigned> _group;
-        timer<lowres_clock> _replenish;
-
-        void throttle() noexcept {
-            if (_group) {
-                _pc._queue.throttle_priority_class_group(*_group);
-            } else {
-                _pc._queue.throttle_priority_class(_pc);
-            }
-        }
-
-        void unthrottle() noexcept {
-            if (_group) {
-                _pc._queue.unthrottle_priority_class_group(*_group);
-            } else {
-                _pc._queue.unthrottle_priority_class(_pc);
-            }
-        }
-
-        void try_to_replenish() noexcept {
-            _tb.replenish(io_queue::clock_type::now());
-            auto delta = _tb.deficiency(_replenish_head);
-            if (delta > 0) {
-                _replenish.arm(std::chrono::duration_cast<std::chrono::microseconds>(_tb.duration_for(delta)));
-            } else {
-                unthrottle();
-            }
-        }
-
-    public:
-        bandwidth_throttler(io_group::priority_class_data& pg, priority_class_data& pc, std::optional<unsigned> g) noexcept
-                : _tb(pg.tb)
-                , _pc(pc)
-                , _group(g)
-                , _replenish([this] { try_to_replenish(); })
-        {}
-
-        void grab(uint64_t tokens) noexcept {
-            auto ph = _tb.grab(tokens);
-            auto delta = _tb.deficiency(ph);
-            if (delta > 0) {
-                throttle();
-                _replenish_head = ph;
-                _replenish.arm(std::chrono::duration_cast<std::chrono::microseconds>(_tb.duration_for(delta)));
-            }
-        }
-    };
-
-    boost::container::static_vector<bandwidth_throttler, 2> _bw;
+    capacity_t drain_tokens(unsigned stream_idx) noexcept {
+        return _tokens[stream_idx].drain();
+    }
 
 public:
+    uint32_t shares() const noexcept { return _shares; }
+    priority_entity* parent() const noexcept { return _parent; }
+
+    bool plugged_self() const noexcept { return _plugged; }
+    bool plugged_latched_self() const noexcept { return _plugged_latched; }
+    void latch_plugged() noexcept { _plugged_latched = _plugged; }
+
     void update_shares(uint32_t shares) noexcept {
         _shares = std::max(shares, 1u);
     }
 
-    priority_class_data(internal::priority_class pc, uint32_t shares, io_queue& q, io_group::priority_class_data& pg, std::optional<unsigned> group_index)
-        : _queue(q)
-        , _pc(pc)
-        , _shares(shares)
-        , _nr_queued(0)
-        , _nr_executing(0)
-        , _queue_time(0)
-        , _total_queue_time(0)
-        , _total_execution_time(0)
-        , _starvation_time(0)
+    bool try_consume(unsigned stream_idx, capacity_t cost) noexcept {
+        return _tokens[stream_idx].try_consume(cost);
+    }
+
+    capacity_t add_tokens(unsigned stream_idx, capacity_t amount) noexcept {
+        return _tokens[stream_idx].refill(amount);
+    }
+
+    bool pouch_full(unsigned stream_idx) const noexcept {
+        return _tokens[stream_idx].full();
+    }
+
+    void add_child(priority_entity& child) noexcept {
+        _children.push_back(&child);
+    }
+
+    void remove_child(priority_entity& child) noexcept {
+        auto it = std::find(_children.begin(), _children.end(), &child);
+        _children.erase(it);
+    }
+
+    virtual void child_started_dispatching(priority_entity& child) noexcept = 0;
+    virtual void child_stopped_dispatching(priority_entity& child) noexcept = 0;
+    virtual void child_shares_changed(priority_entity& child, uint32_t old_shares) noexcept = 0;
+
+    // Drain token pouches and distribute proportionally to active+plugged
+    // children.  Recursively calls redistribute() on children that have
+    // their own sub-trees (groups).
+    void redistribute() noexcept {
+        if (_active_children_shares == 0) {
+            return;
+        }
+        for (unsigned si = 0; si < _tokens.size(); si++) {
+            auto available = drain_tokens(si);
+            // Distribute tokens proportionally by shares.  If a child's
+            // pouch overflows (hits burst_limit), collect the overflow and
+            // re-distribute among siblings that still have room.  The loop
+            // is bounded by the number of children (each pass saturates at
+            // least one child).
+            auto taker_shares = _active_children_shares;
+            while (available > 0) {
+                capacity_t distributed = 0;
+                capacity_t overflow = 0;
+                for (auto* child : _children) {
+                    if (!child->is_dispatchable() || child->pouch_full(si)) {
+                        continue;
+                    }
+                    auto amount = capacity_t(double(available) * child->shares() / taker_shares);
+                    auto ov = child->add_tokens(si, amount);
+                    if (ov > 0) {
+                        taker_shares -= child->shares();
+                        overflow += ov;
+                    }
+                    distributed += amount;
+                }
+
+                if (distributed < available) {
+                    add_tokens(si, available - distributed);
+                }
+                available = overflow;
+            }
+        }
+        for (auto* child : _children) {
+            child->redistribute();
+        }
+    }
+
+    virtual bool is_dispatchable() const noexcept = 0;
+
+    virtual void plug() noexcept = 0;
+    virtual void unplug() noexcept = 0;
+
+protected:
+    ~priority_entity() = default;
+};
+
+struct io_queue::priority_class_group_data final : public io_queue::priority_entity {
+    const unsigned _index;
+
+    priority_class_group_data(unsigned index, uint32_t shares,
+                              priority_entity& parent,
+                              boost::container::static_vector<stream, 2>& streams)
+        : priority_entity(&parent, shares, streams)
+        , _index(index)
     {
-        _bw.emplace_back(pg, *this, std::nullopt);
-        if (pg.parent != nullptr) {
-            _bw.emplace_back(*pg.parent, *this, group_index);
-        }
-    }
-    priority_class_data(const priority_class_data&) = delete;
-    priority_class_data(priority_class_data&&) = delete;
-
-    ~priority_class_data() {
-        SEASTAR_ASSERT(_nr_queued == 0);
-        SEASTAR_ASSERT(_nr_executing == 0);
+        parent.add_child(*this);
     }
 
-    void on_queue() noexcept {
-        _nr_queued++;
-        if (_nr_executing == 0 && _nr_queued == 1) {
-            _activated = io_queue::clock_type::now();
+    void plug() noexcept override {
+        if (_plugged) {
+            return;
+        }
+        _plugged = true;
+        if (_active_children_shares > 0) {
+            _parent->child_started_dispatching(*this);
         }
     }
-
-    void on_dispatch(io_direction_and_length dnl, std::chrono::duration<double> lat) noexcept {
-        _rwstat[dnl.rw_idx()].add(dnl.length());
-        _queue_time = lat;
-        _total_queue_time += lat;
-        _nr_queued--;
-        _nr_executing++;
-        if (_nr_executing == 1) {
-            _starvation_time += io_queue::clock_type::now() - _activated;
+    void unplug() noexcept override {
+        if (!_plugged) {
+            return;
         }
-
-        auto tokens = io_group::priority_class_data::tokens(dnl.length());
-        for (auto& bw : _bw) {
-            bw.grab(tokens);
+        _plugged = false;
+        if (_active_children_shares > 0) {
+            _parent->child_stopped_dispatching(*this);
         }
     }
 
-    void on_cancel() noexcept {
-        _nr_queued--;
+    void child_started_dispatching(priority_entity& child) noexcept override {
+        if (_active_children_shares == 0 && _plugged) {
+            _parent->child_started_dispatching(*this);
+        }
+        _active_children_shares += child.shares();
     }
 
-    void on_complete(std::chrono::duration<double> lat) noexcept {
-        _total_execution_time += lat;
-        _nr_executing--;
-        if (_nr_executing == 0 && _nr_queued != 0) {
-            _activated = io_queue::clock_type::now();
+    void child_stopped_dispatching(priority_entity& child) noexcept override {
+        _active_children_shares -= child.shares();
+        if (_active_children_shares == 0 && _plugged) {
+            _parent->child_stopped_dispatching(*this);
         }
     }
 
-    void on_error() noexcept {
-        _nr_executing--;
-        if (_nr_executing == 0 && _nr_queued != 0) {
-            _activated = io_queue::clock_type::now();
-        }
+    void child_shares_changed(priority_entity& child, uint32_t old_shares) noexcept override {
+        _active_children_shares = _active_children_shares - old_shares + child.shares();
     }
 
-    void on_split(io_direction_and_length dnl) noexcept {
-        _splits.add(dnl.length());
-    }
-
-    void on_before_dispatch() noexcept {
-        _nr_queued.checkpoint();
-    }
-
-    void on_after_dispatch() noexcept {
-        _nr_executing.checkpoint();
-    }
-
-    fair_queue::class_id fq_class() const noexcept { return _pc.id(); }
-
-    std::vector<seastar::metrics::impl::metric_definition_impl> metrics();
-    metrics::metric_groups metric_groups;
+    bool is_dispatchable() const noexcept override { return _active_children_shares > 0 && _plugged; }
 };
 
 class io_desc_read_write final : public io_completion {
@@ -297,13 +286,13 @@ class io_desc_read_write final : public io_completion {
     io_queue::clock_type::time_point _ts;
     const stream_id _stream;
     const io_direction_and_length _dnl;
-    const fair_queue_entry::capacity_t _fq_capacity;
+    const io_queue::capacity_t _fq_capacity;
     promise<size_t> _pr;
     iovec_keeper _iovs;
     uint64_t _dispatched_polls;
 
 public:
-    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_entry::capacity_t cap, iovec_keeper iovs)
+    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, io_queue::capacity_t cap, iovec_keeper iovs)
         : _ioq(ioq)
         , _pclass(pc)
         , _ts(io_queue::clock_type::now())
@@ -315,43 +304,16 @@ public:
         io_log.trace("dev {} : req {} queue  len {} capacity {}", _ioq.id(), fmt::ptr(this), _dnl.length(), _fq_capacity);
     }
 
-    virtual void set_exception(std::exception_ptr eptr) noexcept override {
-        io_log.trace("dev {} : req {} error", _ioq.id(), fmt::ptr(this));
-        _pclass.on_error();
-        _ioq.complete_request(*this, std::chrono::duration<double>(0.0));
-        _pr.set_exception(eptr);
-        delete this;
-    }
-
-    virtual void complete(size_t res) noexcept override {
-        io_log.trace("dev {} : req {} complete", _ioq.id(), fmt::ptr(this));
-        auto now = io_queue::clock_type::now();
-        auto delay = std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts);
-        _pclass.on_complete(delay);
-        _ioq.complete_request(*this, delay);
-        _pr.set_value(res);
-        delete this;
-    }
-
-    void cancel() noexcept {
-        _pclass.on_cancel();
-        _pr.set_exception(std::make_exception_ptr(default_io_exception_factory::cancelled()));
-        delete this;
-    }
-
-    void dispatch() noexcept {
-        io_log.trace("dev {} : req {} submit", _ioq.id(), fmt::ptr(this));
-        auto now = io_queue::clock_type::now();
-        _pclass.on_dispatch(_dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
-        _ts = now;
-        _dispatched_polls = engine().polls();
-    }
+    virtual void set_exception(std::exception_ptr eptr) noexcept override;
+    virtual void complete(size_t res) noexcept override;
+    void cancel() noexcept;
+    void dispatch() noexcept;
 
     future<size_t> get_future() {
         return _pr.get_future();
     }
 
-    fair_queue_entry::capacity_t capacity() const noexcept { return _fq_capacity; }
+    io_queue::capacity_t capacity() const noexcept { return _fq_capacity; }
     stream_id stream() const noexcept { return _stream; }
     uint64_t polls() const noexcept { return _dispatched_polls; }
 };
@@ -359,18 +321,26 @@ public:
 class queued_io_request : private internal::io_request {
     io_queue& _ioq;
     const stream_id _stream;
-    fair_queue_entry _fq_entry;
+    io_queue::capacity_t _capacity;
+    boost::intrusive::slist_member_hook<> _hook;
     internal::cancellable_queue::link _intent;
     std::unique_ptr<io_desc_read_write> _desc;
 
     bool is_cancelled() const noexcept { return !_desc; }
 
 public:
-    queued_io_request(internal::io_request req, io_queue& q, fair_queue_entry::capacity_t cap, io_queue::priority_class_data& pc, io_direction_and_length dnl, iovec_keeper iovs)
+    using list_t = boost::intrusive::slist<queued_io_request,
+                       boost::intrusive::member_hook<queued_io_request,
+                           boost::intrusive::slist_member_hook<>,
+                           &queued_io_request::_hook>,
+                       boost::intrusive::cache_last<true>,
+                       boost::intrusive::constant_time_size<false>>;
+
+    queued_io_request(internal::io_request req, io_queue& q, io_queue::capacity_t cap, io_queue::priority_class_data& pc, io_direction_and_length dnl, iovec_keeper iovs)
         : io_request(std::move(req))
         , _ioq(q)
         , _stream(_ioq.request_stream(dnl))
-        , _fq_entry(cap)
+        , _capacity(cap)
         , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, cap, std::move(iovs)))
     {
     }
@@ -400,17 +370,393 @@ public:
     }
 
     future<size_t> get_future() noexcept { return _desc->get_future(); }
-    fair_queue_entry& queue_entry() noexcept { return _fq_entry; }
+    io_queue::capacity_t capacity() const noexcept { return _capacity; }
+    void reset_capacity() noexcept { _capacity = 0; }
     stream_id stream() const noexcept { return _stream; }
 
-    static queued_io_request& from_fq_entry(fair_queue_entry& ent) noexcept {
-        return *boost::intrusive::get_parent_from_member(&ent, &queued_io_request::_fq_entry);
+    static queued_io_request& from_list_hook(boost::intrusive::slist_member_hook<>& h) noexcept {
+        return *boost::intrusive::get_parent_from_member(&h, &queued_io_request::_hook);
     }
 
     static queued_io_request& from_cq_link(internal::cancellable_queue::link& link) noexcept {
         return *boost::intrusive::get_parent_from_member(&link, &queued_io_request::_intent);
     }
 };
+
+class io_queue::priority_class_data final : public io_queue::priority_entity {
+    const internal::priority_class _pc;
+    struct {
+        size_t bytes = 0;
+        uint64_t ops = 0;
+
+        void add(size_t len) noexcept {
+            ops++;
+            bytes += len;
+        }
+    } _rwstat[2] = {}, _splits = {};
+    util::integrated_length<unsigned short, lowres_clock> _nr_queued;
+    util::integrated_length<unsigned short, lowres_clock> _nr_executing;
+    std::chrono::duration<double> _queue_time;
+    std::chrono::duration<double> _total_queue_time;
+    std::chrono::duration<double> _total_execution_time;
+    std::chrono::duration<double> _starvation_time;
+    io_queue::clock_type::time_point _activated;
+    uint64_t _activations = 0;
+
+    class bandwidth_throttler {
+        io_group::priority_class_data::token_bucket_t& _tb;
+        uint64_t _replenish_head{0};
+        priority_entity& _entry;
+        timer<lowres_clock> _replenish;
+
+        void throttle() noexcept {
+            _entry.unplug();
+        }
+
+        void unthrottle() noexcept {
+            _entry.plug();
+        }
+
+        void try_to_replenish() noexcept {
+            _tb.replenish(io_queue::clock_type::now());
+            auto delta = _tb.deficiency(_replenish_head);
+            if (delta > 0) {
+                _replenish.arm(std::chrono::duration_cast<std::chrono::microseconds>(_tb.duration_for(delta)));
+            } else {
+                unthrottle();
+            }
+        }
+
+    public:
+        bandwidth_throttler(io_group::priority_class_data& pg, priority_entity& entry) noexcept
+                : _tb(pg.tb)
+                , _entry(entry)
+                , _replenish([this] { try_to_replenish(); })
+        {}
+
+        void maybe_throttle(uint64_t ph) noexcept {
+            if (_replenish.armed()) {
+                return;
+            }
+            auto delta = _tb.deficiency(ph);
+            if (delta == 0) {
+                return;
+            }
+            auto dur = std::chrono::duration_cast<std::chrono::microseconds>(_tb.duration_for(delta));
+            if (dur.count() <= 1) {
+                // A sub-microsecond deficiency means the bucket's head just
+                // hasn't been refreshed recently -- typical for classes with
+                // no explicit bw cap, whose head stays put until the first
+                // throttle event.  Replenish on the spot and retry instead
+                // of going through a throttle/timer/unthrottle blip.
+                // Safe to recurse: the tail (ph) doesn't move, and a single
+                // replenish() advances the head enough to either clear the
+                // deficiency or bring it above the sub-usec range.
+                _tb.replenish(io_queue::clock_type::now());
+                return maybe_throttle(ph);
+            }
+            throttle();
+            _replenish.arm(dur);
+        }
+
+        void grab(uint64_t tokens) noexcept {
+            auto ph = _tb.grab(tokens);
+            // _replenish_head must track the latest grabbed head, not just
+            // the head at the moment we first armed the timer.  Otherwise, if
+            // more requests are dispatched for this class while the timer is
+            // armed (which happens within a single poll pass, because the
+            // plugged-latch keeps dispatch going until the next poll), the
+            // timer fires for a stale, smaller head, sees deficiency == 0 and
+            // unthrottles the class while the bucket is in fact still
+            // deficient at the newest head.  The class then plugs back,
+            // dispatches one more request, re-throttles -- a spurious
+            // unthrottle/throttle round-trip and a systematic bandwidth
+            // overshoot of one request per cycle.  Bucket tails are monotonic
+            // (fetch_add-only) so plain assignment suffices.
+            _replenish_head = ph;
+            maybe_throttle(ph);
+        }
+    };
+
+    boost::container::static_vector<bandwidth_throttler, 2> _bw;
+    // Per-stream pending request queues.
+    boost::container::static_vector<queued_io_request::list_t, 2> _queues;
+    // Per-stream running total of capacity consumed by this class when its
+    // requests succeed at try_consume() in the dispatch pass.  Exposed via
+    // the "consumption" metric.
+    boost::container::static_vector<capacity_t, 2> _consumption;
+
+    void start_dispatching() noexcept {
+        _parent->child_started_dispatching(*this);
+    }
+
+    void stop_dispatching() noexcept {
+        _parent->child_stopped_dispatching(*this);
+    }
+
+    void activate() noexcept {
+        _activations++;
+        if (_plugged) {
+            start_dispatching();
+        }
+    }
+
+    void deactivate() noexcept {
+        if (_plugged) {
+            stop_dispatching();
+        }
+    }
+
+public:
+    // No idempotency guards here (unlike group's plug/unplug) because the
+    // class has exactly one bandwidth_throttler caller and self-stops on
+    // unplug: once _plugged becomes false the dispatch loop breaks, so no
+    // further grab() can trigger a second unplug.  Calls are thus strictly
+    // alternating: unplug → plug → unplug → ...
+    void plug() noexcept override {
+        _plugged = true;
+        if (is_active()) {
+            start_dispatching();
+        }
+    }
+    void unplug() noexcept override {
+        _plugged = false;
+        if (is_active()) {
+            stop_dispatching();
+        }
+    }
+    // Plugged means ready to dispatch: class itself is not throttled and
+    // all ancestors up to the root are plugged.
+    bool plugged() const noexcept {
+        for (auto* e = static_cast<const priority_entity*>(this); e != nullptr; e = e->parent()) {
+            if (!e->plugged_self()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Latched version used during dispatch.  Only the parent (group) half
+    // is actually latched -- the whole point of the latch is to let siblings
+    // in a group finish their turn within a pass when one of them triggers a
+    // parent-level throttle.  For the class itself there is no such concern
+    // (classes don't share pouches), so we consult the live class-self plug.
+    bool plugged_latched() const noexcept {
+        if (!_plugged) {
+            return false;
+        }
+        for (auto* e = _parent; e != nullptr; e = e->parent()) {
+            if (!e->plugged_latched_self()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void update_shares(uint32_t shares) noexcept {
+        uint32_t old_shares = _shares;
+        priority_entity::update_shares(shares);
+        if (_shares != old_shares && is_active() && _plugged) {
+            _parent->child_shares_changed(*this, old_shares);
+        }
+    }
+
+    bool is_active() const noexcept { return _nr_queued.value() > 0; }
+    bool is_dispatchable() const noexcept override { return is_active() && _plugged; }
+
+    void child_started_dispatching(priority_entity&) noexcept override { abort(); }
+    void child_stopped_dispatching(priority_entity&) noexcept override { abort(); }
+    void child_shares_changed(priority_entity&, uint32_t) noexcept override { abort(); }
+
+    queued_io_request::list_t& queue(unsigned stream_idx) noexcept {
+        return _queues[stream_idx];
+    }
+
+    capacity_t consumption(stream_id s) const noexcept { return _consumption[s]; }
+    void account_consumption(stream_id s, capacity_t cost) noexcept { _consumption[s] += cost; }
+
+    priority_class_data(internal::priority_class pc, uint32_t shares, io_queue& q,
+                        io_group::priority_class_data& pg, priority_entity& parent)
+        : priority_entity(&parent, shares, q._streams)
+        , _pc(pc)
+        , _nr_queued(0)
+        , _nr_executing(0)
+        , _queue_time(0)
+        , _total_queue_time(0)
+        , _total_execution_time(0)
+        , _starvation_time(0)
+    {
+        _bw.emplace_back(pg, *this);
+        if (pg.parent != nullptr) {
+            _bw.emplace_back(*pg.parent, parent);
+        }
+        unsigned nr_streams = q._streams.size();
+        for (unsigned i = 0; i < nr_streams; i++) {
+            _queues.emplace_back();
+            _consumption.emplace_back(0);
+        }
+        parent.add_child(*this);
+    }
+    priority_class_data(const priority_class_data&) = delete;
+    priority_class_data(priority_class_data&&) = delete;
+
+    ~priority_class_data() {
+        SEASTAR_ASSERT(_nr_queued == 0);
+        SEASTAR_ASSERT(_nr_executing == 0);
+        _parent->remove_child(*this);
+    }
+
+    void on_queue() noexcept {
+        if (_nr_queued++ == 0) {
+            activate();
+            if (_nr_executing == 0) {
+                _activated = io_queue::clock_type::now();
+            }
+        }
+    }
+
+    void on_dispatch(io_direction_and_length dnl, std::chrono::duration<double> lat) noexcept {
+        _rwstat[dnl.rw_idx()].add(dnl.length());
+        _queue_time = lat;
+        _total_queue_time += lat;
+        if (--_nr_queued == 0) {
+            deactivate();
+        }
+        _nr_executing++;
+        if (_nr_executing == 1) {
+            _starvation_time += io_queue::clock_type::now() - _activated;
+        }
+
+        auto tokens = io_group::priority_class_data::tokens(dnl.length());
+        for (auto& bw : _bw) {
+            bw.grab(tokens);
+        }
+    }
+
+    void on_cancel() noexcept {
+        if (--_nr_queued == 0) {
+            deactivate();
+        }
+    }
+
+    void on_complete(std::chrono::duration<double> lat) noexcept {
+        _total_execution_time += lat;
+        _nr_executing--;
+        if (_nr_executing == 0 && _nr_queued != 0) {
+            _activated = io_queue::clock_type::now();
+        }
+    }
+
+    void on_error() noexcept {
+        _nr_executing--;
+        if (_nr_executing == 0 && _nr_queued != 0) {
+            _activated = io_queue::clock_type::now();
+        }
+    }
+
+    void on_split(io_direction_and_length dnl) noexcept {
+        _splits.add(dnl.length());
+    }
+
+    void on_before_dispatch() noexcept {
+        _nr_queued.checkpoint();
+    }
+
+    void on_after_dispatch() noexcept {
+        _nr_executing.checkpoint();
+    }
+
+    std::vector<seastar::metrics::impl::metric_definition_impl> metrics();
+    metrics::metric_groups metric_groups;
+};
+
+// The shard root entity sits at the top of the per-shard dispatch tree.
+// It has no parent; when its first child becomes dispatchable it activates
+// its consumers on the global token bucket, and deactivates them when the
+// last child goes idle.
+struct io_queue::dispatch_root final : public io_queue::priority_entity {
+    boost::container::static_vector<io_throttler::consumer, 2> _consumers;
+
+    dispatch_root(boost::container::static_vector<stream, 2>& streams)
+        : priority_entity(nullptr, 1, streams)
+    {
+        for (auto& st : streams) {
+            _consumers.emplace_back(st.publisher, capacity_t(0));
+        }
+    }
+
+    void child_started_dispatching(priority_entity& child) noexcept override {
+        bool was_idle = (_active_children_shares == 0);
+        _active_children_shares += child.shares();
+        for (auto& c : _consumers) {
+            c.update_shares(capacity_t(_active_children_shares));
+            if (was_idle) {
+                c.activate();
+            }
+        }
+    }
+
+    void child_stopped_dispatching(priority_entity& child) noexcept override {
+        _active_children_shares -= child.shares();
+        for (auto& c : _consumers) {
+            if (_active_children_shares == 0) {
+                c.deactivate();
+            } else {
+                c.update_shares(capacity_t(_active_children_shares));
+            }
+        }
+    }
+
+    void child_shares_changed(priority_entity& child, uint32_t old_shares) noexcept override {
+        _active_children_shares = _active_children_shares - old_shares + child.shares();
+        for (auto& c : _consumers) {
+            c.update_shares(capacity_t(_active_children_shares));
+        }
+    }
+
+    // Pull tokens from the global bucket into the root's pouches.
+    void refill() noexcept {
+        for (unsigned si = 0; si < _consumers.size(); si++) {
+            _tokens[si].refill(_consumers[si].accrued());
+        }
+    }
+
+    void plug() noexcept override {}
+    void unplug() noexcept override {}
+    bool is_dispatchable() const noexcept override { return false; }
+};
+
+void io_desc_read_write::set_exception(std::exception_ptr eptr) noexcept {
+    io_log.trace("dev {} : req {} error", _ioq.id(), fmt::ptr(this));
+    _pclass.on_error();
+    _ioq.complete_request(*this, std::chrono::duration<double>(0.0));
+    _pr.set_exception(eptr);
+    delete this;
+}
+
+void io_desc_read_write::complete(size_t res) noexcept {
+    io_log.trace("dev {} : req {} complete", _ioq.id(), fmt::ptr(this));
+    auto now = io_queue::clock_type::now();
+    auto delay = std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts);
+    _pclass.on_complete(delay);
+    _ioq.complete_request(*this, delay);
+    _pr.set_value(res);
+    delete this;
+}
+
+void io_desc_read_write::cancel() noexcept {
+    _pclass.on_cancel();
+    _pr.set_exception(std::make_exception_ptr(default_io_exception_factory::cancelled()));
+    delete this;
+}
+
+void io_desc_read_write::dispatch() noexcept {
+    io_log.trace("dev {} : req {} submit", _ioq.id(), fmt::ptr(this));
+    auto now = io_queue::clock_type::now();
+    _pclass.on_dispatch(_dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
+    _ts = now;
+    _dispatched_polls = engine().polls();
+}
 
 namespace internal {
 
@@ -637,12 +983,6 @@ io_queue::complete_request(io_desc_read_write& desc, std::chrono::duration<doubl
     }
 }
 
-fair_queue::config io_queue::make_fair_queue_config(const config& iocfg, sstring label) {
-    fair_queue::config cfg;
-    cfg.label = label;
-    cfg.forgiving_factor = io_throttler::fixed_point_factor * io_throttler::token_bucket_t::rate_cast(iocfg.tau).count();
-    return cfg;
-}
 
 io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     : _priority_classes()
@@ -660,23 +1000,26 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     auto& cfg = get_config();
     if (cfg.duplex) {
         static_assert(internal::io_direction_and_length::write_idx == 0);
-        _streams.emplace_back(_group->_fgs[0], make_fair_queue_config(cfg, "write"));
+        _streams.emplace_back(_group->_fgs[0], "write");
         static_assert(internal::io_direction_and_length::read_idx == 1);
-        _streams.emplace_back(_group->_fgs[1], make_fair_queue_config(cfg, "read"));
+        _streams.emplace_back(_group->_fgs[1], "read");
     } else {
-        _streams.emplace_back(_group->_fgs[0], make_fair_queue_config(cfg, "rw"));
+        _streams.emplace_back(_group->_fgs[0], "rw");
     }
+    _root = std::make_unique<dispatch_root>(_streams);
     _averaging_decay_timer.arm_periodic(std::chrono::duration_cast<std::chrono::milliseconds>(_group->io_latency_goal() * cfg.averaging_decay_ticks));
 
-    namespace sm = seastar::metrics;
-    auto owner_l = sm::shard_label(this_shard_id());
-    auto mnt_l = sm::label("mountpoint")(mountpoint());
-    auto group_l = sm::label("iogroup")(to_sstring(_group->_allocated_on));
-    _metric_groups.add_group("io_queue", {
-        sm::make_gauge("flow_ratio", [this] { return _flow_ratio; },
-                sm::description("Ratio of dispatch rate to completion rate. Is expected to be 1.0+ growing larger on reactor stalls or (!) disk problems"),
-                { owner_l, mnt_l, group_l }),
-    });
+    if (cfg.with_metrics) {
+        namespace sm = seastar::metrics;
+        auto owner_l = sm::shard_label(this_shard_id());
+        auto mnt_l = sm::label("mountpoint")(mountpoint());
+        auto group_l = sm::label("iogroup")(to_sstring(_group->_allocated_on));
+        _metric_groups.add_group("io_queue", {
+            sm::make_gauge("flow_ratio", [this] { return _flow_ratio; },
+                    sm::description("Ratio of dispatch rate to completion rate. Is expected to be 1.0+ growing larger on reactor stalls or (!) disk problems"),
+                    { owner_l, mnt_l, group_l }),
+        });
+    }
 }
 
 io_throttler::config io_group::configure_throttler(const io_queue::config& qcfg) noexcept {
@@ -689,6 +1032,7 @@ io_throttler::config io_group::configure_throttler(const io_queue::config& qcfg)
     double limit_min_size = std::max(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier) * qcfg.block_count_limit_min;
     cfg.limit_min_tokens = limit_min_weight / qcfg.req_count_rate + limit_min_size / qcfg.blocks_count_rate;
     cfg.rate_limit_duration = qcfg.rate_limit_duration;
+    cfg.tau = qcfg.tau;
     return cfg;
 }
 
@@ -772,13 +1116,6 @@ io_queue::~io_queue() {
     // And that will happen only when there are no more fibers to run. If we ever change
     // that, then this has to change.
     SEASTAR_ASSERT(_queued_requests == 0);
-    for (auto&& pc_data : _priority_classes) {
-        if (pc_data) {
-            for (auto&& s : _streams) {
-                s.fq.unregister_priority_class(pc_data->fq_class());
-            }
-        }
-    }
 }
 
 std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::priority_class_data::metrics() {
@@ -834,10 +1171,15 @@ std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::priority_c
 
             sm::make_counter("integrated_queue_length", [this] { return _nr_queued.integral(); }, sm::description("Integrated queue length")),
             sm::make_counter("integrated_disk_queue_length", [this] { return _nr_executing.integral(); }, sm::description("Integrated disk queue length")),
+            sm::make_counter("activations", _activations, sm::description("The number of times the class was woken up from idle")),
     });
 }
 
 void io_queue::register_stats(sstring name, priority_class_data& pc) {
+    if (!get_config().with_metrics) {
+        return;
+    }
+
     namespace sm = seastar::metrics;
     seastar::metrics::metric_groups new_metrics;
 
@@ -852,15 +1194,26 @@ void io_queue::register_stats(sstring name, priority_class_data& pc) {
         metrics.emplace_back(std::move(m));
     }
 
-    for (auto&& s : _streams) {
-        for (auto&& m : s.metrics(pc)) {
-            m(owner_l)(mnt_l)(class_l)(group_l)(sm::label("stream")(s.fq.label()));
+    for (stream_id si = 0; si < _streams.size(); si++) {
+        auto& s = _streams[si];
+        for (auto&& m : s.metrics(pc, si)) {
+            m(owner_l)(mnt_l)(class_l)(group_l)(sm::label("stream")(s._label));
             metrics.emplace_back(std::move(m));
         }
     }
 
     new_metrics.add_group("io_queue", std::move(metrics));
     pc.metric_groups = std::exchange(new_metrics, {});
+}
+
+io_queue::priority_class_group_data& io_queue::find_or_create_class_group(unsigned index, uint32_t shares) {
+    if (index >= _priority_groups.size()) {
+        _priority_groups.resize(index + 1);
+    }
+    if (!_priority_groups[index]) {
+        _priority_groups[index] = std::make_unique<priority_class_group_data>(index, shares, *_root, _streams);
+    }
+    return *_priority_groups[index];
 }
 
 io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority_class pc) {
@@ -887,21 +1240,18 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by shard)
 
+        priority_class_group_data* pcg = nullptr;
         std::optional<unsigned> group_index;
         if (!ssg.is_root()) {
             group_index = ssg.index();
-            for (auto&& s : _streams) {
-                s.fq.ensure_priority_group(*group_index, ssg.get_shares());
-            }
+            pcg = &find_or_create_class_group(*group_index, ssg.get_shares());
         }
 
         auto& pg = _group->find_or_create_class(pc, group_index);
 
+        priority_entity& parent = pcg ? static_cast<priority_entity&>(*pcg) : *_root;
         auto shares = sg.get_shares();
-        auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg, group_index);
-        for (auto&& s : _streams) {
-            s.fq.register_priority_class(pc_data->fq_class(), shares, group_index);
-        }
+        auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg, parent);
         register_stats(sg.name(), *pc_data);
 
         _priority_classes[id] = std::move(pc_data);
@@ -979,7 +1329,7 @@ double internal::request_tokens(io_direction_and_length dnl, const io_queue::con
     return double(m.weight) / cfg.req_count_rate + double(m.size) * (dnl.length() >> io_queue::block_size_shift) / cfg.blocks_count_rate;
 }
 
-fair_queue_entry::capacity_t io_queue::request_capacity(io_direction_and_length dnl) const noexcept {
+io_queue::capacity_t io_queue::request_capacity(io_direction_and_length dnl) const noexcept {
     const auto& cfg = get_config();
     auto tokens = internal::request_tokens(dnl, cfg);
     if (_flow_ratio <= cfg.flow_ratio_backpressure_threshold) {
@@ -1016,8 +1366,8 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
             queued_req->set_intent(cq);
         }
 
-        _streams[queued_req->stream()].fq.queue(pclass.fq_class(), queued_req->queue_entry());
-        queued_req.release();
+        auto stream_idx = queued_req->stream();
+        pclass.queue(stream_idx).push_back(*queued_req.release());
         pclass.on_queue();
         _queued_requests++;
         return fut;
@@ -1100,23 +1450,10 @@ future<size_t> io_queue::submit_io_write(size_t len, internal::io_request req, i
 }
 
 // This function is called by the shard on every poll.
-// It picks up tokens granted by the group, spends available tokens on IO dispatches,
-// and makes a reservation for more tokens, if needed.
-//
-// Reservations are done in batches of size `_group.per_tick_grab_threshold()`.
-// During contention, in an average moment in time each contending shard can be expected to
-// be holding a reservation of such size after the current head of the token bucket.
-//
-// A shard which is currently calling `dispatch_requests()` can expect a latency
-// of at most `nr_contenders * (_group.per_tick_grab_threshold() + max_request_cap)` before its next reservation is fulfilled.
-// If a shard calls `dispatch_requests()` at least once per X total tokens, it should receive bandwidth
-// of at least `_group.per_tick_grab_threshold() / (X + nr_contenders * (_group.per_tick_grab_threshold() + max_request_cap))`.
-//
-// A shard which is polling continuously should be able to grab its fair share of the disk for itself.
-//
-// Given a task quota of 500us and IO latency goal of 750 us,
-// a CPU-starved shard should still be able to grab at least ~30% of its fair share in the worst case.
-// This is far from ideal, but it's something.
+// It runs in two phases:
+//   1. Replenish the global token bucket, flush publishers into the root's
+//      consumers, then redistribute tokens down the tree proportionally.
+//   2. Dispatch queued requests for every class, consuming from the pre-fetched token pool.
 
 void io_queue::poll_io_queue() {
     for (auto& pc : _priority_classes) {
@@ -1125,37 +1462,50 @@ void io_queue::poll_io_queue() {
         }
     }
 
-    for (auto&& st : _streams) {
-        st.out.maybe_replenish_capacity(st.replenish);
-        auto available = st.reap_pending_capacity();
+    auto now = clock_type::now();
 
-        while (true) {
-            auto* ent = st.fq.top();
-            if (ent == nullptr) {
-                available.ready_tokens = 0;
-                break;
-            }
+    // Phase 1: replenish global bucket, flush pending share updates, pull
+    // tokens into root, redistribute down the tree.
+    for (auto& st : _streams) {
+        st.out.replenish_capacity(now);
+        st.publisher.flush();
+    }
+    _root->refill();
+    _root->redistribute();
 
-            auto result = st.grab_capacity(ent->capacity(), available);
-            if (result == stream::grab_result::stop) {
-                break;
-            }
-            if (result == stream::grab_result::again) {
+    // Snapshot plugged state of groups before dispatch.  Once taken, a
+    // group-level throttle event fired by one class's dispatch won't stop
+    // sibling classes in the same group from dispatching within this same
+    // pass; the latch is refreshed on the next poll_io_queue() call.
+    // Classes themselves don't need a latch: see priority_class_data::
+    // plugged_latched().
+    for (auto& pg : _priority_groups) {
+        if (pg) {
+            pg->latch_plugged();
+        }
+    }
+
+    // Phase 2: dispatch requests for each class using the pre-fetched tokens.
+    for (unsigned si = 0; si < _streams.size(); si++) {
+        for (auto& pc : _priority_classes) {
+            if (!pc) {
                 continue;
             }
-
-            st.fq.pop_front();
-            queued_io_request::from_fq_entry(*ent).dispatch();
+            auto& q = pc->queue(si);
+            if (q.empty() || !pc->plugged_latched()) {
+                continue;
+            }
+            while (!q.empty() && pc->plugged_self()) {
+                auto& req = q.front();
+                auto cost = req.capacity();
+                if (!pc->try_consume(si, cost)) {
+                    break;
+                }
+                q.pop_front();
+                pc->account_consumption(si, cost);
+                req.dispatch();
+            }
         }
-
-        SEASTAR_ASSERT(available.ready_tokens == 0);
-        // Note: if IO cancellation happens, it's possible that we are still holding some tokens in `ready` here.
-        //
-        // We could refund them to the bucket, but permanently refunding tokens (as opposed to only
-        // "rotating" the bucket like the earlier refund() calls in this function do) is theoretically
-        // unpleasant (it can bloat the bucket beyond its size limit, and its hard to write a correct
-        // countermeasure for that), so we just discard the tokens. There's no harm in it, IO cancellation
-        // can't have resource-saving guarantees anyway.
     }
 
     for (auto& pc : _priority_classes) {
@@ -1174,39 +1524,35 @@ void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req
 
 void io_queue::cancel_request(queued_io_request& req) noexcept {
     _queued_requests--;
-    _streams[req.stream()].fq.notify_request_cancelled(req.queue_entry());
+    req.reset_capacity();
 }
 
 void io_queue::complete_cancelled_request(queued_io_request& req) noexcept {
 }
 
 io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {
-    clock_type::time_point next = clock_type::time_point::max();
-
-    for (const auto& s : _streams) {
-        clock_type::time_point n = s.next_pending_aio();
-        if (n < next) {
-            next = std::move(n);
+    for (const auto& pc : _priority_classes) {
+        if (pc) {
+            for (unsigned stream_idx = 0; stream_idx < _streams.size(); stream_idx++) {
+                if (!pc->queue(stream_idx).empty()) {
+                    return clock_type::now();
+                }
+            }
         }
     }
-
-    return next;
+    return clock_type::time_point::max();
 }
 
 void
 io_queue::update_shares_for_class(internal::priority_class pc, size_t new_shares) {
     auto& pclass = find_or_create_class(pc);
     pclass.update_shares(new_shares);
-    for (auto&& s : _streams) {
-        s.fq.update_shares_for_class(pclass.fq_class(), new_shares);
-    }
 }
 
 
 void io_queue::update_shares_for_class_group(unsigned index, size_t new_shares) {
-    for (auto&& s : _streams) {
-        s.fq.ensure_priority_group(index, new_shares);
-    }
+    auto& pcg = find_or_create_class_group(index, new_shares);
+    pcg.update_shares(new_shares);
 }
 
 future<> io_queue::update_bandwidth_for_class(internal::priority_class pc, uint64_t new_bandwidth) {
@@ -1246,136 +1592,19 @@ io_queue::rename_priority_class(internal::priority_class pc, sstring new_name) {
 
 void io_queue::destroy_priority_class(internal::priority_class pc) noexcept {
     if (_priority_classes.size() > pc.id() && _priority_classes[pc.id()]) {
-        auto& pc_ptr = _priority_classes[pc.id()];
-        for (auto&& s : _streams) {
-            s.fq.unregister_priority_class(pc_ptr->fq_class());
-        }
-        pc_ptr.reset();
+        _priority_classes[pc.id()].reset();
     }
 }
 
-void io_queue::throttle_priority_class(const priority_class_data& pc) noexcept {
-    for (auto&& s : _streams) {
-        s.fq.unplug_class(pc.fq_class());
-    }
-}
+io_queue::stream::stream(io_throttler& t, sstring label) noexcept
+    : out(t), _label(std::move(label)), publisher(t.token_bucket()) {}
 
-void io_queue::unthrottle_priority_class(const priority_class_data& pc) noexcept {
-    for (auto&& s : _streams) {
-        s.fq.plug_class(pc.fq_class());
-    }
-}
-
-void io_queue::throttle_priority_class_group(unsigned group) noexcept {
-    for (auto&& s : _streams) {
-        s.fq.unplug_class_group(group);
-    }
-}
-
-void io_queue::unthrottle_priority_class_group(unsigned group) noexcept {
-    for (auto&& s : _streams) {
-        s.fq.plug_class_group(group);
-    }
-}
-
-auto io_queue::stream::reap_pending_capacity() noexcept -> reap_result {
-    auto result = reap_result{.ready_tokens = 0, .our_turn_has_come = true};
-    if (_pending.cap) {
-        capacity_t deficiency = out.capacity_deficiency(_pending.head);
-        result.our_turn_has_come = deficiency <= _pending.cap;
-        if (result.our_turn_has_come) {
-            result.ready_tokens = _pending.cap - deficiency;
-            _pending.cap = deficiency;
-        }
-    }
-    return result;
-}
-
-io_queue::clock_type::time_point io_queue::stream::next_pending_aio() const noexcept {
-    if (_pending.cap) {
-        /*
-         * We expect the disk to release the ticket within some time,
-         * but it's ... OK if it doesn't -- the pending wait still
-         * needs the head rover value to be ahead of the needed value.
-         *
-         * It may happen that the capacity gets released before we think
-         * it will, in this case we will wait for the full value again,
-         * which's sub-optimal. The expectation is that we think disk
-         * works faster, than it really does.
-         */
-        auto over = out.capacity_deficiency(_pending.head);
-        auto ticks = out.capacity_duration(over);
-        return std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::microseconds>(ticks);
-    }
-
-    return std::chrono::steady_clock::time_point::max();
-}
-
-auto io_queue::stream::grab_capacity(capacity_t cap, reap_result& available) -> grab_result {
-    const uint64_t max_unamortized_reservation = out.per_tick_grab_threshold();
-
-    if (cap <= available.ready_tokens) {
-        // We can dispatch the request immediately.
-        // We do that after the if-else.
-        available.ready_tokens -= cap;
-        return grab_result::ok;
-    } else if (cap <= available.ready_tokens + _pending.cap || _pending.cap >= max_unamortized_reservation) {
-        // We can't dispatch the request yet, but we already have a pending reservation
-        // which will provide us with enough tokens for it eventually,
-        // or our reservation is already max-size and we can't reserve more tokens until we reap some.
-        // So we should just wait.
-        // We return any immediately-available tokens back to `_pending`
-        // and we bail. The next `dispatch_request` will again take those tokens
-        // (possibly joined by some newly-granted tokens) and retry.
-        _pending.cap += available.ready_tokens;
-        available.ready_tokens = 0;
-        return grab_result::stop;
-    } else if (available.our_turn_has_come) {
-        // The current reservation isn't enough to fulfill the next request,
-        // and we can cancel it (because `our_turn_has_come == true`) and make a bigger one
-        // (because `_pending.cap < can_grab_this_tick`).
-        // So we cancel it and do a bigger one.
-
-        // We do token recycling here: we return the tokens which we have available, and the tokens we have reserved
-        // immediately after the group head, and we return them to the bucket, immediately grabbing the same amount from the tail.
-        // This is neutral to fairness. The bandwidth we consume is still influenced only by the
-        // `max_unarmortized_reservation` portions.
-        auto recycled = available.ready_tokens + _pending.cap;
-        capacity_t grab_amount = std::min<capacity_t>(recycled + max_unamortized_reservation, fq.queued_capacity());
-        // There's technically nothing wrong with grabbing more than `out.maximum_capacity()`,
-        // but the token bucket has an assert for that, and its a reasonable expectation, so let's respect that limit.
-        // It shouldn't matter in practice.
-        grab_amount = std::min<capacity_t>(grab_amount, out.maximum_capacity());
-        out.refund_tokens(recycled);
-        // Replace _pending with a new reservation starting at the current
-        // group bucket tail.
-        capacity_t want_head = out.grab_capacity(grab_amount);
-        _pending = pending{want_head, grab_amount};
-        available = reap_pending_capacity();
-        return grab_result::again;
-    } else {
-        // We can already see that our current reservation is going to be insufficient
-        // for the highest-priority request as of now. But since group head didn't touch
-        // it yet, there's no good way to cancel it, so we have no choice but to wait
-        // until the touch time.
-        SEASTAR_ASSERT(available.ready_tokens == 0);
-        return grab_result::stop;
-    }
-}
-
-std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::stream::metrics(const priority_class_data& pc) {
+std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::stream::metrics(const priority_class_data& pc, stream_id si) {
     namespace sm = seastar::metrics;
-    auto c = pc.fq_class();
     return std::vector<sm::impl::metric_definition_impl>({
             sm::make_counter("consumption",
-                    [this, c] { return io_throttler::capacity_tokens(fq.pure_accumulated(c)); },
+                    [&pc, si] { return io_throttler::capacity_tokens(pc.consumption(si)); },
                     sm::description("Accumulated disk capacity units consumed by this class; an increment per-second rate indicates full utilization")),
-            sm::make_counter("adjusted_consumption",
-                    [this, c] { return io_throttler::capacity_tokens(fq.accumulated(c)); },
-                    sm::description("Consumed disk capacity units adjusted for class shares and idling preemption")),
-            sm::make_counter("activations",
-                    [this, c] { return fq.activations(c); },
-                    sm::description("The number of times the class was woken up from idle")),
     });
 }
 

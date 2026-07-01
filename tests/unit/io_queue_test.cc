@@ -115,10 +115,6 @@ struct io_queue_for_tests {
         queue.find_or_create_class(pc);
     }
 
-    fair_queue& get_fair_queue() {
-        return queue._streams[0].fq;
-    }
-
     bool is_class_registered(internal::priority_class pc) const noexcept {
         return queue._priority_classes.size() > pc.id() && (queue._priority_classes[pc.id()] != nullptr);
     }
@@ -179,21 +175,24 @@ static void do_test_large_request_flow(part_flaw flaw) {
         BOOST_REQUIRE_EQUAL(len, expected);
     });
 
-    for (int i = 0; i < 3; i++) {
+    int req_idx = 0;
+    while (req_idx < 3) {
         seastar::sleep(std::chrono::milliseconds(500)).get();
         tio.queue.poll_io_queue();
-        tio.sink.drain([&file, i, flaw] (const internal::io_request& rq, io_completion* desc) -> bool {
-            if (i == 1) {
+        tio.sink.drain([&file, &req_idx, flaw] (const internal::io_request& rq, io_completion* desc) -> bool {
+            if (req_idx == 1) {
                 if (flaw == part_flaw::partial) {
                     const auto& op = rq.as<internal::io_request::operation::writev>();
                     op.iovec[0].iov_len /= 2;
                 }
                 if (flaw == part_flaw::error) {
                     desc->complete_with(-EIO);
+                    req_idx++;
                     return true;
                 }
             }
             file.execute_writev_req(rq, desc);
+            req_idx++;
             return true;
         });
     }
@@ -593,6 +592,15 @@ SEASTAR_THREAD_TEST_CASE(test_tb_params) {
         BOOST_CHECK((d.write_req_rate - iops_write) / d.write_req_rate < error_margin);
         BOOST_CHECK((d.read_bytes_rate - bandwidth_read) / d.read_bytes_rate < error_margin);
         BOOST_CHECK((d.write_bytes_rate - bandwidth_write) / d.write_bytes_rate < error_margin);
+
+        // Verify the no-deadlock invariant: the max_request_length chosen
+        // by the io_group must be small enough that its capacity cost never
+        // exceeds the burst limit.  If violated, a split piece could never
+        // accumulate enough tokens and would stall indefinitely.
+        auto max_len = tio.max_request_length(internal::io_direction_and_length::write_idx);
+        auto cap_max_len = tio.queue.request_capacity(
+            internal::io_direction_and_length(internal::io_direction_and_length::write_idx, max_len));
+        BOOST_REQUIRE_LE(cap_max_len, fg.maximum_capacity());
     }
 }
 
@@ -609,70 +617,6 @@ SEASTAR_THREAD_TEST_CASE(test_unconfigured_io_queue) {
         BOOST_CHECK_EQUAL(cost_read, 0);
         BOOST_CHECK_EQUAL(cost_write, 0);
     }
-}
-
-namespace seastar::testing {
-class fair_queue_test {
-    fair_queue& _fq;
-public:
-    fair_queue_test(fair_queue& fq) noexcept : _fq(fq) {}
-
-    unsigned nr_children_for(std::optional<unsigned> index) {
-        return index.has_value() ? _fq._priority_groups[*index]->_nr_children : _fq._root._nr_children;
-    }
-
-    bool is_root_group(unsigned index) {
-        return _fq._priority_groups[index]->_parent == &_fq._root;
-    }
-
-    std::optional<unsigned> get_parent_index(internal::priority_class pc) {
-        auto& pe = reinterpret_cast<fair_queue::priority_entry&>(*_fq._priority_classes[pc.id()]);
-        if (pe._parent == &_fq._root) {
-            return {};
-        }
-
-        unsigned i = 0;
-        for (auto& pg : _fq._priority_groups) {
-            if (pe._parent == pg.get()) {
-                break;
-            }
-            i++;
-        }
-        return i;
-    }
-};
-}
-
-SEASTAR_THREAD_TEST_CASE(test_nested_priority_classes_basic_linkage) {
-    io_queue_for_tests tio;
-
-    auto ssg1 = create_scheduling_supergroup(100).get();
-    auto ssg2 = create_scheduling_supergroup(200).get();
-    auto sg0 = create_scheduling_group("a", 300).get();
-    auto sg1 = create_scheduling_group("b", "b", 400, ssg1).get();
-    auto sg2 = create_scheduling_group("c", "c", 500, ssg2).get();
-    auto stop = defer([&] () noexcept {
-        destroy_scheduling_group(sg0).get();
-        destroy_scheduling_group(sg1).get();
-        destroy_scheduling_group(sg2).get();
-    });
-
-    tio.find_or_create_class(internal::priority_class(sg0));
-    tio.find_or_create_class(internal::priority_class(sg1));
-    tio.find_or_create_class(internal::priority_class(sg2));
-
-    seastar::testing::fair_queue_test fq(tio.get_fair_queue());
-
-    BOOST_CHECK_EQUAL(fq.nr_children_for({}), 3);
-    BOOST_CHECK_EQUAL(fq.nr_children_for(0), 1);
-    BOOST_CHECK_EQUAL(fq.nr_children_for(1), 1);
-
-    BOOST_CHECK(fq.is_root_group(0));
-    BOOST_CHECK(fq.is_root_group(1));
-
-    BOOST_CHECK(!fq.get_parent_index(internal::priority_class(sg0)));
-    BOOST_CHECK(fq.get_parent_index(internal::priority_class(sg1)) == 0);
-    BOOST_CHECK(fq.get_parent_index(internal::priority_class(sg2)) == 1);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_destroy_priority_class_with_requests) {
@@ -782,6 +726,7 @@ static future<size_t> run_and_check_bandwidth(io_queue_for_tests& tio, internal:
 
     auto start = std::chrono::steady_clock::now();
     auto stop = start + std::chrono::seconds(60);
+    auto min_duration = std::chrono::seconds(5);
     size_t real_bandwidth = 0;
 
     while (true) {
@@ -789,7 +734,7 @@ static future<size_t> run_and_check_bandwidth(io_queue_for_tests& tio, internal:
         auto now = std::chrono::steady_clock::now();
         real_bandwidth = (nr_requests * req_size) / std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
         fmt::print("Measured for {} {} MB/s, goal {} MB/s\n", pc.id(), real_bandwidth >> 20, bandwidth_goal >> 20);
-        if (real_bandwidth >= bandwidth_goal || now >= stop) {
+        if ((now - start >= min_duration && real_bandwidth >= bandwidth_goal) || now >= stop) {
             break;
         }
     }
@@ -802,6 +747,7 @@ static future<size_t> run_and_check_bandwidth(io_queue_for_tests& tio, internal:
 struct background_drain {
     io_queue_for_tests& tio;
     bool keep_going;
+    std::chrono::microseconds poll_interval;
     future<> done;
 
     future<> start_draining() {
@@ -813,14 +759,19 @@ struct background_drain {
                     desc->complete_with(op.size);
                     return true;
                 });
-                maybe_yield().get();
+                if (poll_interval.count() > 0) {
+                    seastar::sleep(poll_interval).get();
+                } else {
+                    maybe_yield().get();
+                }
             }
         });
     }
 
-    background_drain(io_queue_for_tests& t)
+    background_drain(io_queue_for_tests& t, std::chrono::microseconds interval = {})
         : tio(t)
         , keep_going(true)
+        , poll_interval(interval)
         , done(start_draining())
     { }
 
@@ -963,8 +914,8 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
 
     background_drain drain(tio);
 
-    auto f0 = run_and_check_bandwidth(tio, pc0, bandwidth * 0.8 * 0.95, 4);
-    auto f1 = run_and_check_bandwidth(tio, pc1, bandwidth * 0.2 * 0.95, 4);
+    auto f0 = run_and_check_bandwidth(tio, pc0, bandwidth * 0.8 * 0.95, 8);
+    auto f1 = run_and_check_bandwidth(tio, pc1, bandwidth * 0.2 * 0.95, 8);
     auto bw0 = f0.get();
     auto bw1 = f1.get();
 
@@ -977,6 +928,130 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
     destroy_scheduling_group(sg1).get();
     destroy_scheduling_group(sg0).get();
     destroy_scheduling_supergroup(ssg).get();
+}
+
+// Verify the end-to-end disk-level rate limiting: generate_config() correctly
+// translates disk_params into token costs, and the io_queue dispatch actually
+// honours those limits at runtime.
+SEASTAR_THREAD_TEST_CASE(test_disk_level_rate_limiting) {
+    internal::disk_config_params disk_config(1);
+
+    // Part 1: bandwidth-only limit.  With only read_bytes_rate configured the
+    // throughput should be capped at that value regardless of the (unconfigured)
+    // IOPS dimension.  Use a small request size (4 KiB) that is guaranteed to
+    // stay below max_request_length so that no splitting occurs.
+    {
+        const size_t bw_limit = 50 << 20;  // 50 MB/s
+        constexpr size_t req_size = 4096;
+        internal::disk_params d;
+        d.read_bytes_rate = bw_limit;
+        d.write_bytes_rate = bw_limit;
+
+        auto io_config = disk_config.generate_config(d, 0, 1);
+        io_config.mountpoint = "bw-test";
+        io_queue_for_tests tio(io_config);
+        background_drain drain(tio);
+
+        auto bw = run_and_check_bandwidth(tio, get_default_pc(), bw_limit * 0.9, 4, req_size).get();
+        BOOST_REQUIRE_LE(bw, bw_limit + bw_slack);
+
+        drain.stop().get();
+    }
+
+    // Part 2: IOPS-only limit.  Small (512 B) requests are IOPS-dominated,
+    // so with only read_req_rate configured the request rate should be capped.
+    // run_and_check_bandwidth measures bytes/s; dividing by req_size gives IOPS.
+    {
+        const size_t iops_limit = 5000;
+        constexpr size_t req_size = 512;
+        internal::disk_params d;
+        d.read_req_rate = iops_limit;
+        d.write_req_rate = iops_limit;
+
+        auto io_config = disk_config.generate_config(d, 0, 1);
+        io_config.mountpoint = "iops-test";
+        io_queue_for_tests tio(io_config);
+        background_drain drain(tio);
+
+        auto iops_as_bw = run_and_check_bandwidth(tio, get_default_pc(), iops_limit * req_size * 0.9, 8, req_size).get();
+        BOOST_REQUIRE_LE(iops_as_bw / req_size, iops_limit * 1.1);
+
+        drain.stop().get();
+    }
+}
+
+// Verify that a high-share but low-activity class does not waste tokens.
+// Class A has 10x the shares of class B but always has just 1 request
+// queued (parallelism=1).  A stays active in the dispatch tree, receiving
+// 91% of tokens per tick, but only consuming one request's worth.  The
+// excess accumulates in A's pouch until it hits burst_limit, after which
+// subsequent refills silently overflow — starving B.
+//
+// In a work-conserving scheduler, B should get close to the full disk
+// throughput since A barely uses any.  Without the fix, B is limited to
+// its proportional share (~9%).
+SEASTAR_THREAD_TEST_CASE(test_idle_class_does_not_waste_tokens) {
+    internal::disk_config_params disk_config(1);
+
+    const size_t bw_limit = 50 << 20;  // 50 MB/s
+    constexpr size_t req_size = 4096;
+    constexpr unsigned parallelism_a = 2;
+
+    internal::disk_params d;
+    d.read_bytes_rate = bw_limit;
+    d.write_bytes_rate = bw_limit;
+
+    auto io_config = disk_config.generate_config(d, 0, 1);
+    io_config.mountpoint = "work-conserve-test";
+    io_queue_for_tests tio(io_config);
+
+    auto sg_a = create_scheduling_group("a", 1000).get();
+    auto pc_a = internal::priority_class(sg_a);
+    auto sg_b = create_scheduling_group("b", 100).get();
+    auto pc_b = internal::priority_class(sg_b);
+
+    // Poll at a realistic interval so that tokens accumulate between polls.
+    // A tight-loop drain (as on idle CPU) replenishes per-nanosecond, which
+    // prevents the pouch from filling.  A 500µs interval mimics a loaded
+    // reactor and lets the overflow redistribution path trigger.
+    background_drain drain(tio, std::chrono::microseconds(500));
+
+    // A: high-shares, low activity — parallelism=2 keeps at most 2 requests
+    // queued.  Each poll, A dispatches 2 requests but receives far more
+    // tokens than that from its 91% proportional share.  The excess
+    // overflows and must be redistributed to B.
+    bool a_keep_going = true;
+    uint64_t a_nr_requests = 0;
+    auto a_submitter = parallel_for_each(std::views::iota(0u, parallelism_a), [&] (auto) {
+        return do_until([&a_keep_going] { return !a_keep_going; }, [&] {
+            return tio.queue_request(pc_a,
+                internal::io_direction_and_length(internal::io_direction_and_length::read_idx, req_size),
+                internal::io_request::make_write(0, 0, nullptr, req_size, false),
+                nullptr, {}).then([&a_nr_requests] (auto) {
+                    a_nr_requests++;
+                    return make_ready_future<>();
+                });
+        });
+    });
+
+    // B: saturated — 8 parallel submitters keeping the queue full.
+    auto f_b = run_and_check_bandwidth(tio, pc_b, bw_limit / 2, 8, req_size);
+
+    auto bw_b = f_b.get();
+
+    a_keep_going = false;
+    a_submitter.get();
+    drain.stop().get();
+
+    fmt::print("A: {} requests, B: {} MB/s, disk: {} MB/s\n",
+               a_nr_requests, bw_b >> 20, bw_limit >> 20);
+
+    // B should get at least 50% of the disk bandwidth.  Without the fix,
+    // A's overflowing tokens are lost and B is starved to ~4 MB/s.
+    BOOST_REQUIRE_GE(bw_b, bw_limit / 2);
+
+    destroy_scheduling_group(sg_b).get();
+    destroy_scheduling_group(sg_a).get();
 }
 
 SEASTAR_THREAD_TEST_CASE(test_get_all_io_queues) {

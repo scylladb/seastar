@@ -658,7 +658,6 @@ private:
         emit_one_metrics(out, "io_queue_total_operations");
         emit_one_metrics(out, "io_queue_starvation_time_sec");
         emit_one_metrics(out, "io_queue_consumption");
-        emit_one_metrics(out, "io_queue_adjusted_consumption");
         emit_one_metrics(out, "io_queue_activations");
         emit_one_metrics(out, "reactor_aio_outsizes", false);
     }
