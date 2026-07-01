@@ -4331,8 +4331,8 @@ void install_oneshot_signal_handler<SIGSEGV, sigsegv_action>() {
 #endif
 
 void smp::qs_deleter::operator()(smp_message_queue** qs) const {
-    for (unsigned i = 0; i < this_smp_shard_count(); i++) {
-        for (unsigned j = 0; j < this_smp_shard_count(); j++) {
+    for (unsigned i = 0; i < shard_count; i++) {
+        for (unsigned j = 0; j < shard_count; j++) {
             qs[i][j].~smp_message_queue();
         }
         ::operator delete[](qs[i], std::align_val_t(alignof(smp_message_queue))
@@ -4741,7 +4741,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     seastar_logger.info("Reactor backend: {}", backend_selector);
 
-    _qs_owner = decltype(smp::_qs_owner){new smp_message_queue* [_shard_count], qs_deleter{}};
+    _qs_owner = decltype(smp::_qs_owner){new smp_message_queue* [_shard_count], qs_deleter{_shard_count}};
 
     auto allocate_qs_owner = [this] (unsigned i) {
         // smp_message_queue has members with hefty alignment requirements.
