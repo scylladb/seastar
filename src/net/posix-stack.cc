@@ -519,12 +519,10 @@ public:
 
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
         if (sa.is_af_unix()) {
-            return connect_unix_domain(sa, local);
+            co_return co_await connect_unix_domain(sa, local);
         }
-        return find_port_and_connect(sa, local, proto).then([this, sa, proto, allocator = _allocator] () mutable {
-            auto csi = std::make_unique<posix_connected_socket_impl>(sa.family(), static_cast<int>(proto), _fd, allocator);
-            return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
-        });
+        co_await find_port_and_connect(sa, local, proto);
+        co_return connected_socket(std::make_unique<posix_connected_socket_impl>(sa.family(), static_cast<int>(proto), _fd, _allocator));
     }
 
     void set_reuseaddr(bool reuseaddr) override {
