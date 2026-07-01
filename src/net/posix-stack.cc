@@ -798,11 +798,9 @@ posix_ap_server_socket_impl::abort_accept() {
 
 future<accept_result>
 posix_reuseport_server_socket_impl::accept() {
-    return _lfd.accept().then_unpack([allocator = _allocator, protocol = _protocol] (pollable_fd fd, socket_address sa) {
-        auto csi = std::make_unique<posix_connected_socket_impl>(sa.family(), protocol, std::move(fd), allocator);
-        return make_ready_future<accept_result>(
-            accept_result{connected_socket(std::move(csi)), sa});
-    });
+    auto [fd, sa] = co_await _lfd.accept();
+    auto csi = std::make_unique<posix_connected_socket_impl>(sa.family(), _protocol, std::move(fd), _allocator);
+    co_return accept_result{connected_socket(std::move(csi)), sa};
 }
 
 void
