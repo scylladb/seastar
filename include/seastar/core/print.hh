@@ -79,14 +79,4 @@ log(A&&... a) {
     print(std::forward<A>(a)...);
 }
 
-
-// temporary, use fmt::print() instead
-template <typename... A>
-[[deprecated("use std::format() or fmt::print()")]]
-std::ostream&
-fmt_print(std::ostream& os, const char* format, A&&... a) {
-    fmt::print(os, format, std::forward<A>(a)...);
-    return os;
-}
-
 }
