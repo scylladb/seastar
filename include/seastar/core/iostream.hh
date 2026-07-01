@@ -287,7 +287,8 @@ public:
     using consumption_variant = std::variant<continue_consuming, stop_consuming_type, skip_bytes>;
     using tmp_buf = typename stop_consuming_type::tmp_buf;
 
-    /*[[deprecated]]*/ consumption_result(std::optional<tmp_buf> opt_buf) {
+    [[deprecated("Use stop_consuming/continue_consuming/skip_bytes constructors")]]
+    consumption_result(std::optional<tmp_buf> opt_buf) {
         if (opt_buf) {
             _result = stop_consuming_type{std::move(opt_buf.value())};
         }
