@@ -479,23 +479,23 @@ class posix_socket_impl final : public socket_impl {
             local = net::inet_address(sa.addr().in_family());
         }
         resolve_outgoing_address(sa);
-        return repeat([this, sa, local, proto, attempts = 0, requested_port = ntoh(local.as_posix_sockaddr_in().sin_port)] () mutable {
+        auto attempts = 0;
+        auto requested_port = ntoh(local.as_posix_sockaddr_in().sin_port);
+        do {
             _fd = file_desc::socket(sa.u.sa.sa_family, _sock_flags, int(proto));
             _fd.get_file_desc().setsockopt(SOL_SOCKET, SO_REUSEADDR, int(_reuseaddr));
             uint16_t port = attempts++ < 5 && requested_port == 0 && proto == transport::TCP ? u(random_engine) * this_smp_shard_count() + this_shard_id() : requested_port;
             local.as_posix_sockaddr_in().sin_port = hton(port);
-            return internal::posix_connect(_fd, sa, local).then_wrapped([port, requested_port] (future<> f) {
-                try {
-                    f.get();
-                    return stop_iteration::yes;
-                } catch (std::system_error& err) {
-                    if (port != requested_port && (err.code().value() == EADDRINUSE || err.code().value() == EADDRNOTAVAIL)) {
-                        return stop_iteration::no;
-                    }
-                    throw;
+            try {
+                co_await internal::posix_connect(_fd, sa, local);
+                break;
+            } catch (std::system_error& err) {
+                if (port != requested_port && (err.code().value() == EADDRINUSE || err.code().value() == EADDRNOTAVAIL)) {
+                    continue;
                 }
-            });
-        });
+                throw;
+            }
+        } while (true);
     }
 
     /// an aux function to handle unix-domain-specific requests
@@ -506,13 +506,9 @@ class posix_socket_impl final : public socket_impl {
         }
 
         _fd = file_desc::socket(sa.u.sa.sa_family, _sock_flags, 0);
-        return internal::posix_connect(_fd, sa, local).then(
-            [fd = _fd, allocator = _allocator](){
-                // a problem with 'private' interaction with 'unique_ptr'
-                std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl{AF_UNIX, 0, std::move(fd), allocator});
-                return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
-            }
-        );
+        co_await internal::posix_connect(_fd, sa, local);
+        auto csi = std::make_unique<posix_connected_socket_impl>(AF_UNIX, 0, _fd, _allocator);
+        co_return connected_socket(std::move(csi));
     }
 
 public:
@@ -523,12 +519,10 @@ public:
 
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
         if (sa.is_af_unix()) {
-            return connect_unix_domain(sa, local);
+            co_return co_await connect_unix_domain(sa, local);
         }
-        return find_port_and_connect(sa, local, proto).then([this, sa, proto, allocator = _allocator] () mutable {
-            std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl(sa.family(), static_cast<int>(proto), _fd, allocator));
-            return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
-        });
+        co_await find_port_and_connect(sa, local, proto);
+        co_return connected_socket(std::make_unique<posix_connected_socket_impl>(sa.family(), static_cast<int>(proto), _fd, _allocator));
     }
 
     void set_reuseaddr(bool reuseaddr) override {
@@ -775,8 +769,7 @@ future<accept_result> posix_ap_server_socket_impl::accept() {
         connection c = std::move(conni->second);
         conn_q.erase(conni);
         try {
-            std::unique_ptr<connected_socket_impl> csi(
-                    new posix_connected_socket_impl(_sa.family(), _protocol, std::move(c.fd), std::move(c.connection_tracking_handle), _allocator));
+            auto csi = std::make_unique<posix_connected_socket_impl>(_sa.family(), _protocol, std::move(c.fd), std::move(c.connection_tracking_handle), _allocator);
             return make_ready_future<accept_result>(accept_result{connected_socket(std::move(csi)), std::move(c.addr)});
         } catch (...) {
             return make_exception_future<accept_result>(std::current_exception());
@@ -805,12 +798,9 @@ posix_ap_server_socket_impl::abort_accept() {
 
 future<accept_result>
 posix_reuseport_server_socket_impl::accept() {
-    return _lfd.accept().then_unpack([allocator = _allocator, protocol = _protocol] (pollable_fd fd, socket_address sa) {
-        std::unique_ptr<connected_socket_impl> csi(
-                new posix_connected_socket_impl(sa.family(), protocol, std::move(fd), allocator));
-        return make_ready_future<accept_result>(
-            accept_result{connected_socket(std::move(csi)), sa});
-    });
+    auto [fd, sa] = co_await _lfd.accept();
+    auto csi = std::make_unique<posix_connected_socket_impl>(sa.family(), _protocol, std::move(fd), _allocator);
+    co_return accept_result{connected_socket(std::move(csi)), sa};
 }
 
 void
