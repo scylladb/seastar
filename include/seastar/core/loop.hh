@@ -31,6 +31,7 @@
 #include <boost/container/small_vector.hpp>
 #include <seastar/core/future.hh>
 #include <seastar/core/task.hh>
+#include <seastar/core/do_with.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/bool_class.hh>
 #include <seastar/core/semaphore.hh>
