@@ -147,34 +147,6 @@ public:
     explicit http_server(const sstring& name) : _stats(*this, name) {
         _date_format_timer.arm_periodic(1s);
     }
-    /*!
-     * \brief set tls credentials for the server
-     * Setting the tls credentials will set the http-server to work in https mode.
-     *
-     * To use the https, create server credentials and pass it to the server before it starts.
-     *
-     * Use case example using seastar threads for clarity:
-
-        sharded<http_server> server; // typical server
-
-        seastar::shared_ptr<seastar::tls::credentials_builder> creds = seastar::make_shared<seastar::tls::credentials_builder>();
-        sstring ms_cert = "MyCertificate.crt";
-        sstring ms_key = "MyKey.key";
-
-        creds->set_dh_level(seastar::tls::dh_params::level::MEDIUM);
-
-        creds->set_x509_key_file(ms_cert, ms_key, seastar::tls::x509_crt_format::PEM).get();
-        creds->set_system_trust().get();
-
-
-        server.invoke_on_all([creds](http_server& server) {
-            server.set_tls_credentials(creds->build_server_credentials());
-            return make_ready_future<>();
-        }).get();
-     *
-     */
-    [[deprecated("use listen(socket_address addr, server_credentials_ptr credentials)")]]
-    void set_tls_credentials(server_credentials_ptr credentials);
 
     void set_keepalive_parameters(std::optional<net::keepalive_params> params) {
         _keepalive_params = std::move(params);
