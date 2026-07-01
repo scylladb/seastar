@@ -439,6 +439,13 @@ future<> http_server::listen(socket_address addr) {
     lo.reuse_address = true;
     return listen(addr, lo);
 }
+
+void http_server::set_listen_backlog(int backlog) {
+    for (auto& listener : _listeners) {
+        listener.set_listen_backlog(backlog);
+    }
+}
+
 future<> http_server::stop() {
     future<> tasks_done = _task_gate.close();
     for (auto&& l : _listeners) {

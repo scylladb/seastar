@@ -216,6 +216,7 @@ public:
     future<> listen(socket_address addr, listen_options lo, server_credentials_ptr credentials);
     future<> listen(socket_address addr, listen_options lo);
     future<> listen(socket_address addr);
+    void set_listen_backlog(int backlog);
     future<> stop();
 
     future<> do_accepts(int which);
