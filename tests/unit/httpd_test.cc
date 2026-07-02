@@ -925,6 +925,68 @@ SEASTAR_TEST_CASE(test_client_unexpected_reply_status) {
     });
 }
 
+SEASTAR_TEST_CASE(test_client_early_response_until_write_body_completed ) {
+    return seastar::async([] {
+        class handl : public httpd::handler_base {
+            promise<> *_replied;
+        public:
+            handl(promise<> *replied)
+                : _replied(replied)
+            {}
+            virtual future<std::unique_ptr<http::reply> > handle(const sstring& path,
+                    std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
+                fmt::print("Returning exception from server\n");
+
+                _replied->set_value();
+                return make_exception_future<std::unique_ptr<http::reply>>(httpd::bad_request_exception("error"));
+            }
+        };
+
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        server.set_content_streaming(true);
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+
+        promise<> replied;
+        future<> client = seastar::async([&lcf, &replied] {
+            auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
+            auto req = http::request::make("POST", "test", "/test");
+            req.write_body("bin", [&replied] (output_stream<char>&& out) {
+                return do_with(std::move(out), temporary_buffer<char>(100 << 10 /*more than _write_buf buffer size */), [&replied] (auto &out, auto &data) {
+                    return out.write(data.get(), data.size()).handle_exception([] (auto e) {}).then([&out] {
+                        return out.flush();
+                    }).then([&replied] {
+                        return replied.get_future();
+                    }).then([] {
+                        return sleep(50ms);
+                    }).then([&out, &data] {
+                        return out.write(data.get(), data.size());
+                    }).then([&out] {
+                        return out.flush();
+                    }).then([&out] {
+                        return out.close();
+                    });
+                });
+            });
+            try {
+                cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
+                    return make_ready_future<>();
+                }).get();
+            } catch (httpd::unexpected_status_error &e) {
+                BOOST_REQUIRE(e.status() == http::reply::status_type::bad_request);
+            } catch (...) {
+                BOOST_REQUIRE(false);
+            }
+
+            cln.close().get();
+        });
+
+        server._routes.put(POST, "/test", new handl(&replied));
+        server.do_accepts(0).get();
+        client.get();
+        server.stop().get();
+    });
+}
 static void read_simple_http_request(input_stream<char>& in) {
     sstring req;
     while (true) {
