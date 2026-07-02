@@ -102,3 +102,14 @@ seastar_add_test (perf_tests
 
 seastar_add_test (metrics
   SOURCES metrics_perf.cc)
+
+if (Seastar_LTTNG)
+  add_executable (test_perf_lttng_overhead lttng_overhead_perf.cc)
+  target_include_directories (test_perf_lttng_overhead
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_link_libraries (test_perf_lttng_overhead
+    PRIVATE LTTng::UST)
+  set_target_properties (test_perf_lttng_overhead
+    PROPERTIES OUTPUT_NAME lttng_overhead_perf)
+  add_dependencies (perf_tests test_perf_lttng_overhead)
+endif ()

@@ -320,6 +320,24 @@ public:
         return _read.op;
     }
 
+    // The file offset (pos) is at the same position in read_op, readv_op,
+    // write_op, and writev_op, so we access it through _read unconditionally.
+    uint64_t offset() const noexcept {
+        static_assert(offsetof(read_op, pos) == offsetof(readv_op, pos));
+        static_assert(offsetof(read_op, pos) == offsetof(write_op, pos));
+        static_assert(offsetof(read_op, pos) == offsetof(writev_op, pos));
+        return _read.pos;
+    }
+
+    // The file descriptor is at the same position in read_op, readv_op,
+    // write_op, and writev_op, so we access it through _read unconditionally.
+    int fd() const noexcept {
+        static_assert(offsetof(read_op, fd) == offsetof(readv_op, fd));
+        static_assert(offsetof(read_op, fd) == offsetof(write_op, fd));
+        static_assert(offsetof(read_op, fd) == offsetof(writev_op, fd));
+        return _read.fd;
+    }
+
     template <operation Op>
     auto& as() const {
         if constexpr (Op == operation::read) {
