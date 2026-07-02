@@ -84,6 +84,7 @@ void promise_base::clear() noexcept {
     if (__builtin_expect(bool(_task), false)) {
         SEASTAR_ASSERT(_state && !_state->available());
         set_to_broken_promise(*_state);
+        task_profiler::on_task_resume(*_task);
         ::seastar::schedule(std::exchange(_task, nullptr));
     }
     if (_future) {
@@ -119,6 +120,7 @@ template <promise_base::urgent Urgent>
 void promise_base::make_ready() noexcept {
     if (_task) {
         assert_task_shard();
+        task_profiler::on_task_resume(*_task);
         if (Urgent == urgent::yes) {
             ::seastar::schedule_urgent(std::exchange(_task, nullptr));
         } else {

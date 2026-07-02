@@ -45,7 +45,6 @@ class [[nodiscard]] try_future_awaiter : public seastar::task {
     seastar::future<T> _future;
     void (*_resume_or_destroy)(seastar::future<T>&, seastar::task&){};
     seastar::task* _coroutine_task{};
-    seastar::task* _waiting_task{};
 
 public:
     explicit try_future_awaiter(seastar::future<T>&& f) noexcept : _future(std::move(f)) {}
@@ -59,10 +58,11 @@ public:
     }
 
     template<typename U>
-    void await_suspend(std::coroutine_handle<U> hndl) noexcept {
+    void await_suspend(std::coroutine_handle<U> hndl SEASTAR_COROUTINE_LOC_PARAM) noexcept {
+        // Capture co_await site so task_profiler shows the right function/line.
+        SEASTAR_COROUTINE_LOC_STORE(*this);
         _resume_or_destroy = try_future_resume_or_destroy_coroutine<T, U>;
         _coroutine_task = &hndl.promise();
-        _waiting_task = hndl.promise().waiting_task();
 
         if (_future.available()) {
             execute_involving_handle_destruction_in_await_suspend(this);
@@ -83,8 +83,14 @@ public:
         _resume_or_destroy(_future, *_coroutine_task);
     }
 
+    // Must delegate dynamically — not return a snapshot captured in
+    // await_suspend.  At await_suspend time, nobody has co_await'ed
+    // the enclosing coroutine's return future yet, so the coroutine
+    // promise's waiting_task is still nullptr.  By the time anyone
+    // reads this (e.g. task_profiler sampling), the caller's co_await
+    // has completed the chain.
     virtual task* waiting_task() noexcept override {
-        return _waiting_task;
+        return _coroutine_task->waiting_task();
     }
 };
 
