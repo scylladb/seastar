@@ -35,6 +35,7 @@
 #include <seastar/core/iostream.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/with_timeout.hh>
+#include <seastar/util/later.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/process.hh>
 #include <seastar/net/tls.hh>
@@ -2433,4 +2434,109 @@ SEASTAR_THREAD_TEST_CASE(test_send_two_large) {
     });
 
     seastar::when_all(std::move(sender), std::move(receiver)).discard_result().get();
+}
+
+// Reproduces the "Exceptional future ignored: EPIPE" leak in tls::session.
+//
+// During a server-side handshake with client_auth, gnutls_handshake() sends the
+// server's final flight (its "Finished" message under TLS 1.2) via vec_push(),
+// which stores the pending socket write in _output_pending, and then returns 0.
+// do_handshake_invoke() then calls verify(), and only reaches the draining
+// wait_for_output() *after* verify() returns. If verify() throws (e.g. from a
+// registered DN callback), that wait_for_output() is skipped and _output_pending
+// is left holding the in-flight write. When that write later fails with EPIPE
+// (peer gone), the session is destroyed while holding a ready, failed future,
+// producing an abandoned-failed-future.
+//
+// The sink below succeeds for every handshake write until the DN callback fires,
+// then fails the final (already-issued, still-pending) write with EPIPE. Forcing
+// TLS 1.2 guarantees the server's last vec_push before gnutls_handshake() returns
+// 0 is the server Finished, so the pending write is present at verify() time.
+SEASTAR_THREAD_TEST_CASE(test_output_pending_exception_on_destroy) {
+    static const sstring tls12_priority = "NORMAL:-VERS-TLS-ALL:+VERS-TLS1.2";
+
+    tls::credentials_builder cb;
+    cb.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+    cb.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    cb.set_priority_string(tls12_priority);
+    cb.set_dh_level();
+    auto client_creds = cb.build_certificate_credentials();
+
+    tls::credentials_builder sb;
+    sb.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+    sb.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    sb.set_priority_string(tls12_priority);
+    sb.set_client_auth(tls::client_auth::REQUIRE);
+    sb.set_dh_level();
+    auto server_creds = sb.build_server_credentials();
+
+    // Fail server writes only once the DN callback has fired mid-verify().
+    auto fail_server_writes = ::make_lw_shared<bool>(false);
+
+    server_creds->set_dn_verification_callback([fail_server_writes](tls::session_type, sstring, sstring) {
+        *fail_server_writes = true;
+        throw tls::verification_error("aborting handshake from DN callback");
+    });
+
+    class deferred_fail_sink_impl : public data_sink_impl {
+        data_sink _sink;
+        lw_shared_ptr<bool> _fail;
+    public:
+        deferred_fail_sink_impl(data_sink sink, lw_shared_ptr<bool> fail)
+            : _sink(std::move(sink)), _fail(std::move(fail)) {}
+        future<> put(std::span<temporary_buffer<char>> bufs) override {
+            std::vector<temporary_buffer<char>> owned(std::make_move_iterator(bufs.begin()), std::make_move_iterator(bufs.end()));
+            return seastar::yield().then([this, owned = std::move(owned)]() mutable {
+                if (*_fail) {
+                    return make_exception_future<>(std::system_error(EPIPE, std::system_category()));
+                }
+                return _sink.put(std::move(owned));
+            });
+        }
+        future<> flush() override { return _sink.flush(); }
+        future<> close() override { return _sink.close(); }
+        size_t buffer_size() const noexcept override { return _sink.buffer_size(); }
+    };
+
+    class deferred_fail_socket_impl : public loopback_connected_socket_impl {
+        lw_shared_ptr<bool> _fail;
+    public:
+        deferred_fail_socket_impl(lw_shared_ptr<bool> fail, lw_shared_ptr<loopback_buffer> tx, lw_shared_ptr<loopback_buffer> rx)
+            : loopback_connected_socket_impl(tx, rx), _fail(std::move(fail)) {}
+        data_sink sink() override {
+            return data_sink(std::make_unique<deferred_fail_sink_impl>(loopback_connected_socket_impl::sink(), _fail));
+        }
+    };
+
+    auto b1 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::SERVER_TX);
+    auto b2 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::CLIENT_TX);
+
+    auto ssi = std::make_unique<deferred_fail_socket_impl>(fail_server_writes, b1, b2);
+    auto csi = std::make_unique<loopback_connected_socket_impl>(b2, b1);
+
+    auto ss = tls::wrap_server(server_creds, connected_socket(std::move(ssi))).get();
+    auto cs = tls::wrap_client(client_creds, connected_socket(std::move(csi)), tls::tls_options{.server_name = "test.scylladb.org"}).get();
+
+    // Drive the client handshake from a background fiber. Writing straight to
+    // the detached sink (bypassing output_stream buffering) forces the
+    // ClientHello out immediately. The client will get stuck waiting for the
+    // server's Finished (which never arrives, since the server aborts), so we
+    // unblock it by aborting the loopback buffers after the server fails.
+    auto csink = ::make_lw_shared<data_sink>(cs.output().detach());
+    auto client_loop = csink->put(temporary_buffer<char>(10)).then_wrapped([csink](future<> f) {
+        f.ignore_ready_future();
+    });
+
+    // Server handshake fails inside verify() via the DN callback, leaving
+    // _output_pending holding the server Finished write which then fails EPIPE.
+    BOOST_REQUIRE_THROW(ss.input().read().get(), tls::verification_error);
+
+    b1->abort();
+    b2->abort();
+    client_loop.get();
+
+    ss.shutdown_input();
+    ss.shutdown_output();
+    cs.shutdown_input();
+    cs.shutdown_output();
 }

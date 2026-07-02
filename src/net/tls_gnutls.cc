@@ -561,6 +561,7 @@ public:
 
     ~session() {
         SEASTAR_ASSERT(_output_pending.available());
+        _output_pending.ignore_ready_future();
     }
 
     typedef temporary_buffer<char> buf_type;
