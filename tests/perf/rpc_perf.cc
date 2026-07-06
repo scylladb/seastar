@@ -27,6 +27,8 @@
 #include <seastar/testing/perf_tests.hh>
 #include <seastar/testing/random.hh>
 
+using namespace seastar;
+
 template<typename Compressor>
 struct compression {
     static constexpr size_t small_buffer_size = 128;

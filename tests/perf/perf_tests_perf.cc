@@ -23,6 +23,8 @@
 #include <seastar/core/coroutine.hh>
 #include <seastar/testing/perf_tests.hh>
 
+using namespace seastar;
+
 // Benchmarks that test raw overhead of almost empty perf tests
 // in all the basic variations.
 
