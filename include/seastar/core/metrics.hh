@@ -472,7 +472,7 @@ extern label shard_label;
 template<typename T>
 impl::metric_definition_impl make_gauge(metric_name_type name,
         T&& val, description d = description(), std::vector<label_instance> labels = {}) {
-    return {name, {impl::data_type::GAUGE, "gauge"}, make_function(std::forward<T>(val), impl::data_type::GAUGE), d, labels};
+    return {name, {impl::data_type::GAUGE, "gauge"}, impl::make_function(std::forward<T>(val), impl::data_type::GAUGE), d, labels};
 }
 
 /*!
@@ -483,7 +483,7 @@ impl::metric_definition_impl make_gauge(metric_name_type name,
 template<typename T>
 impl::metric_definition_impl make_gauge(metric_name_type name,
         description d, T&& val) {
-    return {name, {impl::data_type::GAUGE, "gauge"}, make_function(std::forward<T>(val), impl::data_type::GAUGE), d, {}};
+    return {name, {impl::data_type::GAUGE, "gauge"}, impl::make_function(std::forward<T>(val), impl::data_type::GAUGE), d, {}};
 }
 
 /*!
@@ -494,7 +494,7 @@ impl::metric_definition_impl make_gauge(metric_name_type name,
 template<typename T>
 impl::metric_definition_impl make_gauge(metric_name_type name,
         description d, std::vector<label_instance> labels, T&& val) {
-    return {name, {impl::data_type::GAUGE, "gauge"}, make_function(std::forward<T>(val), impl::data_type::GAUGE), d, labels};
+    return {name, {impl::data_type::GAUGE, "gauge"}, impl::make_function(std::forward<T>(val), impl::data_type::GAUGE), d, labels};
 }
 
 
