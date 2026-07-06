@@ -444,9 +444,6 @@ void aio_general_context::queue(linux_abi::iocb* iocb) {
 
 size_t aio_general_context::flush() {
     auto begin = iocbs.get();
-    using clock = std::chrono::steady_clock;
-    constexpr clock::time_point no_time_point = clock::time_point(clock::duration(0));
-    auto retry_until = no_time_point;
     while (begin != last) {
         auto r = io_submit(io_context, last - begin, begin);
         if (__builtin_expect(r > 0, true)) {
@@ -454,16 +451,12 @@ size_t aio_general_context::flush() {
             continue;
         }
         // errno == EAGAIN is expected here. We don't explicitly assert that
-        // since the assert below prevents an endless loop for any reason.
-        if (retry_until == no_time_point) {
-            // allow retrying for 1 second
-            retry_until = clock::now() + 1s;
-        } else {
-            SEASTAR_ASSERT(clock::now() < retry_until);
-        }
+        // just adjust the queue and return the number of iocbs we were able to submit.
+        std::move(begin, last, iocbs.get());
+        break;
     }
-    auto nr = last - iocbs.get();
-    last = iocbs.get();
+    auto nr = begin - iocbs.get();
+    last -= nr;
     return nr;
 }
 
@@ -543,6 +536,11 @@ void preempt_io_context::request_preemption() {
     // monitored.
     _hrtimer_aio_completion.maybe_queue(_context);
     _context.flush();
+    // A short flush leaves the hrtimer iocb queued in userspace, so the aio
+    // ring cannot make need_preempt() true yet.
+    if (_context.has_pending()) {
+        return;
+    }
 
     // The kernel is not obliged to deliver the completion immediately, so wait for it
     while (!need_preempt()) {
@@ -655,7 +653,7 @@ bool reactor_backend_aio::kernel_submit_work() {
 }
 
 bool reactor_backend_aio::kernel_events_can_sleep() const {
-    return _storage_context.can_sleep();
+    return !_polling_io.has_pending() && _storage_context.can_sleep();
 }
 
 void reactor_backend_aio::wait_and_process_events(const sigset_t* active_sigmask) {
@@ -668,6 +666,9 @@ void reactor_backend_aio::wait_and_process_events(const sigset_t* active_sigmask
     _hrtimer_poll_completion.maybe_queue(_polling_io);
     _smp_wakeup_aio_completion.maybe_queue(_polling_io);
     _polling_io.flush();
+    if (_polling_io.has_pending()) {
+        timeout = 0;
+    }
     await_events(timeout, active_sigmask);
     _preempting_io.service_preempting_io(); // clear task quota timer
 }
