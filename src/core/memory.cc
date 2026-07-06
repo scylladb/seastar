@@ -2415,6 +2415,7 @@ int posix_memalign(void** ptr, size_t align, size_t size) noexcept {
     if (try_trigger_error_injector()) {
         return ENOMEM;
     }
+    size = std::max(size, align);
     *ptr = allocate_aligned(align, size);
     if (!*ptr) {
         return ENOMEM;
