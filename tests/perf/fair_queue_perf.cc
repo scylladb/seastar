@@ -29,6 +29,8 @@
 #include <seastar/core/when_all.hh>
 #include <ranges>
 
+using namespace seastar;
+
 static constexpr fair_queue::class_id cid = 0;
 
 struct local_fq_and_class {

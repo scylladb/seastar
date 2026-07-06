@@ -28,6 +28,8 @@
 #include <seastar/util/later.hh>
 #include <vector>
 
+using namespace seastar;
+
 struct coroutine_test {
 };
 

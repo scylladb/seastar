@@ -30,6 +30,8 @@
 #include <seastar/core/scheduling.hh>
 #include <seastar/util/later.hh>
 
+using namespace seastar;
+
 struct parallel_for_each {
     std::vector<int> empty_range;
     std::vector<int> range;

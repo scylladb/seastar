@@ -26,6 +26,8 @@
 
 #include <seastar/core/internal/estimated_histogram.hh>
 
+using namespace seastar;
+
 #include <ranges>
 #include <stdexcept>
 

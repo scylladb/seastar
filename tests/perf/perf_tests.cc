@@ -26,6 +26,8 @@
 #include <ranges>
 #include <seastar/testing/perf_tests.hh>
 
+using namespace seastar;
+
 #include <cstdio>
 #include <fstream>
 #include <regex>

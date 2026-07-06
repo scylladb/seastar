@@ -29,6 +29,8 @@
 #include <seastar/util/later.hh>
 #include <seastar/util/shared_token_bucket.hh>
 
+using namespace seastar;
+
 // The test allows measuring if the shared_token_bucket<> allows the tokens
 // consumers to get tokens at the rate the bucket is configured with.
 //

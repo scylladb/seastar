@@ -32,7 +32,14 @@
 #include <seastar/testing/linux_perf_event.hh>
 #include <seastar/util/noncopyable_function.hh>
 
-using namespace seastar;
+// Avoid `using namespace seastar;` here: it would inject
+// seastar::file_handle into global scope, conflicting with POSIX
+// `struct file_handle` (<bits/fcntl-linux.h>).  Pull in only the
+// seastar names this header actually mentions.
+using seastar::sstring;
+using seastar::future;
+using seastar::noncopyable_function;
+using seastar::is_future;
 
 namespace perf_tests {
 

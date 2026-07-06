@@ -26,6 +26,8 @@
 #include <seastar/core/chunked_fifo.hh>
 #include <seastar/core/circular_buffer.hh>
 
+using namespace seastar;
+
 using trivial_elem = int;
 
 static constexpr size_t big_size = 10000;
