@@ -150,7 +150,7 @@ public:
      * Connection must be closed regardless of whether there was an exception making the
      * request or not
      */
-    future<> close();
+    future<> close() noexcept;
 
 private:
     future<reply_ptr> do_make_request(const request& rq);
@@ -365,7 +365,7 @@ public:
      *
      * Client must be closed before destruction unconditionally
      */
-    future<> close();
+    future<> close() noexcept;
 
     /**
      * \brief Returns the total number of connections
