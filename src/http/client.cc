@@ -188,7 +188,7 @@ void connection::shutdown() noexcept {
     _fd.shutdown_input();
 }
 
-future<> connection::close() {
+future<> connection::close() noexcept {
     // #2661. At least output stream close can fail with exception, because
     // the stream will do a flush. If connection never managed to send data, we
     // will throw again here. Need to suppress these exceptions.
@@ -456,7 +456,7 @@ future<> client::do_make_request(connection& con, const request& req, reply_hand
     }).finally([sub = std::move(sub)] {});
 }
 
-future<> client::close() {
+future<> client::close() noexcept {
     if (_pool.empty()) {
         return _new_connections->close();
     }
