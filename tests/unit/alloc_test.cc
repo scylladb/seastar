@@ -752,3 +752,37 @@ SEASTAR_TEST_CASE(c23_free_sized) {
     free_aligned_sized(p2, 1024, 4096);
     return make_ready_future<>();
 }
+
+SEASTAR_TEST_CASE(test_posix_memalign) {
+    auto verify = [](size_t alignment, size_t size) {
+        void *p = NULL;
+        int result = posix_memalign(&p, alignment, size);
+        BOOST_REQUIRE(result == 0);
+        BOOST_REQUIRE(p != nullptr);
+        BOOST_REQUIRE_MESSAGE(
+            (reinterpret_cast<uintptr_t>(p) % alignment) == 0,
+            fmt::format("failed with p {} alignment {} size {}",
+                        fmt::ptr(p), alignment, size));
+        free(p);
+    };
+
+    // posix_memalign does not place a restriction on the allocated size, unlike
+    // aligned_alloc which requires size to be a multiple of alignment. at the
+    // time this test was written verify(32,16) does not fail without the
+    // proceeding allocation.
+    //
+    // this case can be seen in both the glibc test suite:
+    //   https://sourceware.org/git/?p=glibc.git;a=blob;f=malloc/tst-posix_memalign.c;h=5039b6501710a550e71f1bc659b1b5c0baa03cf3;hb=HEAD#l109
+    //
+    // and apple's libmalloc test suite:
+    //   https://opensource.apple.com/source/libmalloc/libmalloc-283.60.1/tests/posix_memalign_test.c.auto.html
+    //
+    // at the time the test is written it will fail on release builds with
+    // seastar allocator and pass when using the default allocator in debug
+    // mode.
+
+    verify(16, 32);
+    verify(32, 16);
+
+    return make_ready_future<>();
+}
