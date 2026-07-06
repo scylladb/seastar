@@ -28,13 +28,13 @@ namespace seastar {
 // Platform-dependent cache line size for alignment and padding purposes.
 // RISC-V: workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=116662
 #ifdef __riscv
-constexpr std::size_t cache_line_size = 64;
+inline constexpr std::size_t cache_line_size = 64;
 #else
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Winterference-size"
 #endif
-constexpr std::size_t cache_line_size = std::hardware_destructive_interference_size;
+inline constexpr std::size_t cache_line_size = std::hardware_destructive_interference_size;
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif

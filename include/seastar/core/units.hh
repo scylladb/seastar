@@ -26,9 +26,9 @@
 namespace seastar {
 
 
-constexpr size_t KB = 1 << 10;
-constexpr size_t MB = 1 << 20;
-constexpr size_t GB = 1 << 30;
+inline constexpr size_t KB = 1 << 10;
+inline constexpr size_t MB = 1 << 20;
+inline constexpr size_t GB = 1 << 30;
 
 constexpr size_t operator""_KiB(unsigned long long n) { return n << 10; }
 constexpr size_t operator""_MiB(unsigned long long n) { return n << 20; }
