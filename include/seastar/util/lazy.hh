@@ -109,9 +109,6 @@ lazy_deref(const T& p) {
     return lazy_deref_wrapper<T>(p);
 }
 
-}
-
-namespace std {
 /// Output operator for a seastar::lazy_eval<Func>
 /// This would allow printing a seastar::lazy_eval<Func> as if it's a regular
 /// value.
@@ -128,22 +125,22 @@ namespace std {
 ///
 /// \return os
 template <typename Func>
-ostream& operator<<(ostream& os, const seastar::lazy_eval<Func>& lf) {
+std::ostream& operator<<(std::ostream& os, const lazy_eval<Func>& lf) {
     return os << lf();
 }
 
 template <typename Func>
-ostream& operator<<(ostream& os, seastar::lazy_eval<Func>& lf) {
+std::ostream& operator<<(std::ostream& os, lazy_eval<Func>& lf) {
     return os << lf();
 }
 
 template <typename Func>
-ostream& operator<<(ostream& os, seastar::lazy_eval<Func>&& lf) {
+std::ostream& operator<<(std::ostream& os, lazy_eval<Func>&& lf) {
     return os << lf();
 }
 
 template <typename T>
-ostream& operator<<(ostream& os, seastar::lazy_deref_wrapper<T> ld) {
+std::ostream& operator<<(std::ostream& os, lazy_deref_wrapper<T> ld) {
     if (ld.p) {
         return os << *ld.p;
     }
