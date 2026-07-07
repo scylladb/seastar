@@ -1113,11 +1113,6 @@ reactor::task_queue_group::account_runtime(reactor& r, sched_entity& tq, sched_c
     tq._runtime += runtime;
 }
 
-struct reactor::task_queue::indirect_compare {
-    bool operator()(const sched_entity* tq1, const sched_entity* tq2) const {
-        return tq1->_vruntime < tq2->_vruntime;
-    }
-};
 
 reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsigned id, reactor_backend_selector rbs, reactor_config cfg)
     : _smp(std::move(smp))
@@ -3183,7 +3178,9 @@ void reactor::task_queue_group::activate(sched_entity* tq) {
 
 void reactor::task_queue_group::insert_active_entity(sched_entity* tq) {
     tq->_active = true;
-    auto less = task_queue::indirect_compare();
+    auto less = [] (const sched_entity* a, const sched_entity* b) {
+        return a->_vruntime < b->_vruntime;
+    };
     if (_active.empty() || less(_active.back(), tq)) {
         // Common case: idle->working
         // Common case: CPU intensive task queue going to the back

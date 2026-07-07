@@ -307,7 +307,6 @@ private:
         // chars are used.
         static constexpr size_t shortname_size = 4;
         sstring _shortname;
-        struct indirect_compare;
         seastar::metrics::metric_groups _metrics;
         virtual bool run_tasks() override;
         void rename(sstring new_name, sstring new_shortname);
