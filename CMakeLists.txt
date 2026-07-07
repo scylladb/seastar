@@ -1155,13 +1155,6 @@ if (Seastar_LD_FLAGS)
     PRIVATE ${Seastar_LD_FLAGS})
 endif ()
 
-if (SystemTap-SDT_FOUND)
-  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_SYSTEMTAP_SDT)
-
-  target_link_libraries (seastar
-    PRIVATE SystemTap::SDT)
-endif ()
-
 if (Seastar_LTTNG)
   list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_LTTNG_UST)
 
@@ -1541,7 +1534,6 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findyaml-cpp.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/SeastarDependencies.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindLibUring.cmake
-      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSystemTap-SDT.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindLTTngUST.cmake
     DESTINATION ${install_cmakedir})
 

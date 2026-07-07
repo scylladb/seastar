@@ -60,7 +60,6 @@ debian_packages=(
     python3-yaml
     ragel
     stow
-    systemtap-sdt-dev
     liblttng-ust-dev
     lttng-tools
     babeltrace2
@@ -107,7 +106,6 @@ redhat_packages=(
     python3-pyelftools
     python3-pyyaml
     stow
-    systemtap-sdt-devel
     lttng-ust-devel
     lttng-tools
     babeltrace2
@@ -164,13 +162,10 @@ centos9_packages=(
     ragel
 )
 
-# 1) glibc 2.30-3 has sys/sdt.h (systemtap include)
-#    some old containers may contain glibc older,
-#    so enforce update on that one.
-# 2) if problems with signatures, ensure having fresh
-#    archlinux-keyring: pacman -Sy archlinux-keyring && pacman -Syyu
-# 3) aur installations require having sudo and being
-#    a sudoer. makepkg does not work otherwise.
+# if problems with signatures, ensure having fresh
+# archlinux-keyring: pacman -Sy archlinux-keyring && pacman -Syyu
+# aur installations require having sudo and being
+# a sudoer. makepkg does not work otherwise.
 arch_packages=(
     boost
     boost-libs
