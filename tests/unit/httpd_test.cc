@@ -6,6 +6,9 @@
 #include <seastar/http/httpd.hh>
 #include <seastar/http/handlers.hh>
 #include <seastar/http/common.hh>
+#include <seastar/http/file_handler.hh>
+#include <seastar/core/seastar.hh>
+#include <seastar/core/fstream.hh>
 #include <seastar/util/memory-data-sink.hh>
 #include <seastar/http/matcher.hh>
 #include <seastar/http/matchrules.hh>
@@ -24,6 +27,7 @@
 #include <seastar/testing/thread_test_case.hh>
 #include "loopback_socket.hh"
 #include "memory-data-sink.hh"
+#include "tmpdir.hh"
 #include <boost/algorithm/string.hpp>
 #include <boost/dll.hpp>
 #include <seastar/core/thread.hh>
@@ -310,6 +314,48 @@ SEASTAR_TEST_CASE(test_url_decode_edge_cases) {
         BOOST_REQUIRE_EQUAL(out, sstring(c.path));
     }
     return make_ready_future<>();
+}
+
+// A directory_handler must never serve a file outside its doc_root. Both raw
+// ("../") and percent-encoded ("%2e%2e%2f") traversal are rejected before the
+// filesystem is touched, so a "secret" sibling of doc_root stays unreachable
+// even though it exists on disk. See issue #3475.
+SEASTAR_THREAD_TEST_CASE(test_directory_handler_path_traversal) {
+    tmpdir tmp;
+    auto doc_root = tmp.path() / "public";
+    touch_directory(doc_root.native()).get();
+
+    auto write_file = [] (const std::filesystem::path& p, sstring content) {
+        auto f = open_file_dma(p.native(), open_flags::create | open_flags::wo).get();
+        auto os = make_file_output_stream(f).get();
+        os.write(std::move(content)).get();
+        os.flush().get();
+        os.close().get();
+    };
+    write_file(doc_root / "index.html", "public");
+    // A file sitting next to doc_root that traversal would try to reach.
+    write_file(tmp.path() / "secret", "secret");
+
+    // doc_root ends with '/': get_decoded_param() strips the path matcher's
+    // leading '/' from the param, so the handler concatenates doc_root + name.
+    directory_handler handler(doc_root.native() + "/");
+
+    auto handle = [&handler] (sstring param) {
+        auto req = std::make_unique<http::request>();
+        req->param.set("path", std::move(param));
+        auto rep = std::make_unique<http::reply>();
+        return handler.handle("", std::move(req), std::move(rep)).get();
+    };
+
+    // A legitimate request inside doc_root is served.
+    BOOST_REQUIRE_EQUAL((int)handle("/index.html")->_status,
+                        (int)http::reply::status_type::ok);
+
+    // Raw and percent-encoded traversal must not escape doc_root.
+    for (sstring param : {"/../secret", "/%2e%2e%2fsecret", "/subdir/../../secret"}) {
+        BOOST_REQUIRE_EQUAL((int)handle(param)->_status,
+                            (int)http::reply::status_type::not_found);
+    }
 }
 
 SEASTAR_TEST_CASE(test_routes) {

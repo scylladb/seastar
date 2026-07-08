@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <iostream>
 #include <memory>
+#include <string_view>
 
 #include <seastar/http/file_handler.hh>
 #include <seastar/core/seastar.hh>
@@ -36,6 +37,28 @@ namespace seastar {
 
 namespace httpd {
 
+// Refuse a decoded path that could escape doc_root: any ".." segment, or a
+// leading '/' (get_decoded_param() strips the matcher's own '/', so one here
+// means a doubled slash like "//etc"). It also percent-decodes the value, so
+// encoded traversal like "%2e%2e%2f" is already "../" and is caught here too.
+static bool is_unsafe_path(std::string_view path) {
+    if (!path.empty() && path.front() == '/') {
+        return true;
+    }
+    for (size_t start = 0; start <= path.size();) {
+        size_t sep = path.find('/', start);
+        auto segment = path.substr(start, sep - start);
+        if (segment == "..") {
+            return true;
+        }
+        if (sep == std::string_view::npos) {
+            break;
+        }
+        start = sep + 1;
+    }
+    return false;
+}
+
 directory_handler::directory_handler(const sstring& doc_root,
         file_transformer* transformer)
         : file_interaction_handler(transformer), doc_root(doc_root) {
@@ -43,7 +66,12 @@ directory_handler::directory_handler(const sstring& doc_root,
 
 future<std::unique_ptr<http::reply>> directory_handler::handle(const sstring& path,
         std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
-    sstring full_path = doc_root + req->param.get_decoded_param("path");
+    sstring decoded_path = req->param.get_decoded_param("path");
+    if (is_unsafe_path(decoded_path)) {
+        rep->set_status(http::reply::status_type::not_found);
+        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
+    }
+    sstring full_path = doc_root + decoded_path;
     auto h = this;
     return engine().file_type(full_path).then(
             [h, full_path, req = std::move(req), rep = std::move(rep)](auto val) mutable {
