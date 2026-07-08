@@ -1248,6 +1248,20 @@ public:
             return extract_dn_information();
         });
     }
+    future<std::optional<std::chrono::system_clock::time_point>> get_certificate_expiry() override {
+        return state_checked_access([this] {
+            auto peer = get_peer_certificate();
+            if (!peer) {
+                return std::optional<std::chrono::system_clock::time_point>{};
+            }
+            time_t t = gnutls_x509_crt_get_expiration_time(peer.get());
+            if (t == (time_t)-1) {
+                return std::optional<std::chrono::system_clock::time_point>{};
+            }
+            return std::optional<std::chrono::system_clock::time_point>{
+                std::chrono::system_clock::from_time_t(t)};
+        });
+    }
     future<std::vector<subject_alt_name>> get_alt_name_information(std::unordered_set<subject_alt_name_type> types) override {
         return state_checked_access([this](std::unordered_set<subject_alt_name_type> types) {
             std::vector<subject_alt_name> res;

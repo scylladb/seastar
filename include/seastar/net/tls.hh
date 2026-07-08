@@ -20,6 +20,7 @@
  */
 #pragma once
 
+#include <chrono>
 #include <functional>
 #include <optional>
 #include <unordered_set>
@@ -574,6 +575,17 @@ namespace tls {
      * system_error exception will be thrown.
      */
     future<std::optional<session_dn>> get_dn_information(connected_socket& socket);
+
+    /**
+     * Get the expiration time of the leaf certificate that the connected peer is using.
+     * This function forces the TLS handshake. If the handshake didn't happen before the
+     * call to 'get_certificate_expiry' it will be completed when the returned future will
+     * become ready.
+     * Returns the expiry time_point on success. If the peer didn't send a certificate,
+     * or the expiry field cannot be read, returns nullopt.
+     * If the socket is not connected a system_error exception will be thrown.
+     */
+    future<std::optional<std::chrono::system_clock::time_point>> get_certificate_expiry(connected_socket& socket);
 
     /**
      * Force a re-handshake (session key renegotiotion on TLS1.3).
