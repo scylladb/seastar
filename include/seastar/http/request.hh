@@ -30,7 +30,6 @@
 //
 #pragma once
 
-#include <seastar/core/iostream.hh>
 #include <seastar/core/sstring.hh>
 #include <string_view>
 #include <strings.h>
@@ -38,6 +37,8 @@
 #include <seastar/http/mime_types.hh>
 #include <seastar/http/types.hh>
 #include <seastar/net/socket_defs.hh>
+#include <seastar/net/api.hh>
+#include <seastar/net/tls.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/util/string_utils.hh>
 #include <seastar/util/iostream.hh>
@@ -80,6 +81,16 @@ struct request {
     std::unordered_map<sstring, sstring> trailing_headers;
     std::unordered_map<sstring, sstring> chunk_extensions;
     sstring protocol_name = "http";
+    /// Distinguished name from the client's TLS certificate, if mTLS was used.
+    /// Points into an object owned by a "connection" object, which is held
+    /// alive while processing a request.
+    const session_dn* tls_dn = nullptr;
+    /// Subject Alternative Names from the client's TLS certificate.
+    /// Non-null for any TLS connection (points to an empty vector when the
+    /// client certificate carries no SAN extensions). Points into an object
+    /// owned by a "connection" object, which is held alive while processing
+    /// a request.
+    const std::vector<tls::subject_alt_name>* tls_san = nullptr;
     http::body_writer_type body_writer; // for client
 
     using query_parameters_type = std::unordered_map<sstring, std::vector<sstring>, seastar::internal::string_view_hash, std::equal_to<>>;

@@ -214,6 +214,8 @@ future<> connection::read_one() {
 
         if (_tls) {
             req->protocol_name = "https";
+            req->tls_dn = _tls_dn ? &*_tls_dn : nullptr;
+            req->tls_san = _tls_san ? &*_tls_san : nullptr;
         }
         if (_parser.failed()) {
             if (req->_version.empty()) {
@@ -310,7 +312,19 @@ future<> connection::process() {
 
 future<> connection::prepare() {
     if (_tls) {
-        co_await tls::get_protocol_version(_fd);
+        // Wait for the TLS handshake to complete, if it hasn't already, and
+        // then also retrieve the client certificate's Subject Distinguished
+        // Name (DN) and Subject Alternative Name (SAN).
+        // These are stored in the connection (_tls_dn and _tls_san) and
+        // referenced in every request so that request handlers can perform
+        // certificate-based authentication.
+        // Note: these are fetched once and cached for the lifetime of the
+        // connection. TLS 1.2 allows mid-connection renegotiation, which can
+        // change the client certificate; in that case the cached DN/SAN will
+        // not be updated. TLS 1.3 does not support renegotiation, so this is
+        // not an issue there.
+        _tls_dn = co_await tls::get_dn_information(_fd);
+        _tls_san = co_await tls::get_alt_name_information(_fd);
     }
 }
 
