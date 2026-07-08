@@ -217,6 +217,12 @@ future<> connection::read_one() {
             req->protocol_name = "https";
             req->tls_dn = _tls_dn ? &*_tls_dn : nullptr;
             req->tls_san = _tls_san ? &*_tls_san : nullptr;
+            if (_tls_expiry && std::chrono::system_clock::now() > *_tls_expiry) {
+                generate_error_reply_and_close(std::move(req),
+                    http::reply::status_type::unauthorized,
+                    "Client certificate has expired");
+                return make_ready_future<>();
+            }
         }
         if (_parser.failed()) {
             if (req->_version.empty()) {
@@ -326,6 +332,7 @@ future<> connection::prepare() {
         // not an issue there.
         _tls_dn = co_await tls::get_dn_information(_fd);
         _tls_san = co_await tls::get_alt_name_information(_fd);
+        _tls_expiry = co_await tls::get_certificate_expiry(_fd);
     }
 }
 
