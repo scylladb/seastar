@@ -30,14 +30,15 @@
 //
 #pragma once
 
-#include <seastar/core/iostream.hh>
 #include <seastar/core/sstring.hh>
 #include <string_view>
+#include <optional>
 #include <strings.h>
 #include <seastar/http/common.hh>
 #include <seastar/http/mime_types.hh>
 #include <seastar/http/types.hh>
 #include <seastar/net/socket_defs.hh>
+#include <seastar/net/api.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/util/string_utils.hh>
 #include <seastar/util/iostream.hh>
@@ -80,6 +81,8 @@ struct request {
     std::unordered_map<sstring, sstring> trailing_headers;
     std::unordered_map<sstring, sstring> chunk_extensions;
     sstring protocol_name = "http";
+    /// Distinguished name from the client's TLS certificate, if mTLS was used.
+    std::optional<session_dn> _tls_dn;
     http::body_writer_type body_writer; // for client
 
     using query_parameters_type = std::unordered_map<sstring, std::vector<sstring>, seastar::internal::string_view_hash, std::equal_to<>>;
