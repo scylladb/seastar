@@ -25,6 +25,7 @@
 #include <limits>
 #include <cctype>
 #include <vector>
+#include <optional>
 #include <boost/intrusive/list.hpp>
 #include <seastar/http/request_parser.hh>
 #include <seastar/http/request.hh>
@@ -62,6 +63,8 @@ public:
 class connection : public boost::intrusive::list_base_hook<> {
     http_server& _server;
     connected_socket _fd;
+    std::optional<session_dn> _tls_dn;
+    std::optional<std::vector<tls::subject_alt_name>> _tls_san;
     input_stream<char> _read_buf;
     output_stream<char> _write_buf;
     socket_address _client_addr;

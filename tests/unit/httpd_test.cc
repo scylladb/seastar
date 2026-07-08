@@ -2736,3 +2736,272 @@ SEASTAR_TEST_CASE(test_request_scheduling_group) {
         }
     });
 }
+
+// Verify that when mTLS is configured with client_auth::REQUIRE, the client
+// certificate's Distinguished Name (DN) is extracted during the TLS handshake
+// and propagated into every http::request via req.tls_dn. Also verifies that
+// req.tls_san is populated (non-null, pointing to an empty vector) for any
+// TLS connection, even when the client certificate carries no SAN extensions.
+SEASTAR_TEST_CASE(test_mtls_dn_propagation) {
+    return seastar::async([] {
+        // Self-signed CA (CN=server.com) that signs both the server and client certificates below.
+        static const char mtls_ca_cert[] =
+            "-----BEGIN CERTIFICATE-----\n"
+            "MIIBkTCCATagAwIBAgIUHAGWAd2vYMIUpcWjOX8J2d4DCX4wCgYIKoZIzj0EAwIw\n"
+            "FTETMBEGA1UEAwwKc2VydmVyLmNvbTAeFw0yNjA3MDgxOTE4MjZaFw0zNjA3MDUx\n"
+            "OTE4MjZaMBUxEzARBgNVBAMMCnNlcnZlci5jb20wWTATBgcqhkjOPQIBBggqhkjO\n"
+            "PQMBBwNCAASbsF3KPrYN03EHUBgmaTx8F3g2WHySxf1WAJMNA9KwPlSTpDCISXFQ\n"
+            "7vvXdbMnHzZuSH1t+QcODxZIFtx1D3sUo2QwYjAdBgNVHQ4EFgQUN/Ct/ixGWTdj\n"
+            "cgk8KeW0JtVgGlQwHwYDVR0jBBgwFoAUN/Ct/ixGWTdjcgk8KeW0JtVgGlQwDwYD\n"
+            "VR0RBAgwBocEfwAAATAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0kAMEYC\n"
+            "IQDwOqCG4WYzj80SYkTaeiMxebJx6c3LvWyq/k9pyNyOQgIhAKBzeJWNd1r4HEAd\n"
+            "WHxi6RD5GDWWr7OzXhNNfwg66KEa\n"
+            "-----END CERTIFICATE-----\n";
+        // Server certificate: CN=server.server.com, signed by the CA above.
+        static const char mtls_server_cert[] =
+            "-----BEGIN CERTIFICATE-----\n"
+            "MIIBdTCCARugAwIBAgIUC8xHpJtk5p3k3fFNIeburBRUqEcwCgYIKoZIzj0EAwIw\n"
+            "FTETMBEGA1UEAwwKc2VydmVyLmNvbTAeFw0yNjA3MDgxOTE4MjZaFw0zNjA3MDUx\n"
+            "OTE4MjZaMBwxGjAYBgNVBAMMEXNlcnZlci5zZXJ2ZXIuY29tMFkwEwYHKoZIzj0C\n"
+            "AQYIKoZIzj0DAQcDQgAEPZJywC1vMYfkDjWlUSQJ71Wbea0N8VHBtkhreqGg0Yx5\n"
+            "32ZKUB4Tyr1urH/Q3mw6rL4hfJ3+RREtkDGOhYeKHKNCMEAwHQYDVR0OBBYEFA7S\n"
+            "KzBfmLHVa4OhtlxdBAnoN2rWMB8GA1UdIwQYMBaAFDfwrf4sRlk3Y3IJPCnltCbV\n"
+            "YBpUMAoGCCqGSM49BAMCA0gAMEUCIQDSQPxyVY6wR8rlCeqGu/7Kw3a7Zy0dNvWZ\n"
+            "NBLC3K00AgIgde5xN8bBO/HORzfxATxHUNU52aQVYN4XRvXvZuB5D28=\n"
+            "-----END CERTIFICATE-----\n";
+        static const char mtls_server_key[] =
+            "-----BEGIN EC PRIVATE KEY-----\n"
+            "MHcCAQEEICzgEWTe2FDq9e9+K+9UgiN5wVsT/biFBON8n80GgrwpoAoGCCqGSM49\n"
+            "AwEHoUQDQgAEPZJywC1vMYfkDjWlUSQJ71Wbea0N8VHBtkhreqGg0Yx532ZKUB4T\n"
+            "yr1urH/Q3mw6rL4hfJ3+RREtkDGOhYeKHA==\n"
+            "-----END EC PRIVATE KEY-----\n";
+        // Client certificate: CN=client.server.com, signed by the CA above.
+        static const char mtls_client_cert[] =
+            "-----BEGIN CERTIFICATE-----\n"
+            "MIIBdTCCARugAwIBAgIUC8xHpJtk5p3k3fFNIeburBRUqEgwCgYIKoZIzj0EAwIw\n"
+            "FTETMBEGA1UEAwwKc2VydmVyLmNvbTAeFw0yNjA3MDgxOTE4MjZaFw0zNjA3MDUx\n"
+            "OTE4MjZaMBwxGjAYBgNVBAMMEWNsaWVudC5zZXJ2ZXIuY29tMFkwEwYHKoZIzj0C\n"
+            "AQYIKoZIzj0DAQcDQgAEDrhgfDYXOTNmK5OJFcD6Frk1SMfyxM0K6gtxWK0kEex3\n"
+            "vYUAEuESkboyF07yOUwZAnUDzquAO8xTeTJY3POuYqNCMEAwHQYDVR0OBBYEFBZF\n"
+            "A9LwGwhBHhsIiRI1KYCVymKDMB8GA1UdIwQYMBaAFDfwrf4sRlk3Y3IJPCnltCbV\n"
+            "YBpUMAoGCCqGSM49BAMCA0gAMEUCIQDZ/I/CUmkSPmyQAgEU2d04pVp3Cu0tQZpX\n"
+            "PxVvseCJBQIgdpuFxONoYHHNxjq0NpvRx6VLUrjJKb1LjGhWmzzU3zE=\n"
+            "-----END CERTIFICATE-----\n";
+        static const char mtls_client_key[] =
+            "-----BEGIN EC PRIVATE KEY-----\n"
+            "MHcCAQEEIOPelbFn46IcU/d8uNhj6EE/14PDYfDWFKaPnhUCiwYcoAoGCCqGSM49\n"
+            "AwEHoUQDQgAEDrhgfDYXOTNmK5OJFcD6Frk1SMfyxM0K6gtxWK0kEex3vYUAEuES\n"
+            "kboyF07yOUwZAnUDzquAO8xTeTJY3POuYg==\n"
+            "-----END EC PRIVATE KEY-----\n";
+
+        // Server requires a client certificate signed by the CA.
+        tls::credentials_builder server_builder;
+        server_builder.set_x509_trust(
+                tls::blob(mtls_ca_cert, sizeof(mtls_ca_cert) - 1),
+                tls::x509_crt_format::PEM);
+        server_builder.set_x509_key(
+                tls::blob(mtls_server_cert, sizeof(mtls_server_cert) - 1),
+                tls::blob(mtls_server_key, sizeof(mtls_server_key) - 1),
+                tls::x509_crt_format::PEM);
+        server_builder.set_client_auth(tls::client_auth::REQUIRE);
+        auto server_creds = server_builder.build_server_credentials();
+
+        // Client presents its certificate to satisfy the server's REQUIRE policy.
+        tls::credentials_builder client_builder;
+        client_builder.set_x509_trust(
+                tls::blob(mtls_ca_cert, sizeof(mtls_ca_cert) - 1),
+                tls::x509_crt_format::PEM);
+        client_builder.set_x509_key(
+                tls::blob(mtls_client_cert, sizeof(mtls_client_cert) - 1),
+                tls::blob(mtls_client_key, sizeof(mtls_client_key) - 1),
+                tls::x509_crt_format::PEM);
+        auto client_creds = client_builder.build_certificate_credentials();
+
+        std::optional<session_dn> observed_dn;
+        std::optional<std::vector<tls::subject_alt_name>> observed_san;
+
+        auto addr = socket_address(ipv4_addr("127.0.0.1", 0));
+        listen_options lo;
+        lo.reuse_address = true;
+        lo.set_fixed_cpu(this_shard_id());
+
+        http_server server("test");
+        server._routes.put(GET, "/test", new function_handler([&observed_dn, &observed_san](const_req req, http::reply&) {
+            if (req.tls_dn) {
+                observed_dn = *req.tls_dn;
+            }
+            if (req.tls_san) {
+                observed_san = *req.tls_san;
+            }
+            return sstring{};
+        }, "txt"));
+
+        server.listen(addr, lo, server_creds).get();
+        auto actual_addr = http_server_tester::listeners(server)[0].local_address();
+
+        // Run the client in a separate fiber so the reactor can
+        // interleave client and server TLS handshake progress.
+        future<> client_fiber = seastar::async([&] {
+            auto c_socket = tls::connect(client_creds, actual_addr,
+                    tls::tls_options{.server_name = sstring("server.server.com")}).get();
+            auto input = c_socket.input();
+            auto output = c_socket.output();
+            auto close_in = deferred_close(input);
+            auto close_out = deferred_close(output);
+
+            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\n\r\n")).get();
+            output.flush().get();
+            auto resp = input.read().get();
+            BOOST_REQUIRE_NE(resp.size(), 0u);
+            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("200 OK"), std::string::npos);
+        });
+
+        client_fiber.get();
+
+        // The handler must have received a populated tls_dn matching the
+        // client certificate (CN=client.server.com) issued by the CA (CN=server.com).
+        BOOST_REQUIRE(observed_dn.has_value());
+        BOOST_REQUIRE_NE(observed_dn->subject.find("client.server.com"), sstring::npos);
+        BOOST_REQUIRE_NE(observed_dn->issuer.find("server.com"), sstring::npos);
+        // tls_san must be set (non-null) for any TLS connection, even when the
+        // client certificate carries no SAN extensions.
+        BOOST_REQUIRE(observed_san.has_value());
+        BOOST_REQUIRE(observed_san->empty());
+
+        server.stop().get();
+    });
+}
+
+// Verify that when a client certificate contains Subject Alternative Name (SAN)
+// extensions, they are extracted and propagated into every http::request via
+// req.tls_san, so that handlers can use them for identity (e.g. SPIFFE URIs).
+SEASTAR_TEST_CASE(test_mtls_san_propagation) {
+    return seastar::async([] {
+        // Self-signed CA, server cert, and client cert with DNS + URI SANs:
+        static const char san_ca_cert[] =
+            "-----BEGIN CERTIFICATE-----\n"
+            "MIIBiTCCATCgAwIBAgIUNfVbgqgJmihN0bY8Tur8B70zzmcwCgYIKoZIzj0EAwIw\n"
+            "EjEQMA4GA1UEAwwHdGVzdC1jYTAeFw0yNjA3MTExNjI1NDlaFw0zNjA3MDgxNjI1\n"
+            "NDlaMBIxEDAOBgNVBAMMB3Rlc3QtY2EwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\n"
+            "AAR4QEFdFDw+nwhd1LUpPmC9ZK9p74kJYh5H9Mk2puaVhtCIR1Ox5gx5IryScZCt\n"
+            "W7HJ7f3CTYnACUJs8usUFCjDo2QwYjAdBgNVHQ4EFgQUq+O8snr60kr3EhdYc/SP\n"
+            "xZ55lXwwHwYDVR0jBBgwFoAUq+O8snr60kr3EhdYc/SPxZ55lXwwDwYDVR0RBAgw\n"
+            "BocEfwAAATAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0cAMEQCIE3qzWFI\n"
+            "xTE2fqwzTiA2V78X86duSrhU8JtBG4EJWVCUAiAQvKOdlsknMT8ixrR+/gMrONjQ\n"
+            "BbfIZq7UvH9rvIsaXg==\n"
+            "-----END CERTIFICATE-----\n";
+        static const char san_server_cert[] =
+            "-----BEGIN CERTIFICATE-----\n"
+            "MIIBkTCCATagAwIBAgIUJ+OG5WKsjMCeak5qyMhQ0yqemlkwCgYIKoZIzj0EAwIw\n"
+            "EjEQMA4GA1UEAwwHdGVzdC1jYTAeFw0yNjA3MTExNjI1NDlaFw0zNjA3MDgxNjI1\n"
+            "NDlaMBwxGjAYBgNVBAMMEXNlcnZlci5zZXJ2ZXIuY29tMFkwEwYHKoZIzj0CAQYI\n"
+            "KoZIzj0DAQcDQgAETcpMdHuAf7qZjMbW/yjtH0AjiJHpY2ZeOEXb2bMHohdJFm/x\n"
+            "8miPzvrB2bnRmlGen378xfd5Oz9F8JMqmzs3gqNgMF4wHAYDVR0RBBUwE4IRc2Vy\n"
+            "dmVyLnNlcnZlci5jb20wHQYDVR0OBBYEFPx3hhB+ycP8OwpuO16NLjMQaPItMB8G\n"
+            "A1UdIwQYMBaAFKvjvLJ6+tJK9xIXWHP0j8WeeZV8MAoGCCqGSM49BAMCA0kAMEYC\n"
+            "IQDGiFYnVUr9d4y3fQG/OeNcj77wdJY+S/QnA1gQP9kQlwIhAIjwr9z9j90sGJkT\n"
+            "Ddu7CCUTkG835Z1OL82FnlH93Fat\n"
+            "-----END CERTIFICATE-----\n";
+        static const char san_server_key[] =
+            "-----BEGIN EC PRIVATE KEY-----\n"
+            "MHcCAQEEIET2Je4ecbqCgzHPwf3Du8xK0R/pGomcbNvBXipYiYlkoAoGCCqGSM49\n"
+            "AwEHoUQDQgAETcpMdHuAf7qZjMbW/yjtH0AjiJHpY2ZeOEXb2bMHohdJFm/x8miP\n"
+            "zvrB2bnRmlGen378xfd5Oz9F8JMqmzs3gg==\n"
+            "-----END EC PRIVATE KEY-----\n";
+        // Client certificate with:
+        //   Subject: CN=san-client.server.com
+        //   SAN: DNS:san-client.server.com, URI:spiffe://example.com/client
+        static const char san_client_cert[] =
+            "-----BEGIN CERTIFICATE-----\n"
+            "MIIBtTCCAVygAwIBAgIUJ+OG5WKsjMCeak5qyMhQ0yqemlowCgYIKoZIzj0EAwIw\n"
+            "EjEQMA4GA1UEAwwHdGVzdC1jYTAeFw0yNjA3MTExNjI1NDlaFw0zNjA3MDgxNjI1\n"
+            "NDlaMCAxHjAcBgNVBAMMFXNhbi1jbGllbnQuc2VydmVyLmNvbTBZMBMGByqGSM49\n"
+            "AgEGCCqGSM49AwEHA0IABMxX6lxFObOcqGG8pTcG8Q/Rp/gjtP5Dzc0JuujpPd5V\n"
+            "8s9o9pEhNvefKxtRsFARQNv1oU50XwM1DiG8SEwlFwqjgYEwfzA9BgNVHREENjA0\n"
+            "ghVzYW4tY2xpZW50LnNlcnZlci5jb22GG3NwaWZmZTovL2V4YW1wbGUuY29tL2Ns\n"
+            "aWVudDAdBgNVHQ4EFgQUf1AVQBs5CZbJNWHE9M6inq8vW+EwHwYDVR0jBBgwFoAU\n"
+            "q+O8snr60kr3EhdYc/SPxZ55lXwwCgYIKoZIzj0EAwIDRwAwRAIgES8m0DuidZ+4\n"
+            "4NOS+BVQ2CzGdPgzmWgsKWVkf+dRTbACICmAFsB8JWJM/UlvvV1OwMNggJD5qzZ7\n"
+            "uqbMXan0M9ai\n"
+            "-----END CERTIFICATE-----\n";
+        static const char san_client_key[] =
+            "-----BEGIN EC PRIVATE KEY-----\n"
+            "MHcCAQEEINoNMldawj3P5wAVOVB6AeObDXUFXrO8yPKoy0s7aM8NoAoGCCqGSM49\n"
+            "AwEHoUQDQgAEzFfqXEU5s5yoYbylNwbxD9Gn+CO0/kPNzQm66Ok93lXyz2j2kSE2\n"
+            "958rG1GwUBFA2/WhTnRfAzUOIbxITCUXCg==\n"
+            "-----END EC PRIVATE KEY-----\n";
+
+        tls::credentials_builder server_builder;
+        server_builder.set_x509_trust(
+                tls::blob(san_ca_cert, sizeof(san_ca_cert) - 1),
+                tls::x509_crt_format::PEM);
+        server_builder.set_x509_key(
+                tls::blob(san_server_cert, sizeof(san_server_cert) - 1),
+                tls::blob(san_server_key, sizeof(san_server_key) - 1),
+                tls::x509_crt_format::PEM);
+        server_builder.set_client_auth(tls::client_auth::REQUIRE);
+        auto server_creds = server_builder.build_server_credentials();
+
+        tls::credentials_builder client_builder;
+        client_builder.set_x509_trust(
+                tls::blob(san_ca_cert, sizeof(san_ca_cert) - 1),
+                tls::x509_crt_format::PEM);
+        client_builder.set_x509_key(
+                tls::blob(san_client_cert, sizeof(san_client_cert) - 1),
+                tls::blob(san_client_key, sizeof(san_client_key) - 1),
+                tls::x509_crt_format::PEM);
+        auto client_creds = client_builder.build_certificate_credentials();
+
+        std::optional<std::vector<tls::subject_alt_name>> observed_san;
+
+        auto addr = socket_address(ipv4_addr("127.0.0.1", 0));
+        listen_options lo;
+        lo.reuse_address = true;
+        lo.set_fixed_cpu(this_shard_id());
+
+        http_server server("test");
+        server._routes.put(GET, "/test", new function_handler([&observed_san](const_req req, http::reply&) {
+            if (req.tls_san) {
+                observed_san = *req.tls_san;
+            }
+            return sstring{};
+        }, "txt"));
+
+        server.listen(addr, lo, server_creds).get();
+        auto actual_addr = http_server_tester::listeners(server)[0].local_address();
+
+        future<> client_fiber = seastar::async([&] {
+            auto c_socket = tls::connect(client_creds, actual_addr,
+                    tls::tls_options{.server_name = sstring("server.server.com")}).get();
+            auto input = c_socket.input();
+            auto output = c_socket.output();
+            auto close_in = deferred_close(input);
+            auto close_out = deferred_close(output);
+
+            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\n\r\n")).get();
+            output.flush().get();
+            auto resp = input.read().get();
+            BOOST_REQUIRE_NE(resp.size(), 0u);
+            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("200 OK"), std::string::npos);
+        });
+
+        client_fiber.get();
+
+        // The handler must have received the two SANs from the client certificate:
+        //   DNS:san-client.server.com and URI:spiffe://example.com/client.
+        BOOST_REQUIRE(observed_san.has_value());
+        BOOST_REQUIRE_EQUAL(observed_san->size(), 2u);
+
+        auto has_san = [&](tls::subject_alt_name_type type, const sstring& value) {
+            return std::any_of(observed_san->begin(), observed_san->end(),
+                [&](const tls::subject_alt_name& san) {
+                    return san.type == type &&
+                           std::get<sstring>(san.value) == value;
+                });
+        };
+        BOOST_REQUIRE(has_san(tls::subject_alt_name_type::dnsname, "san-client.server.com"));
+        BOOST_REQUIRE(has_san(tls::subject_alt_name_type::uri, "spiffe://example.com/client"));
+
+        server.stop().get();
+    });
+}
