@@ -727,7 +727,7 @@ void add_polled(const type_instance_id &, const shared_ptr<value_list> &, bool e
 
 typedef std::function<void()> notify_function;
 template<typename... _Args>
-static auto make_type_instance(description d, _Args && ... args) -> values_impl < decltype(value<_Args>(std::forward<_Args>(args)))... >
+auto make_type_instance(description d, _Args && ... args) -> values_impl < decltype(value<_Args>(std::forward<_Args>(args)))... >
 {
     return values_impl<decltype(value<_Args>(std::forward<_Args>(args)))...>(
                     std::move(d), value<_Args>(std::forward<_Args>(args))...);
@@ -737,7 +737,7 @@ static auto make_type_instance(description d, _Args && ... args) -> values_impl 
  *
  */
 template<typename ... _Args>
-[[deprecated("Use the metrics layer")]] static type_instance_id add_polled_metric(const plugin_id & plugin,
+[[deprecated("Use the metrics layer")]] type_instance_id add_polled_metric(const plugin_id & plugin,
         const plugin_instance_id & plugin_instance, const type_id & type,
         const scollectd::type_instance & type_instance, _Args&& ... args) {
     return add_polled_metric(plugin, plugin_instance, type, type_instance, description(),
@@ -748,7 +748,7 @@ template<typename ... _Args>
  *
  */
 template<typename ... _Args>
-[[deprecated("Use the metrics layer")]] static type_instance_id add_polled_metric(const plugin_id & plugin,
+[[deprecated("Use the metrics layer")]] type_instance_id add_polled_metric(const plugin_id & plugin,
         const plugin_instance_id & plugin_instance, const type_id & type,
         const scollectd::type_instance & type_instance, description d, _Args&& ... args) {
     return add_polled_metric(
@@ -756,7 +756,7 @@ template<typename ... _Args>
             std::forward<_Args>(args)...);
 }
 template<typename ... _Args>
-static future<> send_explicit_metric(const plugin_id & plugin,
+future<> send_explicit_metric(const plugin_id & plugin,
         const plugin_instance_id & plugin_instance, const type_id & type,
         const scollectd::type_instance & type_instance, _Args&& ... args) {
     return send_explicit_metric(
@@ -764,7 +764,7 @@ static future<> send_explicit_metric(const plugin_id & plugin,
             std::forward<_Args>(args)...);
 }
 template<typename ... _Args>
-static notify_function create_explicit_metric(const plugin_id & plugin,
+notify_function create_explicit_metric(const plugin_id & plugin,
         const plugin_instance_id & plugin_instance, const type_id & type,
         const scollectd::type_instance & type_instance, _Args&& ... args) {
     return create_explicit_metric(
@@ -778,7 +778,7 @@ seastar::metrics::impl::metric_id to_metrics_id(const type_instance_id & id);
  *
  */
 template<typename Arg>
-[[deprecated("Use the metrics layer")]] static type_instance_id add_polled_metric(const type_instance_id & id, description d,
+[[deprecated("Use the metrics layer")]] type_instance_id add_polled_metric(const type_instance_id & id, description d,
         Arg&& arg, bool enabled = true) {
     seastar::metrics::impl::get_local_impl()->add_registration(to_metrics_id(id), arg.type, seastar::metrics::impl::make_function(arg.value, arg.type), d, enabled);
     return id;
@@ -788,7 +788,7 @@ template<typename Arg>
  *
  */
 template<typename Arg>
-[[deprecated("Use the metrics layer")]] static type_instance_id add_polled_metric(const type_instance_id & id,
+[[deprecated("Use the metrics layer")]] type_instance_id add_polled_metric(const type_instance_id & id,
         Arg&& arg) {
     return std::move(add_polled_metric(id, description(), std::forward<Arg>(arg)));
 }
@@ -798,19 +798,19 @@ template<typename Arg>
  *
  */
 template<typename Args>
-[[deprecated("Use the metrics layer")]] static type_instance_id add_disabled_polled_metric(const type_instance_id & id, description d,
+[[deprecated("Use the metrics layer")]] type_instance_id add_disabled_polled_metric(const type_instance_id & id, description d,
         Args&& arg) {
     return add_polled_metric(id, d, std::forward<Args>(arg), false);
 }
 
 template<typename Args>
-static type_instance_id add_disabled_polled_metric(const type_instance_id & id,
+type_instance_id add_disabled_polled_metric(const type_instance_id & id,
         Args&& args) {
     return add_disabled_polled_metric(id, description(), std::forward<Args>(args));
 }
 
 template<typename ... Args>
-static type_instance_id add_disabled_polled_metric(const type_instance_id & id,
+type_instance_id add_disabled_polled_metric(const type_instance_id & id,
         Args&& ... args) {
     return add_disabled_polled_metric(id, description(), std::forward<Args>(args)...);
 }
@@ -818,12 +818,12 @@ static type_instance_id add_disabled_polled_metric(const type_instance_id & id,
 // "Explicit" metric sends. Sends a single value list as a message.
 // Obviously not super efficient either. But maybe someone needs it sometime.
 template<typename ... _Args>
-static future<> send_explicit_metric(const type_instance_id & id,
+future<> send_explicit_metric(const type_instance_id & id,
         _Args&& ... args) {
     return send_metric(id, make_type_instance(std::forward<_Args>(args)...));
 }
 template<typename ... _Args>
-static notify_function create_explicit_metric(const type_instance_id & id,
+notify_function create_explicit_metric(const type_instance_id & id,
         _Args&& ... args) {
     auto list = make_type_instance(std::forward<_Args>(args)...);
     return [id, list=std::move(list)]() {
