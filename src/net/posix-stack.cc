@@ -702,6 +702,7 @@ posix_server_socket_impl::accept() {
         if (_proxy_protocol) {
             addr_data_opt = co_await read_proxy_data(fd);
             if (!addr_data_opt) {
+                fd.close();
                 continue; // drop the connection
             }
             sa = addr_data_opt->remote_address;
