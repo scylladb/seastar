@@ -787,6 +787,10 @@ future<std::optional<session_dn>> tls::get_dn_information(connected_socket& sock
     return get_tls_socket(socket)->get_distinguished_name();
 }
 
+future<std::optional<std::chrono::system_clock::time_point>> tls::get_certificate_expiry(connected_socket& socket) {
+    return get_tls_socket(socket)->get_certificate_expiry();
+}
+
 future<std::vector<tls::subject_alt_name>> tls::get_alt_name_information(connected_socket& socket, std::unordered_set<subject_alt_name_type> types) {
     return get_tls_socket(socket)->get_alt_name_information(std::move(types));
 }

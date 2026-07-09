@@ -214,6 +214,13 @@ future<> connection::read_one() {
 
         if (_tls) {
             req->protocol_name = "https";
+            req->_tls_dn = _tls_dn;
+            if (_tls_expiry && std::chrono::system_clock::now() > *_tls_expiry) {
+                generate_error_reply_and_close(std::move(req),
+                    http::reply::status_type::unauthorized,
+                    "Client certificate has expired");
+                return make_ready_future<>();
+            }
         }
         if (_parser.failed()) {
             if (req->_version.empty()) {
@@ -311,6 +318,13 @@ future<> connection::process() {
 future<> connection::prepare() {
     if (_tls) {
         co_await tls::get_protocol_version(_fd);
+        // Retrieve the client certificate DN and expiry after the handshake
+        // completes.  Both are stored on the connection: the DN is copied into
+        // every request so handlers can perform certificate-based
+        // authentication; the expiry is checked before each request to refuse
+        // service on long-lived connections whose certificate has since expired.
+        _tls_dn = co_await tls::get_dn_information(_fd);
+        _tls_expiry = co_await tls::get_certificate_expiry(_fd);
     }
 }
 

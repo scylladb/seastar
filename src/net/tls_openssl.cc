@@ -40,6 +40,7 @@
 
 #include <cassert>
 #include <chrono>
+#include <ctime>
 #include <functional>
 #include <span>
 #include <system_error>
@@ -1521,6 +1522,39 @@ public:
         }
         result_t dn = extract_dn_information(is_verification_error::no);
         return make_ready_future<result_t>(std::move(dn));
+    }
+
+    future<std::optional<std::chrono::system_clock::time_point>> get_certificate_expiry() override {
+        using result_t = std::optional<std::chrono::system_clock::time_point>;
+        if (_error) {
+            return make_exception_future<result_t>(_error);
+        }
+        if (_shutdown) {
+            return make_exception_future<result_t>(
+              std::system_error(ENOTCONN, std::system_category()));
+        }
+        if (!connected()) {
+            return handshake().then(
+              [this]() mutable { return get_certificate_expiry(); });
+        }
+        const auto peer_cert = get_peer_certificate();
+        if (!peer_cert) {
+            return make_ready_future<result_t>(std::nullopt);
+        }
+        const ASN1_TIME* not_after = X509_get0_notAfter(peer_cert.get());
+        if (!not_after) {
+            return make_ready_future<result_t>(std::nullopt);
+        }
+        struct tm tm = {};
+        if (ASN1_TIME_to_tm(not_after, &tm) != 1) {
+            return make_ready_future<result_t>(std::nullopt);
+        }
+        time_t t = timegm(&tm);
+        if (t == (time_t)-1) {
+            return make_ready_future<result_t>(std::nullopt);
+        }
+        return make_ready_future<result_t>(
+            std::chrono::system_clock::from_time_t(t));
     }
 
     future<std::vector<subject_alt_name>> get_alt_name_information(

@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <functional>
 #include <limits>
 #include <cctype>
@@ -62,6 +63,8 @@ public:
 class connection : public boost::intrusive::list_base_hook<> {
     http_server& _server;
     connected_socket _fd;
+    std::optional<session_dn> _tls_dn;
+    std::optional<std::chrono::system_clock::time_point> _tls_expiry;
     input_stream<char> _read_buf;
     output_stream<char> _write_buf;
     socket_address _client_addr;
