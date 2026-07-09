@@ -20,6 +20,7 @@
  */
 
 #pragma once
+#include <atomic>
 #include <unordered_set>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/internal/pollable_fd.hh>
@@ -59,41 +60,49 @@ using namespace seastar;
 // Right now this class is used by the posix_server_socket_impl, but it could be used by any other.
 class conntrack {
     class load_balancer {
-        std::vector<unsigned> _cpu_load;
+        // Tracks the number of connections assigned to each shard. The accepting shard
+        // increments the selected shard's counter; the shard that closes the connection
+        // decrements it directly from the connection handle.
+        std::vector<std::atomic<unsigned>> _cpu_load;
     public:
-        load_balancer() : _cpu_load(size_t(this_smp_shard_count()), 0) {}
-        void closed_cpu(shard_id cpu) {
-            _cpu_load[cpu]--;
-        }
+        load_balancer() : _cpu_load(size_t(this_smp_shard_count())) {}
         shard_id next_cpu() {
             // FIXME: The naive algorithm will just round robin the connections around the shards.
             // A more complex version can keep track of the amount of activity in each connection,
             // and use that information.
-            auto min_el = std::min_element(_cpu_load.begin(), _cpu_load.end());
-            auto cpu = shard_id(std::distance(_cpu_load.begin(), min_el));
-            _cpu_load[cpu]++;
-            return cpu;
+            shard_id cpu_number = 0;
+            auto min_load = _cpu_load[0].load(std::memory_order_relaxed);
+            for (shard_id i = 1; i < _cpu_load.size(); ++i) {
+                auto load = _cpu_load[i].load(std::memory_order_relaxed);
+                if (load < min_load) {
+                    min_load = load;
+                    cpu_number = i;
+                }
+            }
+            _cpu_load[cpu_number].fetch_add(1, std::memory_order_relaxed);
+            return cpu_number;
         }
         shard_id force_cpu(shard_id cpu) {
-            _cpu_load[cpu]++;
+            _cpu_load[cpu].fetch_add(1, std::memory_order_relaxed);
             return cpu;
+        }
+        // For each shard to then store its count of connections
+        std::atomic<unsigned>* get_counter_ptr(shard_id cpu) {
+            return &_cpu_load[cpu];
         }
     };
 
     lw_shared_ptr<load_balancer> _lb;
-    void closed_cpu(shard_id cpu) {
-        _lb->closed_cpu(cpu);
-    }
 public:
     class handle {
-        shard_id _host_cpu;
         shard_id _target_cpu;
+        std::atomic<unsigned>* _connection_counter = nullptr;
         foreign_ptr<lw_shared_ptr<load_balancer>> _lb;
     public:
         handle() : _lb(nullptr) {}
         handle(shard_id cpu, lw_shared_ptr<load_balancer> lb)
-            : _host_cpu(this_shard_id())
-            , _target_cpu(cpu)
+            : _target_cpu(cpu)
+            , _connection_counter(lb->get_counter_ptr(cpu))
             , _lb(make_foreign(std::move(lb))) {}
 
         handle(const handle&) = delete;
@@ -104,10 +113,7 @@ public:
             if (!_lb) {
                 return;
             }
-            // FIXME: future is discarded
-            (void)smp::submit_to(_host_cpu, [cpu = _target_cpu, lb = std::move(_lb)] {
-                lb->closed_cpu(cpu);
-            });
+            _connection_counter->fetch_sub(1, std::memory_order_relaxed);
         }
         shard_id cpu() {
             return _target_cpu;
