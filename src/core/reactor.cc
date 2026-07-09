@@ -1144,9 +1144,12 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
     auto r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
     SEASTAR_ASSERT(r == 0);
     memory::set_reclaim_hook([this] (std::function<void ()> reclaim_fn) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
         add_high_priority_task(make_task(default_scheduling_group(), [fn = std::move(reclaim_fn)] {
             fn();
         }));
+#pragma GCC diagnostic pop
     });
 
     _loads.reserve(loads_size);
@@ -1616,6 +1619,13 @@ void reactor::test::set_abort_on_too_long_task_queue(bool value) noexcept {
 void reactor::test::set_max_task_backlog(unsigned value) noexcept {
     auto& r = engine();
     r._cfg.max_task_backlog = value;
+}
+
+void reactor::test::add_high_priority_task(task* t) noexcept {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    engine().add_high_priority_task(t);
+#pragma GCC diagnostic pop
 }
 
 void
@@ -3641,7 +3651,10 @@ poller::do_register() noexcept {
     // iterating reactor::_pollers itself.  So we schedule a task to add
     // the poller instead.
     auto task = new registration_task(this);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     engine().add_task(task);
+#pragma GCC diagnostic pop
     _registration_task = task;
 }
 
@@ -3665,7 +3678,10 @@ poller::~poller() {
             auto dummy = make_pollfn([] { return false; });
             auto dummy_p = dummy.get();
             auto task = new deregistration_task(std::move(dummy));
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
             engine().add_task(task);
+#pragma GCC diagnostic pop
             engine().replace_poller(_pollfn.get(), dummy_p);
         }
     }
@@ -3924,7 +3940,10 @@ future<size_t> readable_eventfd::wait() {
 }
 
 void schedule(task* t) noexcept {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     engine().add_task(t);
+#pragma GCC diagnostic pop
 }
 
 void schedule_checked(task* t) noexcept {
@@ -3932,11 +3951,17 @@ void schedule_checked(task* t) noexcept {
         // trying to schedule a task in at_destroy. Not allowed
         on_internal_error(seastar_logger, "Cannot schedule tasks in at_destroy queue. Use reactor::at_destroy.");
     }
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     engine().add_task(t);
+#pragma GCC diagnostic pop
 }
 
 void schedule_urgent(task* t) noexcept {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     engine().add_urgent_task(t);
+#pragma GCC diagnostic pop
 }
 
 }
@@ -4971,7 +4996,10 @@ net::datagram_channel make_bound_datagram_channel(const socket_address& local) {
 }
 
 void reactor::add_high_priority_task(task* t) noexcept {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     add_urgent_task(t);
+#pragma GCC diagnostic pop
     // break .then() chains
     request_preemption();
 }
