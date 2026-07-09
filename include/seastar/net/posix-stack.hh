@@ -72,9 +72,14 @@ class conntrack {
             // and use that information.
             shard_id cpu_number = 0;
             auto min_load = _cpu_load[0].load(std::memory_order_relaxed);
+            // Prefer current shard for the first connection.
+            if (min_load == 0) {
+                _cpu_load[0].fetch_add(1, std::memory_order_relaxed);
+                return 0;
+            }
             for (shard_id i = 1; i < _cpu_load.size(); ++i) {
                 auto load = _cpu_load[i].load(std::memory_order_relaxed);
-                if (load < min_load) {
+                if (load <= min_load) {
                     min_load = load;
                     cpu_number = i;
                 }
