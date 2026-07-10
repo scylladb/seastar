@@ -25,6 +25,7 @@
 #include <unordered_set>
 #include <utility>
 #include <seastar/core/sharded.hh>
+#include <seastar/core/make_task.hh>
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/core/polymorphic_temporary_buffer.hh>
@@ -129,12 +130,14 @@ public:
     class handle {
         shard_id _host_cpu;
         shard_id _target_cpu;
+        bool _defer_local_close = false;
         foreign_ptr<lw_shared_ptr<load_balancer>> _lb;
     public:
         handle() : _lb(nullptr) {}
-        handle(shard_id cpu, lw_shared_ptr<load_balancer> lb)
+        handle(shard_id cpu, lw_shared_ptr<load_balancer> lb, bool defer_local_close)
             : _host_cpu(this_shard_id())
             , _target_cpu(cpu)
+            , _defer_local_close(defer_local_close)
             , _lb(make_foreign(std::move(lb))) {}
 
         handle(const handle&) = delete;
@@ -146,9 +149,18 @@ public:
                 return;
             }
             // FIXME: future is discarded
-            (void)smp::submit_to(_host_cpu, [cpu = _target_cpu, lb = std::move(_lb)] {
-                lb->closed_cpu(cpu);
-            });
+            if (_defer_local_close && _host_cpu == this_shard_id()) {
+                // smp::submit_to() executes same-shard calls inline. For connection
+                // distribution handles, defer local close reports too so local and remote
+                // close accounting have comparable, delayed visibility.
+                schedule(make_task([cpu = _target_cpu, lb = std::move(_lb)] () mutable {
+                    lb->closed_cpu(cpu);
+                }));
+            } else {
+                (void)smp::submit_to(_host_cpu, [cpu = _target_cpu, lb = std::move(_lb)] {
+                    lb->closed_cpu(cpu);
+                });
+            }
         }
         shard_id cpu() {
             return _target_cpu;
@@ -158,10 +170,10 @@ public:
 
     conntrack() : _lb(make_lw_shared<load_balancer>()) {}
     handle get_handle() {
-        return handle(_lb->next_cpu(), _lb);
+        return handle(_lb->next_cpu(), _lb, true);
     }
     handle get_handle(shard_id cpu) {
-        return handle(_lb->force_cpu(cpu), _lb);
+        return handle(_lb->force_cpu(cpu), _lb, false);
     }
 };
 
