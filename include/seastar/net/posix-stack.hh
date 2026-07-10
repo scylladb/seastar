@@ -60,6 +60,23 @@ using namespace seastar;
 class conntrack {
     class load_balancer {
         std::vector<unsigned> _cpu_load;
+        shard_id find_min_cpu() const {
+            // Prefer shard 0 for the 1st connection
+            if (_cpu_load[0] == 0) {
+                return 0;
+            }
+            shard_id min_cpu = 0;
+            auto min_load = _cpu_load[0];
+            for (shard_id i = 1; i < _cpu_load.size(); ++i) {
+                auto load = _cpu_load[i];
+                // Choose the highest-numbered shard for ties to avoid shard 0
+                if (load <= min_load) {
+                    min_load = load;
+                    min_cpu = i;
+                }
+            }
+            return min_cpu;
+        }
     public:
         load_balancer() : _cpu_load(size_t(this_smp_shard_count()), 0) {}
         void closed_cpu(shard_id cpu) {
@@ -69,9 +86,8 @@ class conntrack {
             // FIXME: The naive algorithm will just round robin the connections around the shards.
             // A more complex version can keep track of the amount of activity in each connection,
             // and use that information.
-            auto min_el = std::min_element(_cpu_load.begin(), _cpu_load.end());
-            auto cpu = shard_id(std::distance(_cpu_load.begin(), min_el));
-            _cpu_load[cpu]++;
+            auto cpu = find_min_cpu();
+            ++_cpu_load[cpu];
             return cpu;
         }
         shard_id force_cpu(shard_id cpu) {
