@@ -73,8 +73,17 @@ class conntrack {
         static constexpr float _least_loaded_cpu_ttl = 0.02; // 2%
 
         shard_id find_min_cpu() const {
-            auto min_el = std::min_element(_cpu_load.begin(), _cpu_load.end());
-            return shard_id(std::distance(_cpu_load.begin(), min_el));
+            shard_id min_cpu = 0;
+            auto min_load = _cpu_load[0];
+            for (shard_id i = 1; i < _cpu_load.size(); ++i) {
+                auto load = _cpu_load[i];
+                // Choose the highest-numbered shard for ties to avoid shard 0
+                if (load <= min_load) {
+                    min_load = load;
+                    min_cpu = i;
+                }
+            }
+            return min_cpu;
         }
     public:
         load_balancer() : _cpu_load(size_t(this_smp_shard_count()), 0) {}
