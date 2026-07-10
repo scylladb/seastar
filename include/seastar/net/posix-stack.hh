@@ -20,15 +20,16 @@
  */
 
 #pragma once
+#include <algorithm>
+#include <cmath>
 #include <unordered_set>
+#include <utility>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/core/polymorphic_temporary_buffer.hh>
 #include <seastar/core/internal/buffer_allocator.hh>
 #include <seastar/util/program-options.hh>
-
-#include <unordered_set>
 
 namespace seastar {
 
@@ -60,6 +61,16 @@ using namespace seastar;
 class conntrack {
     class load_balancer {
         std::vector<unsigned> _cpu_load;
+        // The least-loaded shard is cached, not to calculate it for every new connection.
+        // The value is the { shard_id, TTL } pair. The TTL is the number of future
+        // new connections that may reuse the cached shard before recalculating it.
+        // Destroyed connections also consume the TTL, since they change shard load.
+        std::pair<shard_id, unsigned> _least_loaded_cpu = {0, 0};
+        // The value used to reset the TTL depends on the number of currently open
+        // connections on the selected shard. The _least_loaded_cpu_ttl determines
+        // the fraction of that shard's open connections.
+        static constexpr float _least_loaded_cpu_ttl = 0.02; // 2%
+
         shard_id find_min_cpu() const {
             // Prefer shard 0 for the 1st connection
             if (_cpu_load[0] == 0) {
@@ -81,17 +92,31 @@ class conntrack {
         load_balancer() : _cpu_load(size_t(this_smp_shard_count()), 0) {}
         void closed_cpu(shard_id cpu) {
             _cpu_load[cpu]--;
+            if (_least_loaded_cpu.second > 0) {
+                _least_loaded_cpu.second--;
+            }
         }
         shard_id next_cpu() {
             // FIXME: The naive algorithm will just round robin the connections around the shards.
             // A more complex version can keep track of the amount of activity in each connection,
             // and use that information.
-            auto cpu = find_min_cpu();
-            ++_cpu_load[cpu];
-            return cpu;
+            // Use the cached value if still valid.
+            if (_least_loaded_cpu.second == 0) {
+                _least_loaded_cpu.first = find_min_cpu();
+                auto ttl = static_cast<unsigned>(std::round(
+                        _cpu_load[_least_loaded_cpu.first] * _least_loaded_cpu_ttl));
+                _least_loaded_cpu.second = std::min(ttl, 10u);
+            } else {
+                _least_loaded_cpu.second--;
+            }
+            ++_cpu_load[_least_loaded_cpu.first];
+            return _least_loaded_cpu.first;
         }
         shard_id force_cpu(shard_id cpu) {
             _cpu_load[cpu]++;
+            if (_least_loaded_cpu.second > 0) {
+                _least_loaded_cpu.second--;
+            }
             return cpu;
         }
     };
