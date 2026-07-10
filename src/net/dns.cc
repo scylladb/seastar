@@ -44,6 +44,7 @@
 #include <arpa/nameser.h>
 #include <chrono>
 #include <memory>
+#include <concepts>
 
 #include <ares.h>
 #include <boost/lexical_cast.hpp>
@@ -602,7 +603,10 @@ dns_resolver::impl::get_host_by_addr(inet_address addr) {
 
     dns_call call(*this);
 
-    ares_gethostbyaddr(_channel, p->addr.data(), p->addr.size(), int(p->addr.in_family()), [](void* arg, int status, int timeouts, ::hostent* host) {
+    // c-ares 1.34.7 constified the hostent argument to ares_host_callback (upstream
+    // PR #1060), but 1.34.8 reverted it. Rather than key on the version, use a template
+    // that matches both variants.
+    ares_gethostbyaddr(_channel, p->addr.data(), p->addr.size(), int(p->addr.in_family()), [](void* arg, int status, int timeouts, std::convertible_to<const ::hostent*> auto host) {
         // we do potentially allocating operations below, so wrap the pointer in a
         // unique here.
         std::unique_ptr<promise_wrap> p(reinterpret_cast<promise_wrap *>(arg));
