@@ -20,6 +20,8 @@
  */
 
 #pragma once
+#include <deque>
+#include <memory>
 #include <unordered_set>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/internal/pollable_fd.hh>
@@ -166,6 +168,10 @@ struct proxy_data {
 };
 
 class posix_ap_server_socket_impl : public server_socket_impl {
+public:
+    struct acceptor_state;
+    using acceptor_state_ptr = std::shared_ptr<acceptor_state>;
+private:
     using protocol_and_socket_address = std::tuple<int, socket_address>;
     struct connection {
         pollable_fd fd;
@@ -175,14 +181,15 @@ class posix_ap_server_socket_impl : public server_socket_impl {
         connection(pollable_fd xfd, socket_address xaddr, conntrack::handle cth, std::optional<proxy_data> addr_data_opt) : fd(std::move(xfd)), addr(xaddr), connection_tracking_handle(std::move(cth)), proxy_protocol_header_opt(std::move(addr_data_opt)) {}
     };
     using port_map_t = std::unordered_set<protocol_and_socket_address>;
-    using sockets_map_t = std::unordered_map<protocol_and_socket_address, promise<accept_result>>;
-    using conn_map_t = std::unordered_multimap<protocol_and_socket_address, connection>;
     static thread_local port_map_t ports;
-    static thread_local sockets_map_t sockets;
-    static thread_local conn_map_t conn_q;
     int _protocol;
     socket_address _sa;
+    acceptor_state_ptr _state;
     std::pmr::polymorphic_allocator<char>* _allocator;
+    static acceptor_state_ptr register_acceptor_state(int protocol, socket_address sa, shard_id shard);
+    static acceptor_state_ptr find_acceptor_state(int protocol, socket_address sa, shard_id shard);
+    static void close_acceptor_state(const acceptor_state_ptr& state);
+    static void unregister_acceptor_state(int protocol, socket_address sa, shard_id shard, const acceptor_state_ptr& state);
 public:
     explicit posix_ap_server_socket_impl(int protocol, socket_address sa, std::pmr::polymorphic_allocator<char>* allocator = memory::malloc_allocator);
     ~posix_ap_server_socket_impl();
@@ -191,10 +198,17 @@ public:
     socket_address local_address() const override {
         return _sa;
     }
-    static void move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, std::optional<proxy_data> addr_data_opt, std::pmr::polymorphic_allocator<char>* allocator);
+    static void move_connected_socket(acceptor_state_ptr state, int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, std::optional<proxy_data> addr_data_opt, std::pmr::polymorphic_allocator<char>* allocator);
+#ifdef SEASTAR_TESTING_MAIN
+    acceptor_state_ptr testing_state() const {
+        return _state;
+    }
+#endif
+    static size_t testing_queued_connections(const acceptor_state_ptr& state);
 
     template <typename T>
     friend class std::hash;
+    friend class posix_server_socket_impl;
 };
 
 class posix_server_socket_impl : public server_socket_impl {
