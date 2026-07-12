@@ -32,6 +32,7 @@
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/later.hh>
 #include <seastar/util/defer.hh>
+#include <seastar/util/alloc_failure_injector.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/core/abort_source.hh>
@@ -42,9 +43,14 @@
 #include <seastar/net/posix-stack.hh>
 #include <stdexcept>
 
+#include "tmpdir.hh"
+
+#include <cerrno>
+#include <fcntl.h>
 #include <fstream>
 #include <optional>
 #include <tuple>
+#include <type_traits>
 #include <future>
 
 using namespace seastar;
@@ -421,6 +427,285 @@ SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
     // config, but 20 MB should be enough for everyone.
     BOOST_CHECK_LT(send_default, 20'000'000);
     BOOST_CHECK_LT(recv_default, 20'000'000);
+}
+
+SEASTAR_TEST_CASE(posix_ap_legacy_handoff_uses_current_listener) {
+    auto move_socket = &net::posix_ap_server_socket_impl::move_connected_socket;
+    using legacy_signature = void (*)(int, socket_address, pollable_fd, socket_address,
+            net::conntrack::handle, std::optional<net::proxy_data>, std::pmr::polymorphic_allocator<char>*);
+    static_assert(std::is_same_v<decltype(move_socket), legacy_signature>);
+
+    auto addr = make_ipv4_address({19379});
+    constexpr int protocol = IPPROTO_TCP;
+    net::posix_ap_server_socket_impl ap(protocol, addr);
+    auto state = ap.testing_state();
+    net::conntrack ct;
+    auto deliver = [&] {
+        move_socket(protocol, addr, pollable_fd(file_desc::eventfd(0, 0)), addr,
+                ct.get_handle(this_shard_id()), std::nullopt, memory::malloc_allocator);
+    };
+
+    deliver();
+    BOOST_REQUIRE_EQUAL(net::posix_ap_server_socket_impl::testing_queued_connections(state), 1);
+    {
+        auto queued = ap.accept();
+        BOOST_REQUIRE(queued.available());
+        auto accepted = queued.get();
+        BOOST_CHECK(accepted.remote_address == addr);
+    }
+    BOOST_REQUIRE_EQUAL(net::posix_ap_server_socket_impl::testing_queued_connections(state), 0);
+    auto pending = ap.accept();
+    BOOST_REQUIRE(!pending.available());
+    deliver();
+    BOOST_REQUIRE(pending.available());
+    {
+        auto accepted = pending.get();
+        BOOST_CHECK(accepted.remote_address == addr);
+    }
+    BOOST_REQUIRE_EQUAL(net::posix_ap_server_socket_impl::testing_queued_connections(state), 0);
+    deliver();
+    BOOST_REQUIRE_EQUAL(net::posix_ap_server_socket_impl::testing_queued_connections(state), 1);
+    ap.abort_accept();
+    BOOST_REQUIRE_EQUAL(net::posix_ap_server_socket_impl::testing_queued_connections(state), 0);
+    deliver();
+    BOOST_CHECK_EQUAL(net::posix_ap_server_socket_impl::testing_queued_connections(state), 0);
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(posix_ap_close_releases_queued_fd) {
+    auto addr = make_ipv4_address({19380});
+    for (bool destroy : {false, true}) {
+        auto ap = std::make_unique<net::posix_ap_server_socket_impl>(IPPROTO_TCP, addr);
+        auto state = ap->testing_state();
+        net::conntrack ct;
+        auto fd = file_desc::eventfd(0, 0);
+        auto raw_fd = fd.get();
+        net::posix_ap_server_socket_impl::testing_move_connected_socket(
+                state, IPPROTO_TCP, addr, pollable_fd(std::move(fd)), addr,
+                ct.get_handle(this_shard_id()), std::nullopt, memory::malloc_allocator);
+        BOOST_REQUIRE_EQUAL(net::posix_ap_server_socket_impl::testing_queued_connections(state), 1);
+        if (destroy) {
+            ap.reset();
+        } else {
+            ap->abort_accept();
+        }
+        auto result = ::fcntl(raw_fd, F_GETFD);
+        auto saved_errno = errno;
+        BOOST_CHECK_EQUAL(result, -1);
+        BOOST_CHECK_EQUAL(saved_errno, EBADF);
+        BOOST_CHECK_EQUAL(net::posix_ap_server_socket_impl::testing_queued_connections(state), 0);
+    }
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(posix_ap_late_handoff_after_abort_is_dropped) {
+    auto addr = make_ipv4_address({19374});
+    constexpr int protocol = IPPROTO_TCP;
+    net::posix_ap_server_socket_impl ap(protocol, addr);
+    auto state = ap.testing_state();
+    ap.abort_accept();
+
+    net::conntrack ct;
+    net::posix_ap_server_socket_impl::testing_move_connected_socket(
+            state,
+            protocol,
+            addr,
+            pollable_fd(file_desc::eventfd(0, 0)),
+            addr,
+            ct.get_handle(this_shard_id()),
+            std::nullopt,
+            memory::malloc_allocator);
+
+    BOOST_REQUIRE_EQUAL(net::posix_ap_server_socket_impl::testing_queued_connections(state), 0);
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(posix_ap_accept_after_abort_fails) {
+    auto addr = make_ipv4_address({19375});
+    constexpr int protocol = IPPROTO_TCP;
+    net::posix_ap_server_socket_impl ap(protocol, addr);
+    ap.abort_accept();
+
+#ifdef SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
+    auto allocations_before = memory::local_failure_injector().alloc_count();
+#endif
+    auto accepted = ap.accept();
+#ifdef SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
+    auto allocations_after = memory::local_failure_injector().alloc_count();
+    BOOST_CHECK_EQUAL(allocations_after, allocations_before);
+#endif
+    BOOST_CHECK(accepted.available());
+    return std::move(accepted).then([] (accept_result) {
+        BOOST_FAIL("accept after abort completed successfully");
+    }).handle_exception_type([] (const std::system_error& e) {
+        BOOST_REQUIRE_EQUAL(e.code(), std::error_code(ECONNABORTED, std::system_category()));
+    });
+}
+
+SEASTAR_TEST_CASE(posix_ap_captured_handoff_after_restart_is_dropped) {
+    auto addr = make_ipv4_address({19376});
+    constexpr int protocol = IPPROTO_TCP;
+    auto old = std::make_unique<net::posix_ap_server_socket_impl>(protocol, addr);
+    auto state = old->testing_state();
+    old.reset();
+    net::posix_ap_server_socket_impl replacement(protocol, addr);
+
+    net::conntrack ct;
+    net::posix_ap_server_socket_impl::testing_move_connected_socket(
+            state,
+            protocol,
+            addr,
+            pollable_fd(file_desc::eventfd(0, 0)),
+            addr,
+            ct.get_handle(this_shard_id()),
+            std::nullopt,
+            memory::malloc_allocator);
+
+    BOOST_CHECK_EQUAL(net::posix_ap_server_socket_impl::testing_queued_connections(state), 0);
+    BOOST_CHECK_EQUAL(net::posix_ap_server_socket_impl::testing_queued_connections(replacement.testing_state()), 0);
+    return make_ready_future<>();
+}
+
+#ifdef SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
+SEASTAR_TEST_CASE(posix_ap_destroy_with_pending_accept_does_not_allocate) {
+    auto addr = make_ipv4_address({19378});
+    auto ap = std::make_unique<net::posix_ap_server_socket_impl>(IPPROTO_TCP, addr);
+    auto accepted = ap->accept();
+    auto allocations_before = memory::local_failure_injector().alloc_count();
+    ap.reset();
+    auto allocations_after = memory::local_failure_injector().alloc_count();
+
+    BOOST_CHECK_EQUAL(allocations_after, allocations_before);
+    BOOST_CHECK(accepted.available());
+    return std::move(accepted).then([] (accept_result) {
+        BOOST_FAIL("accept completed successfully after listener destruction");
+    }).handle_exception_type([] (const std::system_error& e) {
+        BOOST_CHECK_EQUAL(e.code(), std::error_code(ECONNABORTED, std::system_category()));
+    });
+}
+
+SEASTAR_TEST_CASE(posix_ap_constructor_allocation_failure_releases_address) {
+    auto addr = make_ipv4_address({19377});
+    auto cancel = defer([] () noexcept { memory::local_failure_injector().cancel(); });
+    memory::with_allocation_failures([&] {
+        net::posix_ap_server_socket_impl ap(IPPROTO_TCP, addr);
+    });
+    return make_ready_future<>();
+}
+#endif
+
+SEASTAR_THREAD_TEST_CASE(posix_ap_real_remote_handoff_lifecycle) {
+    if (this_smp_shard_count() < 2) {
+        return;
+    }
+    tmpdir directory;
+    socket_address addr{net::unix_domain_addr{(directory.path() / "listener.sock").string()}};
+    listen_options opts;
+    opts.set_fixed_cpu(1);
+    auto listener = seastar::listen(addr, opts);
+
+    struct remote_listener {
+        std::unique_ptr<net::posix_ap_server_socket_impl> ap;
+        std::optional<future<accept_result>> pending;
+        future<> stop() {
+            if (ap) {
+                ap->abort_accept();
+                ap.reset();
+            }
+            if (pending) {
+                pending->ignore_ready_future();
+                pending.reset();
+            }
+            return make_ready_future<>();
+        }
+    };
+    sharded<remote_listener> remote;
+    remote.start().get();
+    std::optional<future<accept_result>> source_loop;
+    std::exception_ptr failure;
+    bool source_failed = false;
+    try {
+        remote.invoke_on(1, [addr] (remote_listener& target) {
+            target.ap = std::make_unique<net::posix_ap_server_socket_impl>(0, addr);
+        }).get();
+        source_loop.emplace(listener.accept());
+        auto wait_for = [] (auto ready) {
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (!ready()) {
+                BOOST_REQUIRE_MESSAGE(std::chrono::steady_clock::now() < deadline,
+                        "timed out waiting for the remote AP listener");
+                sleep(std::chrono::milliseconds(1)).get();
+            }
+        };
+        auto connect_client = [&addr] {
+            // A nonblocking UNIX connect either completes locally or fails;
+            // no client operation can block the reactor while it routes the fd.
+            auto fd = file_desc::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK);
+            fd.connect(addr.as_posix_sockaddr(), addr.length());
+            return fd;
+        };
+        auto expect_eof = [&wait_for] (file_desc& fd) {
+            wait_for([&fd] {
+                char byte;
+                auto n = ::recv(fd.get(), &byte, 1, MSG_DONTWAIT);
+                if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
+                    return false;
+                }
+                BOOST_REQUIRE_EQUAL(n, 0);
+                return true;
+            });
+        };
+
+        auto queued_client = connect_client();
+        wait_for([&remote] {
+            return remote.invoke_on(1, [] (remote_listener& target) {
+                return net::posix_ap_server_socket_impl::testing_queued_connections(target.ap->testing_state()) == 1;
+            }).get();
+        });
+        remote.invoke_on(1, [] (remote_listener& target) {
+            target.ap->abort_accept();
+            BOOST_REQUIRE_EQUAL(net::posix_ap_server_socket_impl::testing_queued_connections(target.ap->testing_state()), 0);
+        }).get();
+        expect_eof(queued_client);
+
+        auto rejected_client = connect_client();
+        expect_eof(rejected_client);
+
+        remote.invoke_on(1, [addr] (remote_listener& target) {
+            target.ap.reset();
+            target.ap = std::make_unique<net::posix_ap_server_socket_impl>(0, addr);
+            target.pending.emplace(target.ap->accept());
+        }).get();
+        auto replacement_client = connect_client();
+        wait_for([&remote] {
+            return remote.invoke_on(1, [] (remote_listener& target) {
+                return target.pending->available();
+            }).get();
+        });
+        remote.invoke_on(1, [] (remote_listener& target) {
+            auto accepted = target.pending->get();
+            target.pending.reset();
+            BOOST_REQUIRE(accepted.connection.local_address().is_af_unix());
+            target.ap.reset();
+        }).get();
+        expect_eof(replacement_client);
+    } catch (...) {
+        failure = std::current_exception();
+    }
+    // Always cancel/drain the source and remote waiter before fixture teardown,
+    // including assertion failures and the bounded polling timeouts above.
+    listener.abort_accept();
+    if (source_loop) {
+        source_loop->wait();
+        source_failed = source_loop->failed();
+        source_loop->ignore_ready_future();
+        source_loop.reset();
+    }
+    remote.stop().get();
+    if (failure) {
+        std::rethrow_exception(failure);
+    }
+    BOOST_REQUIRE(source_failed);
 }
 
 static
