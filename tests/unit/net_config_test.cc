@@ -125,3 +125,21 @@ BOOST_AUTO_TEST_CASE(test_ip_missing_if_thrown) {
           "eth1: {pci-address: 0000:06:00.1, dhcp: true} }";
     BOOST_REQUIRE_THROW(parse_config(ss), config_exception);
 }
+
+// eth0 is valid, but eth1 has dhcp off and is missing netmask: each device must be validated.
+BOOST_AUTO_TEST_CASE(test_mixed_dhcp_off_incomplete_if_thrown) {
+    std::stringstream ss;
+    ss << "{eth0: {pci-address: 0000:06:00.0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: "
+          "255.255.255.0 } , eth1: {pci-address: 0000:06:00.1, ip: 192.168.100.11, gateway: "
+          "192.168.100.1 } }";
+    BOOST_REQUIRE_THROW(parse_config(ss), config_exception);
+}
+
+// eth0 is valid, but eth1 uses dhcp together with a static ip: each device must be validated.
+BOOST_AUTO_TEST_CASE(test_mixed_dhcp_and_ip_if_thrown) {
+    std::stringstream ss;
+    ss << "{eth0: {pci-address: 0000:06:00.0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: "
+          "255.255.255.0 } , eth1: {pci-address: 0000:06:00.1, dhcp: true, ip: 192.168.100.11, "
+          "gateway: 192.168.100.1, netmask: 255.255.255.0 } }";
+    BOOST_REQUIRE_THROW(parse_config(ss), config_exception);
+}
