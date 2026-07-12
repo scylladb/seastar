@@ -20,7 +20,7 @@
  */
 
 
-#include <boost/algorithm/cxx11/all_of.hpp>
+#include <boost/algorithm/cxx11/any_of.hpp>
 #include <boost/algorithm/cxx11/none_of.hpp>
 #include <boost/next_prior.hpp>
 #include <yaml-cpp/yaml.h>
@@ -68,21 +68,21 @@ namespace net {
             }
         }
 
-        // check if all of ip,gw,nm are specified when dhcp is off
-        if (all_of(device_configs, [](std::pair<std::string, device_config> p) {
-                return !(!p.second.ip_cfg.dhcp
-                    && (!p.second.ip_cfg.ip.empty() && !p.second.ip_cfg.gateway.empty()
-                           && !p.second.ip_cfg.netmask.empty()));
+        // check each device: when dhcp is off, all of ip, gw, nm must be specified
+        if (any_of(device_configs, [](std::pair<std::string, device_config> p) {
+                return !p.second.ip_cfg.dhcp
+                    && (p.second.ip_cfg.ip.empty() || p.second.ip_cfg.gateway.empty()
+                           || p.second.ip_cfg.netmask.empty());
             })) {
             throw config_exception(
                 "when dhcp is off then all of ip, gateway, netmask has to be specified");
         }
 
-        // check if dhcp is not used when ip/gw/nm are specified
-        if (all_of(device_configs, [](std::pair<std::string, device_config> p) {
+        // check each device: dhcp cannot be used together with static ip/gw/nm
+        if (any_of(device_configs, [](std::pair<std::string, device_config> p) {
                 return p.second.ip_cfg.dhcp
-                    && !(p.second.ip_cfg.ip.empty() || p.second.ip_cfg.gateway.empty()
-                           || p.second.ip_cfg.netmask.empty());
+                    && (!p.second.ip_cfg.ip.empty() || !p.second.ip_cfg.gateway.empty()
+                           || !p.second.ip_cfg.netmask.empty());
             })) {
             throw config_exception("dhcp and ip cannot be used together");
         }
