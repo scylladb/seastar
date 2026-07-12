@@ -376,7 +376,7 @@ SEASTAR_TEST_CASE(posix_ap_late_handoff_after_abort_is_dropped) {
     ap.abort_accept();
 
     net::conntrack ct;
-    net::posix_ap_server_socket_impl::move_connected_socket(
+    net::posix_ap_server_socket_impl::testing_move_connected_socket(
             state,
             protocol,
             addr,
