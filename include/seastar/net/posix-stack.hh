@@ -168,10 +168,9 @@ struct proxy_data {
 };
 
 class posix_ap_server_socket_impl : public server_socket_impl {
-public:
+private:
     struct acceptor_state;
     using acceptor_state_ptr = std::shared_ptr<acceptor_state>;
-private:
     using protocol_and_socket_address = std::tuple<int, socket_address>;
     struct connection {
         pollable_fd fd;
@@ -198,17 +197,24 @@ public:
     socket_address local_address() const override {
         return _sa;
     }
-    static void move_connected_socket(acceptor_state_ptr state, int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, std::optional<proxy_data> addr_data_opt, std::pmr::polymorphic_allocator<char>* allocator);
 #ifdef SEASTAR_TESTING_MAIN
     acceptor_state_ptr testing_state() const {
         return _state;
     }
+    static void testing_move_connected_socket(acceptor_state_ptr state, int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, std::optional<proxy_data> addr_data_opt, std::pmr::polymorphic_allocator<char>* allocator) {
+        move_connected_socket(std::move(state), protocol, sa, std::move(fd), addr, std::move(handle), std::move(addr_data_opt), allocator);
+    }
+    static size_t testing_queued_connections(const acceptor_state_ptr& state) {
+        return queued_connections(state);
+    }
 #endif
-    static size_t testing_queued_connections(const acceptor_state_ptr& state);
 
+private:
     template <typename T>
     friend class std::hash;
     friend class posix_server_socket_impl;
+    static void move_connected_socket(acceptor_state_ptr state, int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, std::optional<proxy_data> addr_data_opt, std::pmr::polymorphic_allocator<char>* allocator);
+    static size_t queued_connections(const acceptor_state_ptr& state);
 };
 
 class posix_server_socket_impl : public server_socket_impl {

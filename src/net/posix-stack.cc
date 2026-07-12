@@ -174,7 +174,7 @@ struct protocol_acceptor_key_hash {
 };
 
 std::mutex acceptor_states_mutex;
-std::unordered_map<protocol_acceptor_key, std::weak_ptr<posix_ap_server_socket_impl::acceptor_state>, protocol_acceptor_key_hash> acceptor_states;
+std::unordered_map<protocol_acceptor_key, std::weak_ptr<void>, protocol_acceptor_key_hash> acceptor_states;
 
 }
 
@@ -803,7 +803,7 @@ posix_ap_server_socket_impl::find_acceptor_state(int protocol, socket_address sa
     if (i == acceptor_states.end()) {
         return {};
     }
-    auto state = i->second.lock();
+    auto state = std::static_pointer_cast<acceptor_state>(i->second.lock());
     if (!state || !state->accepting.load(std::memory_order_acquire)) {
         return {};
     }
@@ -922,7 +922,7 @@ posix_ap_server_socket_impl::move_connected_socket(acceptor_state_ptr state, int
 }
 
 size_t
-posix_ap_server_socket_impl::testing_queued_connections(const acceptor_state_ptr& state) {
+posix_ap_server_socket_impl::queued_connections(const acceptor_state_ptr& state) {
     return state->conn_q.size();
 }
 
