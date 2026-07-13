@@ -2527,19 +2527,23 @@ SEASTAR_THREAD_TEST_CASE(test_output_pending_exception_on_destroy) {
         throw tls::verification_error("aborting handshake from DN callback");
     });
 
-    auto ss = tls::wrap_server(server_creds, connected_socket(std::move(ssi))).get();
-    auto cs = tls::wrap_client(client_creds, connected_socket(std::move(csi)), tls::tls_options{.server_name = "test.scylladb.org"}).get();
+    // This scope block ensures the session is destroyed, leaving an abandoned failed future in _output_pending.
+    uint64_t before = engine().abandoned_failed_futures();
+    {
+        auto ss = tls::wrap_server(server_creds, connected_socket(std::move(ssi))).get();
+        auto cs = tls::wrap_client(client_creds, connected_socket(std::move(csi)), tls::tls_options{.server_name = "test.scylladb.org"}).get();
 
-    auto strms = ::make_lw_shared<streams>(std::move(cs));
+        auto strms = ::make_lw_shared<streams>(std::move(cs));
 
-    // Start writing on the client side.
-    auto client_loop = strms->out.write(temporary_buffer<char>(10))
-                               .then([strms] {
-                                   return strms->out.flush();
-                               })
+        // Start writing on the client side.
+        auto client_loop = strms->out.write(temporary_buffer<char>(10))
+                               .then([strms] { return strms->out.flush(); })
                                .handle_exception([strms](std::exception_ptr) {});
 
-    // Reading on the server side drives the handshake, triggering the DN
-    // verification callback, which aborts the server's TX buffer and throws.
-    BOOST_REQUIRE_THROW(ss.input().read().get(), tls::verification_error);
+        BOOST_REQUIRE_THROW(ss.input().read().get(), tls::verification_error);
+    }
+
+    // Verify that no abandoned failed futures were created during the test
+    uint64_t after = engine().abandoned_failed_futures();
+    BOOST_REQUIRE_EQUAL(after, before);
 }
