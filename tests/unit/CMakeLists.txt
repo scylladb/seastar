@@ -417,7 +417,10 @@ seastar_add_test (httpd
   SOURCES
     httpd_test.cc
     loopback_socket.hh
-    memory-data-sink.hh)
+    memory-data-sink.hh
+  DEPENDS testcrt mtls_certs
+  LIBRARIES Boost::filesystem
+  WORKING_DIRECTORY ${Seastar_BINARY_DIR})
 
 seastar_add_test (websocket
   SOURCES websocket_test.cc)
@@ -690,7 +693,7 @@ function(seastar_sign_cert name)
   cmake_parse_arguments(CERT
     ""
     "CA;SERIAL_NUM;COMMON_NAME"
-    ""
+    "SANS"
     ${ARGN})
   set(cert ${name}.crt)
   set(privkey ${name}.key)
@@ -718,6 +721,16 @@ function(seastar_sign_cert name)
     # sign the cert with the request
     set(ca_cert ${CERT_CA}.crt)
     set(ca_privkey ${CERT_CA}.key)
+    if(CERT_SANS)
+      string(JOIN ", " san_str ${CERT_SANS})
+      file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${name}.ext"
+        "[req_ext]\nsubjectAltName = ${san_str}\n")
+      set(extfile_args -extfile ${name}.ext -extensions req_ext)
+      set(extfile_dep "${CMAKE_CURRENT_BINARY_DIR}/${name}.ext")
+    else()
+      set(extfile_args "")
+      set(extfile_dep "")
+    endif()
     add_custom_command(OUTPUT ${cert}
       COMMAND ${OPENSSL} x509
         -req -days 1000 -sha256
@@ -726,7 +739,8 @@ function(seastar_sign_cert name)
         -CA ${ca_cert}
         -CAkey ${ca_privkey}
         -out ${cert}
-      DEPENDS ${req} ${ca_cert} ${ca_privkey}
+        ${extfile_args}
+      DEPENDS ${req} ${ca_cert} ${ca_privkey} ${extfile_dep}
       WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
   else(DEFINED CERT_CA)
     # create a cert if CA is not specified
@@ -767,9 +781,19 @@ function(seastar_gen_mtls_certs)
     CA ${cert_ca}
     SERIAL_NUM 3
     COMMON_NAME "client2.org")
+  # client cert with DNS and URI SANs (used by httpd_test for SAN propagation test)
+  seastar_sign_cert("mtls_client_san"
+    CA ${cert_ca}
+    SERIAL_NUM 4
+    COMMON_NAME "san-client.server.com"
+    SANS "DNS:san-client.server.com" "URI:spiffe://example.com/client")
 
   add_custom_target(mtls_certs
-    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/mtls_client1.crt" "${CMAKE_CURRENT_BINARY_DIR}/mtls_client2.crt" "${CMAKE_CURRENT_BINARY_DIR}/mtls_server.crt"
+    DEPENDS
+      "${CMAKE_CURRENT_BINARY_DIR}/mtls_client1.crt"
+      "${CMAKE_CURRENT_BINARY_DIR}/mtls_client2.crt"
+      "${CMAKE_CURRENT_BINARY_DIR}/mtls_server.crt"
+      "${CMAKE_CURRENT_BINARY_DIR}/mtls_client_san.crt"
   )
 endfunction()
 
