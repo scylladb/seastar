@@ -1683,10 +1683,16 @@ static void do_test_tls13_session_tickets(bool reset_server) {
     b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
     b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
     b.set_session_resume_mode(tls::session_resume_mode::TLS13_SESSION_TICKET);
+    b.set_client_auth(tls::client_auth::REQUIRE);
     b.set_priority_string("SECURE128:+SECURE192:-VERS-TLS-ALL:+VERS-TLS1.3");
 
     auto creds = b.build_certificate_credentials();
     auto serv = b.build_server_credentials();
+
+    unsigned dn_calls = 0;
+    creds->set_dn_verification_callback([&](tls::session_type, sstring, sstring) {
+        ++dn_calls;
+    });
 
     ::listen_options opts;
     opts.reuse_address = true;
@@ -1748,6 +1754,7 @@ static void do_test_tls13_session_tickets(bool reset_server) {
 
     {
         auto sa = server.accept();
+        auto dn_calls_before = dn_calls;
 
         // tell client to try resuming.
         tls::tls_options tls_opts;
@@ -1773,6 +1780,12 @@ static void do_test_tls13_session_tickets(bool reset_server) {
         fin.get();
 
         BOOST_REQUIRE(f.get()); // Should work
+        // the peer must be verified on a resumed connection too
+        BOOST_REQUIRE_GT(dn_calls, dn_calls_before);
+
+        auto dn = tls::get_dn_information(s.connection).get();
+        BOOST_REQUIRE(dn);
+        BOOST_REQUIRE(dn->issuer.find("scylladb.org") != std::string::npos);
 
         in.close().get();
         out.close().get();
