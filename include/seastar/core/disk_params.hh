@@ -52,9 +52,13 @@ private:
     const unsigned _max_queues;
     unsigned _num_io_groups = 0;
     std::unordered_map<unsigned, disk_params> _disks;
-    std::chrono::duration<double> _latency_goal;
-    std::chrono::milliseconds _stall_threshold;
-    double _flow_ratio_backpressure_threshold;
+    // Mirror the default values from io_queue::config. parse_config() overrides
+    // them from the reactor options, but a disk_config_params that was never
+    // fed through parse_config() (e.g. in unit tests) must still generate a
+    // sane config instead of reading these members uninitialized.
+    std::chrono::duration<double> _latency_goal{std::chrono::milliseconds(1)};
+    std::chrono::milliseconds _stall_threshold{std::chrono::milliseconds(100)};
+    double _flow_ratio_backpressure_threshold = 1.1;
 
 public:
     explicit disk_config_params(unsigned max_queues) noexcept
