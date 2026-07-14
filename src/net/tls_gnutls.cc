@@ -530,10 +530,12 @@ public:
         // This would be nice, because we preferably want verification to
         // abort hand shake so peer immediately knows we bailed...
 #if GNUTLS_VERSION_NUMBER >= 0x030406
-        if (_type == type::CLIENT) {
-            gnutls_session_set_verify_function(*this, &verify_wrapper);
-        }
-#endif
+        // #3522 - we can set our verify for both client and server. 
+        // It will never be called in the server case, unless the above
+        // call to gnutls_certificate_server_set_request was request or 
+        // require. Which is what we want.
+        gnutls_session_set_verify_function(*this, &verify_wrapper);
+ #endif
         // if we are a client, check if we have a session ticket to unpack.
         if (_type == type::CLIENT && !_options.session_resume_data.empty()) {
             gtls_chk(gnutls_session_set_data(*this, _options.session_resume_data.data(), _options.session_resume_data.size()));
@@ -624,7 +626,10 @@ public:
                     return make_exception_future<>(verification_error("No certificate was found"));
 #if GNUTLS_VERSION_NUMBER >= 0x030406
                 case GNUTLS_E_CERTIFICATE_ERROR:
-                    verify(); // should throw. otherwise, fallthrough
+                    // callback should have thrown. otherwise, fallthrough
+                    if (_error) {
+                        return clear_output_and_return_exception(_error);
+                    }
                     [[fallthrough]];
 #endif
                 default:
@@ -643,20 +648,13 @@ public:
                     });
                 }
             }
-            if (_type == type::CLIENT || _creds->get_client_auth() != client_auth::NONE) {
-                verify();
-            }
+            // #3522 removed explicit call to verify here. Callback has already been
+            // called if required by being either client or requiring auth
             _connected = true;
             // make sure we reset output_pending
             return wait_for_output();
         } catch (...) {
-            auto ep = std::current_exception();
-            return wait_for_output().then_wrapped(
-                [this, ep = std::move(ep)](future<> f) {
-                  f.ignore_ready_future();
-                  _error = ep;
-                  return make_exception_future<>(ep);
-                });
+            return clear_output_and_return_exception(std::current_exception());
         }
     }
     future<> do_handshake() {
@@ -727,6 +725,15 @@ public:
            return make_exception_future(ep);
         });
     }
+    // See #3498. Throw helper that ensures we don't leak abandoned exception 
+    // futures in _output_pending
+    future<> clear_output_and_return_exception(std::exception_ptr ep) {
+        return std::exchange(_output_pending, make_ready_future()).then_wrapped([this, ep](future<> f) {
+           f.ignore_ready_future();
+           _error = ep;
+           return make_exception_future(ep);
+        });
+    }
 
     static session * from_transport_ptr(gnutls_transport_ptr_t ptr) {
         return static_cast<session *>(ptr);
@@ -737,6 +744,9 @@ public:
             from_transport_ptr(gnutls_transport_get_ptr(gs))->verify();
             return 0;
         } catch (...) {
+            // set our error pointer already here. it saves us a throw in
+            // handshake
+            from_transport_ptr(gnutls_transport_get_ptr(gs))->_error = std::current_exception();
             return GNUTLS_E_CERTIFICATE_ERROR;
         }
     }
