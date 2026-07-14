@@ -60,6 +60,7 @@ using namespace seastar;
 class conntrack {
     class load_balancer {
         std::vector<unsigned> _cpu_load;
+        unsigned _rr_counter = 0;
     public:
         load_balancer() : _cpu_load(size_t(this_smp_shard_count()), 0) {}
         void closed_cpu(shard_id cpu) {
@@ -71,6 +72,12 @@ class conntrack {
             // and use that information.
             auto min_el = std::min_element(_cpu_load.begin(), _cpu_load.end());
             auto cpu = shard_id(std::distance(_cpu_load.begin(), min_el));
+            _cpu_load[cpu]++;
+            return cpu;
+        }
+        shard_id next_cpu_rr() {
+            auto cpu = shard_id(_rr_counter % smp::count);
+            _rr_counter++;
             _cpu_load[cpu]++;
             return cpu;
         }
@@ -118,6 +125,9 @@ public:
     conntrack() : _lb(make_lw_shared<load_balancer>()) {}
     handle get_handle() {
         return handle(_lb->next_cpu(), _lb);
+    }
+    handle get_handle_rr() {
+        return handle(_lb->next_cpu_rr(), _lb);
     }
     handle get_handle(shard_id cpu) {
         return handle(_lb->force_cpu(cpu), _lb);
