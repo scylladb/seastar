@@ -650,7 +650,13 @@ public:
             // make sure we reset output_pending
             return wait_for_output();
         } catch (...) {
-            return make_exception_future<>(std::current_exception());
+            auto ep = std::current_exception();
+            return wait_for_output().then_wrapped(
+                [this, ep = std::move(ep)](future<> f) {
+                  f.ignore_ready_future();
+                  _error = ep;
+                  return make_exception_future<>(ep);
+                });
         }
     }
     future<> do_handshake() {
