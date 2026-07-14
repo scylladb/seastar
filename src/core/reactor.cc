@@ -97,11 +97,7 @@
 #include <sys/mman.h>
 #include <sys/utsname.h>
 #include <linux/falloc.h>
-#ifdef SEASTAR_HAVE_SYSTEMTAP_SDT
-#include <sys/sdt.h>
-#else
-#define STAP_PROBE(provider, name)
-#endif
+#include <seastar/core/internal/reactor_trace.hh>
 
 #if defined(__x86_64__) || defined(__i386__)
 #include <xmmintrin.h>
@@ -2780,12 +2776,12 @@ bool reactor::task_queue::run_tasks() {
     while (!_q.empty()) {
         auto tsk = _q.front();
         _q.pop_front();
-        STAP_PROBE(seastar, reactor_run_tasks_single_start);
+        SEASTAR_REACTOR_TRACE(task_start, _id, _name.c_str());
         internal::task_histogram_add_task(*tsk);
         r._current_task = tsk;
         tsk->run_and_dispose();
         r._current_task = nullptr;
-        STAP_PROBE(seastar, reactor_run_tasks_single_end);
+        SEASTAR_REACTOR_TRACE(task_end, _id, _tasks_processed);
         ++_tasks_processed;
         ++r._global_tasks_processed;
         // check at end of loop, to allow at least one task to run
@@ -3270,12 +3266,12 @@ reactor::task_queue_group::run_some_tasks() {
     r.reset_preemption_monitor();
     lowres_clock::update();
 
-    STAP_PROBE(seastar, reactor_run_tasks_start);
+    SEASTAR_REACTOR_TRACE(run_tasks_start);
     auto t = now();
     r._cpu_stall_detector->start_task_run(t);
     run_tasks_impl(t);
     r._cpu_stall_detector->end_task_run();
-    STAP_PROBE(seastar, reactor_run_tasks_end);
+    SEASTAR_REACTOR_TRACE(run_tasks_end);
     *internal::current_scheduling_group_ptr() = default_scheduling_group(); // Prevent inheritance from last group run
 }
 

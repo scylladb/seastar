@@ -42,6 +42,7 @@
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/io_sink.hh>
 #include <seastar/core/io_priority_class.hh>
+#include <seastar/core/internal/io_trace.hh>
 #include <seastar/util/log.hh>
 
 namespace seastar {
@@ -312,11 +313,9 @@ public:
         , _fq_capacity(cap)
         , _iovs(std::move(iovs))
     {
-        io_log.trace("dev {} : req {} queue  len {} capacity {}", _ioq.id(), fmt::ptr(this), _dnl.length(), _fq_capacity);
     }
 
     virtual void set_exception(std::exception_ptr eptr) noexcept override {
-        io_log.trace("dev {} : req {} error", _ioq.id(), fmt::ptr(this));
         _pclass.on_error();
         _ioq.complete_request(*this, std::chrono::duration<double>(0.0));
         _pr.set_exception(eptr);
@@ -324,7 +323,7 @@ public:
     }
 
     virtual void complete(size_t res) noexcept override {
-        io_log.trace("dev {} : req {} complete", _ioq.id(), fmt::ptr(this));
+        SEASTAR_IO_TRACE(io_queue_completed, this);
         auto now = io_queue::clock_type::now();
         auto delay = std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts);
         _pclass.on_complete(delay);
@@ -334,13 +333,14 @@ public:
     }
 
     void cancel() noexcept {
+        SEASTAR_IO_TRACE(io_queue_cancelled, this);
         _pclass.on_cancel();
         _pr.set_exception(std::make_exception_ptr(default_io_exception_factory::cancelled()));
         delete this;
     }
 
     void dispatch() noexcept {
-        io_log.trace("dev {} : req {} submit", _ioq.id(), fmt::ptr(this));
+        SEASTAR_IO_TRACE(io_queue_dispatched, this);
         auto now = io_queue::clock_type::now();
         _pclass.on_dispatch(_dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
         _ts = now;
@@ -373,6 +373,7 @@ public:
         , _fq_entry(cap)
         , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, cap, std::move(iovs)))
     {
+        SEASTAR_IO_TRACE(io_queue_queued, fd(), _desc.get(), dnl.rw_idx(), pc.fq_class(), offset(), dnl.length());
     }
 
     queued_io_request(queued_io_request&&) = delete;
