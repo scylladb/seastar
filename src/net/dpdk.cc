@@ -348,7 +348,6 @@ class dpdk_device : public device {
     rss_key_type _rss_key;
     port_stats _stats;
     timer<> _stats_collector;
-    const std::string _stats_plugin_name;
     const std::string _stats_plugin_inst;
     seastar::metrics::metric_groups _metrics;
     bool _is_i40e_device = false;
@@ -407,7 +406,6 @@ public:
         , _home_cpu(this_shard_id())
         , _use_lro(use_lro)
         , _enable_fc(enable_fc)
-        , _stats_plugin_name("network")
         , _stats_plugin_inst(std::string("port") + std::to_string(_port_idx))
         , _xstats(port_idx)
     {
@@ -420,7 +418,7 @@ public:
 
         // Register port statistics pollers
         namespace sm = seastar::metrics;
-        _metrics.add_group(_stats_plugin_name, {
+        _metrics.add_group("network", {
             // Rx Good
             sm::make_counter("rx_multicast", _stats.rx.good.mcast,
                             sm::description("Counts a number of received multicast packets."), {sm::shard_label(_stats_plugin_inst)}),
@@ -1244,8 +1242,7 @@ build_mbuf_cluster:
     };
 
 public:
-    explicit dpdk_qp(dpdk_device* dev, uint16_t qid,
-                     const std::string stats_plugin_name);
+    explicit dpdk_qp(dpdk_device* dev, uint16_t qid, std::string port_name);
 
     virtual void rx_start() override;
     virtual future<> send(packet p) override {
@@ -1911,9 +1908,8 @@ void dpdk_device::check_port_link_status()
 #pragma GCC diagnostic ignored "-Winvalid-offsetof"
 
 template <bool HugetlbfsMemBackend>
-dpdk_qp<HugetlbfsMemBackend>::dpdk_qp(dpdk_device* dev, uint16_t qid,
-                                      const std::string stats_plugin_name)
-     : qp(true, stats_plugin_name, qid), _dev(dev), _qid(qid),
+dpdk_qp<HugetlbfsMemBackend>::dpdk_qp(dpdk_device* dev, uint16_t qid, std::string port_name)
+     : qp(true, port_name, qid), _dev(dev), _qid(qid),
        _rx_gc_poller(reactor::poller::simple([&] { return rx_gc(); })),
        _tx_buf_factory(qid),
        _tx_gc_poller(reactor::poller::simple([&] { return _tx_buf_factory.gc(); }))
@@ -1949,18 +1945,21 @@ dpdk_qp<HugetlbfsMemBackend>::dpdk_qp(dpdk_device* dev, uint16_t qid,
 
     // Register error statistics: Rx total and checksum errors
     namespace sm = seastar::metrics;
-    _metrics.add_group(_stats_plugin_name, {
-        sm::make_counter(_queue_name + "_rx_csum_errors", _stats.rx.bad.csum,
-                        sm::description("Counts a number of packets received by this queue that have a bad CSUM value. "
-                                        "A non-zero value of this metric usually indicates a HW issue, e.g. a bad cable.")),
+    auto queue_l = sm::label("queue")(_queue_name);
+    auto port_l = sm::label("port")(port_name);
+    _metrics.add_group("network", {
+        sm::make_counter("rx_csum_errors_total", _stats.rx.bad.csum,
+                        sm::description("Counts a number of packets received per queue that have a bad CSUM value. "
+                                        "A non-zero value of this metric usually indicates a HW issue, e.g. a bad cable."))(queue_l, port_l),
 
-        sm::make_counter(_queue_name + "_rx_errors", _stats.rx.bad.total,
-                        sm::description("Counts a total number of errors in the ingress path for this queue: CSUM errors, etc.")),
+        sm::make_counter("rx_errors_total", _stats.rx.bad.total,
+                        sm::description("Counts a total number of errors in the ingress path per queue: CSUM errors, etc."))(queue_l, port_l),
 
-        sm::make_counter(_queue_name + "_rx_no_memory_errors", _stats.rx.bad.no_mem,
-                        sm::description("Counts a number of ingress packets received by this HW queue but dropped by the SW due to low memory. "
-                                        "A non-zero value indicates that seastar doesn't have enough memory to handle the packet reception or the memory is too fragmented.")),
+        sm::make_counter("rx_no_memory_errors_total", _stats.rx.bad.no_mem,
+                        sm::description("Counts a number of ingress packets received per queue but dropped by the SW due to low memory. "
+                                        "A non-zero value indicates that seastar doesn't have enough memory to handle the packet reception or the memory is too fragmented."))(queue_l, port_l),
     });
+
 }
 
 #pragma GCC diagnostic pop
@@ -2238,11 +2237,9 @@ std::unique_ptr<qp> dpdk_device::init_local_queue(const program_options::option_
 
     std::unique_ptr<qp> qp;
     if (net_opts->_hugepages) {
-        qp = std::make_unique<dpdk_qp<true>>(this, qid,
-                                 _stats_plugin_name + "-" + _stats_plugin_inst);
+        qp = std::make_unique<dpdk_qp<true>>(this, qid, _stats_plugin_inst);
     } else {
-        qp = std::make_unique<dpdk_qp<false>>(this, qid,
-                                 _stats_plugin_name + "-" + _stats_plugin_inst);
+        qp = std::make_unique<dpdk_qp<false>>(this, qid, _stats_plugin_inst);
     }
 
     // FIXME: future is discarded

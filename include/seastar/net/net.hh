@@ -227,14 +227,13 @@ class qp {
     circular_buffer<packet> _tx_packetq;
 
 protected:
-    const std::string _stats_plugin_name;
     const std::string _queue_name;
     metrics::metric_groups _metrics;
     qp_stats _stats;
 
 public:
     qp(bool register_copy_stats = false,
-       const std::string stats_plugin_name = std::string("network"),
+       std::string port_name = "",
        uint8_t qid = 0);
     virtual ~qp();
     virtual future<> send(packet p) = 0;
