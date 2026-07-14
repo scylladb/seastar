@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <ratio>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sleep.hh>
@@ -583,16 +584,19 @@ SEASTAR_THREAD_TEST_CASE(test_tb_params) {
         auto fg_rate = std::chrono::duration<double, io_throttler::rate_resolution>(std::chrono::seconds(1)).count();
         double iops_read = rate / cost_read_512 * fg_rate;
         double iops_write = rate / cost_write_512 * fg_rate;
-        double bandwidth_read = rate / cost_read_128k * 131072 * fg_rate;
-        double bandwidth_write = rate / cost_write_128k * 131072 * fg_rate;
+        double bandwidth_read = rate / (cost_read_128k - cost_read_512) * (bw_req_size - iops_req_size) * fg_rate;
+        double bandwidth_write = rate / (cost_write_128k - cost_write_512) * (bw_req_size - iops_req_size) * fg_rate;
         seastar_logger.info("IOPS read: {}, IOPS write: {}, Bandwidth read: {}, Bandwidth write: {}",
                             iops_read, iops_write, bandwidth_read, bandwidth_write);
 
-        float error_margin = 0.05f; // 5% error margin
-        BOOST_CHECK((d.read_req_rate - iops_read) / d.read_req_rate < error_margin);
-        BOOST_CHECK((d.write_req_rate - iops_write) / d.write_req_rate < error_margin);
-        BOOST_CHECK((d.read_bytes_rate - bandwidth_read) / d.read_bytes_rate < error_margin);
-        BOOST_CHECK((d.write_bytes_rate - bandwidth_write) / d.write_bytes_rate < error_margin);
+        auto within_margin = [&] (double computed, double configured) {
+            float error_margin = 0.05f; // 5% error margin
+            return std::abs(computed - configured) / configured < error_margin;
+        };
+        BOOST_CHECK(within_margin(iops_read, d.read_req_rate));
+        BOOST_CHECK(within_margin(iops_write, d.write_req_rate));
+        BOOST_CHECK(within_margin(bandwidth_read, d.read_bytes_rate));
+        BOOST_CHECK(within_margin(bandwidth_write, d.write_bytes_rate));
     }
 }
 
