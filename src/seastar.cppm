@@ -222,6 +222,7 @@ module;
 #include <seastar/coroutine/maybe_yield.hh>
 #include <seastar/coroutine/parallel_for_each.hh>
 #include <seastar/coroutine/switch_to.hh>
+#include <seastar/coroutine/try_expected_future.hh>
 
 export module seastar;
 
@@ -595,6 +596,8 @@ using seastar::coroutine::as_future;
 using seastar::coroutine::return_exception_ptr;
 using seastar::coroutine::exception;
 using seastar::coroutine::parallel_for_each;
+using seastar::coroutine::try_expected_future;
+using seastar::coroutine::try_expected_future_without_preemption_check;
 
 }
 
