@@ -944,6 +944,15 @@ public:
 
     /// Returns the task which is waiting for this promise to resolve, or nullptr.
     task* waiting_task() const noexcept { return _task; }
+
+    /// Removes and returns the task which is waiting for this promise to resolve,
+    /// without scheduling it. The caller takes over responsibility for resuming
+    /// the returned task (e.g. via coroutine symmetric transfer) or scheduling it.
+    ///
+    /// The promise state (value or exception) must already have been set, since
+    /// making the promise ready via the regular path is what would otherwise
+    /// schedule the waiting task.
+    task* take_waiting_task() noexcept { return std::exchange(_task, nullptr); }
 };
 
 /// \brief A promise with type but no local data.
@@ -1015,6 +1024,7 @@ public:
 
     /// Returns the task which is waiting for this promise to resolve, or nullptr.
     using internal::promise_base::waiting_task;
+    using internal::promise_base::take_waiting_task;
 
 private:
 
@@ -1084,6 +1094,7 @@ public:
 
     /// Returns the task which is waiting for this promise to resolve, or nullptr.
     using internal::promise_base::waiting_task;
+    using internal::promise_base::take_waiting_task;
 
     /// \brief Gets the promise's associated future.
     ///

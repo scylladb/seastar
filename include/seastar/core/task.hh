@@ -54,6 +54,11 @@ public:
     virtual void run_and_dispose() noexcept = 0;
     /// Returns the next task which is waiting for this task to complete execution, or nullptr.
     virtual task* waiting_task() noexcept = 0;
+    /// If this task is a coroutine that can be resumed via symmetric transfer,
+    /// returns the address of its coroutine frame; otherwise returns nullptr.
+    /// Used to hand control directly from a completing coroutine to the coroutine
+    /// waiting on it, bypassing the reactor's task queue.
+    virtual void* to_coroutine_handle_address() noexcept { return nullptr; }
     void update_resume_point(std::source_location sl) { _resume_point = sl; }
     auto get_resume_point() const { return _resume_point; }
     scheduling_group group() const { return _sg; }
