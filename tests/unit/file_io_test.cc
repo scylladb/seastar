@@ -43,14 +43,18 @@
 #include <seastar/util/tmp_file.hh>
 #include <seastar/util/alloc_failure_injector.hh>
 #include <seastar/util/closeable.hh>
+#include <seastar/util/defer.hh>
 #include <seastar/util/internal/magic.hh>
 #include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/util/later.hh>
+#include <seastar/core/internal/uname.hh>
 
 #include <boost/range/adaptor/transformed.hpp>
 #include <iostream>
 #include <sys/statfs.h>
 #include <fcntl.h>
+
+#include "core/file-impl.hh"
 
 using namespace seastar;
 namespace fs = std::filesystem;
@@ -1305,5 +1309,29 @@ SEASTAR_TEST_CASE(test_rename) {
         BOOST_REQUIRE(file_exists(filename1).get());
         BOOST_REQUIRE(file_exists(filename2).get());
         BOOST_REQUIRE(!file_exists(filename3).get());
+    });
+}
+
+SEASTAR_TEST_CASE(test_query_statx_mem_align) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        if (!internal::kernel_uname().whitelisted({"6.1"})) {
+            // the running kernel predates STATX_DIOALIGN
+            return;
+        }
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+        int fd = ::open(filename.c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+        BOOST_REQUIRE_GE(fd, 0);
+        auto close_fd = defer([fd] () noexcept { ::close(fd); });
+        struct statfs sfs;
+        BOOST_REQUIRE_EQUAL(::fstatfs(fd, &sfs), 0);
+        auto fstype = static_cast<unsigned long>(sfs.f_type);
+        if (fstype != internal::fs_magic::xfs && fstype != internal::fs_magic::ext4) {
+            // STATX_DIOALIGN reporting also depends on the filesystem; only
+            // assert on filesystems that have supported it since 6.1
+            return;
+        }
+        auto align = internal::query_statx_mem_align(fd);
+        BOOST_REQUIRE(align.has_value());
+        BOOST_REQUIRE_GT(*align, 0u);
     });
 }

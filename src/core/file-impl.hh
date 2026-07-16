@@ -27,6 +27,7 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 #include <sys/uio.h>
 
@@ -37,6 +38,11 @@ namespace internal {
 
 struct fs_info;
 class io_sink;
+
+// Query DIO memory alignment using statx (kernel 6.1+). Returns the memory
+// buffer alignment required for direct I/O on the file, or std::nullopt if
+// the kernel or the filesystem doesn't report STATX_DIOALIGN.
+std::optional<size_t> query_statx_mem_align(int fd);
 
 }
 
