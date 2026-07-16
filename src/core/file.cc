@@ -24,6 +24,7 @@
 #include <atomic>
 #include <bit>
 #include <coroutine>
+#include <cstddef>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -33,15 +34,8 @@
 
 #define __user /* empty */  // for xfs includes, below
 
-// Define STATX_DIOALIGN and related fields if not available from system headers (Linux < 6.1)
-#ifndef STATX_DIOALIGN
-#define STATX_DIOALIGN 0x00002000U
-// Check if struct statx has the stx_dio_mem_align field (added in Linux 6.1)
-// We need to extend the structure for older kernels/headers
-#define SEASTAR_STATX_NEEDS_DIO_FIELDS 1
-#endif
-
 #include <sys/syscall.h>
+#include <sys/stat.h> // statx etc
 #include <dirent.h>
 #include <linux/types.h> // for xfs, below
 #include <linux/fs.h> // BLKBSZGET
@@ -1230,23 +1224,37 @@ namespace {
 
 // Query DIO memory alignment using statx (kernel 6.1+)
 // Returns the optimal memory buffer alignment for this file descriptor,
-// or std::nullopt if statx doesn't support STATX_DIOALIGN
+// or std::nullopt if the running kernel doesn't report STATX_DIOALIGN, or
+// doesn't support statx syscall.
 std::optional<size_t>
 query_statx_mem_align(int fd) {
-#ifndef SEASTAR_STATX_NEEDS_DIO_FIELDS
-    // Only call statx if we have the required struct fields
-    struct statx stx;
-    if (syscall(__NR_statx, fd, "", AT_EMPTY_PATH, STATX_DIOALIGN, &stx) == 0) {
-        if (stx.stx_mask & STATX_DIOALIGN) {
+    // Layout-compatible stand-in for struct statx (linux/stat.h), so the query
+    // is compiled in even when the headers we build against predate
+    // STATX_DIOALIGN (Linux 6.1); kernels that don't support it simply don't
+    // set the bit in stx_mask. The kernel UAPI struct is fixed at 256 bytes;
+    // only the fields we use are named, the rest is padding.
+    struct statx_for_dio {
+        uint32_t stx_mask;              // what results were written
+        uint32_t stx_blksize;
+        uint64_t pad_before[18];        // fields between stx_blksize and stx_dio_mem_align
+        uint32_t stx_dio_mem_align;     // memory buffer alignment for direct I/O (Linux 6.1+)
+        uint32_t stx_dio_offset_align;
+        uint64_t pad_after[12];         // later additions and spare space
+    };
+    constexpr uint32_t statx_dioalign = 0x00002000U;  // STATX_DIOALIGN
+    static_assert(sizeof(statx_for_dio) == 256, "statx buffer must be 256 bytes");
+#ifdef STATX_DIOALIGN
+    // building against Linux 6.1+ headers: verify the layout against the real struct
+    static_assert(statx_dioalign == STATX_DIOALIGN);
+    static_assert(offsetof(statx_for_dio, stx_dio_mem_align) == offsetof(struct statx, stx_dio_mem_align));
+#endif
+    statx_for_dio stx;
+    if (syscall(__NR_statx, fd, "", AT_EMPTY_PATH, statx_dioalign, &stx) == 0) {
+        if (stx.stx_mask & statx_dioalign) {
             // Use kernel-reported memory alignment (stx_dio_mem_align)
-            // Field is available in Linux 6.1+ headers
             return stx.stx_dio_mem_align;
         }
     }
-#else
-    // Headers don't have the stx_dio_mem_align field, so we can't use it
-    // even if the kernel supports it. We'll rely on other fallbacks.
-#endif
     return std::nullopt;
 }
 
