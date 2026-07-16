@@ -1220,7 +1220,7 @@ xfs_concurrency_from_kernel_version() {
     return 0;
 }
 
-namespace {
+namespace internal {
 
 // Query DIO memory alignment using statx (kernel 6.1+)
 // Returns the optimal memory buffer alignment for this file descriptor,
@@ -1258,6 +1258,10 @@ query_statx_mem_align(int fd) {
     return std::nullopt;
 }
 
+} // namespace internal
+
+namespace {
+
 // Query device-level alignment properties (common to all filesystems)
 struct device_alignment_info {
     std::optional<unsigned> memory_alignment;      // from statx
@@ -1268,7 +1272,7 @@ device_alignment_info query_device_alignment_info(int fd, dev_t device_id) {
     device_alignment_info info;
 
     // Query statx for DIO memory alignment (kernel 6.1+)
-    info.memory_alignment = query_statx_mem_align(fd);
+    info.memory_alignment = internal::query_statx_mem_align(fd);
 
     // Check for physical_block_size override from io_properties.yaml
     // Note: I/O queues may not be registered for all devices (e.g., tmpfs, test environments)
