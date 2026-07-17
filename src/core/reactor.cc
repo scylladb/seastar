@@ -2807,7 +2807,7 @@ namespace {
 
 #ifdef SEASTAR_SHUFFLE_TASK_QUEUE
 void shuffle(task*& t, circular_buffer<task*>& q) {
-    static thread_local std::mt19937 gen = std::mt19937(std::default_random_engine()());
+    static thread_local std::mt19937 gen{std::random_device{}()};
     std::uniform_int_distribution<size_t> tasks_dist{0, q.size() - 1};
     auto& to_swap = q[tasks_dist(gen)];
     std::swap(to_swap, t);
