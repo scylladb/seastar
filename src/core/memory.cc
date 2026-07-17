@@ -2800,10 +2800,20 @@ void free(void* ptr, size_t size) {
 
 }
 
-#if !(__GLIBC__ == 2 && __GLIBC_MINOR__ >= 43) && !(__GLIBC__ > 2)
+#if !(__GLIBC__ == 2 && __GLIBC_MINOR__ >= 43) && !(__GLIBC__ > 2) && !defined(SEASTAR_ASAN_ENABLED)
 
 // glibc 2.43 or later defines free_sized and free_aligned_sized, while we want to use
-// it even earlier
+// it even earlier.
+//
+// Do NOT define these under AddressSanitizer: ASAN interposes free_sized/
+// free_aligned_sized so it can track sized deallocations. A strong, exported
+// (visibility("default") + used) definition here would override ASAN's
+// interceptor and route the free straight to libc, bypassing ASAN's shadow and
+// quarantine bookkeeping. That silently corrupts ASAN's internal metadata and
+// leads to a delayed abort ("CHECK failed: AddrIsInMem ... (0x0, 0x0)") at an
+// unrelated allocation during quarantine recycling. Recent compilers (GCC 15+)
+// emit free_sized calls automatically (e.g. for std::string), so this is easily
+// hit. Under ASAN we must let the call fall through to ASAN's interceptor.
 
 extern "C"
 [[gnu::visibility("default")]]
