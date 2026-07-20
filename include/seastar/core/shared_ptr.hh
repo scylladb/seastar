@@ -25,7 +25,7 @@
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/util/indirect.hh>
 #include <boost/intrusive/parent_from_member.hpp>
-#include <fmt/core.h>
+#include <seastar/core/internal/fmt.hh>
 #include <concepts>
 #include <ostream>
 #include <type_traits>

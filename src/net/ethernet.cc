@@ -21,7 +21,7 @@
 
 #include <seastar/core/print.hh>
 #include <seastar/net/ethernet.hh>
-#include <fmt/ostream.h>
+#include <seastar/core/internal/fmt.hh>
 #include <boost/algorithm/string.hpp>
 #include <string>
 

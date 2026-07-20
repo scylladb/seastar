@@ -19,8 +19,7 @@
  * Copyright (C) 2016 ScyllaDB
  */
 
-#include <fmt/core.h>
-#include <fmt/compile.h>
+#include <seastar/core/internal/fmt.hh>
 #include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl_lite.h>
 #include "proto/metrics2.pb.h"

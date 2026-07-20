@@ -22,7 +22,7 @@
 
 
 #include <iosfwd>
-#include <fmt/core.h>
+#include <seastar/core/internal/fmt.hh>
 
 /// \addtogroup logging
 /// @{
