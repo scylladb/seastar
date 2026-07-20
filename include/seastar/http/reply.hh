@@ -316,10 +316,6 @@ std::ostream& operator<<(std::ostream& os, reply::status_type st);
 
 } // namespace http
 
-namespace httpd {
-using reply [[deprecated("Use http::reply instead")]] = http::reply;
-}
-
 }
 
 template <> struct fmt::formatter<seastar::http::reply::status_type> : fmt::ostream_formatter {};
