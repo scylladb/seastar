@@ -42,8 +42,7 @@
 #include <boost/range/iterator_range.hpp>
 #include <boost/range/adaptor/map.hpp>
 
-#include <fmt/core.h>
-#include <fmt/ostream.h>
+#include <seastar/core/internal/fmt.hh>
 
 #include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>

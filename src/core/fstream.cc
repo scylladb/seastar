@@ -20,8 +20,7 @@
  */
 
 
-#include <fmt/format.h>
-#include <fmt/ostream.h>
+#include <seastar/core/internal/fmt.hh>
 #include <malloc.h>
 #include <string.h>
 #include <fcntl.h>

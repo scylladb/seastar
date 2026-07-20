@@ -36,10 +36,7 @@
 #include <ostream>
 #include <functional>
 #include <type_traits>
-#include <fmt/format.h>
-#if FMT_VERSION >= 110000
-#include <fmt/ranges.h>
-#endif
+#include <seastar/core/internal/fmt.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/core/temporary_buffer.hh>
