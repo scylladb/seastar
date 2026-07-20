@@ -366,6 +366,7 @@ using seastar::ipv6_addr;
 using seastar::is_future;
 using seastar::KB;
 using seastar::keep_doing;
+using seastar::layered_file_impl;
 using seastar::lazy_deref;
 using seastar::lazy_eval;
 using seastar::le_to_cpu;
@@ -719,6 +720,7 @@ using seastar::memory::with_allocation_failures;
 export namespace seastar::metrics {
 
 using seastar::metrics::description;
+using seastar::metrics::double_registration;
 using seastar::metrics::get_relabel_configs;
 using seastar::metrics::histogram;
 using seastar::metrics::histogram_bucket;
@@ -924,6 +926,28 @@ export namespace fmt {
 
 template <>
 struct formatter<std::exception_ptr>;
+
+}
+
+export namespace seastar::json {
+
+using seastar::json::json_list;
+using seastar::json::date_time;
+
+}
+
+export namespace seastar::http {
+
+
+}
+
+export namespace seastar::httpd {
+
+using seastar::httpd::path_description;
+using seastar::httpd::bad_param_exception;
+using seastar::httpd::server_error_exception;
+using seastar::httpd::not_found_exception;
+using seastar::httpd::const_req;
 
 }
 
