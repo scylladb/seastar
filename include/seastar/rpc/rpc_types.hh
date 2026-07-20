@@ -21,10 +21,7 @@
 
 #pragma once
 
-#include <fmt/ostream.h>
-#if FMT_VERSION >= 100000
-#include <fmt/std.h>
-#endif
+#include <seastar/core/internal/fmt.hh>
 
 #include <seastar/net/api.hh>
 #include <stdexcept>
