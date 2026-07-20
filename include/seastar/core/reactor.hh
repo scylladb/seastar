@@ -402,9 +402,6 @@ private:
     bool poll_once();
     bool pure_poll_once();
 public:
-    /// Register a user-defined signal handler
-    [[deprecated("Use seastar::handle_signal(signo, handler, once); instead")]]
-    void handle_signal(int signo, noncopyable_function<void ()>&& handler);
     void wakeup();
     /// @private
     bool stopped() const noexcept { return _stopped; }
