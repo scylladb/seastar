@@ -35,21 +35,6 @@ operator<<(std::ostream&& os, const void* ptr) {
 }
 
 namespace seastar {
-template <typename Iterator>
-[[deprecated("use fmt::join()")]]
-std::string
-format_separated(Iterator b, Iterator e, const char* sep = ", ") {
-    std::string ret;
-    if (b == e) {
-        return ret;
-    }
-    ret += *b++;
-    while (b != e) {
-        ret += sep;
-        ret += *b++;
-    }
-    return ret;
-}
 
 template <typename TimePoint>
 struct usecfmt_wrapper {
