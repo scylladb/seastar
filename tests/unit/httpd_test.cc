@@ -70,7 +70,7 @@ public:
 // NOTE: Remove this once `query_parameters` is removed
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-std::unordered_map<sstring, sstring>& deprecated_query_parameters(request& r) noexcept {
+std::unordered_map<sstring, sstring>& deprecated_query_parameters(http::request& r) noexcept {
     return r.query_parameters;
 }
 #pragma GCC diagnostic pop

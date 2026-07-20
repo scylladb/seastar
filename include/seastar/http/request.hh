@@ -440,10 +440,6 @@ inline const sstring& deprecated_content(const request& req) noexcept { return r
 
 } // namespace httpd
 
-namespace httpd {
-using request [[deprecated("Use http::request instead")]] = http::request;
-}
-
 }
 
 template <>
