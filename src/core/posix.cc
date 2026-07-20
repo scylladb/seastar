@@ -24,7 +24,7 @@
 #include <set>
 #include <vector>
 #include <functional>
-#include <fmt/format.h>
+#include <seastar/core/internal/fmt.hh>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/mman.h>

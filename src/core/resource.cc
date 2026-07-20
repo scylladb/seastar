@@ -32,7 +32,7 @@
 #include <limits>
 #include <filesystem>
 #include <unordered_map>
-#include <fmt/core.h>
+#include <seastar/core/internal/fmt.hh>
 #include <seastar/util/assert.hh>
 
 #include <seastar/core/resource.hh>

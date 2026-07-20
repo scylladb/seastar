@@ -31,7 +31,7 @@
 #include <cstdint>
 #include <optional>
 #include <queue>
-#include <fmt/ostream.h>
+#include <seastar/core/internal/fmt.hh>
 
 namespace bi = boost::intrusive;
 

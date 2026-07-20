@@ -31,11 +31,7 @@
 #include <algorithm>
 #include <ranges>
 
-#include <fmt/core.h>
-#include <fmt/chrono.h>
-#include <fmt/color.h>
-#include <fmt/ostream.h>
-#include <fmt/std.h>
+#include <seastar/core/internal/fmt.hh>
 #include <boost/any.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/program_options.hpp>

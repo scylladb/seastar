@@ -21,8 +21,7 @@
  */
 
 #include <boost/algorithm/string/trim.hpp>
-#include <fmt/ostream.h>
-#include <fmt/ranges.h>
+#include <seastar/core/internal/fmt.hh>
 #include <openssl/bio.h>
 #include <openssl/core_names.h>
 #include <openssl/err.h>

@@ -32,9 +32,7 @@
 #include <iosfwd>
 #include <atomic>
 #include <mutex>
-#include <fmt/core.h>
-#include <fmt/format.h>
-#include <fmt/std.h>
+#include <seastar/core/internal/fmt.hh>
 
 /// \addtogroup logging
 /// @{

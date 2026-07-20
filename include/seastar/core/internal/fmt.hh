@@ -15,39 +15,24 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-
 /*
- * Copyright 2020 ScyllaDB
+ * Copyright (C) 2026 ScyllaDB
  */
 
 #pragma once
 
-#include <seastar/core/internal/fmt.hh>
-#include <exception>
+// Single point through which Seastar pulls in {fmt}.
+//
+// All Seastar code that needs {fmt} includes this header instead of the
+// individual <fmt/*.h> headers.  For now it is a plain textual include of
+// every fmt header Seastar uses; routing everything through here lets a
+// later change switch to `import fmt;` in one place.
 
-namespace seastar {
-
-class timed_out_error : public std::exception {
-public:
-    virtual const char* what() const noexcept {
-        return "timedout";
-    }
-};
-
-struct default_timeout_exception_factory {
-    static auto timeout() {
-        return timed_out_error();
-    }
-};
-
-} // namespace seastar
-
-#if FMT_VERSION < 100000
-// fmt v10 introduced formatter for std::exception
-template <>
-struct fmt::formatter<seastar::timed_out_error> : fmt::formatter<string_view> {
-    auto format(const seastar::timed_out_error& e, fmt::format_context& ctx) const {
-        return fmt::format_to(ctx.out(), "{}", e.what());
-    }
-};
-#endif
+#include <fmt/format.h>
+#include <fmt/ostream.h>
+#include <fmt/ranges.h>
+#include <fmt/std.h>
+#include <fmt/chrono.h>
+#include <fmt/color.h>
+#include <fmt/compile.h>
+#include <fmt/core.h>
