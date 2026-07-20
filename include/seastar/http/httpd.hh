@@ -78,9 +78,6 @@ class connection : public boost::intrusive::list_base_hook<> {
     bool _done = false;
     const bool _tls;
 public:
-    [[deprecated("use connection(http_server&, connected_socket&&, bool tls)")]]
-    connection(http_server& server, connected_socket&& fd, socket_address, bool tls)
-            : connection(server, std::move(fd), tls) {}
     connection(http_server& server, connected_socket&& fd, bool tls)
             : _server(server)
             , _fd(std::move(fd))
