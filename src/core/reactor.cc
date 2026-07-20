@@ -791,10 +791,6 @@ void reactor::signals::failed_to_handle(int signo) {
     seastar_logger.error("Failed to handle signal {} on thread {} ({}): engine not ready", signo, tid, tname);
 }
 
-void reactor::handle_signal(int signo, noncopyable_function<void ()>&& handler) {
-    _signals.handle_signal(signo, std::move(handler));
-}
-
 // Accumulates an in-memory backtrace and flush to stderr eventually.
 // Async-signal safe.
 class backtrace_buffer {
