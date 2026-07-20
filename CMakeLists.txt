@@ -1147,8 +1147,11 @@ set_option_if_package_is_found (Seastar_IO_URING LibUring)
 if (Seastar_IO_URING)
   target_compile_definitions (seastar
     PUBLIC SEASTAR_HAVE_URING)
-  target_link_libraries (seastar
-    PUBLIC URING::uring)
+  # Uring include directories are public as seastar includes them in its public headers.
+  # The library is private as seastar uses it internally.
+  target_link_libraries (seastar PRIVATE URING::uring)
+  target_include_directories (seastar
+    SYSTEM PUBLIC $<TARGET_PROPERTY:URING::uring,INTERFACE_INCLUDE_DIRECTORIES>)
 endif ()
 
 if (Seastar_LD_FLAGS)
