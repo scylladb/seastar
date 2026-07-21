@@ -130,6 +130,7 @@ class http_server {
     uint64_t _requests_served = 0;
     uint64_t _read_errors = 0;
     uint64_t _respond_errors = 0;
+    uint64_t _tls_handshake_errors = 0;
     shared_ptr<seastar::tls::server_credentials> _credentials;
     sstring _date = http_date();
     timer<> _date_format_timer { [this] {_date = http_date();} };
@@ -199,6 +200,7 @@ public:
     uint64_t requests_served() const;
     uint64_t read_errors() const;
     uint64_t reply_errors() const;
+    uint64_t tls_handshake_errors() const;
     // Write the current date in the specific "preferred format" defined in
     // RFC 7231, Section 7.1.1.1.
     static sstring http_date();
