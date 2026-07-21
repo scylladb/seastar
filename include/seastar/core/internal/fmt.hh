@@ -24,14 +24,31 @@
 // Single point through which Seastar pulls in {fmt}.
 //
 // All Seastar code that needs {fmt} includes this header instead of the
-// individual <fmt/*.h> headers.  For now it is a plain textual include of
-// every fmt header Seastar uses; routing everything through here lets a
-// later change switch to `import fmt;` in one place.
+// individual <fmt/*.h> headers.  When SEASTAR_IMPORT_FMT is defined (see the
+// Seastar_IMPORT_FMT option in CMakeLists.txt) this imports fmt as a C++20
+// module; otherwise it is a plain textual include of every fmt header Seastar
+// uses.  Consumers must pick one per translation unit -- mixing `import fmt;`
+// with a textual <fmt/*.h> in the same TU is a redefinition error -- which is
+// exactly why every Seastar fmt include is funnelled through here.
 //
 // It also defines SEASTAR_FMT_VERSION, which the version-dependent parts of
 // Seastar's public headers key off instead of fmt's own FMT_VERSION.  The
 // build may define it (as an integer, MMmmpp, like FMT_VERSION) for setups
-// where fmt does not supply it; otherwise it is taken from fmt.
+// where fmt does not supply it; otherwise it is taken from fmt.  Importing fmt
+// is such a setup: fmt's preprocessor macros are not part of the module, so
+// the version has to come from the build, derived from the fmt that Seastar
+// was configured against (Seastar does not bundle fmt, so it cannot be
+// hardcoded here).
+
+#ifdef SEASTAR_IMPORT_FMT
+
+#ifndef SEASTAR_FMT_VERSION
+#error "SEASTAR_IMPORT_FMT requires the build to define SEASTAR_FMT_VERSION (see Seastar_IMPORT_FMT)"
+#endif
+
+import fmt;
+
+#else
 
 #include <fmt/format.h>
 #include <fmt/ostream.h>
@@ -44,4 +61,6 @@
 
 #ifndef SEASTAR_FMT_VERSION
 #define SEASTAR_FMT_VERSION FMT_VERSION
+#endif
+
 #endif

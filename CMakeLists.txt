@@ -155,6 +155,9 @@ cmake_dependent_option (Seastar_MODULE
   "Build a C++20 module instead of a traditional library" OFF
   "CMAKE_VERSION VERSION_GREATER_EQUAL 3.26;CMAKE_CXX_STANDARD GREATER_EQUAL 20" OFF)
 
+option (Seastar_IMPORT_FMT
+  "Seastar and its consumers pull in fmt via `import fmt;` instead of textual includes" OFF)
+
 set (CMAKE_C_FLAGS_SANITIZE
   "-Os -g"
   CACHE
@@ -1046,6 +1049,37 @@ endif ()
 if (Seastar_LOGGER_COMPILE_TIME_FMT)
   target_compile_definitions (seastar
     PUBLIC SEASTAR_LOGGER_COMPILE_TIME_FMT)
+endif ()
+
+if (Seastar_IMPORT_FMT)
+  # Tell *external* consumers (through pkg-config) to pull fmt in as a module
+  # via the funnel (include/seastar/core/internal/fmt.hh).
+  #
+  # SEASTAR_IMPORT_FMT is deliberately NOT put on the seastar target's
+  # INTERFACE: that would also reach Seastar's own targets that link seastar
+  # (seastar_testing, the apps, the tests) and the seastar module's global module
+  # fragment, none of which have an fmt module available -- they must keep
+  # including fmt textually.  The pkg-config channel is only seen by genuinely
+  # external consumers.
+  #
+  # fmt's macros are not exported by the module, so SEASTAR_FMT_VERSION -- which
+  # the version-dependent parts of our public headers key off, and which the
+  # funnel otherwise derives from FMT_VERSION -- has to be supplied here,
+  # derived from the fmt that was found, since Seastar does not bundle fmt.
+  #
+  # Unlike SEASTAR_IMPORT_FMT, this one is safe on the seastar target's
+  # INTERFACE: it is Seastar's own macro, and its value is exactly what the
+  # funnel computes for the targets that do include fmt textually.
+  string (REPLACE "." ";" _fmt_version_components "${fmt_VERSION}")
+  list (GET _fmt_version_components 0 _fmt_version_major)
+  list (GET _fmt_version_components 1 _fmt_version_minor)
+  list (GET _fmt_version_components 2 _fmt_version_patch)
+  math (EXPR _fmt_version_int
+    "${_fmt_version_major} * 10000 + ${_fmt_version_minor} * 100 + ${_fmt_version_patch}")
+  target_compile_definitions (seastar
+    PUBLIC SEASTAR_FMT_VERSION=${_fmt_version_int})
+  set (Seastar_PC_IMPORT_FMT_CFLAGS
+    "-DSEASTAR_IMPORT_FMT -DSEASTAR_FMT_VERSION=${_fmt_version_int}")
 endif ()
 
 target_compile_definitions (seastar
