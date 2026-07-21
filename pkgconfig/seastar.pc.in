@@ -30,11 +30,15 @@ liburing_libs=$<$<BOOL:@Seastar_IO_URING@>:$<JOIN:@URING_LIBRARIES@, >>
 dpdk_libs=$<JOIN:@dpdk_LIBRARIES@, >
 # Us.
 seastar_cflags=${seastar_include_flags} $<JOIN:$<TARGET_PROPERTY:seastar,INTERFACE_COMPILE_OPTIONS>, > -D$<JOIN:$<TARGET_PROPERTY:seastar,INTERFACE_COMPILE_DEFINITIONS>, -D>
+# Extra flags for consumers that opt into `import fmt;` (Seastar_IMPORT_FMT).
+# Kept out of the seastar target's INTERFACE so Seastar's own targets are not
+# affected; only external (pkg-config) consumers see these.
+seastar_import_fmt_cflags=@Seastar_PC_IMPORT_FMT_CFLAGS@
 seastar_libs=${libdir}/$<TARGET_FILE_NAME:seastar> @Seastar_SPLIT_DWARF_FLAG@ $<JOIN:@Seastar_Sanitizers_OPTIONS@, >
 
 Requires: liblz4 >= 1.7.3
 Requires.private: gnutls >= 3.2.26, protobuf >= 2.5.0, hwloc >= 1.11.2, $<$<BOOL:@Seastar_IO_URING@>:liburing $<ANGLE-R>= 2.0, >yaml-cpp >= 0.5.1
 Conflicts:
-Cflags: @Seastar_CXX_COMPILE_OPTION@ ${boost_cflags} ${c_ares_cflags} ${fmt_cflags} ${liburing_cflags} ${lksctp_tools_cflags} ${seastar_cflags}
+Cflags: @Seastar_CXX_COMPILE_OPTION@ ${boost_cflags} ${c_ares_cflags} ${fmt_cflags} ${liburing_cflags} ${lksctp_tools_cflags} ${seastar_cflags} ${seastar_import_fmt_cflags}
 Libs: ${seastar_libs} ${boost_program_options_libs} ${c_ares_libs} ${fmt_libs}
 Libs.private: ${dl_libs} ${rt_libs} ${lksctp_tools_libs} ${liburing_libs} ${stdatomic_libs} ${dpdk_libs}
