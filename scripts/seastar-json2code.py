@@ -44,7 +44,16 @@ parser.add_argument('--create-cc', dest='create_cc', action='store_true', defaul
                     help='Put global variables in a .cc file')
 parser.add_argument('--module-dependencies', dest='module', action='store_true', default=False,
                     help='Use C++ module imports (import seastar; / import std;) for dependencies instead of #include directives')
+parser.add_argument('--module-std', dest='module_std', action='store_true', default=False,
+                    help='Use "import std;" instead of #include directives for standard library dependencies')
+parser.add_argument('--module-seastar', dest='module_seastar', action='store_true', default=False,
+                    help='Use "import seastar;" instead of #include directives for seastar dependencies')
 config = parser.parse_args()
+
+# --module-dependencies is a shorthand for switching both std and seastar to modules
+if config.module:
+    config.module_std = True
+    config.module_seastar = True
 
 
 valid_vars = {'string': 'sstring', 'int': 'int', 'integer': 'int', 'double': 'double',
@@ -549,12 +558,18 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
     else:
         ccfile = hfile
     print_h_file_headers(hfile, api_name)
-    if config.module:
-        add_import(hfile, ['seastar', 'std'])
-    else:
+    modules = []
+    if config.module_seastar:
+        modules.append('seastar')
+    if config.module_std:
+        modules.append('std')
+    if modules:
+        add_import(hfile, modules)
+    if not config.module_seastar:
         add_include(hfile, ['<seastar/core/sstring.hh>',
                             '<seastar/json/json_elements.hh>',
                             '<seastar/http/json_path.hh>'])
+    if not config.module_std:
         add_include(hfile, ['<iostream>', '<ranges>'])
     open_namespace(hfile, "seastar")
     open_namespace(hfile, "httpd")
