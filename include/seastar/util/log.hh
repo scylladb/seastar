@@ -95,7 +95,7 @@ public:
         /// implicitly construct format_info from a constant format string
         /// \param fmt - {fmt} style format string
         template <std::convertible_to<std::string_view> S>
-        FMT_CONSTEVAL inline format_info(const S& format,
+        consteval inline format_info(const S& format,
                            std::source_location loc = std::source_location::current()) noexcept
             : format(format)
             , loc(loc)
@@ -120,7 +120,7 @@ public:
             , loc(loc)
         {}
         /// implicitly construct format_info with no format string.
-        FMT_CONSTEVAL format_info() noexcept
+        consteval format_info() noexcept
             : format_info("")
         {}
         fmt::format_string<Args...> format;
