@@ -147,7 +147,7 @@ class io_queue::priority_class_data {
     std::chrono::duration<double> _total_queue_time;
     std::chrono::duration<double> _total_execution_time;
     std::chrono::duration<double> _starvation_time;
-    io_queue::clock_type::time_point _activated;
+    io_queue::clock_type::time_point _activated = io_queue::clock_type::time_point();
 
     class bandwidth_throttler {
         io_group::priority_class_data::token_bucket_t& _tb;
@@ -234,7 +234,10 @@ public:
 
     void on_queue() noexcept {
         _nr_queued++;
-        if (_nr_executing == 0 && _nr_queued == 1) {
+    }
+
+    void on_dispatch_throttled() noexcept {
+        if (_nr_queued != 0 && _activated == io_queue::clock_type::time_point()) {
             _activated = io_queue::clock_type::now();
         }
     }
@@ -245,8 +248,9 @@ public:
         _total_queue_time += lat;
         _nr_queued--;
         _nr_executing++;
-        if (_nr_executing == 1) {
+        if (_activated != io_queue::clock_type::time_point()) {
             _starvation_time += io_queue::clock_type::now() - _activated;
+            _activated = io_queue::clock_type::time_point();
         }
 
         auto tokens = io_group::priority_class_data::tokens(dnl.length());
@@ -262,16 +266,10 @@ public:
     void on_complete(std::chrono::duration<double> lat) noexcept {
         _total_execution_time += lat;
         _nr_executing--;
-        if (_nr_executing == 0 && _nr_queued != 0) {
-            _activated = io_queue::clock_type::now();
-        }
     }
 
     void on_error() noexcept {
         _nr_executing--;
-        if (_nr_executing == 0 && _nr_queued != 0) {
-            _activated = io_queue::clock_type::now();
-        }
     }
 
     void on_split(io_direction_and_length dnl) noexcept {
@@ -811,7 +809,7 @@ std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::priority_c
                 }, sm::description("Total time spent in disk")),
             sm::make_counter("starvation_time_sec", [this] {
                 auto st = _starvation_time;
-                if (_nr_queued != 0 && _nr_executing == 0) {
+                if (_activated != io_queue::clock_type::time_point()) {
                     st += io_queue::clock_type::now() - _activated;
                 }
                 return st.count();
@@ -1139,6 +1137,12 @@ void io_queue::poll_io_queue() {
 
             auto result = st.grab_capacity(ent->capacity(), available);
             if (result == stream::grab_result::stop) {
+                // Mark all classes with queued requests as starving
+                for (auto& pc : _priority_classes) {
+                    if (pc) {
+                        pc->on_dispatch_throttled();
+                    }
+                }
                 break;
             }
             if (result == stream::grab_result::again) {
