@@ -2917,3 +2917,68 @@ SEASTAR_TEST_CASE(test_mtls_san_propagation) {
         server.stop().get();
     });
 }
+
+// Verify that when a TLS handshake fails (e.g., the client does not trust the
+// server's certificate), the httpd_tls_handshake_errors metric is incremented.
+SEASTAR_TEST_CASE(test_tls_handshake_error_metric) {
+    return seastar::async([] {
+        // Set up server with TLS credentials.
+        tls::credentials_builder server_builder;
+        server_builder.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+        auto server_creds = server_builder.build_server_credentials();
+
+        auto addr = socket_address(ipv4_addr("127.0.0.1", 0));
+        listen_options lo;
+        lo.reuse_address = true;
+        lo.set_fixed_cpu(this_shard_id());
+
+        http_server server("test");
+        server._routes.put(GET, "/test", new function_handler([](const_req req) {
+            return "";
+        }, "txt"));
+
+        server.listen(addr, lo, server_creds).get();
+        auto actual_addr = http_server_tester::listeners(server)[0].local_address();
+
+        BOOST_REQUIRE_EQUAL(server.tls_handshake_errors(), 0u);
+
+        // Connect a client that does NOT trust the server's CA certificate.
+        // This will cause the TLS handshake to fail.
+        future<> client = seastar::async([&] {
+            tls::credentials_builder client_builder;
+            // Deliberately do NOT set a trust file, so the client rejects the
+            // server's certificate during the handshake.
+            auto client_creds = client_builder.build_certificate_credentials();
+
+            try {
+                auto c_socket = tls::connect(client_creds, actual_addr,
+                        tls::tls_options{.server_name = sstring("test.scylladb.org")}).get();
+                auto input = c_socket.input();
+                auto output = c_socket.output();
+                auto close_in = deferred_close(input);
+                auto close_out = deferred_close(output);
+
+                // Try to read/write to force the handshake to complete (and fail).
+                output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\n\r\n")).get();
+                output.flush().get();
+                input.read().get();
+            } catch (...) {
+                // Expected: the handshake should fail on the client side too.
+            }
+        });
+
+        client.get();
+
+        // Give the server a moment to process the failed connection.
+        seastar::sleep(std::chrono::milliseconds(100)).get();
+
+        // The TLS handshake error counter should have been incremented.
+        BOOST_REQUIRE_GE(server.tls_handshake_errors(), 1u);
+
+        // connections_total should also have been incremented (the TCP
+        // connection was accepted before the handshake failed).
+        BOOST_REQUIRE_GE(server.total_connections(), 1u);
+
+        server.stop().get();
+    });
+}

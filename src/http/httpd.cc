@@ -68,7 +68,8 @@ http_stats::http_stats(http_server& server, const sstring& name)
             sm::make_gauge("connections_current", [&server] { return server.current_connections(); }, sm::description("The current number of open  connections"), labels),
             sm::make_counter("read_errors", [&server] { return server.read_errors(); }, sm::description("The total number of errors while reading http requests"), labels),
             sm::make_counter("reply_errors", [&server] { return server.reply_errors(); }, sm::description("The total number of errors while replying to http"), labels),
-            sm::make_counter("requests_served", [&server] { return server.requests_served(); }, sm::description("The total number of http requests served"), labels)
+            sm::make_counter("requests_served", [&server] { return server.requests_served(); }, sm::description("The total number of http requests served"), labels),
+            sm::make_counter("tls_handshake_errors", [&server] { return server.tls_handshake_errors(); }, sm::description("The total number of TLS handshake failures"), labels)
     });
 }
 
@@ -520,6 +521,9 @@ future<> http_server::do_process_connection(connected_socket conn_fd, socket_add
     try {
         co_await conn->prepare();
     } catch (...) {
+        if (tls) {
+            ++_tls_handshake_errors;
+        }
         hlogger.debug("connection preparation failed: {}", std::current_exception());
         co_return;
     }
@@ -547,6 +551,9 @@ uint64_t http_server::read_errors() const {
 }
 uint64_t http_server::reply_errors() const {
     return _respond_errors;
+}
+uint64_t http_server::tls_handshake_errors() const {
+    return _tls_handshake_errors;
 }
 
 // Write the current date in the specific "preferred format" defined in
