@@ -260,6 +260,10 @@ inline void stop_measuring_time()
     internal::time_measurement_stop_iteration();
 }
 
+namespace internal { std::string get_parameter(std::string); }
+inline std::string get_parameter(std::string name) {
+    return internal::get_parameter(std::move(name));
+}
 
 template<typename T>
 void do_not_optimize(const T& v)

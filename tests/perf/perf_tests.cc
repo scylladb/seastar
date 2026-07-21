@@ -268,6 +268,13 @@ void time_measurement_stop_iteration() {
     measure_time->stop_iteration();
 }
 
+std::map<std::string, std::string> parameters;
+
+std::string get_parameter(std::string name) {
+    auto it = parameters.find(name);
+    return it == parameters.end() ? "" : it->second;
+}
+
 struct config;
 struct result;
 
@@ -912,6 +919,11 @@ void run_all(const std::vector<std::string>& test_patterns, config& conf) {
         fmt::print(stderr, "\n");
         throw std::runtime_error("no tests matched the given pattern(s)");
     }
+
+    for (auto p : parameters) {
+        fmt::print("parameter {}: {}\n", p.first, p.second);
+    }
+
     for (auto& rp : conf.printers) {
         rp->update_name_column_length(max_name_column_length);
         rp->print_configuration(conf);
@@ -959,6 +971,7 @@ int main(int ac, char** av)
             "warn if overhead exceeds this ratio (default: 0.1 = 10%)")
         ("fail-on-high-overhead", "fail the test run if any test exceeds the overhead threshold")
         ("no-perf-counters", "disable hardware perf counters (inst/cycles)")
+        ("parameter", bpo::value<std::vector<std::string>>(), "specify test-specific parameters")
         ;
 
     return app.run(ac, av, [&] {
@@ -980,6 +993,18 @@ int main(int ac, char** av)
             std::vector<std::string> tests_to_run;
             if (app.configuration().count("test")) {
                 tests_to_run = app.configuration()["test"].as<std::vector<std::string>>();
+            }
+
+            if (app.configuration().count("parameter")) {
+                auto param = app.configuration()["parameter"].as<std::vector<std::string>>();
+                for (auto& p : param) {
+                    size_t split = p.find('=');
+                    if (split == std::string::npos) {
+                        parameters.emplace(std::make_pair(p, ""));
+                    } else {
+                        parameters.emplace(std::make_pair(p.substr(0, split), p.substr(split+1, p.size())));
+                    }
+                }
             }
 
             if (app.configuration().count("list")) {
