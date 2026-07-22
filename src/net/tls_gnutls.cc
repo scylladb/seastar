@@ -575,6 +575,31 @@ public:
         return s;
     }
 
+    // Calls verify() and, if verification fails, sends the appropriate TLS alert
+    // to the peer before propagating the exception. Returns nullopt when
+    // verification succeeded (caller should continue normally), or a future
+    // that sends the alert and resolves to the verification error.
+    std::optional<future<>> verify_and_send_alert() {
+        gnutls_alert_description_t cert_alert = GNUTLS_A_BAD_CERTIFICATE;
+        std::exception_ptr vex;
+        try {
+            verify(&cert_alert);
+        } catch (...) {
+            vex = std::current_exception();
+        }
+        if (!vex) {
+            return std::nullopt;
+        }
+        _error = vex;
+        return wait_for_output().then_wrapped([this, cert_alert, vex = std::move(vex)](future<> f) mutable {
+            f.ignore_ready_future();
+            return send_alert(GNUTLS_AL_FATAL, cert_alert).then_wrapped([vex = std::move(vex)](future<> f) mutable {
+                f.ignore_ready_future();
+                return make_exception_future<>(std::move(vex));
+            });
+        });
+    }
+
     future<> send_alert(gnutls_alert_level_t level, gnutls_alert_description_t desc) {
         return repeat([this, level, desc]() {
             auto res = gnutls_alert_send(*this, level, desc);
@@ -624,7 +649,13 @@ public:
                     return make_exception_future<>(verification_error("No certificate was found"));
 #if GNUTLS_VERSION_NUMBER >= 0x030406
                 case GNUTLS_E_CERTIFICATE_ERROR:
-                    verify(); // should throw. otherwise, fallthrough
+                    // Before propagating the error, send the appropriate TLS
+                    // alert to the peer so it gets a meaningful error rather
+                    // than an abrupt connection close.
+                    if (auto vf = verify_and_send_alert()) {
+                        return std::move(*vf);
+                    }
+                    // verify() didn't throw (cert verification disabled?), fall through
                     [[fallthrough]];
 #endif
                 default:
@@ -644,7 +675,12 @@ public:
                 }
             }
             if (_type == type::CLIENT || _creds->get_client_auth() != client_auth::NONE) {
-                verify();
+                // Certificate verification failed after successful TLS handshake.
+                // Send the appropriate alert to the peer so it gets a meaningful
+                // error rather than an abrupt connection close.
+                if (auto vf = verify_and_send_alert()) {
+                    return std::move(*vf);
+                }
             }
             _connected = true;
             // make sure we reset output_pending
@@ -748,7 +784,22 @@ public:
         return from_transport_ptr(ptr)->pull(dst, len);
     }
 
-    void verify() {
+    // Returns the TLS alert description appropriate for a certificate
+    // that failed verification with the given gnutls_certificate_verify_peers3 status.
+    static gnutls_alert_description_t cert_status_to_alert(unsigned int status) noexcept {
+        if (status & (GNUTLS_CERT_SIGNER_NOT_FOUND | GNUTLS_CERT_SIGNER_NOT_CA)) {
+            return GNUTLS_A_UNKNOWN_CA;
+        } else if (status & GNUTLS_CERT_REVOKED) {
+            return GNUTLS_A_CERTIFICATE_REVOKED;
+        } else if (status & GNUTLS_CERT_EXPIRED) {
+            return GNUTLS_A_CERTIFICATE_EXPIRED;
+        }
+        return GNUTLS_A_BAD_CERTIFICATE;
+    }
+
+    // out_alert, if non-null, is set to the appropriate TLS alert before
+    // verification_error is thrown, so the caller can send the alert to the peer.
+    void verify(gnutls_alert_description_t* out_alert = nullptr) {
         if (!_creds->_enable_certificate_verification) {
             return;
         }
@@ -775,6 +826,9 @@ public:
                 }
                 ss << "(Issuer=[" << dn->issuer << "], Subject=[" << dn->subject << "])";
                 stat_str = ss.str();
+            }
+            if (out_alert) {
+                *out_alert = cert_status_to_alert(status);
             }
             throw verification_error(stat_str);
         }

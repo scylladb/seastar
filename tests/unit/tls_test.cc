@@ -831,6 +831,166 @@ SEASTAR_TEST_CASE(test_simple_x509_client_server_client_auth_dn_callback_fails) 
     });
 }
 
+// Test that when a TLS server rejects a client certificate (bad CA), it sends a
+// proper TLS fatal alert to the client rather than silently dropping the
+// connection. This test reproduces issue #3516, where the server dropped the
+// connection without sending an alert, so the client would see EOF instead of
+// an exception. After the fix, the client receives a std::system_error wrapping
+// GNUTLS_E_FATAL_ALERT_RECEIVED.
+SEASTAR_THREAD_TEST_CASE(test_server_sends_alert_for_bad_client_cert) {
+    if (!using_gnutls()) {
+        return;
+    }
+
+    // Server: requires client auth but has NO trust file. Without trusted CAs
+    // loaded, GnuTLS does not include a certificate_authorities extension in the
+    // CertificateRequest message, so the client sends its certificate
+    // unconditionally and the TLS handshake completes. Then Seastar's
+    // post-handshake verify() call finds the cert untrusted (no trust anchors)
+    // and rejects it. This exercises the verify_and_send_alert() path added by
+    // the fix, which was previously missing for the server-side (post-handshake)
+    // cert verification code path.
+    auto server_creds = [] {
+        tls::credentials_builder b;
+        b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+        // Intentionally no set_x509_trust_file(): GnuTLS then accepts any cert
+        // during the handshake, and Seastar's post-handshake verify() rejects it.
+        b.set_client_auth(tls::client_auth::REQUIRE);
+        return b.build_server_credentials();
+    }();
+
+    // Client: presents other.crt and trusts catest.pem so it accepts the server's
+    // cert. The specific client cert used doesn't matter for triggering the bug;
+    // any cert will be rejected by the server since it has no trust anchors.
+    auto client_creds = [] {
+        tls::credentials_builder b;
+        b.set_x509_key_file(certfile("other.crt"), certfile("other.key"), tls::x509_crt_format::PEM).get();
+        b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+        return b.build_certificate_credentials();
+    }();
+
+    listen_options opts;
+    opts.reuse_address = true;
+    opts.set_fixed_cpu(this_shard_id());
+
+    auto addr = ::make_ipv4_address({0x7f000001, 4712});
+    auto server = tls::listen(server_creds, addr, opts);
+
+    auto sa = server.accept();
+    auto c = tls::connect(client_creds, addr).get();
+    auto s = sa.get();
+
+    auto server_in = s.connection.input();
+    auto client_in = c.input();
+
+    // Both reads must be started before any .get() call so the TLS handshake
+    // can proceed cooperatively on both sides. The server completes the
+    // handshake, then post-handshake verifies the client cert, finds it
+    // untrusted (no trusted CAs on the server), and rejects it.
+    auto server_read = server_in.read();
+    auto client_read = client_in.read();
+
+    // The server should reject the untrusted client certificate.
+    try {
+        server_read.get();
+        BOOST_FAIL("Server should have thrown tls::verification_error");
+    } catch (tls::verification_error&) {
+        // expected
+    }
+
+    // The client should receive a TLS fatal alert (GNUTLS_E_FATAL_ALERT_RECEIVED),
+    // reported as std::system_error with "alert" in the message. An EOF would
+    // return an empty buffer without throwing; any other system error would have
+    // a different message. Either outcome means the fix is not working.
+    try {
+        client_read.get();
+        BOOST_FAIL("Client should have received a TLS alert exception, not EOF or data");
+    } catch (std::system_error& e) {
+        BOOST_CHECK_MESSAGE(std::string(e.what()).find("alert") != std::string::npos,
+            std::string("Expected a TLS alert error, got: ") + e.what());
+    } catch (...) {
+        BOOST_FAIL("Expected std::system_error for TLS alert, got a different exception type");
+    }
+
+    try { client_in.close().get(); } catch (...) {}
+    try { server_in.close().get(); } catch (...) {}
+}
+
+// A more natural variant of the above: the server has a proper trust store
+// (catest.pem) and the client presents a certificate signed by the wrong CA
+// (other.crt, signed by caother.pem). GnuTLS detects the CA mismatch during
+// the handshake itself and rejects it with an alert rather than going through
+// Seastar's post-handshake verify path. Either way, the important property is
+// the same: the client receives a TLS alert rather than an abrupt EOF.
+SEASTAR_THREAD_TEST_CASE(test_server_sends_alert_for_wrong_ca_client_cert) {
+    if (!using_gnutls()) {
+        return;
+    }
+
+    // Server: requires client auth and trusts catest.pem.
+    auto server_creds = [] {
+        tls::credentials_builder b;
+        b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+        b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+        b.set_client_auth(tls::client_auth::REQUIRE);
+        return b.build_server_credentials();
+    }();
+
+    // Client: presents other.crt which is signed by caother.pem (NOT trusted
+    // by the server), but trusts catest.pem so it accepts the server's cert.
+    auto client_creds = [] {
+        tls::credentials_builder b;
+        b.set_x509_key_file(certfile("other.crt"), certfile("other.key"), tls::x509_crt_format::PEM).get();
+        b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+        return b.build_certificate_credentials();
+    }();
+
+    listen_options opts;
+    opts.reuse_address = true;
+    opts.set_fixed_cpu(this_shard_id());
+
+    auto addr = ::make_ipv4_address({0x7f000001, 4712});
+    auto server = tls::listen(server_creds, addr, opts);
+
+    auto sa = server.accept();
+    auto c = tls::connect(client_creds, addr).get();
+    auto s = sa.get();
+
+    auto server_in = s.connection.input();
+    auto client_in = c.input();
+
+    // Both reads must be in flight before any .get() so the handshake can
+    // proceed cooperatively on both sides.
+    auto server_read = server_in.read();
+    auto client_read = client_in.read();
+
+    // The server rejects the client certificate (wrong CA). The exact exception
+    // type depends on where in the handshake the rejection occurs.
+    try {
+        server_read.get();
+        BOOST_FAIL("Server should have thrown an exception");
+    } catch (std::exception&) {
+        // expected
+    }
+
+    // The client must receive a TLS alert (GNUTLS_E_FATAL_ALERT_RECEIVED),
+    // reported as std::system_error with "alert" in the message. An EOF would
+    // return an empty buffer without throwing; any other system error would have
+    // a different message. Either outcome means the fix is not working.
+    try {
+        client_read.get();
+        BOOST_FAIL("Client should have received a TLS alert exception, not EOF or data");
+    } catch (std::system_error& e) {
+        BOOST_CHECK_MESSAGE(std::string(e.what()).find("alert") != std::string::npos,
+            std::string("Expected a TLS alert error, got: ") + e.what());
+    } catch (...) {
+        BOOST_FAIL("Expected std::system_error for TLS alert, got a different exception type");
+    }
+
+    try { client_in.close().get(); } catch (...) {}
+    try { server_in.close().get(); } catch (...) {}
+}
+
 SEASTAR_TEST_CASE(test_many_large_message_x509_client_server) {
     // Make sure we load our own auth trust pem file, otherwise our certs
     // will not validate
