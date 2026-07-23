@@ -22,6 +22,7 @@
 #include <seastar/testing/perf_tests.hh>
 
 #include <seastar/core/coroutine.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/maybe_yield.hh>
 #include <seastar/coroutine/try_future.hh>
@@ -53,6 +54,16 @@ static future<int> wrapped_ready_chain_top(int x) {
     co_return ready.get() + co_await coroutine::try_future(make_ready_future<int>(1));
 }
 
+static future<int> when_all_ready_chain_top(int x) {
+    auto [f] = co_await when_all(ready_chain_middle(x));
+    co_return f.get();
+}
+
+static future<int> when_all_succeed_ready_chain_top(int x) {
+    auto [value] = co_await when_all_succeed(ready_chain_middle(x));
+    co_return value;
+}
+
 PERF_TEST_C(coroutine_test, empty)
 {
     co_return;
@@ -77,6 +88,18 @@ PERF_TEST_C(coroutine_test, nested_ready_chain)
 PERF_TEST_C(coroutine_test, wrapped_ready_chain)
 {
     auto value = co_await wrapped_ready_chain_top(0);
+    perf_tests::do_not_optimize(value);
+}
+
+PERF_TEST_C(coroutine_test, when_all_ready_chain)
+{
+    auto value = co_await when_all_ready_chain_top(0);
+    perf_tests::do_not_optimize(value);
+}
+
+PERF_TEST_C(coroutine_test, when_all_succeed_ready_chain)
+{
+    auto value = co_await when_all_succeed_ready_chain_top(0);
     perf_tests::do_not_optimize(value);
 }
 
