@@ -224,6 +224,7 @@ module;
 #include <seastar/coroutine/generator.hh>
 #include <seastar/coroutine/maybe_yield.hh>
 #include <seastar/coroutine/parallel_for_each.hh>
+#include <seastar/coroutine/selection.hh>
 #include <seastar/coroutine/switch_to.hh>
 #include <seastar/coroutine/try_future.hh>
 
@@ -597,6 +598,8 @@ export namespace seastar::coroutine {
 
 using seastar::coroutine::all;
 using seastar::coroutine::as_future;
+using seastar::coroutine::basic_selection;
+using seastar::coroutine::deadline;
 using seastar::coroutine::exception;
 using seastar::coroutine::lambda;
 using seastar::coroutine::maybe_yield;
@@ -604,6 +607,7 @@ using seastar::coroutine::operator co_await;
 using seastar::coroutine::parallel_for_each;
 using seastar::coroutine::return_exception;
 using seastar::coroutine::return_exception_ptr;
+using seastar::coroutine::selection;
 using seastar::coroutine::switch_to;
 using seastar::coroutine::try_future;
 
