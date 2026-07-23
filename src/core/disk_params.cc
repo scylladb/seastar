@@ -23,9 +23,7 @@
 
 #include <chrono>
 #include <unordered_set>
-#include <fmt/format.h>
-#include <fmt/ostream.h>
-#include <fmt/ranges.h>
+#include <seastar/core/internal/fmt.hh>
 #include <sys/stat.h>
 #include <yaml-cpp/yaml.h>
 

@@ -25,7 +25,7 @@
 #include <iostream>
 #include <optional>
 #include <type_traits>
-#include <fmt/core.h>
+#include <seastar/core/internal/fmt.hh>
 
 namespace seastar {
 

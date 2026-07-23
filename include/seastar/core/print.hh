@@ -23,7 +23,7 @@
 
 #include <seastar/core/format.hh>
 #include <seastar/core/sstring.hh>
-#include <fmt/ostream.h>
+#include <seastar/core/internal/fmt.hh>
 #include <iostream>
 #include <iomanip>
 #include <chrono>

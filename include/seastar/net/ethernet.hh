@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include <fmt/ostream.h>
+#include <seastar/core/internal/fmt.hh>
 
 #include <array>
 #include <algorithm>

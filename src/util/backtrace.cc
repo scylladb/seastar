@@ -31,8 +31,7 @@
 #include <variant>
 #include <vector>
 #include <boost/container/static_vector.hpp>
-#include <fmt/ostream.h>
-#include <fmt/ranges.h>
+#include <seastar/core/internal/fmt.hh>
 
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/internal/build_id.hh>

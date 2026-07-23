@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include <fmt/core.h>
+#include <seastar/core/internal/fmt.hh>
 #include <exception>
 
 namespace seastar {

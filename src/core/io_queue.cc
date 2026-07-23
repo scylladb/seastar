@@ -25,8 +25,7 @@
 #include <cstdint>
 #include <mutex>
 #include <utility>
-#include <fmt/format.h>
-#include <fmt/ostream.h>
+#include <seastar/core/internal/fmt.hh>
 #include <boost/intrusive/parent_from_member.hpp>
 #include <boost/container/small_vector.hpp>
 #include <sys/uio.h>

@@ -27,7 +27,7 @@
 #include <map>
 #include <type_traits>
 #include <variant>
-#include <fmt/format.h>
+#include <seastar/core/internal/fmt.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/metrics_registration.hh>

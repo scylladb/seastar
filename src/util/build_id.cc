@@ -30,7 +30,7 @@
 #define HAS_ELF
 
 #include <stddef.h>
-#include <fmt/format.h>
+#include <seastar/core/internal/fmt.hh>
 
 #include <seastar/core/align.hh>
 #endif

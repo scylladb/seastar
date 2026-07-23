@@ -25,7 +25,7 @@
 #include <unordered_set>
 #include <map>
 #include <any>
-#include <fmt/format.h>
+#include <seastar/core/internal/fmt.hh>
 
 #include <seastar/core/future.hh>
 #include <seastar/core/internal/api-level.hh>

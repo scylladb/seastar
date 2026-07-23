@@ -37,7 +37,7 @@
 #include <sys/syscall.h>
 #include <sys/resource.h>
 #include <boost/container/small_vector.hpp>
-#include <fmt/core.h>
+#include <seastar/core/internal/fmt.hh>
 #include <seastar/util/assert.hh>
 
 #ifdef SEASTAR_HAVE_URING

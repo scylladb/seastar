@@ -79,8 +79,7 @@
 
 #include <seastar/util/assert.hh>
 
-#include <fmt/format.h>
-#include <fmt/ostream.h>
+#include <seastar/core/internal/fmt.hh>
 
 #include <boost/container/static_vector.hpp>
 
