@@ -1444,7 +1444,7 @@ task* continuation_base_with_promise<Promise, T>::waiting_task() noexcept {
 ///           contains a success/failure indication (and in the case of a
 ///           failure, an exception).
 template <typename T>
-class [[nodiscard]] future : private internal::future_base {
+class [[nodiscard]] SEASTAR_CORO_AWAIT_ELIDABLE future : private internal::future_base {
     using future_state = seastar::future_state<internal::future_stored_type_t<T>>;
     future_state _state;
     static constexpr bool copy_noexcept = future_state::copy_noexcept;
