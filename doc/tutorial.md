@@ -583,6 +583,53 @@ seastar::future<int> exception_propagating() {
 }
 ```
 
+### Propagating `std::expected` errors
+
+When errors are represented as values rather than exceptions, a function returns a
+`future<std::expected<T, E>>`: the future carries either a value, or an error `E`, or (should
+something go wrong at the future level) an exception. When awaited through `coroutine::try_future`,
+a `future<std::expected<T, E>>` extends the error propagation described above to unexpected values.
+It inspects the three possible outcomes of the awaited future and:
+
+- if the future resolved with a value, that value becomes the result of the `co_await`;
+- if the future resolved with an unexpected, the error is rebound to the coroutine's return type
+  (which must be a `future<std::expected<U, E>>` with a matching error type `E`) and returned to
+  the waiter directly, without resuming the coroutine;
+- if the future failed with an exception, the exception is forwarded to the waiter directly, just
+  like for a non-`std::expected` result.
+
+In all cases the error is propagated without throwing, and the code following the `co_await` only
+runs on the success path. This is analogous to rust's
+[try operator](https://google.github.io/comprehensive-rust/error-handling/try.html) applied to
+`Result`.
+
+Example:
+
+```cpp
+enum class error { not_found, corrupted };
+
+seastar::future<std::expected<int, error>> read_value();
+
+seastar::future<std::expected<seastar::sstring, error>> read_value_as_string() {
+    // If read_value() resolves with an error, it is rebound to this coroutine's
+    // return type and returned directly. If it fails with an exception, the
+    // exception is propagated to the waiter. Otherwise, value holds the int.
+    auto value = co_await seastar::coroutine::try_future(read_value());
+
+    // Only reached if read_value() resolved with a value.
+    co_return seastar::to_sstring(value);
+}
+```
+
+Just like for any other result, preemption checking can be disabled with
+`coroutine::try_future_without_preemption_check`.
+
+This `std::expected`-aware behavior is enabled by the `SEASTAR_TRY_FUTURE_EXPECTED` macro (the
+`Seastar_TRY_FUTURE_EXPECTED` CMake option), which is on by default. When it is disabled, awaiting a
+`future<std::expected<T, E>>` through `coroutine::try_future` is deprecated and behaves like any
+other result: only a failed future exits the coroutine, and an unexpected value is handed out as the
+whole `std::expected` result of the `co_await`.
+
 ## Concurrency in coroutines
 
 The `co_await` operator allows for simple sequential execution. Multiple coroutines can execute in parallel, but each coroutine has only one outstanding computation at a time.

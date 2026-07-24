@@ -69,6 +69,10 @@ option (Seastar_DEPRECATED_OSTREAM_FORMATTERS
   "Enable operator<< for formatting standard library containers, which will be deprecated in future"
   OFF)
 
+option (Seastar_TRY_FUTURE_EXPECTED
+  "Make coroutine::try_future propagate std::expected unexpected values by exiting the coroutine; when off this usage is deprecated and behaves like a plain result"
+  ON)
+
 set (Seastar_API_LEVEL
   "9"
   CACHE
@@ -1007,6 +1011,11 @@ endif ()
 if (Seastar_DEPRECATED_OSTREAM_FORMATTERS)
   target_compile_definitions (seastar
     PUBLIC SEASTAR_DEPRECATED_OSTREAM_FORMATTERS)
+endif ()
+
+if (Seastar_TRY_FUTURE_EXPECTED)
+  target_compile_definitions (seastar
+    PUBLIC SEASTAR_TRY_FUTURE_EXPECTED)
 endif ()
 
 if (LinuxMembarrier_FOUND)
