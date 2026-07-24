@@ -50,6 +50,16 @@ thread_local jmp_buf_link* g_current_context;
 
 namespace {
 thread_local std::atomic_flag g_context_switch_in_progress{};
+
+inline void begin_context_switch() noexcept {
+    g_context_switch_in_progress.test_and_set(std::memory_order_relaxed);
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+}
+
+inline void end_context_switch() noexcept {
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    g_context_switch_in_progress.clear(std::memory_order_relaxed);
+}
 }
 
 #ifdef SEASTAR_ASAN_ENABLED
@@ -80,6 +90,7 @@ thread_local jmp_buf_link* g_previous_context;
 
 void jmp_buf_link::initial_switch_in(ucontext_t* initial_context, const void* stack_bottom, size_t stack_size)
 {
+    begin_context_switch();
     auto prev = std::exchange(g_current_context, this);
     link = prev;
     g_previous_context = prev;
@@ -87,10 +98,12 @@ void jmp_buf_link::initial_switch_in(ucontext_t* initial_context, const void* st
     swapcontext(&prev->context, initial_context);
     __sanitizer_finish_switch_fiber(g_current_context->fake_stack, &g_previous_context->stack_bottom,
                                     &g_previous_context->stack_size);
+    end_context_switch();
 }
 
 void jmp_buf_link::switch_in()
 {
+    begin_context_switch();
     auto prev = std::exchange(g_current_context, this);
     link = prev;
     g_previous_context = prev;
@@ -98,10 +111,12 @@ void jmp_buf_link::switch_in()
     swapcontext(&prev->context, &context);
     __sanitizer_finish_switch_fiber(g_current_context->fake_stack, &g_previous_context->stack_bottom,
                                     &g_previous_context->stack_size);
+    end_context_switch();
 }
 
 void jmp_buf_link::switch_out()
 {
+    begin_context_switch();
     g_current_context = link;
     g_previous_context = this;
     __sanitizer_start_switch_fiber(&fake_stack, g_current_context->stack_bottom,
@@ -109,6 +124,7 @@ void jmp_buf_link::switch_out()
     swapcontext(&context, &g_current_context->context);
     __sanitizer_finish_switch_fiber(g_current_context->fake_stack, &g_previous_context->stack_bottom,
                                     &g_previous_context->stack_size);
+    end_context_switch();
 }
 
 void jmp_buf_link::initial_switch_in_completed()
@@ -116,10 +132,12 @@ void jmp_buf_link::initial_switch_in_completed()
     // This is a new thread and it doesn't have the fake stack yet. ASan will
     // create it lazily, for now just pass nullptr.
     __sanitizer_finish_switch_fiber(nullptr, &g_previous_context->stack_bottom, &g_previous_context->stack_size);
+    end_context_switch();
 }
 
 void jmp_buf_link::final_switch_out()
 {
+    begin_context_switch();
     g_current_context = link;
     g_previous_context = this;
     // Since the thread is about to die we pass nullptr as fake_stack_save argument
@@ -129,18 +147,6 @@ void jmp_buf_link::final_switch_out()
 }
 
 #else
-
-namespace {
-inline void begin_context_switch() noexcept {
-    g_context_switch_in_progress.test_and_set(std::memory_order_relaxed);
-    std::atomic_signal_fence(std::memory_order_seq_cst);
-}
-
-inline void end_context_switch() noexcept {
-    std::atomic_signal_fence(std::memory_order_seq_cst);
-    g_context_switch_in_progress.clear(std::memory_order_relaxed);
-}
-}
 
 inline void jmp_buf_link::initial_switch_in(ucontext_t* initial_context, const void*, size_t)
 {
