@@ -104,88 +104,88 @@ bool qp::poll_tx() {
     return false;
 }
 
-qp::qp(bool register_copy_stats,
-       const std::string stats_plugin_name, uint8_t qid)
+qp::qp(bool register_copy_stats, std::string port_name, uint8_t qid)
         : _tx_poller(std::make_unique<internal::poller>(reactor::poller::simple([this] { return poll_tx(); })))
-        , _stats_plugin_name(stats_plugin_name)
         , _queue_name(std::string("queue") + std::to_string(qid))
 {
     namespace sm = metrics;
+    auto queue_l = sm::label("queue")(_queue_name);
+    auto port_l = sm::label("port")(port_name);
 
-    _metrics.add_group(_stats_plugin_name, {
+    _metrics.add_group("network", {
         //
         // Packets rate: DERIVE:0:u
         //
-        sm::make_counter(_queue_name + "_rx_packets", _stats.rx.good.packets,
-                        sm::description("This metric is a receive packet rate for this queue.")),
+        sm::make_counter("rx_packets_total", _stats.rx.good.packets,
+                        sm::description("Receive packet rate per queue."))(queue_l, port_l),
 
-        sm::make_counter(_queue_name + "_tx_packets", _stats.tx.good.packets,
-                        sm::description("This metric is a transmit packet rate for this queue.")),
+        sm::make_counter("tx_packets_total", _stats.tx.good.packets,
+                        sm::description("Transmit packet rate per queue."))(queue_l, port_l),
         //
         // Bytes rate: DERIVE:0:U
         //
-        sm::make_counter(_queue_name + "_rx_bytes", _stats.rx.good.bytes,
-                        sm::description("This metric is a receive throughput for this queue.")),
+        sm::make_counter("rx_bytes_total", _stats.rx.good.bytes,
+                        sm::description("Receive throughput per queue."))(queue_l, port_l),
 
-        sm::make_counter(_queue_name + "_tx_bytes", _stats.tx.good.bytes,
-                        sm::description("This metric is a transmit throughput for this queue.")),
+        sm::make_counter("tx_bytes_total", _stats.tx.good.bytes,
+                        sm::description("Transmit throughput per queue."))(queue_l, port_l),
         //
         // Queue length: GAUGE:0:U
         //
         // Tx
-        sm::make_gauge(_queue_name + "_tx_packet_queue", [this] { return _tx_packetq.size(); },
-                        sm::description("Holds a number of packets pending to be sent. "
-                                        "This metric will have high values if the network backend doesn't keep up with the upper layers or if upper layers send big bursts of packets.")),
+        sm::make_gauge("tx_packets_queue", [this] { return _tx_packetq.size(); },
+                        sm::description("Holds a number of packets pending to be sent per queue. "
+                                        "This metric will have high values if the network backend doesn't keep up with the upper layers or if upper layers send big bursts of packets."))(queue_l, port_l),
 
         //
         // Linearization counter: DERIVE:0:U
         //
-        sm::make_counter(_queue_name + "_xmit_linearized", _stats.tx.linearized,
-                        sm::description("Counts a number of linearized Tx packets. High value indicates that we send too fragmented packets.")),
+        sm::make_counter("xmit_linearized_packets_total", _stats.tx.linearized,
+                        sm::description("Counts a number of linearized Tx packets per queue. High value indicates that we send too fragmented packets."))(queue_l, port_l),
 
         //
         // Number of packets in last bunch: GAUGE:0:U
         //
         // Tx
-        sm::make_gauge(_queue_name + "_tx_packet_queue_last_bunch", _stats.tx.good.last_bunch,
-                        sm::description(seastar::format("Holds a number of packets sent in the bunch. "
-                                        "A high value in conjunction with a high value of a {} indicates an efficient Tx packets bulking.", _queue_name + "_tx_packet_queue"))),
+        sm::make_gauge("tx_packets_queue_last_bunch", _stats.tx.good.last_bunch,
+                        sm::description("Holds a number of packets sent in the bunch per queue. "
+                                        "A high value in conjunction with a high value of a tx_packets_queue indicates an efficient Tx packets bulking."))(queue_l, port_l),
         // Rx
-        sm::make_gauge(_queue_name + "_rx_packet_queue_last_bunch", _stats.rx.good.last_bunch,
-                        sm::description("Holds a number of packets received in the last Rx bunch. High value indicates an efficient Rx packets bulking.")),
+        sm::make_gauge("rx_packets_queue_last_bunch", _stats.rx.good.last_bunch,
+                        sm::description("Holds a number of packets received in the last Rx bunch per queue. High value indicates an efficient Rx packets bulking."))(queue_l, port_l),
 
         //
         // Fragments rate: DERIVE:0:U
         //
         // Tx
-        sm::make_counter(_queue_name + "_tx_frags", _stats.tx.good.nr_frags,
-                        sm::description(seastar::format("Counts a number of sent fragments. Divide this value by a {} to get an average number of fragments in a Tx packet.", _queue_name + "_tx_packets"))),
+        sm::make_counter("tx_frags_total", _stats.tx.good.nr_frags,
+                        sm::description("Counts a number of sent fragments per queue. Divide this value by tx_packets_total to get an average number of fragments in a Tx packet."))(queue_l, port_l),
         // Rx
-        sm::make_counter(_queue_name + "_rx_frags", _stats.rx.good.nr_frags,
-                        sm::description(seastar::format("Counts a number of received fragments. Divide this value by a {} to get an average number of fragments in an Rx packet.", _queue_name + "_rx_packets"))),
+        sm::make_counter("rx_frags_total", _stats.rx.good.nr_frags,
+                        sm::description("Counts a number of received fragments per queue. Divide this value by rx_packets_total to get an average number of fragments in an Rx packet."))(queue_l, port_l),
     });
 
     if (register_copy_stats) {
-        _metrics.add_group(_stats_plugin_name, {
+        _metrics.add_group("network", {
             //
             // Non-zero-copy data bytes rate: DERIVE:0:u
             //
             // Tx
-            sm::make_counter(_queue_name + "_tx_copy_bytes", _stats.tx.good.copy_bytes,
-                        sm::description(seastar::format("Counts a number of sent bytes that were handled in a non-zero-copy way. Divide this value by a {} to get a portion of data sent using a non-zero-copy flow.", _queue_name + "_tx_bytes"))),
+            sm::make_counter("tx_copy_bytes_total", _stats.tx.good.copy_bytes,
+                        sm::description("Counts a number of sent bytes that were handled in a non-zero-copy way per queue. Divide this value by tx_bytes_total to get a portion of data sent using a non-zero-copy flow."))(queue_l, port_l),
             // Rx
-            sm::make_counter(_queue_name + "_rx_copy_bytes", _stats.rx.good.copy_bytes,
-                        sm::description(seastar::format("Counts a number of received bytes that were handled in a non-zero-copy way. Divide this value by an {} to get a portion of received data handled using a non-zero-copy flow.", _queue_name + "_rx_bytes"))),
+            sm::make_counter("rx_copy_bytes_total", _stats.rx.good.copy_bytes,
+                        sm::description("Counts a number of received bytes that were handled in a non-zero-copy way per queue. Divide this value by rx_bytes_total to get a portion of received data handled using a non-zero-copy flow."))(queue_l, port_l),
 
             //
             // Non-zero-copy data fragments rate: DERIVE:0:u
             //
             // Tx
-            sm::make_counter(_queue_name + "_tx_copy_frags", _stats.tx.good.copy_frags,
-                        sm::description(seastar::format("Counts a number of sent fragments that were handled in a non-zero-copy way. Divide this value by a {} to get a portion of fragments sent using a non-zero-copy flow.", _queue_name + "_tx_frags"))),
+            sm::make_counter("tx_copy_frags_total", _stats.tx.good.copy_frags,
+                        sm::description("Counts a number of sent fragments that were handled in a non-zero-copy way per queue. Divide this value by tx_frags_total to get a portion of fragments sent using a non-zero-copy flow."))(queue_l, port_l),
             // Rx
-            sm::make_counter(_queue_name + "_rx_copy_frags", _stats.rx.good.copy_frags,
-                        sm::description(seastar::format("Counts a number of received fragments that were handled in a non-zero-copy way. Divide this value by a {} to get a portion of received fragments handled using a non-zero-copy flow.", _queue_name + "_rx_frags"))),
+            sm::make_counter("rx_copy_frags_total", _stats.rx.good.copy_frags,
+                        sm::description("Counts a number of received fragments that were handled in a non-zero-copy way per queue. Divide this value by rx_frags_total to get a portion of received fragments handled using a non-zero-copy flow."))(queue_l, port_l),
 
         });
     }
