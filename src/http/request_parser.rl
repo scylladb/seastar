@@ -22,6 +22,7 @@
 #pragma once
 
 #include <seastar/core/ragel.hh>
+#include <limits>
 #include <memory>
 #include <unordered_map>
 #include <seastar/http/request.hh>
@@ -131,19 +132,27 @@ public:
         error,
         eof,
         done,
+        too_large,
     };
     std::unique_ptr<http::request> _req;
     sstring _field_name;
     sstring _value;
     state _state;
+    size_t _size_limit = std::numeric_limits<size_t>::max();
+    size_t _parsed_size = 0;
 public:
     void init() {
         init_base();
         _req.reset(new http::request());
         _state = state::eof;
+        _parsed_size = 0;
         %% write init;
     }
+    void set_size_limit(size_t limit) {
+        _size_limit = limit;
+    }
     char* parse(char* p, char* pe, char* eof) {
+        char* start = p;
         sstring_builder::guard g(_builder, p, pe);
         [[maybe_unused]] auto str = [this, &g, &p] { g.mark_end(p); return get_str(); };
         bool done = false;
@@ -172,6 +181,15 @@ public:
         } else {
             _state = state::done;
         }
+        // Bound the request line and headers so a client can't force the server
+        // to buffer unbounded memory before the handler runs (issue #2698).
+        _parsed_size += (p ? p : pe) - start;
+        if (_state != state::error && _parsed_size > _size_limit) {
+            _state = state::too_large;
+            if (!p) {
+                p = pe;
+            }
+        }
         return p;
     }
     auto get_parsed_request() {
@@ -182,6 +200,9 @@ public:
     }
     bool failed() const {
         return _state == state::error;
+    }
+    bool size_limit_exceeded() const {
+        return _state == state::too_large;
     }
 };
 
