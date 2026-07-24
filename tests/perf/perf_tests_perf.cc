@@ -139,7 +139,7 @@ PERF_TEST(overhead_check, high_overhead_test) {
 
 // The following tests run in order check that pre-run hooks are executed properly.
 
-static int hook_1_count = 0, hook_2_count = 1;
+[[maybe_unused]] static int hook_1_count = 0, hook_2_count = 1;
 
 PERF_PRE_RUN_HOOK([](const std::string& g, const std::string& c) {
     ++hook_1_count;
@@ -154,4 +154,3 @@ PERF_TEST(hook_checker, hook_did_run_0) {
     assert(hook_1_count > 0);
     assert(hook_2_count > 0);
 }
-
