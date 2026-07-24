@@ -246,7 +246,7 @@ when_all_impl(Futs&&... futs) noexcept {
 /// \return an \c std::tuple<> of all futures returned; when ready,
 ///         all contained futures will be ready as well.
 template <typename... FutOrFuncs>
-inline auto when_all(FutOrFuncs&&... fut_or_funcs) noexcept {
+inline auto when_all(SEASTAR_CORO_AWAIT_ELIDABLE_ARGUMENT FutOrFuncs&&... fut_or_funcs) noexcept {
     return internal::when_all_impl(futurize_invoke_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
 }
 
@@ -488,7 +488,7 @@ inline auto when_all_succeed_impl(Futures&&... futures) noexcept {
 /// \param fut_or_funcs futures or functions that return futures
 /// \return future containing values of futures returned by funcs
 template <typename... FutOrFuncs>
-inline auto when_all_succeed(FutOrFuncs&&... fut_or_funcs) noexcept {
+inline auto when_all_succeed(SEASTAR_CORO_AWAIT_ELIDABLE_ARGUMENT FutOrFuncs&&... fut_or_funcs) noexcept {
     return internal::when_all_succeed_impl(futurize_invoke_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
 }
 
