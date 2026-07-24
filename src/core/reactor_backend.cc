@@ -1743,6 +1743,7 @@ public:
         bool did_work = false;
         did_work |= _preempt_io_context.service_preempting_io();
         did_work |= queue_pending_file_io();
+        _hrtimer_completion.maybe_rearm(*this);
         did_work |= ::io_uring_submit(&_uring);
         return did_work;
     }
