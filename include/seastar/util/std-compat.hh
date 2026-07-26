@@ -71,3 +71,28 @@ using source_location
 #define SEASTAR_COROUTINE_LOC_STORE(promise) \
     (promise).update_resume_point(sl)
 #endif
+
+// Coroutine LLVM HALO support.
+#if defined(__clang__) && __clang_major__ >= 23 && defined(__has_cpp_attribute)
+  #if __has_cpp_attribute(clang::coro_await_elidable)
+    #define SEASTAR_CORO_AWAIT_ELIDABLE [[clang::coro_await_elidable]]
+  #else
+    #define SEASTAR_CORO_AWAIT_ELIDABLE
+  #endif
+
+  #if __has_cpp_attribute(clang::coro_only_destroy_when_complete)
+    #define SEASTAR_CORO_ONLY_DESTROY_WHEN_COMPLETE [[clang::coro_only_destroy_when_complete]]
+  #else
+    #define SEASTAR_CORO_ONLY_DESTROY_WHEN_COMPLETE
+  #endif
+
+  #if __has_cpp_attribute(clang::coro_await_elidable_argument)
+    #define SEASTAR_CORO_AWAIT_ELIDABLE_ARGUMENT [[clang::coro_await_elidable_argument]]
+  #else
+    #define SEASTAR_CORO_AWAIT_ELIDABLE_ARGUMENT
+  #endif
+#else
+  #define SEASTAR_CORO_AWAIT_ELIDABLE
+  #define SEASTAR_CORO_ONLY_DESTROY_WHEN_COMPLETE
+  #define SEASTAR_CORO_AWAIT_ELIDABLE_ARGUMENT
+#endif
