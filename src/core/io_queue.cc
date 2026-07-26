@@ -1305,6 +1305,19 @@ io_queue::clock_type::time_point io_queue::stream::next_pending_aio() const noex
          * works faster, than it really does.
          */
         auto over = out.capacity_deficiency(_pending.head);
+
+        auto* ent = fq.top();
+        if (ent != nullptr) {
+            auto cap = ent->capacity();
+            if (cap <= _pending.cap) {
+                if (over > _pending.cap - cap) {
+                    over -= (_pending.cap - cap);
+                } else {
+                    over = 0;
+                }
+            }
+        }
+
         auto ticks = out.capacity_duration(over);
         return std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::microseconds>(ticks);
     }
