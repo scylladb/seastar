@@ -364,6 +364,41 @@ SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
     BOOST_CHECK_LT(recv_default, 20'000'000);
 }
 
+SEASTAR_TEST_CASE(posix_ap_late_handoff_after_abort_is_dropped) {
+    auto addr = make_ipv4_address({19374});
+    constexpr int protocol = IPPROTO_TCP;
+    net::posix_ap_server_socket_impl ap(protocol, addr);
+    auto state = ap.testing_state();
+    ap.abort_accept();
+
+    net::conntrack ct;
+    net::posix_ap_server_socket_impl::testing_move_connected_socket(
+            state,
+            protocol,
+            addr,
+            pollable_fd(file_desc::eventfd(0, 0)),
+            addr,
+            ct.get_handle(this_shard_id()),
+            std::nullopt,
+            memory::malloc_allocator);
+
+    BOOST_REQUIRE_EQUAL(net::posix_ap_server_socket_impl::testing_queued_connections(state), 0);
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(posix_ap_accept_after_abort_fails) {
+    auto addr = make_ipv4_address({19375});
+    constexpr int protocol = IPPROTO_TCP;
+    net::posix_ap_server_socket_impl ap(protocol, addr);
+    ap.abort_accept();
+
+    return ap.accept().then([] (accept_result) {
+        BOOST_FAIL("accept after abort completed successfully");
+    }).handle_exception_type([] (const std::system_error& e) {
+        BOOST_REQUIRE_EQUAL(e.code(), std::error_code(ECONNABORTED, std::system_category()));
+    });
+}
+
 static
 void
 test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protocol) {

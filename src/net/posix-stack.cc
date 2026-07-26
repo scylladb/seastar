@@ -21,8 +21,10 @@
 
 
 #include <chrono>
+#include <atomic>
 #include <cstring>
 #include <functional>
+#include <mutex>
 #include <random>
 #include <variant>
 #include <coroutine>
@@ -144,8 +146,30 @@ public:
 };
 
 thread_local posix_ap_server_socket_impl::port_map_t posix_ap_server_socket_impl::ports{};
-thread_local posix_ap_server_socket_impl::sockets_map_t posix_ap_server_socket_impl::sockets{};
-thread_local posix_ap_server_socket_impl::conn_map_t posix_ap_server_socket_impl::conn_q{};
+
+struct posix_ap_server_socket_impl::acceptor_state {
+    std::atomic<bool> accepting = true;
+    std::optional<promise<accept_result>> socket;
+    std::deque<connection> conn_q;
+};
+
+namespace {
+
+using protocol_acceptor_key = std::tuple<int, seastar::net::socket_address, seastar::shard_id>;
+
+struct protocol_acceptor_key_hash {
+    size_t operator()(const protocol_acceptor_key& key) const {
+        auto h1 = std::hash<int>()(std::get<0>(key));
+        auto h2 = std::hash<seastar::net::socket_address>()(std::get<1>(key));
+        auto h3 = std::hash<seastar::shard_id>()(std::get<2>(key));
+        return h1 ^ (h2 << 1) ^ (h3 << 2);
+    }
+};
+
+std::mutex acceptor_states_mutex;
+std::unordered_map<protocol_acceptor_key, std::weak_ptr<void>, protocol_acceptor_key_hash> acceptor_states;
+
+}
 
 class posix_tcp_connected_socket_operations : public posix_connected_socket_operations {
 public:
@@ -732,9 +756,13 @@ posix_server_socket_impl::accept() {
                 _allocator);
             co_return accept_result{connected_socket(std::move(csi)), sa};
         } else {
+            auto state = posix_ap_server_socket_impl::find_acceptor_state(_protocol, _sa, cpu);
+            if (!state) {
+                continue;
+            }
             // FIXME: future is discarded
-            (void)smp::submit_to(cpu, [protocol = _protocol, ssa = _sa, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth), addr_data_opt = std::move(addr_data_opt), allocator = _allocator] () mutable {
-                posix_ap_server_socket_impl::move_connected_socket(protocol, ssa, pollable_fd(std::move(fd)), sa, std::move(cth), std::move(addr_data_opt), allocator);
+            (void)smp::submit_to(cpu, [state = std::move(state), protocol = _protocol, ssa = _sa, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth), addr_data_opt = std::move(addr_data_opt), allocator = _allocator] () mutable {
+                posix_ap_server_socket_impl::move_connected_socket(std::move(state), protocol, ssa, pollable_fd(std::move(fd)), sa, std::move(cth), std::move(addr_data_opt), allocator);
             });
         }
     };
@@ -749,25 +777,75 @@ socket_address posix_server_socket_impl::local_address() const {
     return _lfd.get_file_desc().get_address();
 }
 
+posix_ap_server_socket_impl::acceptor_state_ptr
+posix_ap_server_socket_impl::register_acceptor_state(int protocol, socket_address sa, shard_id shard) {
+    auto key = std::make_tuple(protocol, sa, shard);
+    auto state = std::make_shared<acceptor_state>();
+    std::lock_guard lock(acceptor_states_mutex);
+    acceptor_states[key] = state;
+    return state;
+}
+
+posix_ap_server_socket_impl::acceptor_state_ptr
+posix_ap_server_socket_impl::find_acceptor_state(int protocol, socket_address sa, shard_id shard) {
+    auto key = std::make_tuple(protocol, sa, shard);
+    std::lock_guard lock(acceptor_states_mutex);
+    auto i = acceptor_states.find(key);
+    if (i == acceptor_states.end()) {
+        return {};
+    }
+    auto state = std::static_pointer_cast<acceptor_state>(i->second.lock());
+    if (!state || !state->accepting.load(std::memory_order_acquire)) {
+        return {};
+    }
+    return state;
+}
+
+void
+posix_ap_server_socket_impl::close_acceptor_state(const acceptor_state_ptr& state) {
+    state->accepting.store(false, std::memory_order_release);
+    state->conn_q.clear();
+    if (state->socket) {
+        state->socket->set_exception(std::system_error(ECONNABORTED, std::system_category()));
+        state->socket.reset();
+    }
+}
+
+void
+posix_ap_server_socket_impl::unregister_acceptor_state(int protocol, socket_address sa, shard_id shard, const acceptor_state_ptr& state) {
+    close_acceptor_state(state);
+    auto key = std::make_tuple(protocol, sa, shard);
+    std::lock_guard lock(acceptor_states_mutex);
+    auto i = acceptor_states.find(key);
+    if (i != acceptor_states.end() && !i->second.owner_before(state) && !state.owner_before(i->second)) {
+        acceptor_states.erase(i);
+    }
+}
+
 posix_ap_server_socket_impl::posix_ap_server_socket_impl(int protocol, socket_address sa, std::pmr::polymorphic_allocator<char>* allocator)
-        : _protocol(protocol), _sa(sa), _allocator(allocator)
+        : _protocol(protocol)
+        , _sa(sa)
+        , _allocator(allocator)
 {
     auto it = ports.emplace(std::make_tuple(_protocol, _sa));
     if (!it.second) {
         throw std::system_error(EADDRINUSE, std::system_category());
     }
+    _state = register_acceptor_state(_protocol, _sa, this_shard_id());
 }
 
 posix_ap_server_socket_impl::~posix_ap_server_socket_impl() {
+    unregister_acceptor_state(_protocol, _sa, this_shard_id(), _state);
     ports.erase(std::make_tuple(_protocol, _sa));
 }
 
 future<accept_result> posix_ap_server_socket_impl::accept() {
-    auto t_sa = std::make_tuple(_protocol, _sa);
-    auto conni = conn_q.find(t_sa);
-    if (conni != conn_q.end()) {
-        connection c = std::move(conni->second);
-        conn_q.erase(conni);
+    if (!_state->accepting.load(std::memory_order_acquire)) {
+        return make_exception_future<accept_result>(std::system_error(ECONNABORTED, std::system_category()));
+    }
+    if (!_state->conn_q.empty()) {
+        connection c = std::move(_state->conn_q.front());
+        _state->conn_q.pop_front();
         try {
             auto csi = std::make_unique<posix_connected_socket_impl>(_sa.family(), _protocol, std::move(c.fd), std::move(c.connection_tracking_handle), _allocator);
             return make_ready_future<accept_result>(accept_result{connected_socket(std::move(csi)), std::move(c.addr)});
@@ -776,9 +854,9 @@ future<accept_result> posix_ap_server_socket_impl::accept() {
         }
     } else {
         try {
-            auto i = sockets.emplace(std::piecewise_construct, std::make_tuple(t_sa), std::make_tuple());
-            SEASTAR_ASSERT(i.second);
-            return i.first->second.get_future();
+            SEASTAR_ASSERT(!_state->socket);
+            _state->socket.emplace();
+            return _state->socket->get_future();
         } catch (...) {
             return make_exception_future<accept_result>(std::current_exception());
         }
@@ -787,13 +865,7 @@ future<accept_result> posix_ap_server_socket_impl::accept() {
 
 void
 posix_ap_server_socket_impl::abort_accept() {
-    auto t_sa = std::make_tuple(_protocol, _sa);
-    conn_q.erase(t_sa);
-    auto i = sockets.find(t_sa);
-    if (i != sockets.end()) {
-        i->second.set_exception(std::system_error(ECONNABORTED, std::system_category()));
-        sockets.erase(i);
-    }
+    close_acceptor_state(_state);
 }
 
 future<accept_result>
@@ -813,10 +885,11 @@ socket_address posix_reuseport_server_socket_impl::local_address() const {
 }
 
 void
-posix_ap_server_socket_impl::move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle cth, std::optional<proxy_data> addr_data_opt, std::pmr::polymorphic_allocator<char>* allocator) {
-    auto t_sa = std::make_tuple(protocol, sa);
-    auto i = sockets.find(t_sa);
-    if (i != sockets.end()) {
+posix_ap_server_socket_impl::move_connected_socket(acceptor_state_ptr state, int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle cth, std::optional<proxy_data> addr_data_opt, std::pmr::polymorphic_allocator<char>* allocator) {
+    if (!state || !state->accepting.load(std::memory_order_acquire)) {
+        return;
+    }
+    if (state->socket) {
         try {
             auto csi = make_maybe_proxied_connected_socket_impl(
                 sa.family(),
@@ -825,14 +898,19 @@ posix_ap_server_socket_impl::move_connected_socket(int protocol, socket_address 
                 std::move(cth),
                 std::move(addr_data_opt),
                 allocator);
-            i->second.set_value(accept_result{connected_socket(std::move(csi)), std::move(addr)});
+            state->socket->set_value(accept_result{connected_socket(std::move(csi)), std::move(addr)});
         } catch (...) {
-            i->second.set_exception(std::current_exception());
+            state->socket->set_exception(std::current_exception());
         }
-        sockets.erase(i);
+        state->socket.reset();
     } else {
-        conn_q.emplace(std::piecewise_construct, std::make_tuple(t_sa), std::make_tuple(std::move(fd), std::move(addr), std::move(cth), std::move(addr_data_opt)));
+        state->conn_q.emplace_back(std::move(fd), std::move(addr), std::move(cth), std::move(addr_data_opt));
     }
+}
+
+size_t
+posix_ap_server_socket_impl::queued_connections(const acceptor_state_ptr& state) {
+    return state->conn_q.size();
 }
 
 future<temporary_buffer<char>>
