@@ -244,6 +244,11 @@ public:
     void await_resume() { _future.get(); }
 };
 
+template<typename T>
+struct [[nodiscard]] SEASTAR_CORO_AWAIT_ELIDABLE without_preemption_check : public seastar::future<T> {
+    explicit without_preemption_check(seastar::future<T>&& f) noexcept : seastar::future<T>(std::move(f)) {}
+};
+
 } // seastar::internal
 
 
@@ -258,9 +263,10 @@ namespace coroutine {
 /// If constructed from a future, co_await-ing it will bypass
 /// checking if the task quota is depleted, which means that
 /// a ready future will be handled immediately.
-template<typename T> struct [[nodiscard]] without_preemption_check : public seastar::future<T> {
-    explicit without_preemption_check(seastar::future<T>&& f) noexcept : seastar::future<T>(std::move(f)) {}
-};
+template<typename T>
+inline auto without_preemption_check(SEASTAR_CORO_AWAIT_ELIDABLE_ARGUMENT seastar::future<T>&& f) noexcept {
+    return internal::without_preemption_check<T>(std::move(f));
+}
 
 /// Make a lambda coroutine safe for use in an outer coroutine with
 /// functions that accept continuations.
@@ -302,7 +308,7 @@ public:
 ///
 /// \param f a \c future<> wrapped with \c without_preemption_check
 template<typename T>
-auto operator co_await(coroutine::without_preemption_check<T> f) noexcept {
+auto operator co_await(internal::without_preemption_check<T> f) noexcept {
     return internal::awaiter<false, T>(std::move(f));
 }
 
@@ -317,4 +323,3 @@ class coroutine_traits<seastar::future<T>, Args...> : public seastar::internal::
 };
 
 } // std
-

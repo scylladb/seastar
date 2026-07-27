@@ -49,9 +49,17 @@ static future<int> ready_chain_top(int x) {
     co_return co_await ready_chain_middle(x);
 }
 
+static future<int> without_preemption_check_ready_chain_top(int x) {
+    co_return co_await coroutine::without_preemption_check(ready_chain_middle(x));
+}
+
 static future<int> wrapped_ready_chain_top(int x) {
     auto ready = co_await coroutine::as_future(ready_chain_middle(x));
     co_return ready.get() + co_await coroutine::try_future(make_ready_future<int>(1));
+}
+
+static future<int> try_future_ready_chain_top(int x) {
+    co_return co_await coroutine::try_future(ready_chain_middle(x));
 }
 
 static future<int> when_all_ready_chain_top(int x) {
@@ -74,6 +82,12 @@ PERF_TEST_C(coroutine_test, without_preemption_check)
     co_await coroutine::without_preemption_check(make_ready_future<>());
 }
 
+PERF_TEST_C(coroutine_test, without_preemption_check_ready_chain)
+{
+    auto value = co_await without_preemption_check_ready_chain_top(0);
+    perf_tests::do_not_optimize(value);
+}
+
 PERF_TEST_C(coroutine_test, ready)
 {
     co_await make_ready_future<>();
@@ -88,6 +102,12 @@ PERF_TEST_C(coroutine_test, nested_ready_chain)
 PERF_TEST_C(coroutine_test, wrapped_ready_chain)
 {
     auto value = co_await wrapped_ready_chain_top(0);
+    perf_tests::do_not_optimize(value);
+}
+
+PERF_TEST_C(coroutine_test, try_future_ready_chain)
+{
+    auto value = co_await try_future_ready_chain_top(0);
     perf_tests::do_not_optimize(value);
 }
 
