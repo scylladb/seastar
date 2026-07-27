@@ -40,8 +40,10 @@ void try_future_resume_or_destroy_coroutine(seastar::future<T>& fut, seastar::ta
     }
 }
 
+// This makes calls to the factories below safe elide contexts, so their
+// annotated arguments can propagate HALO to the wrapped coroutine.
 template <bool CheckPreempt, typename T>
-class [[nodiscard]] try_future_awaiter : public seastar::task {
+class [[nodiscard]] SEASTAR_CORO_AWAIT_ELIDABLE try_future_awaiter : public seastar::task {
     seastar::future<T> _future;
     void (*_resume_or_destroy)(seastar::future<T>&, seastar::task&){};
     seastar::task* _coroutine_task{};
@@ -125,23 +127,17 @@ namespace seastar::coroutine {
 /// returns true.  Use \ref coroutine::try_future_without_preemption_check
 /// to disable preemption checking.
 template<typename T>
-class [[nodiscard]] try_future : public seastar::internal::try_future_awaiter<true, T> {
-public:
-    explicit try_future(seastar::future<T>&& f) noexcept
-        : seastar::internal::try_future_awaiter<true, T>(std::move(f))
-    {}
-};
+inline auto try_future(SEASTAR_CORO_AWAIT_ELIDABLE_ARGUMENT seastar::future<T>&& f) noexcept {
+    return seastar::internal::try_future_awaiter<true, T>(std::move(f));
+}
 
 /// \brief co_await:s a \ref future, returns the wrapped result if successful,
 /// terminates the coroutine otherwise, propagating the exception to the waiter.
 ///
 /// Same as \ref coroutine::try_future, but does not check for preemption.
 template<typename T>
-class [[nodiscard]] try_future_without_preemption_check : public seastar::internal::try_future_awaiter<false, T> {
-public:
-    explicit try_future_without_preemption_check(seastar::future<T>&& f) noexcept
-        : seastar::internal::try_future_awaiter<false, T>(std::move(f))
-    {}
-};
+inline auto try_future_without_preemption_check(SEASTAR_CORO_AWAIT_ELIDABLE_ARGUMENT seastar::future<T>&& f) noexcept {
+    return seastar::internal::try_future_awaiter<false, T>(std::move(f));
+}
 
 } // namespace seastar::coroutine
