@@ -1306,7 +1306,7 @@ io_queue::clock_type::time_point io_queue::stream::next_pending_aio() const noex
          */
         auto over = out.capacity_deficiency(_pending.head);
 
-        auto* ent = fq.top();
+        auto* ent = const_cast<fair_queue&>(fq).top();
         if (ent != nullptr) {
             auto cap = ent->capacity();
             if (cap <= _pending.cap) {
