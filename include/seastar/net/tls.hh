@@ -478,43 +478,11 @@ namespace tls {
      * Typically these should contain enough information
      * to validate the remote certificate (i.e. trust info).
      *
-     * ATTN: The method is going to be deprecated
-     *
-     * \param name The expected server name for the remote end point
-     */
-    /// @{
-    [[deprecated("Use overload with tls_options parameter")]]
-    future<connected_socket> connect(shared_ptr<certificate_credentials>, socket_address, sstring name);
-    [[deprecated("Use overload with tls_options parameter")]]
-    future<connected_socket> connect(shared_ptr<certificate_credentials>, socket_address, socket_address local, sstring name);
-    /// @}
-
-    /**
-     * Creates a TLS client connection using the default network stack and the
-     * supplied credentials.
-     * Typically these should contain enough information
-     * to validate the remote certificate (i.e. trust info).
-     *
      * \param options Optional additional session configuration
      */
     /// @{
     future<connected_socket> connect(shared_ptr<certificate_credentials>, socket_address, tls_options option = {});
     future<connected_socket> connect(shared_ptr<certificate_credentials>, socket_address, socket_address local, tls_options options = {});
-    /// @}
-
-    /**
-     * Creates a socket through which a TLS client connection can be created,
-     * using the default network stack and the supplied credentials.
-     * Typically these should contain enough information
-     * to validate the remote certificate (i.e. trust info).
-     *
-     * ATTN: The method is going to be deprecated
-     *
-     * \param name The expected server name for the remote end point
-     */
-    /// @{
-    [[deprecated("Use overload with tls_options parameter")]]
-    ::seastar::socket socket(shared_ptr<certificate_credentials>, sstring name);
     /// @}
 
     /**
@@ -532,13 +500,9 @@ namespace tls {
     /**
      * Wraps an existing connection in SSL/TLS.
      *
-     * ATTN: The method is going to be deprecated
-     *
      * \param name The expected server name for the remote end point
      */
     /// @{
-    [[deprecated("Use overload with tls_options parameter")]]
-    future<connected_socket> wrap_client(shared_ptr<certificate_credentials>, connected_socket&&, sstring name);
     future<connected_socket> wrap_server(shared_ptr<server_credentials>, connected_socket&&);
     /// @}
 
