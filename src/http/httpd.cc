@@ -296,17 +296,17 @@ future<> connection::process() {
         try {
             std::get<0>(joined).get();
         } catch (...) {
-            hlogger.debug("Read exception encountered: {}", std::current_exception());
+            hlogger.debug("Read exception encountered: {}", seastar::formattable(std::current_exception()));
         }
         try {
             std::get<1>(joined).get();
         } catch (...) {
-            hlogger.debug("Response exception encountered: {}", std::current_exception());
+            hlogger.debug("Response exception encountered: {}", seastar::formattable(std::current_exception()));
         }
         return make_ready_future<>();
     }).finally([this]{
         return _read_buf.close().handle_exception([](std::exception_ptr e) {
-            hlogger.debug("Close exception encountered: {}", e);
+            hlogger.debug("Close exception encountered: {}", seastar::formattable(e));
         });
     });
 }
@@ -477,7 +477,7 @@ future<> http_server::accept_loop(int which, bool tls) {
                 hlogger.error("accept failed: {}", e);
             }
         } catch (...) {
-            hlogger.error("accept failed: {}", std::current_exception());
+            hlogger.error("accept failed: {}", seastar::formattable(std::current_exception()));
         }
     }
 }
@@ -522,7 +522,7 @@ future<> http_server::do_process_connection(connected_socket conn_fd, socket_add
         co_await conn->prepare();
     } catch (...) {
         ++_tls_handshake_errors;
-        hlogger.debug("connection preparation failed: {}", std::current_exception());
+        hlogger.debug("connection preparation failed: {}", seastar::formattable(std::current_exception()));
         co_return;
     }
     if (_request_scheduling_group) {
@@ -531,7 +531,7 @@ future<> http_server::do_process_connection(connected_socket conn_fd, socket_add
     try {
         co_await conn->process();
     } catch (...) {
-        hlogger.error("request error: {}", std::current_exception());
+        hlogger.error("request error: {}", seastar::formattable(std::current_exception()));
     }
 }
 

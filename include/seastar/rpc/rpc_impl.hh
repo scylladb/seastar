@@ -623,7 +623,7 @@ inline future<> reply(wait_type, future<RetTypes>&& ret, uint64_t verb, int64_t 
             // details, including nested exceptions (seastar::nested_exception,
             // std::nested_exception) which would otherwise lose their inner context
             // if we only called what().
-            const auto msg = fmt::format("{}", std::current_exception());
+            const auto msg = fmt::format("{}", seastar::formattable(std::current_exception()));
             const uint32_t len = msg.size();
             data = snd_buf(response_frame_headroom + 2 * sizeof(uint32_t) + len);
             auto os = make_serializer_stream(data);
@@ -650,7 +650,7 @@ inline future<> reply(no_wait_type, future<no_wait_type>&& r, uint64_t verb, int
     try {
         r.get();
     } catch (...) {
-        client->get_logger()(client->info(), msgid, ::seastar::format("exception \"{}\" in no_wait handler of the verb {} ignored", formattable(std::current_exception()), verb));
+        client->get_logger()(client->info(), msgid, ::seastar::format("exception \"{}\" in no_wait handler of the verb {} ignored", seastar::formattable(std::current_exception()), verb));
     }
     return make_ready_future<>();
 }
@@ -690,7 +690,7 @@ auto recv_helper(uint64_t verb, signature<Ret (InArgs...)> sig, Func&& func, Wan
             // FIXME: future is discarded
             (void)try_with_gate(client->get_server().reply_gate(), [verb, client, timeout, msg_id, err = std::move(err)] {
                 return reply<Serializer>(wait_style(), futurize<Ret>::make_exception_future(std::runtime_error(err.c_str())), verb, msg_id, client, timeout, std::nullopt).handle_exception([verb, client, msg_id] (std::exception_ptr eptr) {
-                    client->get_logger()(client->info(), msg_id, seastar::format("got exception while processing an oversized message: {} for verb {}", eptr, verb));
+                    client->get_logger()(client->info(), msg_id, seastar::format("got exception while processing an oversized message: {} for verb {}", seastar::formattable(eptr), verb));
                 });
             }).handle_exception_type([] (gate_closed_exception&) {/* ignore */});
             return make_ready_future();
@@ -704,11 +704,11 @@ auto recv_helper(uint64_t verb, signature<Ret (InArgs...)> sig, Func&& func, Wan
                         auto start = rpc_clock_type::now();
                         return apply(func, client->info(), timeout, WantClientInfo(), WantTimePoint(), signature(), std::move(args)).then_wrapped([verb, client, timeout, msg_id, permit = std::move(permit), start] (futurize_t<Ret> ret) mutable {
                             return reply<Serializer>(wait_style(), std::move(ret), verb, msg_id, client, timeout, rpc_clock_type::now() - start).handle_exception([verb, permit = std::move(permit), client, msg_id] (std::exception_ptr eptr) {
-                                client->get_logger()(client->info(), msg_id, seastar::format("got exception while processing a message: {}, verb {}", eptr, verb));
+                                client->get_logger()(client->info(), msg_id, seastar::format("got exception while processing a message: {}, verb {}", seastar::formattable(eptr), verb));
                             });
                         });
                     } catch (...) {
-                        client->get_logger()(client->info(), msg_id, seastar::format("caught exception while processing a message: {}, verb {}", std::current_exception(), verb));
+                        client->get_logger()(client->info(), msg_id, seastar::format("caught exception while processing a message: {}, verb {}", seastar::formattable(std::current_exception()), verb));
                         return make_ready_future();
                     }
                 }).handle_exception_type([g = std::move(g)] (gate_closed_exception&) {/* ignore */});

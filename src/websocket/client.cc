@@ -159,7 +159,7 @@ future<> client<text_frame>::connect(socket_address addr, sstring resource, sstr
         try {
             co_await _conn->process();
         } catch (...) {
-            websocket_logger.debug("WebSocket client processing failed: {}", std::current_exception());
+            websocket_logger.debug("WebSocket client processing failed: {}", seastar::formattable(std::current_exception()));
         }
     }).handle_exception_type([] (const gate_closed_exception&) {});
 }
@@ -179,7 +179,7 @@ future<> client<text_frame>::connect(socket_address addr,
         try {
             co_await _conn->process();
         } catch (...) {
-            websocket_logger.debug("WebSocket client processing failed: {}", std::current_exception());
+            websocket_logger.debug("WebSocket client processing failed: {}", seastar::formattable(std::current_exception()));
         }
     }).handle_exception_type([] (const gate_closed_exception&) {});
 }
