@@ -95,11 +95,16 @@ MATRIX_PATH = ("jobs", "regular_test", "strategy", "matrix")
 # Items only set enable-ccache when overriding the default (test.yaml treats
 # absent/empty as enabled).
 SPECIAL_ITEMS: list[dict[str, Any]] = [
+    # The dev job doubles as our heap profiling coverage: nothing else in
+    # the matrix defines SEASTAR_HEAPPROF, so the sampled-memory-profile
+    # code and the tests guarded by it are otherwise never compiled.
     {
         "compiler": "clang++-22",
         "standard": 23,
         "arch": "x86",
         "mode": "dev",
+        "options": "--heap-profiling",
+        "info": "heapprof, ",
     },
     {
         "compiler": "clang++-22",
