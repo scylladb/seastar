@@ -58,6 +58,11 @@ public:
         const tls::tls_options& options) = 0;
 
     /// \brief Return the backend-specific TLS error category.
+    ///
+    /// This is not the category TLS errors are reported in (that is the
+    /// backend-neutral \c tls::error_category()); it is only used to format
+    /// messages for raw backend error values that have no backend-neutral
+    /// translation.
     virtual const std::error_category& error_category() = 0;
 
     /// \brief Generate a session ticket encryption key.
@@ -71,9 +76,6 @@ public:
 
     /// \brief Create backend-specific DH parameters from raw data.
     virtual std::unique_ptr<tls::dh_params_impl> make_dh_params(const tls::blob&, tls::x509_crt_format) = 0;
-
-    /// \brief Initialize backend-specific TLS error code constants.
-    virtual void init_error_codes() = 0;
 
     /// \brief Return the name of this TLS backend (e.g. "gnutls", "openssl").
     virtual const char* name() const = 0;
