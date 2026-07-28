@@ -1203,7 +1203,7 @@ dns_resolver::impl::do_connect(ares_socket_t fd, const sockaddr * addr, socklen_
                         e.tcp.socket = f.get();
                         dns_log.trace("Connection complete: {}", fd);
                     } catch (...) {
-                        dns_log.debug("Connect {} failed: {}", fd, std::current_exception());
+                        dns_log.debug("Connect {} failed: {}", fd, seastar::formattable(std::current_exception()));
                     }
                     e.avail = POLLOUT|POLLIN;
                     me->poll_sockets();
@@ -1273,7 +1273,7 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
                             dns_log.trace("Read {} -> {} bytes", fd, buf.size());
                             e.tcp.indata = std::move(buf);
                         } catch (...) {
-                            dns_log.debug("Read {} failed: {}", fd, std::current_exception());
+                            dns_log.debug("Read {} failed: {}", fd, seastar::formattable(std::current_exception()));
                         }
                         e.avail |= POLLIN; // always reset state
                         me->poll_sockets();
@@ -1343,7 +1343,7 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
                             e.udp.in = std::move(d);
                             e.avail |= POLLIN;
                         } catch (...) {
-                            dns_log.debug("Read {} failed: {}", fd, std::current_exception());
+                            dns_log.debug("Read {} failed: {}", fd, seastar::formattable(std::current_exception()));
                         }
                         me->poll_sockets();
                         me->release(fd);
@@ -1386,7 +1386,7 @@ ssize_t dns_resolver::impl::do_send_tcp(sock_entry& e, send_packet_t p, size_t b
                 f.get();
                 dns_log.trace("Send {}. {} bytes sent.", fd, bytes);
             } catch (...) {
-                dns_log.debug("Send {} failed: {}", fd, std::current_exception());
+                dns_log.debug("Send {} failed: {}", fd, seastar::formattable(std::current_exception()));
             }
             e.avail |= POLLOUT;
             me->poll_sockets();

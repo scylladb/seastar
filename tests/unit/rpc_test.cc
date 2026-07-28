@@ -780,7 +780,7 @@ static future<> test_rpc_connection_send_glitch(bool on_client) {
                         auto id = call(c1).get();
                         fmt::print("    response: {}\n", id);
                     } catch (...) {
-                        fmt::print("    responce: ex {}\n", std::current_exception());
+                        fmt::print("    responce: ex {}\n", seastar::formattable(std::current_exception()));
                         ctx.no_failures = false;
                         ctx.limit++;
                         break;
@@ -1917,7 +1917,7 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_stream_backpressure_across_shards) {
                 } catch (const rpc::stream_closed&) {
                     log.debug("cl_rep_loop: stream closed");
                 } catch (...) {
-                    auto msg = format("cl_rep_loop: unexpected exception: {}", std::current_exception());
+                    auto msg = format("cl_rep_loop: unexpected exception: {}", seastar::formattable(std::current_exception()));
                     log.error("{}", msg);
                     throw std::runtime_error(msg);
                 }

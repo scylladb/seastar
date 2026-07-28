@@ -444,7 +444,7 @@ public:
                 return call_echo(x).then([x] {
                         fmt::print("{}.{} got response\n", this_shard_id(), x);
                 }).handle_exception([x] (auto ex) {
-                        fmt::print("{}.{} got error {}\n", this_shard_id(), x, ex);
+                        fmt::print("{}.{} got error {}\n", this_shard_id(), x, seastar::formattable(ex));
                 });
             };
         } else {

@@ -99,7 +99,7 @@ int main(int ac, char** av) {
 
             cln->close().get();
         }).handle_exception([](auto ep) {
-            fmt::print("Error: {}", ep);
+            fmt::print("Error: {}", seastar::formattable(ep));
         });
     });
 }

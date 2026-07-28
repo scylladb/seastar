@@ -99,7 +99,7 @@ seastar::future<> service_loop_3() {
                 // connection to be handled before accepting the next one.
                 (void)handle_connection_3(std::move(res.connection), std::move(res.remote_address)).handle_exception(
                         [] (std::exception_ptr ep) {
-                    fmt::print(stderr, "Could not handle connection: {}\n", ep);
+                    fmt::print(stderr, "Could not handle connection: {}\n", seastar::formattable(ep));
                 });
             });
         });

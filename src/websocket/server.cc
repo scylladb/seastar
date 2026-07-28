@@ -73,7 +73,7 @@ future<stop_iteration> server::accept_one(server_socket &listener) {
         }
         return make_ready_future<stop_iteration>(stop_iteration::yes);
     }).handle_exception([](std::exception_ptr ex) {
-        websocket_logger.info("accept failed: {}", ex);
+        websocket_logger.info("accept failed: {}", seastar::formattable(ex));
         return make_ready_future<stop_iteration>(stop_iteration::yes);
     });
 }
@@ -104,7 +104,7 @@ void server_connection::on_new_connection() {
 
 future<> server_connection::process() {
     return when_all_succeed(read_loop(), response_loop()).discard_result().handle_exception([] (const std::exception_ptr& e) {
-        websocket_logger.debug("Processing failed: {}", e);
+        websocket_logger.debug("Processing failed: {}", seastar::formattable(e));
     });
 }
 

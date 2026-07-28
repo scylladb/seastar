@@ -859,7 +859,7 @@ public:
         tls_log.trace("{} wait_for_output", *this);
         return _output_pending.get_future()
           .handle_exception([this](auto ep) {
-              tls_log.debug("{} wait_for_output error: {}", *this, ep);
+              tls_log.debug("{} wait_for_output error: {}", *this, seastar::formattable(ep));
               _error = ep;
               return make_exception_future(ep);
           });
@@ -1152,7 +1152,7 @@ public:
               _input = std::move(buf);
           })
           .handle_exception([this](auto ep) {
-              tls_log.debug("{} wait_for_input: exception: {}", *this, ep);
+              tls_log.debug("{} wait_for_input: exception: {}", *this, seastar::formattable(ep));
               _error = ep;
               return make_exception_future(ep);
           });
