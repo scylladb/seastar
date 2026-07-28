@@ -117,9 +117,11 @@ public:
 };
 
 
-static const gnutls_error_category& local_error_category() {
-    static const gnutls_error_category ec;
-    return ec;
+// Must return the same instance that tls::error_category() resolves to
+// (via the crypto provider, tls::gnutls::error_category()), so that errors
+// thrown here compare equal to the public category by identity.
+static const std::error_category& local_error_category() {
+    return tls::gnutls::error_category();
 }
 
 // Checks a gnutls return value.
