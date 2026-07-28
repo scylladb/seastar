@@ -142,6 +142,9 @@ public:
      * @return a string of accumulative object
      */
     future<> done() {
+        if (!open) {
+            return _s.write(json_builder::OPEN + json_builder::CLOSE);
+        }
         return _s.write(json_builder::CLOSE);
     }
 

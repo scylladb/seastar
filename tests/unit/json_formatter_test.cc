@@ -148,6 +148,15 @@ SEASTAR_THREAD_TEST_CASE(test_stream_range_as_array_simple) {
     }, false);
 }
 
+SEASTAR_THREAD_TEST_CASE(test_stream_empty_object) {
+    object_json obj;
+    BOOST_CHECK_EQUAL("{}", formatter::to_json(obj));
+    formatter_check_expected("{}", [] (auto& out) {
+        auto writer = stream_object(object_json{});
+        writer(std::move(out)).get();
+    }, false);
+}
+
 SEASTAR_THREAD_TEST_CASE(test_stream_range_as_array) {
     sstring expected = R"([{"subject":"1","values":[1]}, {"subject":"2","values":[2]}, {"subject":"3","values":[3]}])";
     formatter_check_expected(expected, [] (auto& out) {
