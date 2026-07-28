@@ -701,10 +701,6 @@ future<shared_ptr<tls::server_credentials>> tls::credentials_builder::build_relo
     }, tolerance);
 }
 
-const std::error_category& tls::error_category() {
-    return internal::crypto::provider().get_tls_backend().error_category();
-}
-
 const char* tls::backend_name() {
     return internal::crypto::provider().get_tls_backend().name();
 }
@@ -825,23 +821,99 @@ future<> tls::force_rehandshake(connected_socket& socket) {
 
 } // namespace seastar
 
-// Error code globals — initialized at startup by the active backend's
-// init_error_codes() method, called from smp::configure().
-int seastar::tls::ERROR_UNKNOWN_COMPRESSION_ALGORITHM = 0;
-int seastar::tls::ERROR_UNKNOWN_CIPHER_TYPE = 0;
-int seastar::tls::ERROR_INVALID_SESSION = 0;
-int seastar::tls::ERROR_UNEXPECTED_HANDSHAKE_PACKET = 0;
-int seastar::tls::ERROR_UNKNOWN_CIPHER_SUITE = 0;
-int seastar::tls::ERROR_UNKNOWN_ALGORITHM = 0;
-int seastar::tls::ERROR_UNSUPPORTED_SIGNATURE_ALGORITHM = 0;
-int seastar::tls::ERROR_SAFE_RENEGOTIATION_FAILED = 0;
-int seastar::tls::ERROR_UNSAFE_RENEGOTIATION_DENIED = 0;
-int seastar::tls::ERROR_UNKNOWN_SRP_USERNAME = 0;
-int seastar::tls::ERROR_PREMATURE_TERMINATION = 0;
-int seastar::tls::ERROR_PUSH = 0;
-int seastar::tls::ERROR_PULL = 0;
-int seastar::tls::ERROR_UNEXPECTED_PACKET = 0;
-int seastar::tls::ERROR_UNSUPPORTED_VERSION = 0;
-int seastar::tls::ERROR_NO_CIPHER_SUITES = 0;
-int seastar::tls::ERROR_DECRYPTION_FAILED = 0;
-int seastar::tls::ERROR_MAC_VERIFY_FAILED = 0;
+namespace seastar::tls {
+
+// Fixed, backend-neutral values for the exported ERROR_* constants. The
+// values themselves are arbitrary, but they must be distinguishable from
+// anything else that could plausibly appear in a value comparison against
+// them:
+//  - above the errno range (errnos are < 4096 on Linux), so value-only
+//    comparisons cannot confuse them with system errors;
+//  - positive, distinct from raw (negative) GnuTLS errors passed through
+//    untranslated;
+//  - below 2^23, where untranslated OpenSSL ERR_PACK() values start (the
+//    library bits sit at offset 23 in OpenSSL 3.x, 24 in 1.x).
+enum class errc : int {
+    unknown_compression_algorithm = 0x10001,
+    unknown_cipher_type,
+    invalid_session,
+    unexpected_handshake_packet,
+    unknown_cipher_suite,
+    unknown_algorithm,
+    unsupported_signature_algorithm,
+    safe_renegotiation_failed,
+    unsafe_renegotiation_denied,
+    unknown_srp_username,
+    premature_termination,
+    push,
+    pull,
+    unexpected_packet,
+    unsupported_version,
+    no_cipher_suites,
+    decryption_failed,
+    mac_verify_failed,
+};
+
+const int ERROR_UNKNOWN_COMPRESSION_ALGORITHM   = int(errc::unknown_compression_algorithm);
+const int ERROR_UNKNOWN_CIPHER_TYPE             = int(errc::unknown_cipher_type);
+const int ERROR_INVALID_SESSION                 = int(errc::invalid_session);
+const int ERROR_UNEXPECTED_HANDSHAKE_PACKET     = int(errc::unexpected_handshake_packet);
+const int ERROR_UNKNOWN_CIPHER_SUITE            = int(errc::unknown_cipher_suite);
+const int ERROR_UNKNOWN_ALGORITHM               = int(errc::unknown_algorithm);
+const int ERROR_UNSUPPORTED_SIGNATURE_ALGORITHM = int(errc::unsupported_signature_algorithm);
+const int ERROR_SAFE_RENEGOTIATION_FAILED       = int(errc::safe_renegotiation_failed);
+const int ERROR_UNSAFE_RENEGOTIATION_DENIED     = int(errc::unsafe_renegotiation_denied);
+const int ERROR_UNKNOWN_SRP_USERNAME            = int(errc::unknown_srp_username);
+const int ERROR_PREMATURE_TERMINATION           = int(errc::premature_termination);
+const int ERROR_PUSH                            = int(errc::push);
+const int ERROR_PULL                            = int(errc::pull);
+const int ERROR_UNEXPECTED_PACKET               = int(errc::unexpected_packet);
+const int ERROR_UNSUPPORTED_VERSION             = int(errc::unsupported_version);
+const int ERROR_NO_CIPHER_SUITES                = int(errc::no_cipher_suites);
+const int ERROR_DECRYPTION_FAILED               = int(errc::decryption_failed);
+const int ERROR_MAC_VERIFY_FAILED               = int(errc::mac_verify_failed);
+
+namespace {
+
+class tls_error_category final : public std::error_category {
+public:
+    const char* name() const noexcept override {
+        return "tls";
+    }
+    std::string message(int error) const override {
+        switch (errc(error)) {
+        case errc::unknown_compression_algorithm: return "Unknown compression algorithm";
+        case errc::unknown_cipher_type:           return "Unknown cipher type";
+        case errc::invalid_session:               return "Invalid session";
+        case errc::unexpected_handshake_packet:   return "Unexpected handshake packet";
+        case errc::unknown_cipher_suite:          return "Unknown cipher suite";
+        case errc::unknown_algorithm:             return "Unknown algorithm";
+        case errc::unsupported_signature_algorithm: return "Unsupported signature algorithm";
+        case errc::safe_renegotiation_failed:     return "Safe renegotiation failed";
+        case errc::unsafe_renegotiation_denied:   return "Unsafe renegotiation denied";
+        case errc::unknown_srp_username:          return "Unknown SRP username";
+        case errc::premature_termination:         return "Premature termination of TLS connection";
+        case errc::push:                          return "Error in the push function";
+        case errc::pull:                          return "Error in the pull function";
+        case errc::unexpected_packet:             return "Unexpected packet";
+        case errc::unsupported_version:           return "Unsupported TLS protocol version";
+        case errc::no_cipher_suites:              return "No supported cipher suites";
+        case errc::decryption_failed:             return "Decryption failed";
+        case errc::mac_verify_failed:             return "MAC verification failed";
+        }
+        // Not one of the backend-neutral values above: a raw error value
+        // from the active backend, which knows how to describe it. Such a
+        // value can only have been observed after the backend produced it,
+        // so the provider is necessarily installed by now.
+        return internal::crypto::provider().get_tls_backend().error_category().message(error);
+    }
+};
+
+} // anonymous namespace
+
+const std::error_category& error_category() {
+    static const tls_error_category ec;
+    return ec;
+}
+
+} // namespace seastar::tls

@@ -116,17 +116,45 @@ public:
     }
 };
 
+// Translate a GnuTLS error to its backend-neutral tls::ERROR_* value, if it
+// has one. Errors without an exported constant keep the raw (negative)
+// GnuTLS value.
+static int translate_error(int error) {
+    switch (error) {
+    case GNUTLS_E_UNKNOWN_COMPRESSION_ALGORITHM:   return tls::ERROR_UNKNOWN_COMPRESSION_ALGORITHM;
+    case GNUTLS_E_UNKNOWN_CIPHER_TYPE:             return tls::ERROR_UNKNOWN_CIPHER_TYPE;
+    case GNUTLS_E_INVALID_SESSION:                 return tls::ERROR_INVALID_SESSION;
+    case GNUTLS_E_UNEXPECTED_HANDSHAKE_PACKET:     return tls::ERROR_UNEXPECTED_HANDSHAKE_PACKET;
+    case GNUTLS_E_UNKNOWN_CIPHER_SUITE:            return tls::ERROR_UNKNOWN_CIPHER_SUITE;
+    case GNUTLS_E_UNKNOWN_ALGORITHM:               return tls::ERROR_UNKNOWN_ALGORITHM;
+    case GNUTLS_E_UNSUPPORTED_SIGNATURE_ALGORITHM: return tls::ERROR_UNSUPPORTED_SIGNATURE_ALGORITHM;
+    case GNUTLS_E_SAFE_RENEGOTIATION_FAILED:       return tls::ERROR_SAFE_RENEGOTIATION_FAILED;
+    case GNUTLS_E_UNSAFE_RENEGOTIATION_DENIED:     return tls::ERROR_UNSAFE_RENEGOTIATION_DENIED;
+    case GNUTLS_E_UNKNOWN_SRP_USERNAME:            return tls::ERROR_UNKNOWN_SRP_USERNAME;
+    case GNUTLS_E_PREMATURE_TERMINATION:           return tls::ERROR_PREMATURE_TERMINATION;
+    case GNUTLS_E_PUSH_ERROR:                      return tls::ERROR_PUSH;
+    case GNUTLS_E_PULL_ERROR:                      return tls::ERROR_PULL;
+    case GNUTLS_E_UNEXPECTED_PACKET:               return tls::ERROR_UNEXPECTED_PACKET;
+    case GNUTLS_E_UNSUPPORTED_VERSION_PACKET:      return tls::ERROR_UNSUPPORTED_VERSION;
+    case GNUTLS_E_NO_CIPHER_SUITES:                return tls::ERROR_NO_CIPHER_SUITES;
+    case GNUTLS_E_DECRYPTION_FAILED:               return tls::ERROR_DECRYPTION_FAILED;
+    case GNUTLS_E_MAC_VERIFY_FAILED:               return tls::ERROR_MAC_VERIFY_FAILED;
+    default:                                       return error;
+    }
+}
 
-static const gnutls_error_category& local_error_category() {
-    static const gnutls_error_category ec;
-    return ec;
+// Build the std::error_code reported for a GnuTLS error: the backend-neutral
+// tls::error_category(), with the error translated to its tls::ERROR_* value
+// when one exists.
+static std::error_code make_gnutls_error_code(int error) {
+    return {translate_error(error), tls::error_category()};
 }
 
 // Checks a gnutls return value.
 // < 0 -> error.
 static void gtls_chk(int res) {
     if (res < 0) {
-        throw std::system_error(res, local_error_category());
+        throw std::system_error(make_gnutls_error_code(res));
     }
 }
 
@@ -687,7 +715,7 @@ public:
         }
         // Note: only applicable to server.
         if (_type == type::CLIENT) {
-            throw std::system_error(GNUTLS_E_INVALID_REQUEST, local_error_category(), "re-handshake only applicable for server socket");
+            throw std::system_error(make_gnutls_error_code(GNUTLS_E_INVALID_REQUEST), "re-handshake only applicable for server socket");
         }
         return do_handshake_sync(&session::do_force_rehandshake);
     }
@@ -760,7 +788,7 @@ public:
             return;
         }
         if (res < 0) {
-            throw std::system_error(res, local_error_category());
+            throw std::system_error(make_gnutls_error_code(res));
         }
         if (status & GNUTLS_CERT_INVALID) {
             auto stat_str = cert_status_to_string(gnutls_certificate_type_get(*this), status);
@@ -850,7 +878,7 @@ public:
                     _connected = false;
                     return make_ready_future<temporary_buffer<char>>();
                 default:
-                    _error = std::make_exception_ptr(std::system_error(n, local_error_category()));
+                    _error = std::make_exception_ptr(std::system_error(make_gnutls_error_code(n)));
                     return make_exception_future<temporary_buffer<char>>(_error);
                 }
             }
@@ -1027,12 +1055,12 @@ public:
 
     future<>
     handle_error(int res) {
-        _error = std::make_exception_ptr(std::system_error(res, local_error_category()));
+        _error = std::make_exception_ptr(std::system_error(make_gnutls_error_code(res)));
         return make_exception_future(_error);
     }
     future<>
     handle_output_error(int res) {
-        _error = std::make_exception_ptr(std::system_error(res, local_error_category()));
+        _error = std::make_exception_ptr(std::system_error(make_gnutls_error_code(res)));
         // #453
         // defensively wait for output before generating the error.
         // if we have both error code and an exception in output
@@ -1043,7 +1071,7 @@ public:
                 // output was ok/done, just generate error code exception
                 return make_exception_future(_error);
             } catch (...) {
-                std::throw_with_nested(std::system_error(res, local_error_category()));
+                std::throw_with_nested(std::system_error(make_gnutls_error_code(res)));
             }
         });
     }
@@ -1385,6 +1413,9 @@ shared_ptr<tls::session_impl> tls::gnutls::make_session(
     return seastar::make_shared<session>(t, std::move(creds), std::move(sock), options);
 }
 
+// Note: this is not the category errors are reported in (that is the
+// backend-neutral tls::error_category()); it only formats messages for raw
+// GnuTLS error values that have no backend-neutral translation.
 const std::error_category& tls::gnutls::error_category() {
     static const gnutls_error_category ec;
     return ec;
@@ -1408,27 +1439,6 @@ std::unique_ptr<tls::dh_params_impl> tls::gnutls::make_dh_params(tls::dh_params:
 
 std::unique_ptr<tls::dh_params_impl> tls::gnutls::make_dh_params(const tls::blob& b, tls::x509_crt_format fmt) {
     return std::make_unique<gnutls_provider_dh_params_impl>(b, fmt);
-}
-
-void tls::gnutls::init_error_codes() {
-    tls::ERROR_UNKNOWN_COMPRESSION_ALGORITHM = GNUTLS_E_UNKNOWN_COMPRESSION_ALGORITHM;
-    tls::ERROR_UNKNOWN_CIPHER_TYPE = GNUTLS_E_UNKNOWN_CIPHER_TYPE;
-    tls::ERROR_INVALID_SESSION = GNUTLS_E_INVALID_SESSION;
-    tls::ERROR_UNEXPECTED_HANDSHAKE_PACKET = GNUTLS_E_UNEXPECTED_HANDSHAKE_PACKET;
-    tls::ERROR_UNKNOWN_CIPHER_SUITE = GNUTLS_E_UNKNOWN_CIPHER_SUITE;
-    tls::ERROR_UNKNOWN_ALGORITHM = GNUTLS_E_UNKNOWN_ALGORITHM;
-    tls::ERROR_UNSUPPORTED_SIGNATURE_ALGORITHM = GNUTLS_E_UNSUPPORTED_SIGNATURE_ALGORITHM;
-    tls::ERROR_SAFE_RENEGOTIATION_FAILED = GNUTLS_E_SAFE_RENEGOTIATION_FAILED;
-    tls::ERROR_UNSAFE_RENEGOTIATION_DENIED = GNUTLS_E_UNSAFE_RENEGOTIATION_DENIED;
-    tls::ERROR_UNKNOWN_SRP_USERNAME = GNUTLS_E_UNKNOWN_SRP_USERNAME;
-    tls::ERROR_PREMATURE_TERMINATION = GNUTLS_E_PREMATURE_TERMINATION;
-    tls::ERROR_PUSH = GNUTLS_E_PUSH_ERROR;
-    tls::ERROR_PULL = GNUTLS_E_PULL_ERROR;
-    tls::ERROR_UNEXPECTED_PACKET = GNUTLS_E_UNEXPECTED_PACKET;
-    tls::ERROR_UNSUPPORTED_VERSION = GNUTLS_E_UNSUPPORTED_VERSION_PACKET;
-    tls::ERROR_NO_CIPHER_SUITES = GNUTLS_E_NO_CIPHER_SUITES;
-    tls::ERROR_DECRYPTION_FAILED = GNUTLS_E_DECRYPTION_FAILED;
-    tls::ERROR_MAC_VERIFY_FAILED = GNUTLS_E_MAC_VERIFY_FAILED;
 }
 
 } // namespace seastar
