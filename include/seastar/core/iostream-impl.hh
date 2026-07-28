@@ -243,8 +243,18 @@ input_stream<CharType>::consume(Consumer&& consumer) noexcept(std::is_nothrow_mo
                 return make_ready_future<stop_iteration>(stop_iteration::no);
             });
         }
-        return consumer(std::move(_buf)).then([this] (consumption_result_type result) {
-            return seastar::visit(result.get(), [this] (const continue_consuming&) {
+        return consumer(std::move(_buf)).then([this] (auto result) {
+            auto normalized = [&] {
+                if constexpr (InputStreamConsumer<Consumer, CharType>) {
+                    return std::move(result);
+                } else {
+                    if (result.has_value()) {
+                        return consumption_result_type(stop_consuming<CharType>{std::move(*result)});
+                    }
+                    return consumption_result_type(continue_consuming{});
+                }
+            }();
+            return seastar::visit(normalized.get(), [this] (const continue_consuming&) {
                // If we're here, consumer consumed entire buffer and is ready for
                 // more now. So we do not return, and rather continue the loop.
                 //
