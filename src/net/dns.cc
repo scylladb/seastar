@@ -1259,7 +1259,7 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
                     return -1;
                 }
                 if (!tcp.in) {
-                    tcp.in = tcp.socket.input();
+                    tcp.in.emplace(tcp.socket.input());
                 }
                 auto f = tcp.in->read_up_to(len);
                 if (!f.available()) {
