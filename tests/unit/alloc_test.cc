@@ -505,20 +505,20 @@ SEASTAR_TEST_CASE(test_sampled_profile_collection_small)
         auto stats1 = seastar::memory::sampled_memory_profile();
 
         // two back-to-back copies of the sample should have the same value
-        BOOST_CHECK_EQUAL(stats0, stats1);
+        BOOST_CHECK_EQUAL_COLLECTIONS(stats0.begin(), stats0.end(), stats1.begin(), stats1.end());
 
         // check that we get the same value from the raw array iterface
         std::vector<seastar::memory::allocation_site> stats2(stats0.size());
         auto sz2 = seastar::memory::sampled_memory_profile(stats2.data(), stats2.size());
         BOOST_CHECK_EQUAL(stats0.size(), sz2);
-        BOOST_CHECK_EQUAL(stats0, stats2);
+        BOOST_CHECK_EQUAL_COLLECTIONS(stats0.begin(), stats0.end(), stats2.begin(), stats2.end());
 
         // check with +1 size, we expect to still only get size elements
         std::vector<seastar::memory::allocation_site> stats3(stats0.size() + 1);
         auto sz3 = seastar::memory::sampled_memory_profile(stats3.data(), stats3.size());
         BOOST_CHECK_EQUAL(stats0.size(), sz3);
         stats3.resize(sz3);
-        BOOST_CHECK_EQUAL(stats0, stats3);
+        BOOST_CHECK_EQUAL_COLLECTIONS(stats0.begin(), stats0.end(), stats3.begin(), stats3.end());
 
         return stats0;
     };
