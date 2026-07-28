@@ -650,7 +650,7 @@ inline future<> reply(no_wait_type, future<no_wait_type>&& r, uint64_t verb, int
     try {
         r.get();
     } catch (...) {
-        client->get_logger()(client->info(), msgid, format("exception \"{}\" in no_wait handler of the verb {} ignored", std::current_exception(), verb));
+        client->get_logger()(client->info(), msgid, ::seastar::format("exception \"{}\" in no_wait handler of the verb {} ignored", formattable(std::current_exception()), verb));
     }
     return make_ready_future<>();
 }
@@ -1014,5 +1014,3 @@ struct hash<seastar::rpc::streaming_domain_type> {
     }
 };
 }
-
-
