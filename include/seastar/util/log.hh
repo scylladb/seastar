@@ -47,6 +47,29 @@ namespace seastar {
 class logger;
 class logger_registry;
 
+namespace internal {
+
+// Get a format_info's format string as a string_view.
+//
+// fmt 12 deprecates the implicit basic_format_string -> basic_string_view
+// conversion in favour of basic_format_string::get(), which was only added
+// in fmt 10. Keeping the version check in here means the call sites need no
+// #ifdef of their own.
+//
+// The format string is a deduced template parameter so one template serves
+// both the compile-time fmt::format_string<Args...> and the runtime
+// std::string_view without the caller needing to know which is in play.
+template <typename FormatString>
+fmt::string_view format_string_view(const FormatString& format) noexcept {
+#if defined(SEASTAR_LOGGER_COMPILE_TIME_FMT) && FMT_VERSION >= 100000
+    return format.get();
+#else
+    return fmt::string_view(format);
+#endif
+}
+
+} // namespace internal
+
 /// \brief Logger class for ostream or syslog.
 ///
 /// Java style api for logging.
@@ -268,7 +291,7 @@ public:
                 });
                 do_log(level, writer);
             } catch (...) {
-                failed_to_log(std::current_exception(), fmt::string_view(fmt.format), fmt.loc);
+                failed_to_log(std::current_exception(), internal::format_string_view(fmt.format), fmt.loc);
             }
         }
     }
@@ -295,11 +318,11 @@ public:
                     if (rl.has_dropped_messages()) {
                         it = fmt::format_to(it, "(rate limiting dropped {} similar messages) ", rl.get_and_reset_dropped_messages());
                     }
-                    return fmt::format_to(it, fmt::runtime(fmt.format), std::forward<Args>(args)...);
+                    return fmt::format_to(it, fmt::runtime(internal::format_string_view(fmt.format)), std::forward<Args>(args)...);
                 });
                 do_log(level, writer);
             } catch (...) {
-                failed_to_log(std::current_exception(), fmt::string_view(fmt.format), fmt.loc);
+                failed_to_log(std::current_exception(), internal::format_string_view(fmt.format), fmt.loc);
             }
         }
     }
