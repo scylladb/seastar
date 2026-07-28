@@ -268,7 +268,11 @@ public:
                 });
                 do_log(level, writer);
             } catch (...) {
+#if defined(SEASTAR_LOGGER_COMPILE_TIME_FMT) && FMT_VERSION >= 100000
+                failed_to_log(std::current_exception(), fmt.format.get(), fmt.loc);
+#else
                 failed_to_log(std::current_exception(), fmt::string_view(fmt.format), fmt.loc);
+#endif
             }
         }
     }
@@ -295,11 +299,19 @@ public:
                     if (rl.has_dropped_messages()) {
                         it = fmt::format_to(it, "(rate limiting dropped {} similar messages) ", rl.get_and_reset_dropped_messages());
                     }
+#if defined(SEASTAR_LOGGER_COMPILE_TIME_FMT) && FMT_VERSION >= 100000
+                    return fmt::format_to(it, fmt::runtime(fmt.format.get()), std::forward<Args>(args)...);
+#else
                     return fmt::format_to(it, fmt::runtime(fmt.format), std::forward<Args>(args)...);
+#endif
                 });
                 do_log(level, writer);
             } catch (...) {
+#if defined(SEASTAR_LOGGER_COMPILE_TIME_FMT) && FMT_VERSION >= 100000
+                failed_to_log(std::current_exception(), fmt.format.get(), fmt.loc);
+#else
                 failed_to_log(std::current_exception(), fmt::string_view(fmt.format), fmt.loc);
+#endif
             }
         }
     }
