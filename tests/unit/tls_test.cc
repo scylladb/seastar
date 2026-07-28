@@ -479,6 +479,21 @@ SEASTAR_TEST_CASE(test_non_tls) {
     });
 }
 
+SEASTAR_THREAD_TEST_CASE(test_error_category_instance) {
+    // Errors thrown by the TLS layer must carry the exact category instance
+    // that tls::error_category() returns: std::error_category compares by
+    // object identity, so a second instance of the same category class never
+    // compares equal (issue #3562).
+    tls::credentials_builder b;
+    b.set_x509_key(tls::blob("garbage"), tls::blob("garbage"), tls::x509_crt_format::PEM);
+    try {
+        b.build_certificate_credentials();
+        BOOST_FAIL("expected an exception parsing garbage certificates");
+    } catch (const std::system_error& e) {
+        BOOST_REQUIRE(e.code().category() == tls::error_category());
+    }
+}
+
 SEASTAR_TEST_CASE(test_abort_accept_before_handshake) {
     auto certs = ::make_shared<tls::server_credentials>(::make_shared<tls::dh_params>());
     return certs->set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).then([certs] {
