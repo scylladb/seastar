@@ -47,7 +47,6 @@ public:
     shared_ptr<tls::credentials_impl> make_credentials_impl() override;
     std::unique_ptr<tls::dh_params_impl> make_dh_params(tls::dh_params::level) override;
     std::unique_ptr<tls::dh_params_impl> make_dh_params(const tls::blob&, tls::x509_crt_format) override;
-    void init_error_codes() override;
     const char* name() const override { return "openssl"; }
 };
 
@@ -172,10 +171,6 @@ std::unique_ptr<tls::dh_params_impl> openssl_tls_backend::make_dh_params(tls::dh
 
 std::unique_ptr<tls::dh_params_impl> openssl_tls_backend::make_dh_params(const tls::blob& b, tls::x509_crt_format fmt) {
     return tls::openssl::make_dh_params(b, fmt);
-}
-
-void openssl_tls_backend::init_error_codes() {
-    tls::openssl::init_error_codes();
 }
 
 tls_backend& openssl_crypto_provider::get_tls_backend() {
