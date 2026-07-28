@@ -450,7 +450,7 @@ SEASTAR_TEST_CASE(test_get_on_exceptional_promise) {
 }
 
 static void check_finally_exception(std::exception_ptr ex) {
-  BOOST_REQUIRE_EQUAL(fmt::format("{}", ex),
+  BOOST_REQUIRE_EQUAL(fmt::format("{}", seastar::formattable(ex)),
         "seastar::nested_exception: test_exception (bar) (while cleaning up after test_exception (foo))");
   try {
       // convert to the concrete type nested_exception
@@ -1707,7 +1707,7 @@ static void check_failed_with(future<T...>&& f) {
     } catch (const E& e) {
         // expected
     } catch (...) {
-        BOOST_FAIL(format("wrong exception: {}", std::current_exception()));
+        BOOST_FAIL(format("wrong exception: {}", seastar::formattable(std::current_exception())));
     }
 }
 

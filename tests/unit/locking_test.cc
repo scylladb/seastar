@@ -496,7 +496,7 @@ SEASTAR_TEST_CASE(test_shared_mutex_exception_locks) {
         BOOST_REQUIRE(sm.try_lock());
         sm.unlock();
     } catch (...) {
-        BOOST_FAIL(format("Unexpected exception type: {}", std::current_exception()));
+        BOOST_FAIL(format("Unexpected exception type: {}", seastar::formattable(std::current_exception())));
     }
 
     try {
@@ -506,7 +506,7 @@ SEASTAR_TEST_CASE(test_shared_mutex_exception_locks) {
         BOOST_REQUIRE(sm.try_lock());
         sm.unlock();
     } catch (...) {
-        BOOST_FAIL(format("Unexpected exception type: {}", std::current_exception()));
+        BOOST_FAIL(format("Unexpected exception type: {}", seastar::formattable(std::current_exception())));
     }
 
     BOOST_REQUIRE(sm.try_lock());

@@ -116,7 +116,7 @@ int main(int ac, char** av) {
                 prometheus_started = true;
 
                 prometheus_server.listen(socket_address{prom_addr, pport}).handle_exception([prom_addr, pport] (auto ep) {
-                    std::cerr << seastar::format("Could not start Prometheus API server on {}:{}: {}\n", prom_addr, pport, ep);
+                    std::cerr << seastar::format("Could not start Prometheus API server on {}:{}: {}\n", prom_addr, pport, seastar::formattable(ep));
                     return make_exception_future<>(ep);
                 }).get();
 

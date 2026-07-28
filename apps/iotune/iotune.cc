@@ -990,7 +990,7 @@ int main(int ac, char** av) {
                     try {
                         iotune_tests.stop().get();
                     } catch (...) {
-                        fmt::print("Error occurred during iotune context shutdown: {}", std::current_exception());
+                        fmt::print("Error occurred during iotune context shutdown: {}", seastar::formattable(std::current_exception()));
                         abort();
                     }
                 });
@@ -1108,7 +1108,7 @@ int main(int ac, char** av) {
                     write_configuration_file(configuration["options-file"].as<sstring>(), format, configuration["properties-file"].as<sstring>());
                 }
             } catch (...) {
-                iotune_logger.error("Exception when writing {}: {}.\nPlease add the above values manually to your seastar command line.", file, std::current_exception());
+                iotune_logger.error("Exception when writing {}: {}.\nPlease add the above values manually to your seastar command line.", file, seastar::formattable(std::current_exception()));
                 return 1;
             }
             return 0;

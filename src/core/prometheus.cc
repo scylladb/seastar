@@ -884,7 +884,7 @@ void write_value_as_string(buf_t& s, const mi::metric_value& value) noexcept {
     } catch (...) {
         auto ex = std::current_exception();
         // print this error as it's ignored later on by `connection::start_response`
-        seastar_logger.error("prometheus: write_value_as_string: {}: {}", s.str(), ex);
+        seastar_logger.error("prometheus: write_value_as_string: {}: {}", s.str(), seastar::formattable(ex));
         std::rethrow_exception(std::move(ex));
     }
 }

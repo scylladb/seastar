@@ -890,7 +890,7 @@ do_run_try_future_test(F underlying_func, int& ctor_dtor_counter, bool& run_past
             }
             run_past = true;
         } catch (...) {
-            BOOST_FAIL(fmt::format("Exception should be handled in try_future, bug caught: {}", std::current_exception()));
+            BOOST_FAIL(fmt::format("Exception should be handled in try_future, bug caught: {}", seastar::formattable(std::current_exception())));
         }
 
         if constexpr (is_void) {
@@ -935,7 +935,7 @@ future<> run_try_future_test(F underlying_func, std::optional<std::any> expected
     } catch (test_exception&) {
         BOOST_REQUIRE(throws);
     } catch (...) {
-        BOOST_FAIL(fmt::format("Unexpected exception {}", std::current_exception()));
+        BOOST_FAIL(fmt::format("Unexpected exception {}", seastar::formattable(std::current_exception())));
     }
 
     BOOST_REQUIRE_EQUAL(run_past, !throws);
