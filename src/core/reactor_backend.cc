@@ -1753,7 +1753,6 @@ public:
     }
     virtual void wait_and_process_events(const sigset_t* active_sigmask) override {
         _smp_wakeup_completion.maybe_rearm(*this);
-        _hrtimer_completion.maybe_rearm(*this);
         ::io_uring_submit(&_uring);
         bool did_work = false;
         did_work |= _preempt_io_context.service_preempting_io();
