@@ -79,6 +79,7 @@ static const std::unordered_map<reply::status_type, std::string_view> status_str
     {reply::status_type::unprocessable_entity, "422 Unprocessable Entity"},
     {reply::status_type::upgrade_required, "426 Upgrade Required"},
     {reply::status_type::too_many_requests, "429 Too Many Requests"},
+    {reply::status_type::request_header_fields_too_large, "431 Request Header Fields Too Large"},
     {reply::status_type::login_timeout, "440 Login Timeout"},
     {reply::status_type::internal_server_error, "500 Internal Server Error"},
     {reply::status_type::not_implemented, "501 Not Implemented"},

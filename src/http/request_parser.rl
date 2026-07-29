@@ -54,6 +54,12 @@ action store_version {
     _req->_version = str();
 }
 
+action mark_request_line_end {
+    // Absolute byte offset of the end of the request line, so an oversized
+    // request can be attributed to the URI (414) vs the header fields (431).
+    _request_line_size = _parsed_size + (p - start);
+}
+
 action store_field_name {
     _field_name = str();
 }
@@ -117,7 +123,7 @@ field_content = (field_vchar | sp_ht)*;
 
 field = tchar+ >mark %store_field_name;
 value = field_content >mark %trim_trailing_whitespace_and_store_value;
-start_line = ((operation sp uri sp http_version) -- crlf) crlf;
+start_line = ((operation sp uri sp http_version) -- crlf) crlf %mark_request_line_end;
 header_1st = (field ':' sp_ht* <: value crlf) %assign_field;
 header_cont = (sp_ht+ <: value crlf) %extend_field;
 header = header_1st header_cont*;
@@ -140,12 +146,14 @@ public:
     state _state;
     size_t _size_limit = std::numeric_limits<size_t>::max();
     size_t _parsed_size = 0;
+    size_t _request_line_size = 0;
 public:
     void init() {
         init_base();
         _req.reset(new http::request());
         _state = state::eof;
         _parsed_size = 0;
+        _request_line_size = 0;
         %% write init;
     }
     void set_size_limit(size_t limit) {
@@ -199,10 +207,21 @@ public:
         return _state == state::eof;
     }
     bool failed() const {
-        return _state == state::error;
+        // An oversized request is a parse failure too, so callers only need to
+        // check failed() to know whether parsing succeeded; size_limit_exceeded()
+        // then tells them why, to pick the right HTTP status.
+        return _state == state::error || _state == state::too_large;
     }
     bool size_limit_exceeded() const {
         return _state == state::too_large;
+    }
+    // Only meaningful when size_limit_exceeded(). True when the URI is what
+    // overflowed the limit -- either the request line never finished (still
+    // reading the URI) or the request line alone already exceeded the limit --
+    // as opposed to the header fields pushing the request over.
+    bool uri_too_large() const {
+        return _state == state::too_large &&
+                (_request_line_size == 0 || _request_line_size > _size_limit);
     }
 };
 

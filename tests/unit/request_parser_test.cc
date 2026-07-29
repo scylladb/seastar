@@ -78,6 +78,7 @@ SEASTAR_TEST_CASE(test_request_size_limit) {
         sstring msg;
         size_t limit;
         bool too_large;
+        bool uri_too_large;
 
         temporary_buffer<char> buf() {
             return temporary_buffer<char>(msg.c_str(), msg.size());
@@ -88,10 +89,10 @@ SEASTAR_TEST_CASE(test_request_size_limit) {
     sstring big_header = "GET /test HTTP/1.1\r\nX-Big: " + sstring(1024, 'a') + "\r\n\r\n";
 
     std::vector<test_set> tests = {
-        { "GET /test HTTP/1.1\r\nHost: test\r\n\r\n", 64, false },
-        { big_uri, 64, true },
-        { big_header, 64, true },
-        { big_uri, 4096, false },
+        { "GET /test HTTP/1.1\r\nHost: test\r\n\r\n", 64, false, false },
+        { big_uri, 64, true, true },     // the URI itself overflows -> 414
+        { big_header, 64, true, false }, // the header fields overflow -> 431
+        { big_uri, 4096, false, false },
     };
 
     http_request_parser parser;
@@ -100,6 +101,10 @@ SEASTAR_TEST_CASE(test_request_size_limit) {
         parser.set_size_limit(tset.limit);
         BOOST_REQUIRE(parser(tset.buf()).get().has_value());
         BOOST_REQUIRE_EQUAL(parser.size_limit_exceeded(), tset.too_large);
+        // An oversized request must also report as failed(), so a single check
+        // tells callers parsing did not succeed.
+        BOOST_REQUIRE_EQUAL(parser.failed(), tset.too_large);
+        BOOST_REQUIRE_EQUAL(parser.uri_too_large(), tset.uri_too_large);
     }
     return make_ready_future<>();
 }
@@ -120,5 +125,6 @@ SEASTAR_TEST_CASE(test_request_size_limit_scattered) {
     BOOST_REQUIRE(!parser.size_limit_exceeded());
     feed(parser, part2);
     BOOST_REQUIRE(parser.size_limit_exceeded());
+    BOOST_REQUIRE(parser.failed());
     return make_ready_future<>();
 }

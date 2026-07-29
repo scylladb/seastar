@@ -216,17 +216,17 @@ future<> connection::read_one() {
         if (_tls) {
             req->protocol_name = "https";
         }
-        if (_parser.size_limit_exceeded()) {
-            if (req->_version.empty()) {
-                req->_version = "1.1";
-            }
-            generate_error_reply_and_close(std::move(req), http::reply::status_type::bad_request, "Request header or URL too large");
-            return make_ready_future<>();
-        }
         if (_parser.failed()) {
             if (req->_version.empty()) {
                 // we might have failed to parse even the version
                 req->_version = "1.1";
+            }
+            if (_parser.size_limit_exceeded()) {
+                auto status = _parser.uri_too_large()
+                        ? http::reply::status_type::uri_too_long
+                        : http::reply::status_type::request_header_fields_too_large;
+                generate_error_reply_and_close(std::move(req), status, "Request line or headers too large");
+                return make_ready_future<>();
             }
             generate_error_reply_and_close(std::move(req), http::reply::status_type::bad_request, "Can't parse the request");
             return make_ready_future<>();

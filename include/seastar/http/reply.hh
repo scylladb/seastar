@@ -97,6 +97,7 @@ struct reply {
         unprocessable_entity = 422, //!< unprocessable_entity
         upgrade_required = 426, //!< upgrade_required
         too_many_requests = 429, //!< too_many_requests
+        request_header_fields_too_large = 431, //!< request_header_fields_too_large
         login_timeout = 440, //!< login_timeout
         internal_server_error = 500, //!< internal_server_error
         not_implemented = 501, //!< not_implemented

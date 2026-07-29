@@ -889,8 +889,8 @@ SEASTAR_TEST_CASE(request_size_limit) {
 
         future<> client = seastar::async([&lcf] {
             auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
-            auto check_status = [&cln] (sstring header_value, http::reply::status_type expected) {
-                auto req = http::request::make("GET", "test", "/test");
+            auto check_status = [&cln] (sstring path, sstring header_value, http::reply::status_type expected) {
+                auto req = http::request::make("GET", "test", std::move(path));
                 if (!header_value.empty()) {
                     req._headers["X-Big"] = std::move(header_value);
                 }
@@ -906,8 +906,10 @@ SEASTAR_TEST_CASE(request_size_limit) {
                 BOOST_REQUIRE_EQUAL(status.value(), expected);
             };
 
-            check_status("",                  http::reply::status_type::ok);
-            check_status(sstring(4096, 'x'),   http::reply::status_type::bad_request); // over limit
+            check_status("/test", "", http::reply::status_type::ok);
+            // Oversized headers are rejected with 431, an oversized URI with 414.
+            check_status("/test", sstring(4096, 'x'), http::reply::status_type::request_header_fields_too_large);
+            check_status("/" + sstring(4096, 'x'), "", http::reply::status_type::uri_too_long);
 
             cln.close().get();
         });
