@@ -208,3 +208,38 @@ BOOST_AUTO_TEST_CASE(test_nested_throw_return_exception_future) {
     exception_message_check_helper(test_nested_exception_future_helper_instance);
 }
 
+// An object not derived from std::exception, so that reporting it has to go
+// through abi::__cxa_current_exception_type() rather than what().
+struct not_an_exception {};
+
+static bool do_throw_unknown = false;
+
+// Dummy test that on its own does nothing.
+SEASTAR_TEST_CASE(test_unknown_throw_helper) {
+    if (std::exchange(do_throw_unknown, false)) {
+        throw not_an_exception{};
+    }
+    return make_ready_future<>();
+}
+
+// Cannot be a SEASTAR_TEST_CASE, because of recursion of seastar::test::run.
+BOOST_AUTO_TEST_CASE(test_unknown_throw) {
+    do_throw_unknown = true;
+    auto def = defer([]() noexcept {
+        do_throw_unknown = false;
+    });
+
+    bool caught = false;
+    try {
+        using helper_type = std::remove_cvref_t<decltype(test_unknown_throw_helper_instance)>;
+        const_cast<helper_type&>(test_unknown_throw_helper_instance).run();
+    } catch (boost::execution_exception& e) {
+        caught = true;
+        // Should get a cpp exception failure
+        BOOST_REQUIRE_EQUAL(e.code(), boost::execution_exception::error_code::cpp_exception_error);
+        // Should name the thrown type, since it has no what() to report
+        BOOST_REQUIRE(e.what().find("not_an_exception") != std::string::npos);
+    }
+    BOOST_REQUIRE(caught);
+}
+
