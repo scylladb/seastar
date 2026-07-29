@@ -766,7 +766,14 @@ SEASTAR_THREAD_TEST_CASE(test_gauge_integrator_test) {
 // the configured bandwidth+burst limit by up to one threshold unit.
 static constexpr size_t bw_slack = 128*1024;
 
-static future<size_t> run_and_check_bandwidth(io_queue_for_tests& tio, internal::priority_class pc, size_t bandwidth_goal, unsigned parallelizm = 1, size_t req_size = 128*1024) {
+// The value returned is a cumulative average since the start of the run, so the
+// initial burst is folded into it: over a one second window the burst accounts
+// for ~9% of the bytes seen, and it shrinks as 1/window from there. A caller
+// that compares two of these against each other wants a window long enough that
+// the burst no longer dominates the comparison; min_window puts a floor on the
+// measured interval for those. The default preserves the historical behaviour of
+// returning on the first sample that meets the goal.
+static future<size_t> run_and_check_bandwidth(io_queue_for_tests& tio, internal::priority_class pc, size_t bandwidth_goal, unsigned parallelizm = 1, std::chrono::seconds min_window = std::chrono::seconds(1), size_t req_size = 128*1024) {
     fmt::print("Run {} workload\n", pc.id());
     bool keep_going = true;
     uint64_t nr_requests = 0;
@@ -793,7 +800,7 @@ static future<size_t> run_and_check_bandwidth(io_queue_for_tests& tio, internal:
         auto now = std::chrono::steady_clock::now();
         real_bandwidth = (nr_requests * req_size) / std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
         fmt::print("Measured for {} {} MB/s, goal {} MB/s\n", pc.id(), real_bandwidth >> 20, bandwidth_goal >> 20);
-        if (real_bandwidth >= bandwidth_goal || now >= stop) {
+        if ((real_bandwidth >= bandwidth_goal && now >= start + min_window) || now >= stop) {
             break;
         }
     }
@@ -967,8 +974,14 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
 
     background_drain drain(tio);
 
-    auto f0 = run_and_check_bandwidth(tio, pc0, bandwidth * 0.8 * 0.95, 4);
-    auto f1 = run_and_check_bandwidth(tio, pc1, bandwidth * 0.2 * 0.95, 4);
+    // Unlike the tests above, this one compares the two bandwidths against each
+    // other, within 1.25%. A one second window cannot support that: the burst is
+    // then ~9% of what is measured, so a couple of requests' worth of variation
+    // in how it lands between the two classes moves the ratio further than the
+    // check allows. Four seconds dilutes the burst term, and the quantisation of
+    // the measurement itself, by 4x.
+    auto f0 = run_and_check_bandwidth(tio, pc0, bandwidth * 0.8 * 0.95, 4, std::chrono::seconds(4));
+    auto f1 = run_and_check_bandwidth(tio, pc1, bandwidth * 0.2 * 0.95, 4, std::chrono::seconds(4));
     auto bw0 = f0.get();
     auto bw1 = f1.get();
 
