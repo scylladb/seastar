@@ -19,18 +19,18 @@
  * Copyright 2021 ScyllaDB
  */
 
+#include <exception>
+#include <seastar/core/future.hh>
+#include <seastar/websocket/common.hh>
 #include <seastar/websocket/server.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/core/loop.hh>
-#include <seastar/util/defer.hh>
-#include <seastar/util/log.hh>
 #include <seastar/http/request.hh>
 
 namespace seastar::experimental::websocket {
 
 using namespace std::string_view_literals;
 
-constexpr auto magic_key_suffix = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"sv;
 constexpr auto http_upgrade_reply_template =
     "HTTP/1.1 101 Switching Protocols\r\n"
     "Upgrade: websocket\r\n"
@@ -47,6 +47,10 @@ void server::listen(socket_address addr) {
     lo.reuse_address = true;
     return listen(addr, lo);
 }
+void server::listen(server_socket ss) {
+    _listeners.push_back(std::move(ss));
+    accept(_listeners.back());
+}
 
 void server::accept(server_socket &listener) {
     (void)try_with_gate(_task_gate, [this, &listener]() {
@@ -58,7 +62,7 @@ void server::accept(server_socket &listener) {
 
 future<stop_iteration> server::accept_one(server_socket &listener) {
     return listener.accept().then([this](accept_result ar) {
-        auto conn = std::make_unique<server_connection>(*this, std::move(ar.connection));
+        auto conn = std::make_unique<server_connection>(*this, std::move(ar.connection), _connection_options);
         (void)try_with_gate(_task_gate, [conn = std::move(conn)]() mutable {
             return conn->process().finally([conn = std::move(conn)] {
                 websocket_logger.debug("Connection is finished");
@@ -79,19 +83,16 @@ future<stop_iteration> server::accept_one(server_socket &listener) {
 }
 
 future<> server::stop() {
+    websocket_logger.info("server close");
     for (auto&& l : _listeners) {
         l.abort_accept();
     }
 
-    for (auto&& c : _connections) {
+    for (auto& c: _connections) {
         c.shutdown_input();
     }
 
-    return _task_gate.close().finally([this] {
-        return parallel_for_each(_connections, [] (server_connection& conn) {
-            return conn.close(true).handle_exception([] (auto ignored) {});
-        });
-    });
+    return _task_gate.close();
 }
 
 server_connection::~server_connection() {
@@ -103,9 +104,14 @@ void server_connection::on_new_connection() {
 }
 
 future<> server_connection::process() {
-    return when_all_succeed(read_loop(), response_loop()).discard_result().handle_exception([] (const std::exception_ptr& e) {
-        websocket_logger.debug("Processing failed: {}", e);
-    });
+    return read_http_upgrade_request()
+        .then([this] () {
+            return _handler(_input, _output);
+        }).handle_exception([this] (std::exception_ptr e) {
+            return close(false).handle_exception([] (auto) {}).then([e = std::move(e)] () {
+                return make_exception_future(e);
+            });
+        });
 }
 
 future<> server_connection::read_http_upgrade_request() {
@@ -113,7 +119,6 @@ future<> server_connection::read_http_upgrade_request() {
     co_await _read_buf.consume(_http_parser);
 
     if (_http_parser.eof()) {
-        _done = true;
         co_return;
     }
     std::unique_ptr<http::request> req = _http_parser.get_parsed_request();
@@ -138,7 +143,7 @@ future<> server_connection::read_http_upgrade_request() {
     sstring sec_key = req->get_header("Sec-Websocket-Key");
     sstring sec_version = req->get_header("Sec-Websocket-Version");
 
-    auto sha1_input = fmt::format("{}{}", sec_key, magic_key_suffix);
+    auto sha1_input = fmt::format("{}{}", sec_key, websocket_magic_guid);
 
     websocket_logger.debug("Sec-Websocket-Key: {}, Sec-Websocket-Version: {}", sec_key, sec_version);
 
@@ -153,21 +158,6 @@ future<> server_connection::read_http_upgrade_request() {
     }
     co_await _write_buf.write("\r\n\r\n", 4);
     co_await _write_buf.flush();
-}
-
-future<> server_connection::read_loop() {
-    return read_http_upgrade_request().then([this] {
-        return when_all_succeed(
-            _handler(_input, _output).handle_exception([this] (std::exception_ptr e) mutable {
-                return _read_buf.close().then([e = std::move(e)] () mutable {
-                    return make_exception_future<>(std::move(e));
-                });
-            }),
-            do_until([this] {return _done;}, [this] {return read_one();})
-        ).discard_result();
-    }).finally([this] {
-        return _read_buf.close();
-    });
 }
 
 bool server::is_handler_registered(std::string const& name) {
