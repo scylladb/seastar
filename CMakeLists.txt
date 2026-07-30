@@ -825,6 +825,7 @@ add_library (seastar
   src/quic/quic_client.cc
   src/quic/quic_connection_state.cc
   src/quic/quic_server.cc
+  src/quic/sharded_quic_server.cc
   src/quic/quic_error.cc
   )
 

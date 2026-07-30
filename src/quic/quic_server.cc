@@ -54,6 +54,7 @@
 #include <seastar/core/queue.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/shared_ptr.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/core/weak_ptr.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/util/log.hh>
@@ -63,11 +64,52 @@ namespace seastar::quic::experimental {
 namespace {
 
 constexpr size_t max_cid_len = 20;
-constexpr size_t server_short_cid_len = 8;
+constexpr size_t server_short_cid_len = 16;
+constexpr size_t server_cid_shard_prefix_len = 2;
+constexpr size_t server_cid_generation_attempts = 16;
 constexpr size_t max_udp_payload_size = 65527;
 constexpr size_t default_udp_payload_size = 1200;
 
 static logger quic_server_log("quic_server");
+
+bool encode_current_shard_in_server_cid(uint8_t* data, size_t len) noexcept {
+    if (len < server_cid_shard_prefix_len) {
+        return true;
+    }
+    auto shard = this_shard_id();
+    if (shard > std::numeric_limits<uint16_t>::max()) {
+        return false;
+    }
+    data[0] = static_cast<uint8_t>((shard >> 8) & 0xffu);
+    data[1] = static_cast<uint8_t>(shard & 0xffu);
+    return true;
+}
+
+bool rand_server_cid_or_log(uint8_t* dest, size_t len, const char* detail) {
+    if (!rand_bytes_or_log(quic_server_log, "server", dest, len, detail)) {
+        return false;
+    }
+    return encode_current_shard_in_server_cid(dest, len);
+}
+
+void rand_server_cid_or_throw(uint8_t* dest, size_t len, const char* detail) {
+    rand_bytes_or_throw(dest, len, detail);
+    if (!encode_current_shard_in_server_cid(dest, len)) {
+        throw_quic_error(quic_error_code::unsupported, "too many shards to encode in QUIC connection id");
+    }
+}
+
+std::optional<unsigned> shard_from_server_cid(const uint8_t* cid, size_t len) noexcept {
+    if (len != server_short_cid_len || len < server_cid_shard_prefix_len) {
+        return std::nullopt;
+    }
+    auto shard = (static_cast<unsigned>(cid[0]) << 8) | static_cast<unsigned>(cid[1]);
+    if (shard >= this_smp_shard_count()) {
+        return std::nullopt;
+    }
+    return shard;
+}
+
 using transport_command = internal::transport_command;
 using quic_message = internal::quic_message;
 
@@ -757,7 +799,9 @@ public:
             throw_quic_error(classify_gnutls_error(rv), gnutls_error_message(rv));
         }
 
-        _channel = engine().net().make_bound_datagram_channel(_cfg.listen_address);
+        _channel = engine().net().make_bound_datagram_channel(
+          _cfg.listen_address,
+          net::datagram_channel_options{.reuse_port = _cfg.reuse_port});
         _channel_ready = true;
         _listen_address = _channel.local_address();
         _started = true;
@@ -971,6 +1015,50 @@ private:
     }
 
     friend struct server_connection;
+    friend class seastar::quic::experimental::quic_server;
+
+    bool has_mapped_dcid(const uint8_t* cid, size_t len) const {
+        return _by_dcid.find(cid_key(cid, len)) != _by_dcid.end();
+    }
+
+    bool generate_server_cid_or_log(ngtcp2_cid& cid, size_t cidlen, const char* detail) const {
+        if (cidlen != server_short_cid_len) {
+            quic_server_log.warn("server refused to generate unexpected connection id length: requested={} expected={}",
+              cidlen, server_short_cid_len);
+            return false;
+        }
+
+        cid.datalen = cidlen;
+        for (size_t attempt = 0; attempt != server_cid_generation_attempts; ++attempt) {
+            if (!rand_server_cid_or_log(cid.data, cidlen, detail)) {
+                return false;
+            }
+            if (!has_mapped_dcid(cid.data, cid.datalen)) {
+                return true;
+            }
+            quic_server_log.debug("server generated duplicate connection id; retrying attempt={}", attempt + 1);
+        }
+
+        quic_server_log.warn("server failed to generate a unique connection id after {} attempts", server_cid_generation_attempts);
+        return false;
+    }
+
+    void generate_server_cid_or_throw(ngtcp2_cid& cid, size_t cidlen, const char* detail) const {
+        if (cidlen != server_short_cid_len) {
+            throw_quic_error(quic_error_code::internal, "unexpected QUIC connection id length requested");
+        }
+
+        cid.datalen = cidlen;
+        for (size_t attempt = 0; attempt != server_cid_generation_attempts; ++attempt) {
+            rand_server_cid_or_throw(cid.data, cidlen, detail);
+            if (!has_mapped_dcid(cid.data, cid.datalen)) {
+                return;
+            }
+            quic_server_log.debug("server generated duplicate connection id; retrying attempt={}", attempt + 1);
+        }
+
+        throw_quic_error(quic_error_code::internal, "failed to generate a unique QUIC connection id");
+    }
 
     static ngtcp2_conn* get_conn(ngtcp2_crypto_conn_ref* ref) {
         return static_cast<ngtcp2_conn*>(ref->user_data);
@@ -982,9 +1070,10 @@ private:
         }
     }
 
-    static int get_new_connection_id_cb(ngtcp2_conn*, ngtcp2_cid* cid, uint8_t* token, size_t cidlen, void*) {
-        cid->datalen = cidlen;
-        if (!rand_bytes_or_log(quic_server_log, "server", cid->data, cidlen, "connection id generation")) {
+    static int get_new_connection_id_cb(ngtcp2_conn*, ngtcp2_cid* cid, uint8_t* token, size_t cidlen, void* user_data) {
+        auto* conn = static_cast<server_connection*>(user_data);
+        auto* server = conn ? conn->server_impl() : nullptr;
+        if (!server || !server->generate_server_cid_or_log(*cid, cidlen, "connection id generation")) {
             return NGTCP2_ERR_CALLBACK_FAILURE;
         }
         if (!rand_bytes_or_log(quic_server_log, "server", token, NGTCP2_STATELESS_RESET_TOKENLEN, "stateless reset token generation")) {
@@ -1271,8 +1360,7 @@ private:
 
         // Mint a server CID used to route later packets for this connection.
         ngtcp2_cid scid{};
-        scid.datalen = server_short_cid_len;
-        rand_bytes_or_throw(scid.data, scid.datalen, "connection id generation");
+        generate_server_cid_or_throw(scid, server_short_cid_len, "connection id generation");
 
         ngtcp2_callbacks callbacks{};
         callbacks.recv_client_initial = ngtcp2_crypto_recv_client_initial_cb;
@@ -1348,6 +1436,10 @@ private:
         if (_cfg.session_options.transport.max_udp_payload_size) {
             params.max_udp_payload_size = *_cfg.session_options.transport.max_udp_payload_size;
         }
+        // Sharded listeners route server-generated CIDs back to the owning
+        // shard if SO_REUSEPORT delivers a later packet elsewhere. Active
+        // migration is still disabled; the forwarding path handles rebinding,
+        // not deliberate peer migration to a new path.
         params.disable_active_migration = 1;
 
         ngtcp2_path path{};
@@ -1472,9 +1564,7 @@ private:
         }
     }
 
-    future<> handle_datagram(net::datagram d) {
-        auto src = d.get_src();
-        auto pkt = linearize_packet(d.get_buffers());
+    future<> handle_packet(socket_address src, temporary_buffer<char> pkt, bool allow_forward) {
         const auto* data = reinterpret_cast<const uint8_t*>(pkt.get());
         const size_t len = pkt.size();
         quic_server_log.trace("server received datagram: src={} bytes={}", src, len);
@@ -1495,6 +1585,15 @@ private:
         if (!conn) {
             // Unknown short-header packets cannot create server state; only Initial can.
             if (!parsed.long_header || parsed.long_type != quic_long_type::initial) {
+                if (allow_forward && _packet_router) {
+                    auto owner = shard_from_server_cid(parsed.dcid.data(), parsed.dcid_len);
+                    if (owner && *owner != this_shard_id()) {
+                        quic_server_log.debug("server forward datagram: src={} owner_shard={} current_shard={}",
+                          src, *owner, this_shard_id());
+                        co_await _packet_router->route_quic_packet(*owner, _listen_address, src, std::move(pkt));
+                        co_return;
+                    }
+                }
                 quic_server_log.debug("server drop datagram: unknown DCID and not Initial src={} long_header={} long_type={}",
                   src, parsed.long_header, static_cast<unsigned>(parsed.long_type));
                 co_return;
@@ -1519,6 +1618,18 @@ private:
         }
         conn->wake_actor();
         co_return;
+    }
+
+    void set_packet_router(internal::quic_packet_router* router) noexcept {
+        _packet_router = router;
+    }
+
+    future<> inject_datagram(socket_address src, temporary_buffer<char> pkt) {
+        co_await handle_packet(src, std::move(pkt), false);
+    }
+
+    future<> handle_datagram(net::datagram d) {
+        co_await handle_packet(d.get_src(), linearize_packet(d.get_buffers()), true);
     }
 
     future<> receive_loop() {
@@ -1555,6 +1666,7 @@ private:
     gate _task_gate;
     future<> _send_tail = make_ready_future<>();
     condition_variable _accept_cv;
+    internal::quic_packet_router* _packet_router = nullptr;
     std::deque<connection_state_ptr> _accepted;
     std::unordered_map<std::string, conn_ptr> _by_dcid;
     std::vector<conn_ptr> _conns;
@@ -1693,6 +1805,16 @@ future<connection> quic_server::accept() {
 
 socket_address quic_server::local_address() const noexcept {
     return _impl ? _impl->listen_address() : socket_address{};
+}
+
+void quic_server::set_packet_router(internal::quic_packet_router* router) noexcept {
+    if (_impl) {
+        _impl->set_packet_router(router);
+    }
+}
+
+future<> quic_server::inject_datagram(socket_address src, temporary_buffer<char> packet) {
+    co_await _impl->inject_datagram(src, std::move(packet));
 }
 
 future<> quic_server::stop() {

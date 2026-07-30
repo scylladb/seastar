@@ -31,7 +31,8 @@
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/core/reactor.hh>
-#include <seastar/quic/quic_server.hh>
+#include <seastar/core/smp.hh>
+#include <seastar/quic/sharded_quic_server.hh>
 
 #include "../apps/lib/stop_signal.hh"
 
@@ -55,13 +56,6 @@ static socket_address parse_ip_address(const std::string& ip, uint16_t port) {
     }
 
     throw std::runtime_error("Invalid IP address: " + ip);
-}
-
-static std::string format_endpoint(const std::string& ip, uint16_t port) {
-    if (ip.find(':') != std::string::npos) {
-        return "[" + ip + "]:" + std::to_string(port);
-    }
-    return ip + ":" + std::to_string(port);
 }
 
 static future<> handle_stream(seastar::quic::experimental::stream quic_stream, bool verbose, uint64_t conn_id, uint64_t stream_no) {
@@ -136,37 +130,6 @@ static future<> handle_session(connection session, bool verbose, uint64_t conn_i
     }
 }
 
-static future<> accept_loop(quic_server& server, gate& sessions, bool verbose) {
-    uint64_t next_conn_id = 1;
-    while (true) {
-        connection session;
-        try {
-            session = co_await server.accept();
-        } catch (const quic_error& e) {
-            if (e.code() == quic_error::closed) {
-                co_return;
-            }
-            throw;
-        }
-        auto conn_id = next_conn_id++;
-        if (verbose) {
-            std::cout << "[server conn#" << conn_id << "] accepted\n";
-            std::cout.flush();
-        }
-
-        (void)with_gate(
-          sessions, [session = std::move(session), verbose, conn_id]() mutable { return handle_session(std::move(session), verbose, conn_id); })
-          .handle_exception([](std::exception_ptr ep) {
-              try {
-                  std::rethrow_exception(ep);
-              } catch (const std::exception& e) {
-                  std::cerr << "[server] connection task failed: " << e.what() << "\n";
-              }
-          })
-          .or_terminate();
-    }
-}
-
 int main(int argc, char** argv) {
     app_template app;
     app.add_options()
@@ -177,9 +140,7 @@ int main(int argc, char** argv) {
       ("verbose,v", bpo::value<bool>()->default_value(false)->implicit_value(true), "Verbose logging");
 
     return app.run(argc, argv, [&app]() -> future<int> {
-        quic_server server;
-        gate sessions;
-        std::optional<future<>> accept_task;
+        sharded_quic_server server;
         std::exception_ptr error;
         bool verbose = false;
 
@@ -197,9 +158,19 @@ int main(int argc, char** argv) {
             server_cfg.key_file = key;
 
             co_await server.start(std::move(server_cfg));
-            accept_task.emplace(accept_loop(server, sessions, verbose));
+            co_await server.serve([verbose] {
+                return [verbose] (connection session) mutable -> future<> {
+                    static thread_local uint64_t next_conn_id = 1;
+                    auto conn_id = (static_cast<uint64_t>(this_shard_id()) << 32) | next_conn_id++;
+                    if (verbose) {
+                        std::cout << "[server shard#" << this_shard_id() << " conn#" << conn_id << "] accepted\n";
+                        std::cout.flush();
+                    }
+                    co_await handle_session(std::move(session), verbose, conn_id);
+                };
+            });
 
-            std::cout << "QUIC server listening on " << format_endpoint(address, port) << "\n";
+            std::cout << "QUIC server listening on " << server.local_address() << "\n";
             std::cout.flush();
 
             seastar_apps_lib::stop_signal stop_signal;
@@ -212,19 +183,6 @@ int main(int argc, char** argv) {
 
         try {
             co_await server.stop();
-        } catch (...) {
-        }
-        if (accept_task) {
-            try {
-                co_await std::move(*accept_task);
-            } catch (...) {
-                if (!error) {
-                    error = std::current_exception();
-                }
-            }
-        }
-        try {
-            co_await sessions.close();
         } catch (...) {
             if (!error) {
                 error = std::current_exception();

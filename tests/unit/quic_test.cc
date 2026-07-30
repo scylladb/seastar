@@ -20,10 +20,16 @@
  * Copyright (C) 2026 ScyllaDB Ltd.
  */
 
+#include <arpa/inet.h>
+
+#include <algorithm>
 #include <array>
+#include <chrono>
 #include <deque>
 #include <limits>
+#include <memory>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -33,17 +39,24 @@
 #include <gnutls/gnutls.h>
 #include <ngtcp2/ngtcp2.h>
 
+#include <seastar/coroutine/maybe_yield.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/iostream.hh>
+#include <seastar/core/queue.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/shared_ptr.hh>
+#include <seastar/core/sharded.hh>
+#include <seastar/core/sleep.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/core/with_timeout.hh>
 #include <seastar/net/api.hh>
 #include <seastar/quic/quic.hh>
 #include <seastar/quic/quic_client.hh>
 #include <seastar/quic/quic_server.hh>
+#include <seastar/quic/sharded_quic_server.hh>
 #include <seastar/testing/test_case.hh>
 
 #include "quic/quic_common.hh"
@@ -62,6 +75,231 @@ constexpr int ngtcp2_err_stream_data_blocked = NGTCP2_ERR_STREAM_DATA_BLOCKED;
 constexpr int ngtcp2_err_stream_id_blocked = NGTCP2_ERR_STREAM_ID_BLOCKED;
 constexpr int ngtcp2_err_draining = NGTCP2_ERR_DRAINING;
 constexpr int ngtcp2_err_stream_shut_wr = NGTCP2_ERR_STREAM_SHUT_WR;
+
+constexpr size_t test_server_cid_len = 16;
+
+temporary_buffer<char> make_short_header_packet_for_shard(unsigned shard) {
+    temporary_buffer<char> packet(test_server_cid_len + 8);
+    std::fill_n(packet.get_write(), packet.size(), char{0x5a});
+    packet.get_write()[0] = 0x40;
+    packet.get_write()[1] = static_cast<char>((shard >> 8) & 0xffu);
+    packet.get_write()[2] = static_cast<char>(shard & 0xffu);
+    return packet;
+}
+
+future<> send_udp_packet(net::datagram_channel& channel, socket_address dst, temporary_buffer<char> packet) {
+    std::array<temporary_buffer<char>, 1> datagram{std::move(packet)};
+    co_await channel.send(dst, std::span<temporary_buffer<char>>(datagram));
+}
+
+future<> send_udp_packets(
+  net::datagram_channel& channel,
+  socket_address dst,
+  unsigned owner_shard,
+  size_t packet_count) {
+    for (size_t packet_index = 0; packet_index < packet_count; ++packet_index) {
+        co_await send_udp_packet(channel, dst, make_short_header_packet_for_shard(owner_shard));
+        co_await seastar::coroutine::maybe_yield();
+    }
+}
+
+class accepted_shard_observer final {
+public:
+    future<> record(unsigned shard) {
+        if (this_shard_id() == _observer_shard) {
+            return _accepted.push_eventually(std::move(shard));
+        }
+        return smp::submit_to(_observer_shard, [this, shard] () mutable {
+            return _accepted.push_eventually(std::move(shard));
+        });
+    }
+
+    future<unsigned> wait_for_accept() {
+        return with_timeout(
+          std::chrono::steady_clock::now() + std::chrono::seconds(2),
+          _accepted.pop_eventually());
+    }
+
+private:
+    const unsigned _observer_shard = this_shard_id();
+    queue<unsigned> _accepted{1};
+};
+
+struct handler_factory_probe {
+    unsigned calls = 0;
+};
+
+future<unsigned> connect_from_source_and_get_shard(
+  socket_address server_address,
+  socket_address source_address,
+  accepted_shard_observer& accepted_shards) {
+    quic_client client;
+    std::optional<connection> session;
+    std::exception_ptr error;
+    unsigned shard = 0;
+
+    try {
+        quic_client_config client_cfg;
+        client_cfg.remote_address = server_address;
+        client_cfg.local_address = source_address;
+        client_cfg.server_name = "test.scylladb.org";
+        client_cfg.ca_file = "test.crt";
+        session.emplace(co_await client.connect(std::move(client_cfg)));
+
+        shard = co_await accepted_shards.wait_for_accept();
+    } catch (...) {
+        error = std::current_exception();
+    }
+
+    if (session) {
+        try {
+            co_await session->close();
+        } catch (...) {
+            if (!error) {
+                error = std::current_exception();
+            }
+        }
+    }
+    try {
+        co_await client.stop();
+    } catch (...) {
+        if (!error) {
+            error = std::current_exception();
+        }
+    }
+
+    if (error) {
+        std::rethrow_exception(error);
+    }
+    co_return shard;
+}
+
+future<std::array<net::datagram_channel, 2>> make_udp_channels_for_shards(
+  socket_address server_address,
+  accepted_shard_observer& accepted_shards,
+  unsigned first_shard,
+  unsigned second_shard) {
+    std::array<std::optional<socket_address>, 2> selected;
+
+    for (unsigned attempt = 0; attempt < 128 && (!selected[0] || !selected[1]); ++attempt) {
+        auto port_probe = make_bound_datagram_channel(make_ipv4_address({0x7f000001, 0}));
+        auto candidate = port_probe.local_address();
+        port_probe.close();
+
+        auto shard = co_await connect_from_source_and_get_shard(server_address, candidate, accepted_shards);
+        if (shard == first_shard && !selected[0]) {
+            selected[0] = candidate;
+        } else if (shard == second_shard && !selected[1]) {
+            selected[1] = candidate;
+        }
+    }
+
+    if (!selected[0] || !selected[1]) {
+        throw std::runtime_error("could not find UDP source ports hashing to both requested shards");
+    }
+
+    co_return std::array<net::datagram_channel, 2>{
+      make_bound_datagram_channel(*selected[0]),
+      make_bound_datagram_channel(*selected[1]),
+    };
+}
+
+class rebinding_quic_proxy final {
+public:
+    rebinding_quic_proxy(
+      socket_address server_address,
+      net::datagram_channel owner_backend,
+      net::datagram_channel wrong_backend)
+      : _server_address(server_address)
+      , _front(make_bound_datagram_channel(make_ipv4_address({0x7f000001, 0})))
+      , _owner_backend(std::move(owner_backend))
+      , _wrong_backend(std::move(wrong_backend)) {
+    }
+
+    socket_address local_address() const {
+        return _front.local_address();
+    }
+
+    void start() {
+        _tasks.push_back(relay_client_packets());
+        _tasks.push_back(relay_server_packets(_owner_backend));
+        _tasks.push_back(relay_server_packets(_wrong_backend));
+    }
+
+    void use_wrong_shard() noexcept {
+        _use_wrong_backend = true;
+    }
+
+    future<> stop() {
+        if (_stopping) {
+            co_return;
+        }
+        _stopping = true;
+        _front.shutdown_input();
+        _owner_backend.shutdown_input();
+        _wrong_backend.shutdown_input();
+
+        auto tasks = co_await when_all(_tasks.begin(), _tasks.end());
+        _tasks.clear();
+        for (auto& task : tasks) {
+            task.get();
+        }
+
+        _front.close();
+        _owner_backend.close();
+        _wrong_backend.close();
+    }
+
+private:
+    future<> relay_client_packets() {
+        try {
+            while (!_stopping) {
+                auto datagram = co_await _front.receive();
+                if (_stopping) {
+                    co_return;
+                }
+                _client_address = datagram.get_src();
+                auto packet = linearize_packet(datagram.get_buffers());
+                auto& backend = _use_wrong_backend ? _wrong_backend : _owner_backend;
+                co_await send_udp_packet(backend, _server_address, std::move(packet));
+            }
+        } catch (...) {
+            if (!_stopping) {
+                throw;
+            }
+        }
+    }
+
+    future<> relay_server_packets(net::datagram_channel& backend) {
+        try {
+            while (!_stopping) {
+                auto datagram = co_await backend.receive();
+                if (_stopping) {
+                    co_return;
+                }
+                if (!_client_address) {
+                    continue;
+                }
+                auto packet = linearize_packet(datagram.get_buffers());
+                co_await send_udp_packet(_front, *_client_address, std::move(packet));
+            }
+        } catch (...) {
+            if (!_stopping) {
+                throw;
+            }
+        }
+    }
+
+private:
+    socket_address _server_address;
+    net::datagram_channel _front;
+    net::datagram_channel _owner_backend;
+    net::datagram_channel _wrong_backend;
+    std::optional<socket_address> _client_address;
+    std::vector<future<>> _tasks;
+    bool _use_wrong_backend = false;
+    bool _stopping = false;
+};
 
 class fake_connection_transport final : public quic_internal::connection_transport {
 public:
@@ -361,6 +599,17 @@ socket_address allocate_loopback_quic_address() {
     auto address = probe.local_address();
     probe.close();
     return address;
+}
+
+uint16_t quic_socket_address_port(const socket_address& address) {
+    switch (address.family()) {
+    case AF_INET:
+        return ntohs(address.as_posix_sockaddr_in().sin_port);
+    case AF_INET6:
+        return ntohs(address.as_posix_sockaddr_in6().sin6_port);
+    default:
+        return 0;
+    }
 }
 
 future<> echo_quic_stream(quic_stream stream) {
@@ -898,6 +1147,416 @@ SEASTAR_TEST_CASE(test_quic_server_rejects_empty_alpn_configuration) {
 
         require_quic_future_exception(server.start(std::move(cfg)), quic_error::invalid_argument);
     });
+}
+
+
+future<> quic_echo_client_round_trip(socket_address server_address, sstring payload) {
+    quic_client client;
+    std::optional<connection> session;
+    std::exception_ptr error;
+
+    try {
+        quic_client_config client_cfg;
+        client_cfg.remote_address = server_address;
+        client_cfg.server_name = "test.scylladb.org";
+        client_cfg.ca_file = "test.crt";
+        session.emplace(co_await client.connect(std::move(client_cfg)));
+        co_await quic_echo_round_trip(*session, std::move(payload));
+    } catch (...) {
+        error = std::current_exception();
+    }
+
+    if (session) {
+        try {
+            co_await session->close();
+        } catch (...) {
+            if (!error) {
+                error = std::current_exception();
+            }
+        }
+    }
+
+    try {
+        co_await client.stop();
+    } catch (...) {
+        if (!error) {
+            error = std::current_exception();
+        }
+    }
+
+    if (error) {
+        std::rethrow_exception(error);
+    }
+}
+
+SEASTAR_TEST_CASE(test_sharded_quic_server_keeps_connection_alive_after_wrong_shard_delivery) {
+    if (this_smp_shard_count() < 2) {
+        BOOST_TEST_MESSAGE("skipping cross-shard QUIC rebinding test: at least two shards are required");
+        co_return;
+    }
+
+    constexpr unsigned owner_shard = 0;
+    constexpr unsigned wrong_shard = 1;
+    sharded_quic_server server;
+    quic_client client;
+    std::optional<connection> session;
+    std::unique_ptr<rebinding_quic_proxy> proxy;
+    accepted_shard_observer accepted_shards;
+    std::exception_ptr error;
+
+    try {
+        quic_server_config server_cfg;
+        server_cfg.listen_address = make_ipv4_address({0x7f000001, 0});
+        server_cfg.crt_file = "test.crt";
+        server_cfg.key_file = "test.key";
+        co_await server.start(std::move(server_cfg));
+
+        co_await server.serve([&accepted_shards] {
+            return [&accepted_shards] (connection session) mutable -> future<> {
+                co_await accepted_shards.record(this_shard_id());
+                try {
+                    while (true) {
+                        auto stream = co_await session.accept_stream();
+                        co_await echo_quic_stream(std::move(stream));
+                    }
+                } catch (const quic_error& e) {
+                    if (e.code() != quic_error_code::closed) {
+                        throw;
+                    }
+                }
+            };
+        });
+
+        auto backends = co_await make_udp_channels_for_shards(
+          server.local_address(), accepted_shards, owner_shard, wrong_shard);
+        proxy = std::make_unique<rebinding_quic_proxy>(
+          server.local_address(),
+          std::move(backends[0]),
+          std::move(backends[1]));
+        proxy->start();
+
+        quic_client_config client_cfg;
+        client_cfg.remote_address = proxy->local_address();
+        client_cfg.server_name = "test.scylladb.org";
+        client_cfg.ca_file = "test.crt";
+        session.emplace(co_await client.connect(std::move(client_cfg)));
+
+        auto accepted_shard = co_await accepted_shards.wait_for_accept();
+        BOOST_REQUIRE_EQUAL(accepted_shard, owner_shard);
+        co_await quic_echo_round_trip(*session, "before rebinding");
+
+        proxy->use_wrong_shard();
+        co_await with_timeout(
+          std::chrono::steady_clock::now() + std::chrono::seconds(5),
+          quic_echo_round_trip(*session, "after wrong-shard delivery"));
+    } catch (...) {
+        error = std::current_exception();
+    }
+
+    if (session) {
+        try {
+            co_await session->close();
+        } catch (...) {
+            if (!error) {
+                error = std::current_exception();
+            }
+        }
+    }
+    try {
+        co_await client.stop();
+    } catch (...) {
+        if (!error) {
+            error = std::current_exception();
+        }
+    }
+    if (proxy) {
+        try {
+            co_await proxy->stop();
+        } catch (...) {
+            if (!error) {
+                error = std::current_exception();
+            }
+        }
+    }
+    try {
+        co_await server.stop();
+    } catch (...) {
+        if (!error) {
+            error = std::current_exception();
+        }
+    }
+
+    if (error) {
+        std::rethrow_exception(error);
+    }
+}
+
+SEASTAR_TEST_CASE(test_sharded_quic_server_stop_races_with_forwarded_packets) {
+    if (this_smp_shard_count() < 2) {
+        BOOST_TEST_MESSAGE("skipping cross-shard QUIC shutdown race test: at least two shards are required");
+        co_return;
+    }
+
+    sharded_quic_server server;
+    quic_server_config server_cfg;
+    server_cfg.listen_address = make_ipv4_address({0x7f000001, 0});
+    server_cfg.crt_file = "test.crt";
+    server_cfg.key_file = "test.key";
+    co_await server.start(std::move(server_cfg));
+
+    accepted_shard_observer accepted_shards;
+    co_await server.serve([&accepted_shards] {
+        return [&accepted_shards] (connection session) mutable -> future<> {
+            co_await accepted_shards.record(this_shard_id());
+            try {
+                while (true) {
+                    co_await session.accept_stream();
+                }
+            } catch (const quic_error& e) {
+                if (e.code() != quic_error_code::closed) {
+                    throw;
+                }
+            }
+        };
+    });
+
+    constexpr unsigned owner_shard = 0;
+    constexpr unsigned wrong_shard = 1;
+    auto channels = co_await make_udp_channels_for_shards(
+      server.local_address(), accepted_shards, owner_shard, wrong_shard);
+    channels[0].close();
+
+    // This source port is known to land on shard 1, while the synthetic CID
+    // names shard 0 as owner. Keep sending while stop() unregisters shard 0.
+    for (unsigned warmup = 0; warmup < 8; ++warmup) {
+        co_await send_udp_packet(
+          channels[1], server.local_address(), make_short_header_packet_for_shard(owner_shard));
+    }
+    co_await sleep(std::chrono::milliseconds(10));
+
+    constexpr size_t packet_count = 512;
+    auto forwards = send_udp_packets(
+      channels[1], server.local_address(), owner_shard, packet_count);
+    auto stop_future = server.stop();
+    co_await std::move(forwards);
+    channels[1].close();
+    co_await std::move(stop_future);
+}
+
+SEASTAR_TEST_CASE(test_sharded_quic_server_creates_handler_on_every_shard) {
+    sharded_quic_server server;
+    sharded<handler_factory_probe> factory_probes;
+    bool factory_probes_started = false;
+    std::exception_ptr error;
+
+    try {
+        co_await factory_probes.start();
+        factory_probes_started = true;
+
+        quic_server_config server_cfg;
+        server_cfg.listen_address = make_ipv4_address({0x7f000001, 0});
+        server_cfg.crt_file = "test.crt";
+        server_cfg.key_file = "test.key";
+        co_await server.start(std::move(server_cfg));
+
+        co_await server.serve([&factory_probes] {
+            ++factory_probes.local().calls;
+            return [] (connection session) mutable -> future<> {
+                co_await session.close();
+            };
+        });
+
+        auto called_once_on_every_shard = co_await factory_probes.map_reduce0(
+          [] (const handler_factory_probe& probe) {
+              return probe.calls == 1;
+          },
+          true,
+          [] (bool lhs, bool rhs) {
+              return lhs && rhs;
+          });
+        BOOST_REQUIRE(called_once_on_every_shard);
+    } catch (...) {
+        error = std::current_exception();
+    }
+
+    try {
+        co_await server.stop();
+    } catch (...) {
+        if (!error) {
+            error = std::current_exception();
+        }
+    }
+    if (factory_probes_started) {
+        try {
+            co_await factory_probes.stop();
+        } catch (...) {
+            if (!error) {
+                error = std::current_exception();
+            }
+        }
+    }
+
+    if (error) {
+        std::rethrow_exception(error);
+    }
+}
+
+SEASTAR_TEST_CASE(test_sharded_quic_server_enforces_lifecycle_and_restarts) {
+    sharded_quic_server server;
+    auto make_handler = [] {
+        return [] (connection session) mutable -> future<> {
+            co_await session.close();
+        };
+    };
+    auto make_config = [] {
+        quic_server_config cfg;
+        cfg.listen_address = make_ipv4_address({0x7f000001, 0});
+        cfg.crt_file = "test.crt";
+        cfg.key_file = "test.key";
+        return cfg;
+    };
+
+    require_quic_future_exception(server.serve(make_handler), quic_error::invalid_state);
+
+    co_await server.start(make_config());
+    BOOST_REQUIRE_NE(quic_socket_address_port(server.local_address()), 0);
+    require_quic_future_exception(server.start(make_config()), quic_error::invalid_state);
+
+    co_await server.serve(make_handler);
+    require_quic_future_exception(server.serve(make_handler), quic_error::invalid_state);
+
+    co_await server.stop();
+    co_await server.stop();
+
+    co_await server.start(make_config());
+    BOOST_REQUIRE_NE(quic_socket_address_port(server.local_address()), 0);
+    co_await server.serve(make_handler);
+    co_await server.stop();
+}
+
+SEASTAR_TEST_CASE(test_sharded_quic_server_echoes_connections) {
+    sharded_quic_server server;
+    std::exception_ptr error;
+
+    try {
+        quic_server_config server_cfg;
+        server_cfg.listen_address = make_ipv4_address({0x7f000001, 0});
+        server_cfg.crt_file = "test.crt";
+        server_cfg.key_file = "test.key";
+        co_await server.start(std::move(server_cfg));
+
+        auto server_address = server.local_address();
+        BOOST_REQUIRE_EQUAL(server_address.family(), AF_INET);
+        BOOST_REQUIRE_NE(quic_socket_address_port(server_address), 0);
+
+        co_await server.serve([] {
+            return [] (connection session) mutable -> future<> {
+                try {
+                    auto quic_stream = co_await session.accept_stream();
+                    co_await echo_quic_stream(std::move(quic_stream));
+                } catch (const quic_error& e) {
+                    if (e.code() != quic_error::closed) {
+                        throw;
+                    }
+                }
+            };
+        });
+
+        auto client_count = std::max(4u, this_smp_shard_count() * 2u);
+        std::vector<future<>> clients;
+        clients.reserve(client_count);
+        for (unsigned i = 0; i < client_count; ++i) {
+            clients.push_back(quic_echo_client_round_trip(server_address, format("sharded echo {}", i)));
+        }
+        co_await when_all_succeed(clients.begin(), clients.end());
+    } catch (...) {
+        error = std::current_exception();
+    }
+
+    try {
+        co_await server.stop();
+    } catch (...) {
+        if (!error) {
+            error = std::current_exception();
+        }
+    }
+
+    if (error) {
+        std::rethrow_exception(error);
+    }
+}
+
+SEASTAR_TEST_CASE(test_sharded_quic_server_destructor_stops_detached) {
+    {
+        sharded_quic_server server;
+
+        quic_server_config server_cfg;
+        server_cfg.listen_address = make_ipv4_address({0x7f000001, 0});
+        server_cfg.crt_file = "test.crt";
+        server_cfg.key_file = "test.key";
+        co_await server.start(std::move(server_cfg));
+    }
+
+    co_await sleep(std::chrono::milliseconds{100});
+}
+
+SEASTAR_TEST_CASE(test_sharded_quic_server_destructor_stops_detached_with_active_session) {
+    quic_client client;
+    std::optional<connection> session;
+    std::exception_ptr error;
+
+    try {
+        {
+            sharded_quic_server server;
+
+            quic_server_config server_cfg;
+            server_cfg.listen_address = make_ipv4_address({0x7f000001, 0});
+            server_cfg.crt_file = "test.crt";
+            server_cfg.key_file = "test.key";
+            co_await server.start(std::move(server_cfg));
+
+            auto server_address = server.local_address();
+            co_await server.serve([] {
+                return [] (connection session) mutable -> future<> {
+                    co_await sleep(std::chrono::milliseconds{200});
+                    try {
+                        co_await session.close();
+                    } catch (...) {
+                    }
+                };
+            });
+
+            quic_client_config client_cfg;
+            client_cfg.remote_address = server_address;
+            client_cfg.server_name = "test.scylladb.org";
+            client_cfg.ca_file = "test.crt";
+            session.emplace(co_await client.connect(std::move(client_cfg)));
+            co_await sleep(std::chrono::milliseconds{25});
+        }
+
+        co_await sleep(std::chrono::milliseconds{300});
+    } catch (...) {
+        error = std::current_exception();
+    }
+
+    if (session) {
+        try {
+            co_await session->close();
+        } catch (...) {
+        }
+    }
+
+    try {
+        co_await client.stop();
+    } catch (...) {
+        if (!error) {
+            error = std::current_exception();
+        }
+    }
+
+    if (error) {
+        std::rethrow_exception(error);
+    }
 }
 
 SEASTAR_TEST_CASE(test_quic_connection_metadata_tracks_transport_ready) {
