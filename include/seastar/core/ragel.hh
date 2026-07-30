@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <seastar/core/iostream.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/util/assert.hh>
@@ -124,17 +125,16 @@ protected:
         return std::move(_builder).get();
     }
 public:
-    using unconsumed_remainder = std::optional<temporary_buffer<char>>;
-    future<unconsumed_remainder> operator()(temporary_buffer<char> buf) {
+    future<consumption_result<char>> operator()(temporary_buffer<char> buf) {
         char* p = buf.get_write();
         char* pe = p + buf.size();
         char* eof = buf.empty() ? pe : nullptr;
         char* parsed = static_cast<ConcreteParser*>(this)->parse(p, pe, eof);
         if (parsed) {
             buf.trim_front(parsed - p);
-            return make_ready_future<unconsumed_remainder>(std::move(buf));
+            return make_ready_future<consumption_result<char>>(stop_consuming<char>{std::move(buf)});
         }
-        return make_ready_future<unconsumed_remainder>();
+        return make_ready_future<consumption_result<char>>(continue_consuming{});
     }
 };
 
