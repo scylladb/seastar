@@ -1024,12 +1024,12 @@ private:
         return family == AF_INET || family == AF_INET6;
     }
 
-    static file_desc create_socket(sa_family_t family) {
+    static file_desc create_socket(sa_family_t family, datagram_channel_options opts = {}) {
         file_desc fd = file_desc::socket(family, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
 
         if (is_inet(family)) {
             fd.setsockopt(SOL_IP, IP_PKTINFO, true);
-            if (engine().posix_reuseport_available()) {
+            if (opts.reuse_port) {
                 fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
             }
         }
@@ -1056,9 +1056,9 @@ public:
 
     /// Creates a channel that is bound to the specified local address. It can be used to
     /// communicate with addresses that belong to the family of \param local.
-    posix_datagram_channel(socket_address local)
+    posix_datagram_channel(socket_address local, datagram_channel_options opts = {})
         : _recv(is_inet(local.family())), _closed(false) {
-        auto fd = create_socket(local.family());
+        auto fd = create_socket(local.family(), opts);
         fd.bind(local.u.sa, local.addr_length);
 
         _address = fd.get_address();
@@ -1110,8 +1110,8 @@ posix_network_stack::make_unbound_datagram_channel(sa_family_t family) {
 }
 
 datagram_channel
-posix_network_stack::make_bound_datagram_channel(const socket_address& local) {
-    return datagram_channel(std::make_unique<posix_datagram_channel>(local));
+posix_network_stack::make_bound_datagram_channel(const socket_address& local, datagram_channel_options opts) {
+    return datagram_channel(std::make_unique<posix_datagram_channel>(local, opts));
 }
 
 bool
