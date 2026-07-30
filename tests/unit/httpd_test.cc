@@ -931,6 +931,53 @@ SEASTAR_TEST_CASE(content_length_limit) {
     });
 }
 
+SEASTAR_TEST_CASE(test_listener_tag) {
+    return seastar::async([] {
+        // The tag is opaque to seastar; here it is used the way a caller with
+        // per-endpoint configuration would use it: as an index into its own
+        // array. Index 0 is left unused so that an untagged listener, which
+        // reports no_listener_tag, is distinguishable.
+        const std::vector<sstring> endpoint_names = { "unused", "first", "second" };
+
+        http_server server("test");
+        server._routes.put(GET, "/tag", new function_handler([&endpoint_names] (const_req req) -> sstring {
+            auto tag = req.get_listener_tag();
+            if (tag == no_listener_tag) {
+                return "no-tag";
+            }
+            return endpoint_names.at(static_cast<size_t>(tag));
+        }, "txt"));
+
+        auto addr = socket_address(ipv4_addr("127.0.0.1", 0));
+        listen_options lo;
+        lo.reuse_address = true;
+        lo.set_fixed_cpu(this_shard_id());
+        server.listen(addr, lo, listener_tag{1}).get();
+        server.listen(addr, lo, listener_tag{2}).get();
+        server.listen(addr, lo).get(); // no tag
+
+        auto fetch_tag = [&server] (int idx) {
+            auto cln = http::client(http_server_tester::listeners(server)[idx].local_address());
+            sstring body;
+            cln.make_request(http::request::make("GET", "test", "/tag"),
+                    [&body] (const http::reply& rep, input_stream<char>&& in) {
+                return seastar::async([&body, in = std::move(in)] () mutable {
+                    body = util::read_entire_stream_contiguous(in).get();
+                    in.close().get();
+                });
+            }, http::reply::status_type::ok).get();
+            cln.close().get();
+            return body;
+        };
+
+        BOOST_REQUIRE_EQUAL(fetch_tag(0), "first");
+        BOOST_REQUIRE_EQUAL(fetch_tag(1), "second");
+        BOOST_REQUIRE_EQUAL(fetch_tag(2), "no-tag");
+
+        server.stop().get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_client_unexpected_reply_status) {
     return seastar::async([] {
         class handl : public httpd::handler_base {
