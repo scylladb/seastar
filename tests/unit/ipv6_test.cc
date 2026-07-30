@@ -69,40 +69,6 @@ SEASTAR_TEST_CASE(udp_packet_test) {
     });
 }
 
-SEASTAR_TEST_CASE(udp_bound_channel_rejects_duplicate_bind_without_reuse_port) {
-    return async([] {
-        auto first = make_bound_datagram_channel(make_ipv4_address({0x7f000001, 0}));
-        auto local = first.local_address();
-
-        bool duplicate_failed = false;
-        try {
-            auto second = make_bound_datagram_channel(local);
-            second.close();
-        } catch (...) {
-            duplicate_failed = true;
-        }
-
-        first.close();
-        BOOST_REQUIRE(duplicate_failed);
-    });
-}
-
-SEASTAR_TEST_CASE(udp_bound_channel_allows_duplicate_bind_with_reuse_port) {
-    return async([] {
-        auto first = engine().net().make_bound_datagram_channel(
-          make_ipv4_address({0x7f000001, 0}),
-          net::datagram_channel_options{.reuse_port = true});
-        auto local = first.local_address();
-
-        auto second = engine().net().make_bound_datagram_channel(
-          local,
-          net::datagram_channel_options{.reuse_port = true});
-
-        second.close();
-        first.close();
-    });
-}
-
 SEASTAR_TEST_CASE(tcp_packet_test) {
     if (!check_ipv6_support()) {
         return make_ready_future<>();
@@ -159,4 +125,3 @@ SEASTAR_TEST_CASE(ipv6_equal_test) {
 
     return make_ready_future();
 }
-

@@ -64,8 +64,10 @@ namespace seastar::quic::experimental {
 namespace {
 
 constexpr size_t max_cid_len = 20;
-constexpr size_t server_short_cid_len = 16;
+constexpr size_t server_short_cid_len = max_cid_len;
 constexpr size_t server_cid_shard_prefix_len = 2;
+constexpr size_t server_cid_auth_tag_len = 8;
+constexpr size_t server_cid_authenticated_len = server_short_cid_len - server_cid_auth_tag_len;
 constexpr size_t server_cid_generation_attempts = 16;
 constexpr size_t max_udp_payload_size = 65527;
 constexpr size_t default_udp_payload_size = 1200;
@@ -85,22 +87,63 @@ bool encode_current_shard_in_server_cid(uint8_t* data, size_t len) noexcept {
     return true;
 }
 
-bool rand_server_cid_or_log(uint8_t* dest, size_t len, const char* detail) {
-    if (!rand_bytes_or_log(quic_server_log, "server", dest, len, detail)) {
+bool authenticate_server_cid(
+        const internal::quic_server_cid_key& key,
+        const uint8_t* cid,
+        size_t len) noexcept {
+    if (len != server_short_cid_len) {
         return false;
     }
-    return encode_current_shard_in_server_cid(dest, len);
-}
 
-void rand_server_cid_or_throw(uint8_t* dest, size_t len, const char* detail) {
-    rand_bytes_or_throw(dest, len, detail);
-    if (!encode_current_shard_in_server_cid(dest, len)) {
-        throw_quic_error(quic_error_code::unsupported, "too many shards to encode in QUIC connection id");
+    std::array<uint8_t, 32> digest{};
+    auto rv = gnutls_hmac_fast(
+      GNUTLS_MAC_SHA256,
+      key.data(),
+      key.size(),
+      cid,
+      server_cid_authenticated_len,
+      digest.data());
+    if (rv < 0) {
+        return false;
     }
+    return gnutls_memcmp(
+             cid + server_cid_authenticated_len,
+             digest.data(),
+             server_cid_auth_tag_len)
+           == 0;
 }
 
-std::optional<unsigned> shard_from_server_cid(const uint8_t* cid, size_t len) noexcept {
-    if (len != server_short_cid_len || len < server_cid_shard_prefix_len) {
+bool seal_server_cid(
+        const internal::quic_server_cid_key& key,
+        uint8_t* cid,
+        size_t len) noexcept {
+    if (len != server_short_cid_len || !encode_current_shard_in_server_cid(cid, len)) {
+        return false;
+    }
+
+    std::array<uint8_t, 32> digest{};
+    auto rv = gnutls_hmac_fast(
+      GNUTLS_MAC_SHA256,
+      key.data(),
+      key.size(),
+      cid,
+      server_cid_authenticated_len,
+      digest.data());
+    if (rv < 0) {
+        return false;
+    }
+    std::memcpy(
+      cid + server_cid_authenticated_len,
+      digest.data(),
+      server_cid_auth_tag_len);
+    return true;
+}
+
+std::optional<unsigned> shard_from_server_cid(
+        const internal::quic_server_cid_key& key,
+        const uint8_t* cid,
+        size_t len) noexcept {
+    if (!authenticate_server_cid(key, cid, len)) {
         return std::nullopt;
     }
     auto shard = (static_cast<unsigned>(cid[0]) << 8) | static_cast<unsigned>(cid[1]);
@@ -773,11 +816,19 @@ public:
         cleanup_resources();
     }
 
-    future<> start(quic_server_config cfg) {
+    future<> start(
+            quic_server_config cfg,
+            bool reuse_port,
+            std::optional<quic_server_cid_key> cid_key) {
         if (_started) {
             throw_quic_error(quic_error_code::invalid_state, "server already started");
         }
         ensure_gnutls_global();
+        if (cid_key) {
+            _cid_key = std::move(*cid_key);
+        } else {
+            rand_bytes_or_throw(_cid_key.data(), _cid_key.size(), "server CID routing key generation");
+        }
         validate_ip_socket_address(cfg.listen_address, "listen_address");
         validate_alpn_protocols(cfg.alpns);
         quic_server_log.info(
@@ -799,9 +850,9 @@ public:
             throw_quic_error(classify_gnutls_error(rv), gnutls_error_message(rv));
         }
 
-        _channel = engine().net().make_bound_datagram_channel(
+        _channel = make_bound_datagram_channel(
           _cfg.listen_address,
-          net::datagram_channel_options{.reuse_port = _cfg.reuse_port});
+          net::datagram_channel_options{.reuse_port = reuse_port});
         _channel_ready = true;
         _listen_address = _channel.local_address();
         _started = true;
@@ -1030,7 +1081,11 @@ private:
 
         cid.datalen = cidlen;
         for (size_t attempt = 0; attempt != server_cid_generation_attempts; ++attempt) {
-            if (!rand_server_cid_or_log(cid.data, cidlen, detail)) {
+            if (!rand_bytes_or_log(quic_server_log, "server", cid.data, cidlen, detail)) {
+                return false;
+            }
+            if (!seal_server_cid(_cid_key, cid.data, cidlen)) {
+                quic_server_log.warn("server failed to authenticate generated connection id");
                 return false;
             }
             if (!has_mapped_dcid(cid.data, cid.datalen)) {
@@ -1050,7 +1105,13 @@ private:
 
         cid.datalen = cidlen;
         for (size_t attempt = 0; attempt != server_cid_generation_attempts; ++attempt) {
-            rand_server_cid_or_throw(cid.data, cidlen, detail);
+            rand_bytes_or_throw(cid.data, cidlen, detail);
+            if (!seal_server_cid(_cid_key, cid.data, cidlen)) {
+                if (this_shard_id() > std::numeric_limits<uint16_t>::max()) {
+                    throw_quic_error(quic_error_code::unsupported, "too many shards to encode in QUIC connection id");
+                }
+                throw_quic_error(quic_error_code::internal, "failed to authenticate generated QUIC connection id");
+            }
             if (!has_mapped_dcid(cid.data, cid.datalen)) {
                 return;
             }
@@ -1586,7 +1647,7 @@ private:
             // Unknown short-header packets cannot create server state; only Initial can.
             if (!parsed.long_header || parsed.long_type != quic_long_type::initial) {
                 if (allow_forward && _packet_router) {
-                    auto owner = shard_from_server_cid(parsed.dcid.data(), parsed.dcid_len);
+                    auto owner = shard_from_server_cid(_cid_key, parsed.dcid.data(), parsed.dcid_len);
                     if (owner && *owner != this_shard_id()) {
                         quic_server_log.debug("server forward datagram: src={} owner_shard={} current_shard={}",
                           src, *owner, this_shard_id());
@@ -1655,6 +1716,7 @@ private:
     }
 
     quic_server_config _cfg{};
+    quic_server_cid_key _cid_key{};
     gnutls_certificate_credentials_t _cred = nullptr;
     net::datagram_channel _channel{};
     bool _channel_ready = false;
@@ -1794,7 +1856,14 @@ quic_server& quic_server::operator=(quic_server&&) noexcept = default;
 
 future<> quic_server::start(quic_server_config config) {
     quic_server_log.debug("quic_server::start");
-    co_await _impl->start(std::move(config));
+    co_await _impl->start(std::move(config), false, std::nullopt);
+}
+
+future<> quic_server::start_shard(
+        quic_server_config config,
+        internal::quic_server_cid_key cid_key,
+        bool reuse_port) {
+    co_await _impl->start(std::move(config), reuse_port, std::move(cid_key));
 }
 
 future<connection> quic_server::accept() {

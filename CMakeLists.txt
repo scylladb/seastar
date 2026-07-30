@@ -723,6 +723,7 @@ add_library (seastar
   include/seastar/quic/quic.hh
   include/seastar/quic/quic_client.hh
   include/seastar/quic/quic_server.hh
+  include/seastar/quic/sharded_quic_server.hh
   include/seastar/quic/quic_error.hh
   src/core/alien.cc
   src/core/file.cc

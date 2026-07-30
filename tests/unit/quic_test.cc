@@ -76,9 +76,9 @@ constexpr int ngtcp2_err_stream_id_blocked = NGTCP2_ERR_STREAM_ID_BLOCKED;
 constexpr int ngtcp2_err_draining = NGTCP2_ERR_DRAINING;
 constexpr int ngtcp2_err_stream_shut_wr = NGTCP2_ERR_STREAM_SHUT_WR;
 
-constexpr size_t test_server_cid_len = 16;
+constexpr size_t test_server_cid_len = 20;
 
-temporary_buffer<char> make_short_header_packet_for_shard(unsigned shard) {
+temporary_buffer<char> make_forged_short_header_packet_for_shard(unsigned shard) {
     temporary_buffer<char> packet(test_server_cid_len + 8);
     std::fill_n(packet.get_write(), packet.size(), char{0x5a});
     packet.get_write()[0] = 0x40;
@@ -92,13 +92,13 @@ future<> send_udp_packet(net::datagram_channel& channel, socket_address dst, tem
     co_await channel.send(dst, std::span<temporary_buffer<char>>(datagram));
 }
 
-future<> send_udp_packets(
+future<> send_forged_udp_packets(
   net::datagram_channel& channel,
   socket_address dst,
   unsigned owner_shard,
   size_t packet_count) {
     for (size_t packet_index = 0; packet_index < packet_count; ++packet_index) {
-        co_await send_udp_packet(channel, dst, make_short_header_packet_for_shard(owner_shard));
+        co_await send_udp_packet(channel, dst, make_forged_short_header_packet_for_shard(owner_shard));
         co_await seastar::coroutine::maybe_yield();
     }
 }
@@ -1291,7 +1291,7 @@ SEASTAR_TEST_CASE(test_sharded_quic_server_keeps_connection_alive_after_wrong_sh
     }
 }
 
-SEASTAR_TEST_CASE(test_sharded_quic_server_stop_races_with_forwarded_packets) {
+SEASTAR_TEST_CASE(test_sharded_quic_server_ignores_forged_routing_cids_during_stop) {
     if (this_smp_shard_count() < 2) {
         BOOST_TEST_MESSAGE("skipping cross-shard QUIC shutdown race test: at least two shards are required");
         co_return;
@@ -1326,16 +1326,16 @@ SEASTAR_TEST_CASE(test_sharded_quic_server_stop_races_with_forwarded_packets) {
       server.local_address(), accepted_shards, owner_shard, wrong_shard);
     channels[0].close();
 
-    // This source port is known to land on shard 1, while the synthetic CID
-    // names shard 0 as owner. Keep sending while stop() unregisters shard 0.
+    // This source port is known to land on shard 1. The synthetic CID names
+    // shard 0 but has no valid routing tag, so it must not be forwarded.
     for (unsigned warmup = 0; warmup < 8; ++warmup) {
         co_await send_udp_packet(
-          channels[1], server.local_address(), make_short_header_packet_for_shard(owner_shard));
+          channels[1], server.local_address(), make_forged_short_header_packet_for_shard(owner_shard));
     }
     co_await sleep(std::chrono::milliseconds(10));
 
     constexpr size_t packet_count = 512;
-    auto forwards = send_udp_packets(
+    auto forwards = send_forged_udp_packets(
       channels[1], server.local_address(), owner_shard, packet_count);
     auto stop_future = server.stop();
     co_await std::move(forwards);

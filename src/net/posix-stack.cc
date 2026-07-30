@@ -1110,7 +1110,12 @@ posix_network_stack::make_unbound_datagram_channel(sa_family_t family) {
 }
 
 datagram_channel
-posix_network_stack::make_bound_datagram_channel(const socket_address& local, datagram_channel_options opts) {
+posix_network_stack::make_bound_datagram_channel(const socket_address& local) {
+    return datagram_channel(std::make_unique<posix_datagram_channel>(local));
+}
+
+datagram_channel
+posix_network_stack::make_bound_datagram_channel_with_options(const socket_address& local, datagram_channel_options opts) {
     return datagram_channel(std::make_unique<posix_datagram_channel>(local, opts));
 }
 

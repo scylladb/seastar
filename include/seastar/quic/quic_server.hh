@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <array>
 #include <vector>
 
 #include <seastar/core/shared_ptr.hh>
@@ -33,6 +34,8 @@ namespace seastar::quic::experimental {
 namespace internal {
 class quic_server_impl;
 class quic_server_shard;
+
+using quic_server_cid_key = std::array<uint8_t, 32>;
 
 class quic_packet_router {
 public:
@@ -58,9 +61,6 @@ struct quic_server_config {
 
     /// Runtime and transport limits for accepted connections.
     connection_options session_options{};
-
-    /// Allows multiple UDP sockets to bind the same endpoint for kernel fanout.
-    bool reuse_port = false;
 };
 
 /// Server-side owner of the listening transport and accepted QUIC connections.
@@ -91,6 +91,10 @@ public:
 private:
     friend class internal::quic_server_shard;
 
+    future<> start_shard(
+            quic_server_config config,
+            internal::quic_server_cid_key cid_key,
+            bool reuse_port);
     void set_packet_router(internal::quic_packet_router* router) noexcept;
     future<> inject_datagram(socket_address src, temporary_buffer<char> packet);
 

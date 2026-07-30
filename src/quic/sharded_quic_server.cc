@@ -41,6 +41,7 @@
 #include <seastar/core/smp.hh>
 #include <seastar/util/log.hh>
 
+#include "quic_common.hh"
 #include "quic_error_impl.hh"
 
 namespace seastar::quic::experimental {
@@ -78,7 +79,7 @@ bool is_bind_conflict(std::exception_ptr ep) noexcept {
             std::rethrow_exception(ep);
         }
     } catch (const std::system_error& e) {
-        return e.code().value() == EADDRINUSE || e.code().value() == EADDRNOTAVAIL;
+        return e.code().value() == EADDRINUSE;
     } catch (...) {
     }
     return false;
@@ -109,14 +110,27 @@ thread_local std::unordered_map<socket_address, quic_server_shard*> quic_server_
 
 class quic_server_shard final : public quic_packet_router {
 public:
-    future<> start(quic_server_config config) {
+    future<> start(quic_server_config config, quic_server_cid_key cid_key) {
         if (_started) {
             throw_quic_error(quic_error_code::invalid_state, "sharded QUIC server shard already started");
         }
         _server.set_packet_router(this);
-        co_await _server.start(std::move(config));
+        try {
+            co_await _server.start_shard(
+              std::move(config),
+              std::move(cid_key),
+              this_smp_shard_count() > 1);
+        } catch (...) {
+            _server.set_packet_router(nullptr);
+            throw;
+        }
         _local_address = _server.local_address();
-        quic_server_shards[_local_address] = this;
+        auto registration = quic_server_shards.emplace(_local_address, this);
+        if (!registration.second) {
+            _server.set_packet_router(nullptr);
+            co_await _server.stop();
+            throw_quic_error(quic_error_code::invalid_state, "another sharded QUIC server is already registered on this endpoint");
+        }
         _registered = true;
         _started = true;
     }
@@ -264,7 +278,9 @@ public:
             throw_quic_error(quic_error_code::invalid_state, "sharded QUIC server already started");
         }
 
-        config.reuse_port = this_smp_shard_count() > 1;
+        ensure_gnutls_global();
+        internal::quic_server_cid_key cid_key{};
+        rand_bytes_or_throw(cid_key.data(), cid_key.size(), "sharded server CID routing key generation");
 
         co_await _shards->start();
         _shards_started = true;
@@ -272,9 +288,9 @@ public:
         std::exception_ptr error;
         try {
             if (socket_address_port(config.listen_address) == 0) {
-                co_await start_with_ephemeral_port(std::move(config));
+                co_await start_with_ephemeral_port(std::move(config), cid_key);
             } else {
-                co_await start_on_all_shards(std::move(config));
+                co_await start_on_all_shards(std::move(config), cid_key);
             }
             _started = true;
         } catch (...) {
@@ -372,9 +388,11 @@ private:
     }
 
 private:
-    future<> start_with_ephemeral_port(quic_server_config config) {
-        co_await _shards->invoke_on(0, [config] (internal::quic_server_shard& shard) mutable {
-            return shard.start(std::move(config));
+    future<> start_with_ephemeral_port(
+            quic_server_config config,
+            internal::quic_server_cid_key cid_key) {
+        co_await _shards->invoke_on(0, [config, cid_key] (internal::quic_server_shard& shard) mutable {
+            return shard.start(std::move(config), std::move(cid_key));
         });
 
         auto local = co_await _shards->invoke_on(0, [] (internal::quic_server_shard& shard) {
@@ -384,14 +402,16 @@ private:
         set_socket_address_port(config.listen_address, socket_address_port(local));
 
         auto remaining_shards = std::views::iota(1u, this_smp_shard_count());
-        co_await _shards->invoke_on(remaining_shards, [config = std::move(config)] (internal::quic_server_shard& shard) mutable {
-            return shard.start(config);
+        co_await _shards->invoke_on(remaining_shards, [config = std::move(config), cid_key] (internal::quic_server_shard& shard) mutable {
+            return shard.start(config, cid_key);
         });
     }
 
-    future<> start_on_all_shards(quic_server_config config) {
-        co_await _shards->invoke_on_all([config] (internal::quic_server_shard& shard) mutable {
-            return shard.start(config);
+    future<> start_on_all_shards(
+            quic_server_config config,
+            internal::quic_server_cid_key cid_key) {
+        co_await _shards->invoke_on_all([config, cid_key] (internal::quic_server_shard& shard) mutable {
+            return shard.start(config, cid_key);
         });
         _local_address = co_await _shards->invoke_on(0, [] (internal::quic_server_shard& shard) {
             return make_ready_future<socket_address>(shard.local_address());
