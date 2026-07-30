@@ -1400,6 +1400,16 @@ future<> server::stop() {
     ).discard_result();
 }
 
+[[noreturn]] void client_info::report_missing_auxiliary(const sstring& key) const {
+    server.abort_connection(conn_id);
+    auto msg = format("missing auxiliary data '{}' on connection {}", key, conn_id);
+    auto it = server._conns.find(conn_id);
+    if (it != server._conns.end()) {
+        it->second->get_logger()(*this, log_level::warn, msg);
+    }
+    throw missing_auxiliary_error(msg);
+}
+
 void server::abort_connection(connection_id id) {
     auto it = _conns.find(id);
     if (it == _conns.end()) {
