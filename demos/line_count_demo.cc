@@ -42,14 +42,14 @@ public:
     size_t count = 0;
 
     // for input_stream::consume():
-    using unconsumed_remainder = std::optional<temporary_buffer<char>>;
-    future<unconsumed_remainder> operator()(temporary_buffer<char> data) {
+    using consumption_result_type = consumption_result<char>;
+    future<consumption_result_type> operator()(temporary_buffer<char> data) {
         if (data.empty()) {
-            return make_ready_future<unconsumed_remainder>(std::move(data));
+            return make_ready_future<consumption_result_type>(stop_consuming<char>{std::move(data)});
         } else {
             count += std::count(data.begin(), data.end(), '\n');
             // FIXME: last line without \n?
-            return make_ready_future<unconsumed_remainder>();
+            return make_ready_future<consumption_result_type>(continue_consuming{});
         }
     }
 };
