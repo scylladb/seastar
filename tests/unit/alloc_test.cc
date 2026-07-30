@@ -481,7 +481,15 @@ SEASTAR_TEST_CASE(test_sampled_profile_collection_small)
         BOOST_REQUIRE_EQUAL(stats.size(), 0);
     }
 
-    std::size_t count = 100;
+    // The two loops below are distinct call sites and the assertions require
+    // both of them to be sampled, so each loop has to cover enough sampling
+    // intervals that missing one entirely is not plausible. The sampler draws
+    // the gap to the next sample from an exponential distribution whose mean is
+    // the sampling interval, so a loop allocating N intervals worth of bytes
+    // records nothing with probability e^-N. count/2 * 10 bytes against the 100
+    // byte interval below is N=50, putting the chance of recording one call
+    // site instead of two at about 2*e^-50.
+    std::size_t count = 1000;
     std::vector<volatile char*> ptrs(count);
 
     seastar::memory::set_heap_profiling_sampling_rate(100);
@@ -558,7 +566,16 @@ SEASTAR_TEST_CASE(test_sampled_profile_collection_large)
     std::size_t count = 100;
     std::vector<volatile char*> ptrs(count);
 
-    seastar::memory::set_heap_profiling_sampling_rate(1000000);
+    // Both loops have to be sampled, as in
+    // test_sampled_profile_collection_small: count/2 * 100000 bytes against
+    // this interval is N=25 intervals per loop, so the chance of recording one
+    // call site instead of two is about 2*e^-25. The interval also has to stay
+    // above the 131072 bytes that a 100000 byte request actually allocates, so
+    // that sample_size() accounts each sample as one full interval and the
+    // size == count * sample_rate check below holds.
+    std::size_t sample_rate = 200000;
+
+    seastar::memory::set_heap_profiling_sampling_rate(sample_rate);
 
 #ifdef __clang__
     #pragma nounroll
@@ -580,10 +597,10 @@ SEASTAR_TEST_CASE(test_sampled_profile_collection_large)
     {
         auto stats = seastar::memory::sampled_memory_profile();
         BOOST_REQUIRE_EQUAL(stats.size(), 2);
-        BOOST_REQUIRE_EQUAL(stats[0].size, stats[0].count * 1000000);
+        BOOST_REQUIRE_EQUAL(stats[0].size, stats[0].count * sample_rate);
     }
 
-    seastar::memory::set_heap_profiling_sampling_rate(1000000);
+    seastar::memory::set_heap_profiling_sampling_rate(sample_rate);
 
     for (auto ptr : ptrs) {
         free((void*)ptr);
