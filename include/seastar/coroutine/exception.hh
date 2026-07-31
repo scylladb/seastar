@@ -47,7 +47,7 @@ struct exception_awaiter {
       SEASTAR_COROUTINE_LOC_STORE(hndl.promise());
       execute_involving_handle_destruction_in_await_suspend([hndl, eptr = std::move(eptr)] () mutable {
         hndl.promise().set_exception(std::move(eptr));
-        hndl.destroy();
+        finalize_and_destroy_coroutine(hndl);
       });
     }
 
