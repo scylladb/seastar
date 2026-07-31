@@ -53,6 +53,14 @@ class socket_address;
  * agnostic, so in theory it could be replaced
  * with OpenSSL or similar.
  *
+ * Errors are reported as \c std::system_error exceptions carrying
+ * \ref error_category. The \c ERROR_* globals below are backend-neutral
+ * error values: backend errors with an exported constant are translated to
+ * it when the error is created, so comparisons against these constants
+ * behave the same under either backend.
+ *
+ * The \c ERROR_* globals and \ref error_category are backend-neutral,
+ * statically initialized, and valid at any time in every build mode.
  */
 namespace tls {
 
@@ -662,7 +670,13 @@ namespace tls {
     /**
      * Error handling.
      *
-     * The error_category instance used by exceptions thrown by TLS
+     * The error_category instance used by exceptions thrown by TLS.
+     *
+     * This category is backend-neutral: it is the same instance no matter
+     * which backend is active, and it is valid at any time in every build
+     * mode. Error values in this category are either one of the \c ERROR_*
+     * constants below, or a backend-specific value for errors that have no
+     * exported constant.
      */
     const std::error_category& error_category();
 
@@ -672,27 +686,36 @@ namespace tls {
     const char* backend_name();
 
     /**
-     * The more common error codes encountered in TLS.
-     * Not an exhaustive list. Add exports as needed.
+     * The more common error codes encountered in TLS. Not an exhaustive list.
+     * Add exports as needed.
+     *
+     * These constants are backend-neutral: each has a fixed value,
+     * independent of the active backend, distinct from any raw GnuTLS or
+     * OpenSSL error value, and outside the errno range. When a backend
+     * reports an error that has an exported constant, it is translated to that constant, so errors in
+     * \ref error_category compare equal to these constants under either
+     * backend. Errors with no exported constant keep their backend-specific
+     * value: stable for a given backend, but comparing against such values
+     * is inherently backend-dependent.
      */
-    extern int ERROR_UNKNOWN_COMPRESSION_ALGORITHM;
-    extern int ERROR_UNKNOWN_CIPHER_TYPE;
-    extern int ERROR_INVALID_SESSION;
-    extern int ERROR_UNEXPECTED_HANDSHAKE_PACKET;
-    extern int ERROR_UNKNOWN_CIPHER_SUITE;
-    extern int ERROR_UNKNOWN_ALGORITHM;
-    extern int ERROR_UNSUPPORTED_SIGNATURE_ALGORITHM;
-    extern int ERROR_SAFE_RENEGOTIATION_FAILED;
-    extern int ERROR_UNSAFE_RENEGOTIATION_DENIED;
-    extern int ERROR_UNKNOWN_SRP_USERNAME;
-    extern int ERROR_PREMATURE_TERMINATION;
-    extern int ERROR_PUSH;
-    extern int ERROR_PULL;
-    extern int ERROR_UNEXPECTED_PACKET;
-    extern int ERROR_UNSUPPORTED_VERSION;
-    extern int ERROR_NO_CIPHER_SUITES;
-    extern int ERROR_DECRYPTION_FAILED;
-    extern int ERROR_MAC_VERIFY_FAILED;
+    extern const int ERROR_UNKNOWN_COMPRESSION_ALGORITHM;
+    extern const int ERROR_UNKNOWN_CIPHER_TYPE;
+    extern const int ERROR_INVALID_SESSION;
+    extern const int ERROR_UNEXPECTED_HANDSHAKE_PACKET;
+    extern const int ERROR_UNKNOWN_CIPHER_SUITE;
+    extern const int ERROR_UNKNOWN_ALGORITHM;
+    extern const int ERROR_UNSUPPORTED_SIGNATURE_ALGORITHM;
+    extern const int ERROR_SAFE_RENEGOTIATION_FAILED;
+    extern const int ERROR_UNSAFE_RENEGOTIATION_DENIED;
+    extern const int ERROR_UNKNOWN_SRP_USERNAME;
+    extern const int ERROR_PREMATURE_TERMINATION;
+    extern const int ERROR_PUSH;
+    extern const int ERROR_PULL;
+    extern const int ERROR_UNEXPECTED_PACKET;
+    extern const int ERROR_UNSUPPORTED_VERSION;
+    extern const int ERROR_NO_CIPHER_SUITES;
+    extern const int ERROR_DECRYPTION_FAILED;
+    extern const int ERROR_MAC_VERIFY_FAILED;
 }
 }
 

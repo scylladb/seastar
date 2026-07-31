@@ -20,6 +20,7 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
+#include <algorithm>
 #include <ranges>
 #include <iostream>
 
@@ -728,6 +729,220 @@ static future<> run_echo_test(sstring message,
             return server->stop().finally([server]{});
         });
     });
+}
+
+static const std::vector<int>& all_exported_tls_errors() {
+    static const std::vector<int> errors = {
+        tls::ERROR_UNKNOWN_COMPRESSION_ALGORITHM,
+        tls::ERROR_UNKNOWN_CIPHER_TYPE,
+        tls::ERROR_INVALID_SESSION,
+        tls::ERROR_UNEXPECTED_HANDSHAKE_PACKET,
+        tls::ERROR_UNKNOWN_CIPHER_SUITE,
+        tls::ERROR_UNKNOWN_ALGORITHM,
+        tls::ERROR_UNSUPPORTED_SIGNATURE_ALGORITHM,
+        tls::ERROR_SAFE_RENEGOTIATION_FAILED,
+        tls::ERROR_UNSAFE_RENEGOTIATION_DENIED,
+        tls::ERROR_UNKNOWN_SRP_USERNAME,
+        tls::ERROR_PREMATURE_TERMINATION,
+        tls::ERROR_PUSH,
+        tls::ERROR_PULL,
+        tls::ERROR_UNEXPECTED_PACKET,
+        tls::ERROR_UNSUPPORTED_VERSION,
+        tls::ERROR_NO_CIPHER_SUITES,
+        tls::ERROR_DECRYPTION_FAILED,
+        tls::ERROR_MAC_VERIFY_FAILED,
+    };
+    return errors;
+}
+
+static bool is_exported_tls_error(int value) {
+    const auto& errors = all_exported_tls_errors();
+    return std::find(errors.begin(), errors.end(), value) != errors.end();
+}
+
+// The ERROR_* constants are constant-initialized, so reading them from any
+// dynamic initializer, before the reactor exists, must observe the final
+// values. This initializer runs before main().
+static const int error_push_seen_at_static_init = tls::ERROR_PUSH;
+
+SEASTAR_THREAD_TEST_CASE(test_backend_neutral_error_constants) {
+    // The exported ERROR_* constants are backend-neutral: fixed values,
+    // distinct from each other and from anything else that could appear in
+    // a value comparison against them (errnos are < 4096, GnuTLS errors are
+    // negative, untranslated OpenSSL errors have the library bits set at
+    // offset 23 or above).
+    std::unordered_set<int> values;
+    for (auto e : all_exported_tls_errors()) {
+        BOOST_REQUIRE_GT(e, 4096);      // above the errno range
+        BOOST_REQUIRE_LT(e, 1 << 23);   // below packed OpenSSL errors
+        values.insert(e);
+    }
+    BOOST_REQUIRE_EQUAL(values.size(), all_exported_tls_errors().size());
+
+    // valid from static initializers, in every build mode
+    BOOST_REQUIRE_EQUAL(error_push_seen_at_static_init, tls::ERROR_PUSH);
+
+    // the category is backend-neutral, a single instance, and describes the
+    // exported constants itself, with no backend involvement.
+    BOOST_REQUIRE(&tls::error_category() == &tls::error_category());
+    BOOST_REQUIRE_EQUAL(std::string_view(tls::error_category().name()), "tls");
+    for (auto e : all_exported_tls_errors()) {
+        BOOST_REQUIRE(!tls::error_category().message(e).empty());
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(test_unmapped_error_passthrough) {
+    // Backend errors with no exported ERROR_* constant are reported in
+    // tls::error_category() with their raw, backend-specific value, and
+    // error_code::message() falls back to the backend's own description.
+    tls::credentials_builder b;
+    b.set_x509_key(tls::blob("garbage"), tls::blob("garbage"), tls::x509_crt_format::PEM);
+    try {
+        b.build_certificate_credentials();
+        BOOST_FAIL("expected an exception parsing garbage certificates");
+    } catch (const std::system_error& e) {
+        BOOST_REQUIRE(e.code().category() == tls::error_category());
+        // a certificate parse failure has no exported constant, so the raw
+        // backend value passes through
+        BOOST_REQUIRE_NE(e.code().value(), 0);
+        BOOST_REQUIRE(!is_exported_tls_error(e.code().value()));
+        // message() delegates to the active backend for raw values
+        BOOST_REQUIRE(!e.code().message().empty());
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(test_premature_termination_error_code) {
+    // Abruptly closing the transport underneath a TLS session must fail the
+    // client. Under GnuTLS the error is a std::system_error carrying the
+    // backend-neutral ERROR_PREMATURE_TERMINATION in tls::error_category();
+    // OpenSSL reports an abrupt handshake EOF differently, so the exact
+    // error is only checked when GnuTLS is the active backend.
+    ::listen_options opts;
+    opts.reuse_address = true;
+    auto addr = ::make_ipv4_address({0x7f000001, 4714});
+    auto server = server_socket(seastar::listen(addr, opts));
+
+    tls::credentials_builder b;
+    b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    auto creds = b.build_certificate_credentials();
+
+    auto sf = server.accept();
+    auto cs = tls::connect(creds, addr, tls::tls_options{.server_name = "test.scylladb.org"}).get();
+    streams strms(std::move(cs));
+    // kick off the handshake; the write cannot complete before it does.
+    auto wf = strms.out.write(message).then([&] { return strms.out.flush(); });
+
+    // raw (non-TLS) server side: wait for the client hello, then shut the
+    // connection down without any TLS response. The client is now blocked
+    // reading the server hello and sees a bare transport EOF instead.
+    auto ar = sf.get();
+    auto in = ar.connection.input();
+    in.read().get();
+    ar.connection.shutdown_output();
+
+    bool write_failed = false;
+    try {
+        wf.get();
+    } catch (const std::system_error& e) {
+        write_failed = true;
+        if (using_gnutls()) {
+            BOOST_REQUIRE(e.code().category() == tls::error_category());
+            BOOST_REQUIRE_EQUAL(e.code().value(), tls::ERROR_PREMATURE_TERMINATION);
+        }
+    } catch (...) {
+        // other exception types are acceptable for other backends
+        write_failed = true;
+        BOOST_REQUIRE(!using_gnutls());
+    }
+    BOOST_REQUIRE(write_failed);
+
+    in.close().handle_exception([](std::exception_ptr) {}).get();
+    strms.out.close().handle_exception([](std::exception_ptr) {}).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_corrupt_record_error_code) {
+    // A corrupted TLS record must fail record verification on the receiving
+    // side, reported in tls::error_category(). Under GnuTLS the code is one
+    // of the backend-neutral decryption/MAC constants; other backends are
+    // only required to fail.
+    tls::credentials_builder b;
+    b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+    b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    b.set_dh_level();
+    auto creds = b.build_certificate_credentials();
+    auto serv = b.build_server_credentials();
+
+    // server socket whose receive path can corrupt one incoming buffer
+    class corrupting_socket_impl : public loopback_connected_socket_impl {
+    public:
+        bool _corrupt = false;
+
+        using loopback_connected_socket_impl::loopback_connected_socket_impl;
+
+        class corrupting_source_impl : public data_source_impl {
+            data_source _src;
+            corrupting_socket_impl& _impl;
+        public:
+            corrupting_source_impl(data_source src, corrupting_socket_impl& impl)
+                : _src(std::move(src)), _impl(impl)
+            {}
+            future<temporary_buffer<char>> get() override {
+                return _src.get().then([this](temporary_buffer<char> buf) {
+                    if (std::exchange(_impl._corrupt, false) && !buf.empty()) {
+                        buf.get_write()[buf.size() - 1] ^= 0x01;
+                    }
+                    return buf;
+                });
+            }
+            future<> close() override {
+                return _src.close();
+            }
+        };
+        data_source source() override {
+            return data_source(std::make_unique<corrupting_source_impl>(loopback_connected_socket_impl::source(), *this));
+        }
+    };
+
+    auto b1 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::SERVER_TX);
+    auto b2 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::CLIENT_TX);
+    auto ssi = std::make_unique<corrupting_socket_impl>(b1, b2);
+    auto csi = std::make_unique<loopback_connected_socket_impl>(b2, b1);
+    auto& ssir = *ssi;
+
+    auto ss = tls::wrap_server(serv, connected_socket(std::move(ssi))).get();
+    auto cs = tls::wrap_client(creds, connected_socket(std::move(csi))).get();
+
+    auto os = cs.output().detach();
+    auto is = ss.input();
+
+    // one round trip completes the handshake cleanly
+    auto f1 = os.put(temporary_buffer<char>(10));
+    auto f2 = is.read();
+    f1.get();
+    f2.get();
+
+    // corrupt the next record the server receives
+    ssir._corrupt = true;
+    os.put(temporary_buffer<char>(10)).get();
+
+    bool failed = false;
+    try {
+        is.read().get();
+    } catch (const std::system_error& e) {
+        failed = true;
+        if (using_gnutls()) {
+            BOOST_REQUIRE(e.code().category() == tls::error_category());
+            BOOST_REQUIRE(e.code().value() == tls::ERROR_DECRYPTION_FAILED
+                          || e.code().value() == tls::ERROR_MAC_VERIFY_FAILED);
+        }
+    } catch (...) {
+        failed = true;
+        BOOST_REQUIRE(!using_gnutls());
+    }
+    BOOST_REQUIRE(failed);
+
+    os.close().handle_exception([](std::exception_ptr) {}).get();
+    is.close().handle_exception([](std::exception_ptr) {}).get();
 }
 
 /*

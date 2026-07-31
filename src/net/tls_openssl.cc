@@ -133,8 +133,35 @@ static const std::error_category& openssl_error_cat() {
     return ec;
 }
 
+// Translate an OpenSSL error to its backend-neutral tls::ERROR_* value, if
+// it has one. The function bits are masked out so matching is on library +
+// reason only. Errors without an exported constant keep the raw ERR_PACK()ed
+// value.
+static int translate_error(unsigned long error) {
+    switch (ERR_PACK(ERR_GET_LIB(error), 0, ERR_GET_REASON(error))) {
+    case ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_COMPRESSION_ALGORITHM): return tls::ERROR_UNKNOWN_COMPRESSION_ALGORITHM;
+    case ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNKNOWN_CIPHER_TYPE):               return tls::ERROR_UNKNOWN_CIPHER_TYPE;
+    case ERR_PACK(ERR_LIB_SSL, 0, SSL_R_INVALID_SESSION_ID):                return tls::ERROR_INVALID_SESSION;
+    case ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNEXPECTED_RECORD):                 return tls::ERROR_UNEXPECTED_HANDSHAKE_PACKET;
+    case ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_PROTOCOL):              return tls::ERROR_UNKNOWN_CIPHER_SUITE;
+    case ERR_PACK(ERR_LIB_RSA, 0, RSA_R_UNKNOWN_ALGORITHM_TYPE):            return tls::ERROR_UNKNOWN_ALGORITHM;
+    case ERR_PACK(ERR_LIB_SSL, 0, SSL_R_NO_SUITABLE_SIGNATURE_ALGORITHM):   return tls::ERROR_UNSUPPORTED_SIGNATURE_ALGORITHM;
+    case ERR_PACK(ERR_LIB_SSL, 0, SSL_R_RENEGOTIATION_MISMATCH):            return tls::ERROR_SAFE_RENEGOTIATION_FAILED;
+    case ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSAFE_LEGACY_RENEGOTIATION_DISABLED): return tls::ERROR_UNSAFE_RENEGOTIATION_DENIED;
+    case ERR_PACK(ERR_LIB_SSL, 0, SSL_R_INVALID_SRP_USERNAME):              return tls::ERROR_UNKNOWN_SRP_USERNAME;
+    case ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNEXPECTED_EOF_WHILE_READING):      return tls::ERROR_PREMATURE_TERMINATION;
+    case ERR_PACK(ERR_LIB_SSL, 0, SSL_R_READ_BIO_NOT_SET):                  return tls::ERROR_PULL;
+    case ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNEXPECTED_MESSAGE):                return tls::ERROR_UNEXPECTED_PACKET;
+    case ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_SSL_VERSION):           return tls::ERROR_UNSUPPORTED_VERSION;
+    case ERR_PACK(ERR_LIB_SSL, 0, SSL_R_NO_CIPHERS_AVAILABLE):              return tls::ERROR_NO_CIPHER_SUITES;
+    case ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DECRYPTION_FAILED):                 return tls::ERROR_DECRYPTION_FAILED;
+    case ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DECRYPTION_FAILED_OR_BAD_RECORD_MAC): return tls::ERROR_MAC_VERIFY_FAILED;
+    default:                                                                return static_cast<int>(error);
+    }
+}
+
 std::error_code make_error_code(openssl_errc e) {
-    return std::error_code(static_cast<int>(e), openssl_error_cat());
+    return std::error_code(translate_error(static_cast<unsigned long>(e)), tls::error_category());
 }
 
 std::vector<openssl_errc> get_all_openssl_errors() {
@@ -150,7 +177,7 @@ std::system_error make_openssl_error(const std::string & msg, std::vector<openss
     if (error_codes.empty()) {
         return std::system_error{
             static_cast<int>(ERR_PACK(ERR_LIB_USER, 0, ERR_R_OPERATION_FAIL)),
-            openssl_error_cat(),
+            tls::error_category(),
             msg};
     }
     auto err_code = static_cast<unsigned long>(error_codes.front());
@@ -163,8 +190,8 @@ std::system_error make_openssl_error(const std::string & msg, std::vector<openss
             fmt::format("{}: {}", msg, error_codes));
     }
     return std::system_error(
-        static_cast<int>(err_code),
-        openssl_error_cat(),
+        translate_error(err_code),
+        tls::error_category(),
         fmt::format("{}: {}", msg, error_codes));
 }
 
@@ -2356,6 +2383,9 @@ shared_ptr<tls::session_impl> tls::openssl::make_session(
     return seastar::make_shared<tls::openssl_session>(type, std::move(creds), std::move(sock), options);
 }
 
+// Note: this is not the category errors are reported in (that is the
+// backend-neutral tls::error_category()); it only formats messages for raw
+// OpenSSL error values that have no backend-neutral translation.
 const std::error_category& tls::openssl::error_category() {
     return openssl_error_cat();
 }
@@ -2376,27 +2406,6 @@ std::unique_ptr<tls::dh_params_impl> tls::openssl::make_dh_params(tls::dh_params
 
 std::unique_ptr<tls::dh_params_impl> tls::openssl::make_dh_params(const tls::blob& b, tls::x509_crt_format fmt) {
     return std::make_unique<openssl_provider_dh_params_impl>(b, fmt);
-}
-
-void tls::openssl::init_error_codes() {
-    tls::ERROR_UNKNOWN_COMPRESSION_ALGORITHM = ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_COMPRESSION_ALGORITHM);
-    tls::ERROR_UNKNOWN_CIPHER_TYPE = ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNKNOWN_CIPHER_TYPE);
-    tls::ERROR_INVALID_SESSION = ERR_PACK(ERR_LIB_SSL, 0, SSL_R_INVALID_SESSION_ID);
-    tls::ERROR_UNEXPECTED_HANDSHAKE_PACKET = ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNEXPECTED_RECORD);
-    tls::ERROR_UNKNOWN_CIPHER_SUITE = ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_PROTOCOL);
-    tls::ERROR_UNKNOWN_ALGORITHM = ERR_PACK(ERR_LIB_RSA, 0, RSA_R_UNKNOWN_ALGORITHM_TYPE);
-    tls::ERROR_UNSUPPORTED_SIGNATURE_ALGORITHM = ERR_PACK(ERR_LIB_SSL, 0, SSL_R_NO_SUITABLE_SIGNATURE_ALGORITHM);
-    tls::ERROR_SAFE_RENEGOTIATION_FAILED = ERR_PACK(ERR_LIB_SSL, 0, SSL_R_RENEGOTIATION_MISMATCH);
-    tls::ERROR_UNSAFE_RENEGOTIATION_DENIED = ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSAFE_LEGACY_RENEGOTIATION_DISABLED);
-    tls::ERROR_UNKNOWN_SRP_USERNAME = ERR_PACK(ERR_LIB_SSL, 0, SSL_R_INVALID_SRP_USERNAME);
-    tls::ERROR_PREMATURE_TERMINATION = ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNEXPECTED_EOF_WHILE_READING);
-    tls::ERROR_PUSH = int(ERR_SYSTEM_FLAG | EPIPE);
-    tls::ERROR_PULL = ERR_PACK(ERR_LIB_SSL, 0, SSL_R_READ_BIO_NOT_SET);
-    tls::ERROR_UNEXPECTED_PACKET = ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNEXPECTED_MESSAGE);
-    tls::ERROR_UNSUPPORTED_VERSION = ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_SSL_VERSION);
-    tls::ERROR_NO_CIPHER_SUITES = ERR_PACK(ERR_LIB_SSL, 0, SSL_R_NO_CIPHERS_AVAILABLE);
-    tls::ERROR_DECRYPTION_FAILED = ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DECRYPTION_FAILED);
-    tls::ERROR_MAC_VERIFY_FAILED = ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DECRYPTION_FAILED_OR_BAD_RECORD_MAC);
 }
 
 } // namespace seastar
