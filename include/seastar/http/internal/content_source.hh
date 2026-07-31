@@ -138,8 +138,8 @@ class chunked_source_impl : public data_source_impl {
             switch (_ps) {
             // "data" buffer is non-empty
             case parsing_state::size_and_ext:
-                return _size_and_ext_parser(std::move(data)).then([this] (std::optional<temporary_buffer<char>> res) {
-                    if (res.has_value()) {
+                return _size_and_ext_parser(std::move(data)).then([this] (consumption_result_type res) {
+                    if (auto* stop = std::get_if<stop_consuming<char>>(&res.get())) {
                         if (_size_and_ext_parser.failed()) {
                             return make_exception_future<consumption_result_type>(bad_request_exception("Can't parse chunk size and extensions"));
                         }
@@ -164,10 +164,10 @@ class chunked_source_impl : public data_source_impl {
                         } else {
                             _ps = parsing_state::body;
                         }
-                        if (res->empty()) {
+                        if (stop->get_buffer().empty()) {
                             return make_ready_future<consumption_result_type>(continue_consuming{});
                         }
-                        return this->operator()(std::move(res.value()));
+                        return this->operator()(std::move(stop->get_buffer()));
                     } else {
                         return make_ready_future<consumption_result_type>(continue_consuming{});
                     }
@@ -211,8 +211,8 @@ class chunked_source_impl : public data_source_impl {
                 }
                 return this->operator()(std::move(data));
             case parsing_state::trailer_part:
-                return _trailer_parser(std::move(data)).then([this] (std::optional<temporary_buffer<char>> res) {
-                    if (res.has_value()) {
+                return _trailer_parser(std::move(data)).then([this] (consumption_result_type res) {
+                    if (auto* stop = std::get_if<stop_consuming<char>>(&res.get())) {
                         if (_trailer_parser.failed()) {
                             return make_exception_future<consumption_result_type>(bad_request_exception("Can't parse chunked request trailer"));
                         }
@@ -220,7 +220,7 @@ class chunked_source_impl : public data_source_impl {
                         _trailing_headers = _trailer_parser.get_parsed_headers();
                         _end_of_request = true;
                         _remaining_bytes = 0;
-                        return make_ready_future<consumption_result_type>(stop_consuming(std::move(*res)));
+                        return make_ready_future<consumption_result_type>(std::move(*stop));
                     } else {
                         return make_ready_future<consumption_result_type>(continue_consuming{});
                     }
