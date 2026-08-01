@@ -21,17 +21,11 @@
 
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/future.hh>
-#include <seastar/core/reactor.hh>
-#include <seastar/core/sleep.hh>
 #include <seastar/core/posix.hh>
-#include <seastar/core/internal/poll.hh>
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/testing/test_case.hh>
 
-#include <chrono>
-
 using namespace seastar;
-using namespace std::chrono_literals;
 
 // After a co_await on a pollable_fd future resolves, await_resume() calls
 // future::get() which calls get_available_state_ref(), which sees
@@ -68,14 +62,4 @@ SEASTAR_TEST_CASE(pollable_fd_state_completion_reuse_test) {
 
     ::close(sv[1]);
     co_return;
-}
-
-// Like DPDK, this poller prevents the reactor from entering interrupt mode.
-// The high-resolution timer must therefore be serviced while polling.
-SEASTAR_TEST_CASE(highres_timer_with_active_poller_test) {
-    auto active_poller = reactor::poller::simple([] {
-        return false;
-    });
-
-    co_await sleep(100ms);
 }
