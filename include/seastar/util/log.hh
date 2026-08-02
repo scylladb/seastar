@@ -609,6 +609,8 @@ std::ostream& operator<<(std::ostream&, const std::system_error&);
 }
 #endif
 
+#if FMT_VERSION < 120201
+
 // Seastar has no business defining a {fmt} formatter for std::exception_ptr,
 // a type it does not own; that is for the standard library or {fmt} to do (see
 // https://github.com/fmtlib/fmt/issues/4808). Until then we provide one, but
@@ -623,5 +625,7 @@ struct fmt::formatter<std::exception_ptr> {
         return fmt::format_to(ctx.out(), "{}", seastar::formattable(eptr));
     }
 };
+
+#endif
 
 /// @}
