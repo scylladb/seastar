@@ -162,10 +162,32 @@ size_t per_shard_memory(size_t total_memory, unsigned nr_shards);
 
 void global_setup(unsigned nr_shards);
 
+/// Returns \p true if memfd_create() is available on the running kernel.
+bool memfd_create_available();
+
+/// Returns \p true if transparent hugepages are enabled for memfd (shmem)
+/// memory on the running system, i.e., if
+/// /sys/kernel/mm/transparent_hugepage/shmem_enabled selects a value
+/// (always, within_size, advise or force) under which a memfd mapping we
+/// madvise() with MADV_HUGEPAGE can be backed by transparent hugepages.
+bool transparent_hugepages_enabled_for_memfd();
+
 }
 
+/// Configures the memory allocator for the current shard.
+///
+/// \param m NUMA-aware description of the memory assigned to this shard.
+/// \param mbind whether to bind the memory to its NUMA node.
+/// \param transparent_hugepages whether to madvise(MADV_HUGEPAGE) the memory.
+/// \param use_memfd whether to back the shard's memory with a memfd (see
+///        \ref get_memory_layout() to obtain the resulting file descriptor).
+///        Ignored when \p hugetlbfs_path is set, since hugetlbfs provides its
+///        own backing file.
+/// \param hugetlbfs_path optional path to a hugetlbfs mount used to back the
+///        shard's memory with explicit huge pages.
 internal::numa_layout configure(std::vector<resource::memory> m, bool mbind,
         bool transparent_hugepages,
+        bool use_memfd = false,
         std::optional<std::string> hugetlbfs_path = {});
 
 void configure_minimal();
@@ -353,6 +375,13 @@ public:
 struct memory_layout {
     uintptr_t start;
     uintptr_t end;
+    /// File descriptor backing the shard's memory, or disengaged if the memory
+    /// is anonymous. This is set when the memory is backed by a memfd (see the
+    /// \p use_memfd parameter of \ref configure()), letting other components
+    /// map the same physical memory (for example, into another process). The
+    /// descriptor is owned by the allocator and remains valid for the lifetime
+    /// of the shard; users that wish to keep it beyond that must dup() it.
+    std::optional<int> memfd;
 };
 
 // Discover virtual address range used by the allocator on current shard.
