@@ -545,6 +545,10 @@ struct cpu_pages {
     uint32_t nr_pages;
     uint32_t nr_free_pages;
     uint32_t current_min_free_pages = 0;
+    // When the shard's memory is backed by a memfd (see configure()), this
+    // holds the descriptor. It is kept open for the lifetime of the shard so
+    // it can be exposed via memory_layout::memfd.
+    std::optional<file_desc> memfd;
     struct {
         size_t warn = std::numeric_limits<size_t>::max();
         size_t check = std::numeric_limits<size_t>::max();
@@ -1283,6 +1287,22 @@ allocate_hugetlbfs_memory(file_desc& fd, void* where, size_t how_much) {
     return ret;
 }
 
+mmap_area
+static allocate_memfd_memory(file_desc& fd, void* where, size_t how_much) {
+    auto pos = fd.size();
+    fd.truncate(pos + how_much);
+    auto ret = fd.map(
+            how_much,
+            PROT_READ | PROT_WRITE,
+            MAP_SHARED | (where ? MAP_FIXED : 0),
+            pos,
+            where);
+    // Unlike anonymous memory, a fresh memfd mapping does not inherit the
+    // MADV_HUGEPAGE hint applied to the bootstrap region, so (re-)apply it here.
+    maybe_enable_transparent_hugepages(ret.get(), how_much);
+    return ret;
+}
+
 void cpu_pages::replace_memory_backing(allocate_system_memory_fn alloc_sys_mem) {
     // We would like to use ::mremap() to atomically replace the old anonymous
     // memory with hugetlbfs backed memory, but mremap() does not support hugetlbfs
@@ -1384,7 +1404,8 @@ memory::memory_layout cpu_pages::memory_layout() {
     SEASTAR_ASSERT(is_initialized());
     return {
         reinterpret_cast<uintptr_t>(memory),
-        reinterpret_cast<uintptr_t>(memory) + nr_pages * page_size
+        reinterpret_cast<uintptr_t>(memory) + nr_pages * page_size,
+        memfd.transform(&file_desc::get),
     };
 }
 
@@ -1894,9 +1915,50 @@ internal::global_setup(unsigned nr_shards) {
     cpu_id_and_mem_base_mask = ~((uintptr_t(1) << cpu_id_shift) - 1);
 }
 
+bool
+internal::memfd_create_available() {
+    // Probe the kernel by actually creating (and immediately closing) a memfd.
+    // memfd_create() has been available since Linux 3.17; older kernels fail
+    // with ENOSYS.
+    int fd = ::memfd_create("seastar_probe", MFD_CLOEXEC);
+    if (fd == -1) {
+        return false;
+    }
+    ::close(fd);
+    return true;
+}
+
+bool
+internal::transparent_hugepages_enabled_for_memfd() {
+    // The sysfs knob reports the available policies with the active one in
+    // brackets, e.g. "always within_size [advise] never deny force". Any value
+    // other than "never" or "deny" allows a memfd mapping that we madvise() with
+    // MADV_HUGEPAGE to be backed by transparent hugepages.
+    int fd = ::open("/sys/kernel/mm/transparent_hugepage/shmem_enabled", O_RDONLY | O_CLOEXEC);
+    if (fd == -1) {
+        return false;
+    }
+    char buf[128] = {};
+    auto n = ::read(fd, buf, sizeof(buf) - 1);
+    ::close(fd);
+    if (n <= 0) {
+        return false;
+    }
+    std::string_view contents(buf, n);
+    auto open_bracket = contents.find('[');
+    auto close_bracket = contents.find(']');
+    if (open_bracket == std::string_view::npos || close_bracket == std::string_view::npos
+            || close_bracket <= open_bracket) {
+        return false;
+    }
+    auto active = contents.substr(open_bracket + 1, close_bracket - open_bracket - 1);
+    return active != "never" && active != "deny";
+}
+
 internal::numa_layout
 configure(std::vector<resource::memory> m, bool mbind,
         bool transparent_hugepages,
+        bool use_memfd,
         optional<std::string> hugetlbfs_path) {
     // we need to make sure cpu_mem is initialize since configure calls cpu_mem.resize
     // and we might reach configure without ever allocating, hence without ever calling
@@ -1923,6 +1985,16 @@ configure(std::vector<resource::memory> m, bool mbind,
         auto fdp = make_lw_shared<file_desc>(file_desc::temporary(*hugetlbfs_path));
         sys_alloc = [fdp] (void* where, size_t how_much) {
             return allocate_hugetlbfs_memory(*fdp, where, how_much);
+        };
+        get_cpu_mem().replace_memory_backing(sys_alloc);
+    } else if (use_memfd) {
+        // Back the shard's memory with a memfd so it can be exposed to users
+        // via memory_layout::memfd. The descriptor lives in get_cpu_mem() and
+        // stays open for the lifetime of the shard; the mapping is otherwise
+        // equivalent to anonymous memory (transparent hugepages included).
+        auto& fd = get_cpu_mem().memfd.emplace(file_desc::memfd_create("seastar_memory", MFD_CLOEXEC));
+        sys_alloc = [&fd] (void* where, size_t how_much) {
+            return allocate_memfd_memory(fd, where, how_much);
         };
         get_cpu_mem().replace_memory_backing(sys_alloc);
     }
@@ -2722,12 +2794,21 @@ void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
 internal::numa_layout
 configure(std::vector<resource::memory> m, bool mbind,
         bool transparent_hugepages,
+        bool use_memfd,
         std::optional<std::string> hugepages_path) {
     return {};
 }
 
 void configure_minimal()
 {}
+
+bool internal::memfd_create_available() {
+    return false;
+}
+
+bool internal::transparent_hugepages_enabled_for_memfd() {
+    return false;
+}
 
 statistics stats() {
     return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0, 0, 0, 0, 0, 0};
