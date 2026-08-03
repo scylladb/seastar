@@ -100,6 +100,12 @@ if [[ "$COMPILER" == clang++-* && "$clang_ver" -ge 20 || "$STANDARD" -ge 26 ]] ;
     cook_args=(--cook fmt)
 fi
 
+# Deprecation diagnostics are errors in CI only. The flags land in
+# Seastar_CXX_FLAGS, which is appended after the -Wno-error demotions
+# in CMakeLists.txt, so the -Werror here wins. GCC's -Wdeprecated
+# does not include -Wdeprecated-declarations, hence both.
+deprecation_errors='-Werror=deprecated -Werror=deprecated-declarations'
+
 group "configure.py"
 # OPTIONS / ENABLES intentionally unquoted: each carries multiple
 # whitespace-separated args (e.g. "--cook dpdk --dpdk-machine corei7-avx").
@@ -109,6 +115,7 @@ group "configure.py"
     --compiler "$CPP"           \
     --c-compiler "$CC"          \
     --mode "$MODE"              \
+    --cflags "$deprecation_errors" \
     "${cook_args[@]}"           \
     "${ccache_opt[@]}"          \
     $OPTIONS                    \
