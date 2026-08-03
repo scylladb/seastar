@@ -362,7 +362,7 @@ future<> aio_storage_context::retry_loop() {
             } catch (...) {
                 // If submit failed, just log the error and break out of the inner loop.
                 // The coroutine will wait for the next condition variable signal to retry (or return if stopping).
-                seastar_logger.warn("aio_storage_context::retry_loop failed: {}", std::current_exception());
+                seastar_logger.warn("aio_storage_context::retry_loop failed: {}", seastar::formattable(std::current_exception()));
                 break;
             }
             auto iocbs = _aio_retries.data();
@@ -371,7 +371,7 @@ future<> aio_storage_context::retry_loop() {
                 try {
                     nr_consumed = handle_aio_error(iocbs[0], result.error);
                 } catch (...) {
-                    seastar_logger.error("aio retry failed: {}. Aborting.", std::current_exception());
+                    seastar_logger.error("aio retry failed: {}. Aborting.", seastar::formattable(std::current_exception()));
                     abort();
                 }
             } else {
@@ -953,7 +953,7 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
       try {
         maybe_switch_steady_clock_timers(timeout, _steady_clock_timer_reactor_thread, _steady_clock_timer_timer_thread);
       } catch (...) {
-        seastar_logger.error("Switching steady_clock timers back failed: {}. Aborting...", std::current_exception());
+        seastar_logger.error("Switching steady_clock timers back failed: {}. Aborting...", seastar::formattable(std::current_exception()));
         abort();
       }
     });

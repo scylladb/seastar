@@ -319,6 +319,7 @@ class smp : public std::enable_shared_from_this<smp> {
     std::optional<std::barrier<>> _all_event_loops_done;
     std::unique_ptr<internal::memory_prefaulter> _prefaulter;
     struct qs_deleter {
+      unsigned shard_count;
       void operator()(smp_message_queue** qs) const;
     };
     std::unique_ptr<smp_message_queue*[], qs_deleter> _qs_owner;

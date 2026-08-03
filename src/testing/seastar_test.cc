@@ -47,7 +47,7 @@ add_exception_message(const std::exception* ep, bool rec, char *out, char *end) 
         out = fmt::format_to_n(out, end - out, "{}{}: {}", pfx, seastar::pretty_type_name(typeid(*ep)), ep->what()).out;
     } else {
         auto tp = abi::__cxa_current_exception_type();
-        out = fmt::format_to_n(out, out - end, "{}{}", pfx, tp ? seastar::pretty_type_name(*tp) : "<unknown>").out;
+        out = fmt::format_to_n(out, end - out, "{}{}", pfx, tp ? seastar::pretty_type_name(*tp) : "<unknown>").out;
     }
 
     boost::execution_exception::location loc;

@@ -512,7 +512,7 @@ future<data_sink> make_file_data_sink(file f, file_output_stream_options options
                     std::rethrow_exception(std::move(ex));
                 } catch (...) {
                     std::throw_with_nested(std::runtime_error(fmt::format("While handling failed construction of data_sink, caught exception: {}",
-                                fut.get_exception())));
+                                seastar::formattable(fut.get_exception()))));
                 }
             }
             return make_exception_future<data_sink>(std::move(ex));
@@ -656,4 +656,3 @@ template struct internal::stream_copy_consumer<char>;
 template future<> copy<char>(input_stream<char>&, output_stream<char>&);
 
 }
-

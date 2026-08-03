@@ -29,6 +29,7 @@
 #include <seastar/testing/test_case.hh>
 #include <tuple>
 #include <utility>
+#include <variant>
 #include <vector>
 
 using namespace seastar;
@@ -64,7 +65,8 @@ SEASTAR_TEST_CASE(test_size_and_extensions_parsing) {
     http_chunk_size_and_ext_parser parser;
     for (auto& tset : tests) {
         parser.init();
-        BOOST_REQUIRE(parser(tset.buf()).get().has_value());
+        // the parser is done once it hands back the unconsumed remainder
+        BOOST_REQUIRE(std::holds_alternative<stop_consuming<char>>(parser(tset.buf()).get().get()));
         BOOST_REQUIRE_NE(parser.failed(), tset.parsable);
         if (tset.parsable) {
             BOOST_REQUIRE_EQUAL(parser.get_size(), std::move(tset.size));
@@ -109,7 +111,8 @@ SEASTAR_TEST_CASE(test_trailer_headers_parsing) {
     http_chunk_trailer_parser parser;
     for (auto& tset : tests) {
         parser.init();
-        BOOST_REQUIRE(parser(tset.buf()).get().has_value());
+        // the parser is done once it hands back the unconsumed remainder
+        BOOST_REQUIRE(std::holds_alternative<stop_consuming<char>>(parser(tset.buf()).get().get()));
         BOOST_REQUIRE_NE(parser.failed(), tset.parsable);
         if (tset.parsable) {
             auto heads = parser.get_parsed_headers();

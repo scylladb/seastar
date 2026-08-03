@@ -243,16 +243,16 @@ future<> test_consume_until_end(uint64_t size) {
             }).then([size, f] (size_t real_size) {
                 BOOST_REQUIRE_EQUAL(size, real_size);
             }).then([size, f] {
-                auto consumer = [offset = uint64_t(0), size] (temporary_buffer<char> buf) mutable -> future<input_stream<char>::unconsumed_remainder> {
+                auto consumer = [offset = uint64_t(0), size] (temporary_buffer<char> buf) mutable -> future<consumption_result<char>> {
                     if (!buf) {
-                        return make_ready_future<input_stream<char>::unconsumed_remainder>(temporary_buffer<char>());
+                        return make_ready_future<consumption_result<char>>(stop_consuming<char>{temporary_buffer<char>()});
                     }
                     BOOST_REQUIRE(offset + buf.size() <= size);
                     std::vector<char> expected(buf.size());
                     std::iota(expected.begin(), expected.end(), offset);
                     offset += buf.size();
                     BOOST_REQUIRE(std::equal(buf.begin(), buf.end(), expected.begin()));
-                    return make_ready_future<input_stream<char>::unconsumed_remainder>(std::nullopt);
+                    return make_ready_future<consumption_result<char>>(continue_consuming{});
                 };
                 return do_with(make_file_input_stream(f), std::move(consumer), [] (input_stream<char>& in, auto& consumer) {
                     return in.consume(consumer).then([&in] {

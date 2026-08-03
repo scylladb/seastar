@@ -61,7 +61,7 @@ void seastar::on_internal_error(logger& logger, std::string_view msg) {
 }
 
 void seastar::on_internal_error(logger& logger, std::exception_ptr ex) {
-    log_error_and_backtrace(logger, ex);
+    log_error_and_backtrace(logger, seastar::formattable(ex));
     if (abort_on_internal_error.load()) {
         abort();
     } else {

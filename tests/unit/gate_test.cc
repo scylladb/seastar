@@ -49,7 +49,7 @@ static future<> check_gate_closed_exception(Func func) {
     } catch (const gate_closed_exception& e) {
         BOOST_REQUIRE_EQUAL(e.what(), "gate closed");
     } catch (...) {
-        BOOST_FAIL(format("unexpected exception: {}", std::current_exception()));
+        BOOST_FAIL(format("unexpected exception: {}", seastar::formattable(std::current_exception())));
     }
 }
 
@@ -115,7 +115,7 @@ static future<> check_named_gate_closed_exception(Func func, sstring name) {
     } catch (const gate_closed_exception& e) {
         BOOST_REQUIRE_EQUAL(e.what(), fmt::format("{} gate closed", name));
     } catch (...) {
-        BOOST_FAIL(format("unexpected exception: {}", std::current_exception()));
+        BOOST_FAIL(format("unexpected exception: {}", seastar::formattable(std::current_exception())));
     }
 }
 

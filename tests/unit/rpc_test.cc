@@ -780,7 +780,7 @@ static future<> test_rpc_connection_send_glitch(bool on_client) {
                         auto id = call(c1).get();
                         fmt::print("    response: {}\n", id);
                     } catch (...) {
-                        fmt::print("    responce: ex {}\n", std::current_exception());
+                        fmt::print("    responce: ex {}\n", seastar::formattable(std::current_exception()));
                         ctx.no_failures = false;
                         ctx.limit++;
                         break;
@@ -1510,6 +1510,9 @@ SEASTAR_TEST_CASE(test_client_info) {
         BOOST_REQUIRE_EQUAL(info.retrieve_auxiliary_opt<int>("missing"), nullptr);
         BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary_opt<int>("missing"), nullptr);
 
+        BOOST_REQUIRE_THROW(info.retrieve_auxiliary<int>("missing"), rpc::missing_auxiliary_error);
+        BOOST_REQUIRE_THROW(const_info.retrieve_auxiliary<int>("missing"), rpc::missing_auxiliary_error);
+
         return make_ready_future<>();
     });
 }
@@ -1571,6 +1574,81 @@ SEASTAR_TEST_CASE(test_rpc_abort_connection) {
         BOOST_REQUIRE_THROW(f(c1, 2).get(), rpc::closed_error);
         BOOST_REQUIRE_EQUAL(arrived, 2);
         c1.stop().get();
+    });
+}
+
+// A handler retrieving a never-attached auxiliary object must not reach the
+// code after the retrieval, and the connection must be aborted: the caller
+// of the verb sees closed_error, and so do all subsequent calls.
+SEASTAR_TEST_CASE(test_retrieve_missing_auxiliary_wait_handler) {
+    return rpc_test_env<>::do_with_thread(rpc_test_config(), [] (rpc_test_env<>& env) {
+        test_rpc_proto::client c1(env.proto(), {}, env.make_socket(), ipv4_addr());
+        bool reached_after_retrieve = false;
+        env.register_handler(1, [&] (rpc::client_info& cinfo, int) {
+            auto& v = cinfo.retrieve_auxiliary<int>("never_attached");
+            reached_after_retrieve = true;
+            return v;
+        }).get();
+        auto f = env.proto().make_client<int (int)>(1);
+        BOOST_REQUIRE_THROW(f(c1, 0).get(), rpc::closed_error);
+        BOOST_REQUIRE(!reached_after_retrieve);
+        // The connection was aborted server-side; further calls fail too.
+        BOOST_REQUIRE_THROW(f(c1, 1).get(), rpc::closed_error);
+        c1.stop().get();
+    });
+}
+
+// Same, for a one-way (no_wait) handler: the exception is logged and
+// swallowed by the reply path, the connection is aborted, and the process
+// survives.
+SEASTAR_TEST_CASE(test_retrieve_missing_auxiliary_no_wait_handler) {
+    using namespace std::chrono_literals;
+    static seastar::logger log("rpc");
+    return rpc_test_env<>::do_with_thread(rpc_test_config(), [] (rpc_test_env<>& env) {
+        // Attach a logger so the swallowed exception shows up in the test
+        // output. No assertion on the log contents; this is a smoke capture.
+        env.proto().set_logger(&log);
+        auto reset_logger = defer([&env] () noexcept { env.proto().set_logger(nullptr); });
+        test_rpc_proto::client c1(env.proto(), {}, env.make_socket(), ipv4_addr());
+        bool handler_entered = false;
+        env.register_handler(1, [&] (rpc::client_info& cinfo, int) {
+            handler_entered = true;
+            cinfo.retrieve_auxiliary<int>("never_attached");
+            return rpc::no_wait;
+        }).get();
+        env.register_handler(2, [] (int x) { return x; }).get();
+        auto one_way = env.proto().make_client<rpc::no_wait_type (int)>(1);
+        auto echo = env.proto().make_client<int (int)>(2);
+        // Sanity check: the connection works before the poisoned verb.
+        BOOST_REQUIRE_EQUAL(echo(c1, 7).get(), 7);
+        one_way(c1, 0).get(); // resolves once the request is sent
+        // The abort is asynchronous wrt. the client; poll (bounded) until
+        // it is observed.
+        bool closed = false;
+        for (int i = 0; i < 500 && !closed; ++i) {
+            try {
+                echo(c1, i).get();
+                seastar::sleep(10ms).get();
+            } catch (rpc::closed_error&) {
+                closed = true;
+            }
+        }
+        BOOST_REQUIRE(handler_entered);
+        BOOST_REQUIRE(closed);
+        c1.stop().get();
+    });
+}
+
+// Retrieving a missing auxiliary object outside of any connection (a
+// connection id unknown to the server) must still throw; aborting an unknown
+// connection is a no-op.
+SEASTAR_TEST_CASE(test_retrieve_missing_auxiliary_standalone) {
+    return rpc_test_env<>::do_with(rpc_test_config(), [] (rpc_test_env<>& env) {
+        rpc::client_info info{.server{env.server()}, .conn_id{0}};
+        const rpc::client_info& const_info = info;
+        BOOST_REQUIRE_THROW(info.retrieve_auxiliary<int>("missing"), rpc::missing_auxiliary_error);
+        BOOST_REQUIRE_THROW(const_info.retrieve_auxiliary<int>("missing"), rpc::missing_auxiliary_error);
+        return make_ready_future<>();
     });
 }
 
@@ -1917,7 +1995,7 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_stream_backpressure_across_shards) {
                 } catch (const rpc::stream_closed&) {
                     log.debug("cl_rep_loop: stream closed");
                 } catch (...) {
-                    auto msg = format("cl_rep_loop: unexpected exception: {}", std::current_exception());
+                    auto msg = format("cl_rep_loop: unexpected exception: {}", seastar::formattable(std::current_exception()));
                     log.error("{}", msg);
                     throw std::runtime_error(msg);
                 }

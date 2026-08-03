@@ -245,7 +245,7 @@ SEASTAR_TEST_CASE(socket_connect_abort_test) {
             fmt::print("Connected\n");
             BOOST_REQUIRE(false);
         }).handle_exception([&too_late] (auto ex) {
-            fmt::print("Cannot connect {}\n", ex);
+            fmt::print("Cannot connect {}\n", seastar::formattable(ex));
             BOOST_REQUIRE(!too_late);
         });
 

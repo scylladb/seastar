@@ -35,6 +35,7 @@
 #include <seastar/core/iostream.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/with_timeout.hh>
+#include <seastar/core/sleep.hh>
 #include <seastar/util/later.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/process.hh>
@@ -77,8 +78,15 @@ static bool using_gnutls() {
     return std::string_view(tls::backend_name()) == "gnutls";
 }
 
-static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> certs, socket_address addr, const sstring& name = {}) {
-    return repeat_until_value([=]() mutable {
+// Number of attempts made by the tests that reach a real server over the
+// internet. Local tests deliberately provoke failures and must not retry, so
+// max_attempts defaults to 1 (i.e. no retry) below.
+static constexpr int max_connect_attempts = 5;
+
+static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> certs, socket_address addr, const sstring& name = {}, int max_attempts = 1) {
+    return repeat_until_value([=, attempts = 0]() mutable {
+      ++attempts;
+      return futurize_invoke([=] {
         return tls::connect(certs, addr, tls::tls_options{.server_name = name}).then([](connected_socket s) {
             return do_with(std::move(s), [](connected_socket& s) {
                 return do_with(s.output(), [&s](auto& os) {
@@ -113,7 +121,20 @@ static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> c
                 });
             });
         });
-
+      }).then_wrapped([attempts, max_attempts](future<std::optional<bool>> f) -> future<std::optional<bool>> {
+        if (!f.failed() || attempts >= max_attempts) {
+            return f;
+        }
+        // When the peer is a real server out on the internet, a certain amount
+        // of transient failure (connection reset, abrupt close, throttling) is
+        // inherent and says nothing about what is being tested. Back off and
+        // try again; a failure that is not transient survives every attempt and
+        // is reported unchanged.
+        f.ignore_ready_future();
+        return sleep(std::chrono::milliseconds(100 * attempts)).then([] {
+            return make_ready_future<std::optional<bool>>(std::nullopt);
+        });
+      });
     }).discard_result();
 }
 
@@ -134,7 +155,7 @@ static future<socket_address> google_address() {
 
 static future<> connect_to_ssl_google(::shared_ptr<tls::certificate_credentials> certs) {
     return google_address().then([certs](socket_address addr) {
-        return connect_to_ssl_addr(std::move(certs), addr, google_name);
+        return connect_to_ssl_addr(std::move(certs), addr, google_name, max_connect_attempts);
     });
 }
 
@@ -456,6 +477,21 @@ SEASTAR_TEST_CASE(test_non_tls) {
     }).handle_exception([server = std::move(server)](auto ep) {
         std::cerr << "Got expected exception" << std::endl;
     });
+}
+
+SEASTAR_THREAD_TEST_CASE(test_error_category_instance) {
+    // Errors thrown by the TLS layer must carry the exact category instance
+    // that tls::error_category() returns: std::error_category compares by
+    // object identity, so a second instance of the same category class never
+    // compares equal (issue #3562).
+    tls::credentials_builder b;
+    b.set_x509_key(tls::blob("garbage"), tls::blob("garbage"), tls::x509_crt_format::PEM);
+    try {
+        b.build_certificate_credentials();
+        BOOST_FAIL("expected an exception parsing garbage certificates");
+    } catch (const std::system_error& e) {
+        BOOST_REQUIRE(e.code().category() == tls::error_category());
+    }
 }
 
 SEASTAR_TEST_CASE(test_abort_accept_before_handshake) {

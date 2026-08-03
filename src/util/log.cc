@@ -390,7 +390,7 @@ void logger::failed_to_log(std::exception_ptr ex,
             if (fmt.size() > 0) {
                 it = fmt::format_to(it, ": fmt='{}'", fmt);
             }
-            return fmt::format_to(it, ": {}", ex);
+            return fmt::format_to(it, ": {}", seastar::formattable(ex));
         });
         do_log(log_level::error, writer);
     } catch (...) {

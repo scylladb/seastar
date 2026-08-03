@@ -107,8 +107,6 @@ private:
 public:
     simple_backtrace(vector_type f) noexcept : _frames(std::move(f)), _hash(calculate_hash()) {}
     simple_backtrace() noexcept = default;
-    [[deprecated]] simple_backtrace(vector_type f, char delimeter) : _frames(std::move(f)), _hash(calculate_hash()), _delimeter(delimeter) {}
-    [[deprecated]] simple_backtrace(char delimeter) : _delimeter(delimeter) {}
 
     size_t hash() const noexcept { return _hash; }
     char delimeter() const noexcept { return _delimeter; }

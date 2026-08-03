@@ -940,7 +940,7 @@ static decltype(auto) install_signal_handler_stack() {
             throw_system_error_on(r == -1);
         } catch (...) {
             mem.release(); // We failed to restore previous stack, must leak it.
-            seastar_logger.error("Failed to restore signal stack: {}", std::current_exception());
+            seastar_logger.error("Failed to restore signal stack: {}", seastar::formattable(std::current_exception()));
         }
     });
 }
@@ -1519,7 +1519,7 @@ std::unique_ptr<cpu_stall_detector> make_cpu_stall_detector(cpu_stall_detector_c
                     "try setting /proc/sys/kernel/perf_event_paranoid to 1 or less to "
                     "enable kernel backtraces: falling back to posix timer.");
         } else {
-            seastar_logger.warn("Creation of perf_event based stall detector failed: falling back to posix timer: {}", std::current_exception());
+            seastar_logger.warn("Creation of perf_event based stall detector failed: falling back to posix timer: {}", seastar::formattable(std::current_exception()));
         }
         return std::make_unique<cpu_stall_detector_posix_timer>(cfg);
     }
@@ -3233,12 +3233,12 @@ void reactor::run_in_background(future<> f) {
         // _backgroud_gate closed in reactor::close()
         (void)with_gate(_background_gate, [f = std::move(f)] () mutable {
             return f.handle_exception([] (std::exception_ptr ex) {
-                seastar_logger.warn("Ignored background task failure: {}", std::move(ex));
+                seastar_logger.warn("Ignored background task failure: {}", seastar::formattable(std::move(ex)));
             });
         });
     } catch (...) {
         // Swallow gate_closed_exception in particular
-        seastar_logger.error("run_in_background: {}", std::current_exception());
+        seastar_logger.error("run_in_background: {}", seastar::formattable(std::current_exception()));
     }
 }
 
@@ -4320,8 +4320,8 @@ void install_oneshot_signal_handler<SIGSEGV, sigsegv_action>() {
 #endif
 
 void smp::qs_deleter::operator()(smp_message_queue** qs) const {
-    for (unsigned i = 0; i < this_smp_shard_count(); i++) {
-        for (unsigned j = 0; j < this_smp_shard_count(); j++) {
+    for (unsigned i = 0; i < shard_count; i++) {
+        for (unsigned j = 0; j < shard_count; j++) {
             qs[i][j].~smp_message_queue();
         }
         ::operator delete[](qs[i], std::align_val_t(alignof(smp_message_queue))
@@ -4730,7 +4730,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     seastar_logger.info("Reactor backend: {}", backend_selector);
 
-    _qs_owner = decltype(smp::_qs_owner){new smp_message_queue* [_shard_count], qs_deleter{}};
+    _qs_owner = decltype(smp::_qs_owner){new smp_message_queue* [_shard_count], qs_deleter{_shard_count}};
 
     auto allocate_qs_owner = [this] (unsigned i) {
         // smp_message_queue has members with hefty alignment requirements.
@@ -4888,7 +4888,7 @@ bool smp::pure_poll_queues() {
 __thread reactor* local_engine;
 
 void report_exception(std::string_view message, std::exception_ptr eptr) noexcept {
-    seastar_logger.error("{}: {}", message, eptr);
+    seastar_logger.error("{}: {}", message, seastar::formattable(eptr));
 }
 
 future<> check_direct_io_support(std::string_view path) noexcept {
@@ -5526,7 +5526,7 @@ run_in_background(future<> f) {
 }
 
 void log_timer_callback_exception(std::exception_ptr ex) noexcept {
-    seastar_logger.error("Timer callback failed: {}", ex);
+    seastar_logger.error("Timer callback failed: {}", seastar::formattable(ex));
 }
 
 void set_current_task(task* t) {

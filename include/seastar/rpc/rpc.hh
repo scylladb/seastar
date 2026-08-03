@@ -764,6 +764,7 @@ public:
     }
     friend connection;
     friend client;
+    friend struct client_info;
 };
 
 using rpc_handler_func = std::function<future<> (shared_ptr<server::connection>, std::optional<rpc_clock_type::time_point> timeout, int64_t msgid,

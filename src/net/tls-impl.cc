@@ -709,11 +709,6 @@ const char* tls::backend_name() {
     return internal::crypto::provider().get_tls_backend().name();
 }
 
-future<connected_socket> tls::wrap_client(shared_ptr<certificate_credentials> cred, connected_socket&& s, sstring name) {
-    tls_options options{.server_name = std::move(name)};
-    return wrap_client(std::move(cred), std::move(s), std::move(options));
-}
-
 future<connected_socket> tls::wrap_client(shared_ptr<certificate_credentials> cred, connected_socket&& s, tls_options options) {
     session_ref sess(internal::crypto::provider().get_tls_backend().make_session(
         session_type::CLIENT, std::move(cred), net::get_impl::get(std::move(s)), options));
@@ -729,16 +724,6 @@ future<connected_socket> tls::wrap_server(shared_ptr<server_credentials> cred, c
     return make_ready_future<connected_socket>(std::move(sock));
 }
 
-future<connected_socket> tls::connect(shared_ptr<certificate_credentials> cred, socket_address sa, sstring name) {
-    tls_options options{.server_name = std::move(name)};
-    return connect(std::move(cred), std::move(sa), std::move(options));
-}
-
-future<connected_socket> tls::connect(shared_ptr<certificate_credentials> cred, socket_address sa, socket_address local, sstring name) {
-    tls_options options{.server_name = std::move(name)};
-    return connect(std::move(cred), std::move(sa), std::move(local), std::move(options));
-}
-
 future<connected_socket> tls::connect(shared_ptr<certificate_credentials> cred, socket_address sa, tls_options options) {
     return engine().connect(sa).then([cred = std::move(cred), options = std::move(options)](connected_socket s) mutable {
         return wrap_client(std::move(cred), std::move(s), std::move(options));
@@ -749,11 +734,6 @@ future<connected_socket> tls::connect(shared_ptr<certificate_credentials> cred, 
     return engine().connect(sa, local).then([cred = std::move(cred), options = std::move(options)](connected_socket s) mutable {
         return wrap_client(std::move(cred), std::move(s), std::move(options));
     });
-}
-
-socket tls::socket(shared_ptr<certificate_credentials> cred, sstring name) {
-    tls_options options{.server_name = std::move(name)};
-    return tls::socket(std::move(cred), std::move(options));
 }
 
 socket tls::socket(shared_ptr<certificate_credentials> cred, tls_options options) {

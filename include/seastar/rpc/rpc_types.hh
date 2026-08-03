@@ -31,7 +31,6 @@
 #include <string>
 #include <any>
 #include <boost/intrusive/slist.hpp>
-#include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/variant_utils.hh>
 #include <seastar/core/timer.hh>
@@ -104,10 +103,22 @@ struct client_info {
     void attach_auxiliary(const sstring& key, T&& object) {
         user_data.emplace(key, std::any(std::forward<T>(object)));
     }
+    // Logs a warning, aborts the connection identified by conn_id and throws
+    // missing_auxiliary_error. Defined out of line because rpc::server is an
+    // incomplete type in this header.
+    [[noreturn]] void report_missing_auxiliary(const sstring& key) const;
+    /// Returns a reference to the auxiliary object attached under \c key.
+    ///
+    /// If nothing was attached under \c key (for example because the verb
+    /// that was supposed to call attach_auxiliary() failed before doing so),
+    /// the connection is aborted and missing_auxiliary_error is thrown.
+    /// Use retrieve_auxiliary_opt() to probe for a key without side effects.
     template <typename T>
     T& retrieve_auxiliary(const sstring& key) {
         auto it = user_data.find(key);
-        SEASTAR_ASSERT(it != user_data.end());
+        if (it == user_data.end()) {
+            report_missing_auxiliary(key);
+        }
         return std::any_cast<T&>(it->second);
     }
     template <typename T>
@@ -175,6 +186,13 @@ public:
 };
 
 class remote_verb_error : public error {
+    using error::error;
+};
+
+/// Thrown by client_info::retrieve_auxiliary() when no auxiliary object is
+/// attached under the requested key. The connection is aborted before the
+/// exception is thrown.
+class missing_auxiliary_error : public error {
     using error::error;
 };
 
