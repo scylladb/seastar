@@ -40,7 +40,9 @@
 #include <seastar/net/api.hh>
 #include <seastar/net/posix-stack.hh>
 #include <stdexcept>
+#include <system_error>
 
+#include <cerrno>
 #include <optional>
 #include <tuple>
 #include <future>
@@ -89,6 +91,41 @@ std::pmr::polymorphic_allocator<char> allocator{&malloc_allocator};
 
 SEASTAR_TEST_CASE(socket_allocation_test) {
     return echo_server_loop().finally([](){ engine().exit((malloc_allocator.allocs == malloc_allocator.frees) ? 0 : 1); });
+}
+
+SEASTAR_TEST_CASE(udp_bound_channel_rejects_duplicate_bind_without_reuse_port) {
+    return async([] {
+        auto first = make_bound_datagram_channel(make_ipv4_address({0x7f000001, 0}));
+        auto local = first.local_address();
+
+        bool duplicate_failed = false;
+        try {
+            auto second = make_bound_datagram_channel(local);
+            second.close();
+        } catch (const std::system_error& e) {
+            BOOST_REQUIRE_EQUAL(e.code().value(), EADDRINUSE);
+            duplicate_failed = true;
+        }
+
+        first.close();
+        BOOST_REQUIRE(duplicate_failed);
+    });
+}
+
+SEASTAR_TEST_CASE(udp_bound_channel_allows_duplicate_bind_with_reuse_port) {
+    return async([] {
+        auto first = make_bound_datagram_channel(
+          make_ipv4_address({0x7f000001, 0}),
+          net::datagram_channel_options{.reuse_port = true});
+        auto local = first.local_address();
+
+        auto second = make_bound_datagram_channel(
+          local,
+          net::datagram_channel_options{.reuse_port = true});
+
+        second.close();
+        first.close();
+    });
 }
 
 SEASTAR_TEST_CASE(socket_skip_test) {

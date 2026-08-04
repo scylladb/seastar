@@ -287,6 +287,7 @@ def configure_mode(mode):
     TRANSLATED_ARGS = [
         '-DCMAKE_BUILD_TYPE={}'.format(MODE_TO_CMAKE_BUILD_TYPE[mode]),
         '-DCMAKE_CXX_COMPILER={}'.format(args.cxx),
+        '-DCMAKE_C_COMPILER={}'.format(args.cc),
         '-DCMAKE_CXX_STANDARD={}'.format(args.cpp_standard),
         '-DCMAKE_CXX_COMPILER_LAUNCHER={}'.format(compiler_cache),
         '-DCMAKE_INSTALL_PREFIX={}'.format(args.install_prefix),
@@ -333,9 +334,6 @@ def configure_mode(mode):
 
     # Generate a new build by pointing to the source directory.
     if ingredients_to_cook:
-        # the C compiler is only used when building ingredients.
-        TRANSLATED_ARGS.append(f'-DCMAKE_C_COMPILER={args.cc}')
-
         # We need to use cmake-cooking for some dependencies.
         inclusion_arguments = []
 
