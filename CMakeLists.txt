@@ -280,6 +280,10 @@ option (Seastar_DPDK
   "Enable DPDK support."
   OFF)
 
+option (Seastar_PRECOMPILE_HEADERS
+  "Precompile the heaviest, near-universally included header (core/reactor.hh) to speed up building Seastar itself. Note for ccache users: requires 'sloppiness = pch_defines,time_macros' in ccache.conf."
+  OFF)
+
 option (Seastar_EXCLUDE_APPS_FROM_ALL
   "When enabled alongside Seastar_APPS, do not build applications by default."
   OFF)
@@ -865,6 +869,15 @@ target_include_directories (seastar
     $<BUILD_INTERFACE:${Seastar_GEN_BINARY_DIR}/src>
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+if (Seastar_PRECOMPILE_HEADERS)
+  target_precompile_headers (seastar PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/seastar/core/reactor.hh)
+  if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    # Instantiate templates once in the PCH instead of in every TU.
+    target_compile_options (seastar PRIVATE -fpch-instantiate-templates)
+  endif ()
+endif ()
 
 set (Seastar_PRIVATE_CXX_FLAGS
   -fno-semantic-interposition
