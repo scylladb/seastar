@@ -39,6 +39,7 @@
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/exception.hh>
 #include <seastar/coroutine/try_future.hh>
+#include <seastar/coroutine/selection.hh>
 #include <seastar/testing/random.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/util/defer.hh>
@@ -1078,3 +1079,210 @@ SEASTAR_TEST_CASE(test_co_return_move_counter) {
         }
     }
 }
+
+// A future that becomes ready after a delay, carrying an identifying value.
+static future<int> selection_delayed_value(std::chrono::milliseconds d, int v) {
+    co_await sleep(d);
+    co_return v;
+}
+
+// Two futures resolving in a known order are reported in that order, and the
+// loop drains cleanly.
+SEASTAR_TEST_CASE(test_selection_basic_order) {
+    coroutine::selection sel;
+    auto slow = sel.add(1, [] { return selection_delayed_value(40ms, 1); });
+    auto fast = sel.add(2, [] { return selection_delayed_value(10ms, 2); });
+
+    std::vector<int> got;
+    while (auto which = co_await sel) {
+        switch (*which) {
+        case 1: got.push_back(co_await std::move(slow)); break;
+        case 2: got.push_back(co_await std::move(fast)); break;
+        default: BOOST_FAIL("unexpected token");
+        }
+    }
+    BOOST_REQUIRE(got == std::vector<int>({2, 1}));
+}
+
+// Heterogeneous value types can be mixed in one selection.
+SEASTAR_TEST_CASE(test_selection_heterogeneous) {
+    coroutine::selection sel;
+    auto an_int = sel.add(0, [] { return selection_delayed_value(10ms, 7); });
+    auto a_str = sel.add(1, []() -> future<sstring> {
+        co_await sleep(20ms);
+        co_return sstring("hello");
+    });
+
+    int seen_int = 0;
+    sstring seen_str;
+    while (auto which = co_await sel) {
+        switch (*which) {
+        case 0: seen_int = co_await std::move(an_int); break;
+        case 1: seen_str = co_await std::move(a_str); break;
+        }
+    }
+    BOOST_REQUIRE_EQUAL(seen_int, 7);
+    BOOST_REQUIRE_EQUAL(seen_str, sstring("hello"));
+}
+
+// A failed future surfaces its exception when the returned future is awaited.
+SEASTAR_TEST_CASE(test_selection_exception) {
+    coroutine::selection sel;
+    auto ok = sel.add(0, [] { return selection_delayed_value(30ms, 5); });
+    auto bad = sel.add(1, []() -> future<int> {
+        co_await sleep(10ms);
+        throw std::runtime_error("boom");
+    });
+
+    int ok_value = 0;
+    bool saw_exception = false;
+    while (auto which = co_await sel) {
+        if (*which == 0) {
+            ok_value = co_await std::move(ok);
+        } else {
+            try {
+                co_await std::move(bad);
+                BOOST_FAIL("expected exception");
+            } catch (const std::runtime_error&) {
+                saw_exception = true;
+            }
+        }
+    }
+    BOOST_REQUIRE_EQUAL(ok_value, 5);
+    BOOST_REQUIRE(saw_exception);
+}
+
+// A callable that throws synchronously (before returning a future) is captured
+// into the returned future, not propagated out of add().
+SEASTAR_TEST_CASE(test_selection_synchronous_throw) {
+    coroutine::selection sel;
+    auto ok = sel.add(0, [] { return selection_delayed_value(20ms, 3); });
+    auto throwing = sel.add(1, []() -> future<int> {
+        throw std::runtime_error("sync boom");
+    });
+
+    int ok_value = 0;
+    bool saw_exception = false;
+    while (auto which = co_await sel) {
+        if (*which == 0) {
+            ok_value = co_await std::move(ok);
+        } else {
+            try {
+                co_await std::move(throwing);
+                BOOST_FAIL("expected exception");
+            } catch (const std::runtime_error&) {
+                saw_exception = true;
+            }
+        }
+    }
+    BOOST_REQUIRE_EQUAL(ok_value, 3);
+    BOOST_REQUIRE(saw_exception);
+}
+
+// A timeout (an external cancellable future) fires, and we register more work
+// in response, mirroring the motivating "hedged read" pattern.
+SEASTAR_TEST_CASE(test_selection_timeout_then_add) {
+    // A custom (scoped-enum) token type, via basic_selection.
+    enum class ev { slow, hedge, deadline };
+    coroutine::basic_selection<ev, 512> sel;
+    auto slow = sel.add(ev::slow, [] { return selection_delayed_value(60ms, 1); });
+    std::optional<future<int>> hedge;
+    coroutine::deadline deadline(20ms);
+    auto deadline_f = sel.add(ev::deadline, [&] { return deadline.get_future(); });
+
+    bool timed_out = false;
+    std::vector<int> answers;
+    while (auto which = co_await sel) {
+        switch (*which) {
+        case ev::deadline:
+            timed_out = true;
+            co_await std::move(deadline_f);
+            hedge = sel.add(ev::hedge, [] { return selection_delayed_value(5ms, 99); });
+            break;
+        case ev::slow:
+            answers.push_back(co_await std::move(slow));
+            break;
+        case ev::hedge:
+            answers.push_back(co_await std::move(*hedge));
+            break;
+        }
+    }
+    BOOST_REQUIRE(timed_out);
+    // Hedge (added at ~20ms, fires ~25ms) beats the slow read (~60ms).
+    BOOST_REQUIRE(answers == std::vector<int>({99, 1}));
+}
+
+// A timeout can be constructed from an absolute time_point as well as a
+// relative duration.
+SEASTAR_TEST_CASE(test_selection_timeout_time_point) {
+    coroutine::selection sel;
+    coroutine::deadline t0(seastar::lowres_clock::now() + 10ms);   // time_point ctor
+    coroutine::deadline t1(40ms);                                  // duration ctor
+    auto f0 = sel.add(0, [&] { return t0.get_future(); });
+    auto f1 = sel.add(1, [&] { return t1.get_future(); });
+
+    std::vector<size_t> fired;
+    while (auto which = co_await sel) {
+        switch (*which) {
+        case 0: co_await std::move(f0); break;
+        case 1: co_await std::move(f1); break;
+        }
+        fired.push_back(*which);
+    }
+    BOOST_REQUIRE(fired == std::vector<size_t>({0, 1}));
+}
+
+// cancel() resolves a timeout's future early, so the selection drains without
+// waiting for the timer, and the token is still reported.
+SEASTAR_TEST_CASE(test_selection_timeout_cancel) {
+    coroutine::selection sel;
+    auto work = sel.add(0, [] { return selection_delayed_value(10ms, 7); });
+    coroutine::deadline deadline(1000ms);   // far in the future
+    auto deadline_f = sel.add(1, [&] { return deadline.get_future(); });
+
+    int value = 0;
+    bool saw_deadline = false;
+    while (auto which = co_await sel) {
+        switch (*which) {
+        case 0:
+            value = co_await std::move(work);
+            deadline.cancel();   // got the answer; drop the deadline
+            break;
+        case 1:
+            saw_deadline = true;
+            co_await std::move(deadline_f);
+            break;
+        }
+    }
+    BOOST_REQUIRE_EQUAL(value, 7);
+    BOOST_REQUIRE(saw_deadline);   // cancel still reports the token
+}
+
+// Spilling past the inline capacity (heap fallback) still works, and the token
+// gives O(1) dispatch into a vector of futures.
+SEASTAR_TEST_CASE(test_selection_heap_spill) {
+    coroutine::basic_selection<size_t, 256> sel; // tiny inline arena
+    std::vector<future<int>> reads;
+    for (size_t i = 0; i < 8; ++i) {
+        reads.push_back(sel.add(i, [i] { return selection_delayed_value(std::chrono::milliseconds(5 * (i + 1)), int(i)); }));
+    }
+
+    std::vector<int> got;
+    while (auto which = co_await sel) {
+        got.push_back(co_await std::move(reads[*which]));
+    }
+    BOOST_REQUIRE_EQUAL(got.size(), 8u);
+    BOOST_REQUIRE(got == std::vector<int>({0, 1, 2, 3, 4, 5, 6, 7}));
+}
+
+// An already-ready future is handled without hanging.
+SEASTAR_TEST_CASE(test_selection_ready_future) {
+    coroutine::selection sel;
+    auto ready = sel.add(0, [] { return make_ready_future<int>(42); });
+    int v = 0;
+    while (auto which = co_await sel) {
+        v = co_await std::move(ready);
+    }
+    BOOST_REQUIRE_EQUAL(v, 42);
+}
+

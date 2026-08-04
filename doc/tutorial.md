@@ -631,6 +631,86 @@ seastar::future<bool> all_exist(std::vector<seastar::sstring> filenames) {
 
 Here, the lambda function passed to parallel_for_each is launched concurrently for each element in the filenames vector. The coroutine is paused until all calls complete.
 
+## Selecting among several results
+
+`seastar::coroutine::all` waits for *all* of its sub-computations and hands you the results together, in launch order. Sometimes a coroutine instead wants to react to several concurrent operations *as they complete* — in completion order — for example to process each result the moment it arrives, or to launch additional work in response. `seastar::coroutine::selection` provides this, modelled loosely on the classic `poll()`/`select()` system calls. (`selection` is a ready-made type using a `size_t` token; `seastar::coroutine::basic_selection` is the underlying template if you want a different token type, clock, or inline-storage size.)
+
+A `selection` is declared as a local variable in the coroutine frame. You register operations with `add()`, tagging each with a caller-chosen *token* (an index, an enum, anything copyable). `add()` hands back a `future<T>` for the result. (A deadline is just another future — see [Timeouts](#timeouts) below.) You then repeatedly `co_await` the selection in a `while` loop: each `co_await` suspends the coroutine until one registered event becomes ready and returns its token (as a `std::optional<Token>`, empty once the selection is drained). Use the token to dispatch; the matching future is then guaranteed ready, so `co_await`-ing it (or calling `get()`) yields the result without suspending — a failed operation propagates its exception, just like any future:
+
+```cpp
+#include <seastar/coroutine/selection.hh>
+
+seastar::future<int> read_from(int shard);
+
+// Read a value from each of several shards, processing each result the moment
+// it arrives rather than waiting for the slowest.
+seastar::future<int> sum_as_they_arrive(std::vector<int> shards) {
+    seastar::coroutine::selection sel;   // tokens are size_t; use the shard index
+    std::vector<seastar::future<int>> reads;
+    for (size_t i = 0; i < shards.size(); ++i) {
+        reads.push_back(sel.add(i, [shard = shards[i]] { return read_from(shard); }));
+    }
+
+    int total = 0;
+    while (auto which = co_await sel) {
+        total += co_await std::move(reads[*which]);   // O(1) dispatch, process on arrival
+    }
+    co_return total;
+}
+```
+
+Because the token is returned directly, dispatch is O(1) — no scanning to find which operation completed, in the spirit of `epoll` versus `poll`/`select`.
+
+A few things to note:
+
+* `add()` takes a *callable* returning a future (like `seastar::coroutine::all`), not a ready-made future. This lets the selection invoke it in a controlled context: an exception thrown synchronously by the callable is captured into the returned future, just like a failed future.
+* The operations may have *different* value types; `add()` returns a correctly-typed `future<T>` for each, so a single `selection` can mix, say, a `future<int>` and a `future<sstring>` (dispatch on the token, then `co_await` the appropriately-typed future).
+* You may register more operations between iterations, but not while the coroutine is suspended in `co_await` (see the timeout example below).
+* Storage for the registered operations is normally taken from a small in-place arena inside the `selection` object, falling back to the heap only when that fills up.
+
+### The draining contract
+
+A `selection` **must be drained before it is destroyed**: the `while` loop must run until `co_await sel` yields a false token, which happens only when nothing is ready and nothing is still pending. This is not merely a convention. A Seastar future cannot be cancelled, and a slot registered inside the coroutine frame cannot be relocated out of it, so an operation that is still in flight when the `selection` is destroyed would leave a dangling reference. Leaving the loop early — via `break`, `return`, or an exception unwinding the frame — while operations are still pending is therefore a programming error and aborts the process.
+
+Consequently a `selection` never abandons work: every registered operation runs to completion and is reported. To "stop caring" about further results, keep looping but ignore them (`co_await`-and-discard the future). The loop still exits only once everything has drained.
+
+### Timeouts
+
+A `selection` has no built-in timeout: a deadline is just another future. The `seastar::coroutine::deadline` helper packages a timer and a promise — it arms a timer on construction and its `get_future()` resolves when the timer expires — so you register it with `add()` like anything else. Crucially, `deadline::cancel()` resolves the future early, which (unlike a plain future) lets you drop a deadline once it is moot so the selection can drain:
+
+```cpp
+seastar::future<> await_with_hedge() {
+    enum class ev { primary, hedge, deadline };
+    // a custom token type (here a scoped enum) needs basic_selection
+    seastar::coroutine::basic_selection<ev, 512> sel;
+    auto primary = sel.add(ev::primary, [] { return read_from(0); });
+    std::optional<seastar::future<int>> hedge;
+
+    seastar::coroutine::deadline deadline(100ms);
+    auto deadline_f = sel.add(ev::deadline, [&] { return deadline.get_future(); });
+
+    std::optional<int> answer;
+    while (auto which = co_await sel) {
+        switch (*which) {
+        case ev::deadline:
+            co_await std::move(deadline_f);
+            // primary is taking too long; start a hedged read alongside it
+            hedge = sel.add(ev::hedge, [] { return read_from(1); });
+            break;
+        case ev::primary:
+            if (!answer) { answer = co_await std::move(primary); }
+            deadline.cancel();   // got an answer; drop the deadline so we can drain
+            break;
+        case ev::hedge:
+            if (!answer) { answer = co_await std::move(*hedge); }
+            break;
+        }
+    }
+}
+```
+
+Because the timeout is an ordinary registered future, the loop will not drain while it is still pending — a 100ms deadline keeps the selection alive for up to 100ms. Calling `deadline.cancel()` resolves it immediately (its token is still reported once), so once you no longer need the deadline you can cancel it and let the loop finish promptly.
+
 ## Breaking up long running computations
 
 Seastar is generally used for I/O, and coroutines usually launch I/O operations and consume their results, with little computation in between. But occasionally a long running computation is needed, and this risks preventing the reactor from performing I/O and scheduling other tasks.
