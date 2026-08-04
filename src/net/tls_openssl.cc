@@ -995,7 +995,6 @@ public:
     // encrypt it and then place it into the output bio.
     future<> put(std::span<temporary_buffer<char>> bufs) override {
         tls_log.trace("{} put", *this);
-        constexpr size_t openssl_max_record_size = 16 * 1024;
         if (_error) {
             return make_exception_future(_error);
         }
@@ -1020,11 +1019,10 @@ public:
         // We want to make sure that we write to the underlying bio with as large
         // packets as possible. This is because eventually this translates to a
         // sendmsg syscall. Further it results in larger TLS records which makes
-        // encryption/decryption faster. Hence to avoid cases where we would do
-        // an extra syscall for something like a 100 bytes header we linearize the
-        // packet if it's below the max TLS record size.
+        // encryption/decryption faster. Hence we linearize small packets; see
+        // linearize_put_threshold for the rationale.
         size_t size = std::accumulate(bufs.begin(), bufs.end(), size_t(0), [] (size_t s, const auto& b) { return s + b.size(); });
-        if (size <= openssl_max_record_size) {
+        if (size <= linearize_put_threshold) {
             temporary_buffer<char> linear(size);
             char* pos = linear.get_write();
             for (auto& buf : bufs) {

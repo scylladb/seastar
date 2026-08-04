@@ -952,13 +952,11 @@ public:
         // We want to make sure that we call gnutls_record_send with as large
         // packets as possible. This is because each call to gnutls_record_send
         // translates to a sendmsg syscall. Further it results in larger TLS
-        // records which makes encryption/decryption faster. Hence to avoid
-        // cases where we would do an extra syscall for something like a 100
-        // bytes header we linearize the packet if it's below the max TLS record
-        // size.
+        // records which makes encryption/decryption faster. Hence we linearize
+        // small packets; see linearize_put_threshold for the rationale.
 
         size_t size = std::accumulate(bufs.begin(), bufs.end(), size_t(0), [] (size_t s, const auto& b) { return s + b.size(); });
-        if (size <= gnutls_record_get_max_size(*this)) {
+        if (size <= linearize_put_threshold) {
             temporary_buffer<char> linear(size);
             char* pos = linear.get_write();
             for (auto& buf : bufs) {

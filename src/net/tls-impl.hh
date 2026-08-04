@@ -164,6 +164,18 @@ public:
     bool _load_system_trust = false;
 };
 
+/// Threshold below which put() linearizes a multi-buffer packet into a
+/// single contiguous buffer before handing it to the TLS backend.
+///
+/// Each buffer passed to the backend becomes a separate record_send /
+/// BIO write and ultimately a separate sendmsg syscall, so coalescing
+/// small fragments (e.g. a ~100 byte header preceding a payload) avoids
+/// that per-call overhead and also produces larger TLS records, which
+/// encrypt/decrypt more efficiently. Note that this value is not tied to
+/// the TLS record size: it bounds how much we are willing to copy to
+/// save those overheads, a tradeoff independent of the record size.
+constexpr size_t linearize_put_threshold = 16 * 1024;
+
 /// Abstract interface for a TLS session.
 ///
 /// This is the primary abstraction that TLS backends (GnuTLS, OpenSSL)
