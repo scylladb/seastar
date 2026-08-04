@@ -53,6 +53,14 @@ struct smp_options : public program_options::option_group {
     program_options::value<std::string> reserve_memory;
     /// Path to accessible hugetlbfs mount (typically /dev/hugepages/something).
     program_options::value<std::string> hugepages;
+    /// Back shard memory with a memfd, exposing it via
+    /// \ref memory::memory_layout::memfd.
+    ///
+    /// When unset, memfd backing is enabled by default whenever transparent
+    /// hugepages are available for memfd (see
+    /// /sys/kernel/mm/transparent_hugepage/shmem_enabled) or the reactor is
+    /// \ref reactor_options::overprovisioned. Ignored when \ref hugepages is set.
+    program_options::value<bool> memfd;
     /// Lock all memory (prevents swapping).
     program_options::value<bool> lock_memory;
     /// Pin threads to their cpus (disable for overprovisioning).

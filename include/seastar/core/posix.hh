@@ -136,6 +136,11 @@ public:
         throw_system_error_on(fd == -1, "timerfd_create");
         return file_desc(fd);
     }
+    static file_desc memfd_create(sstring name, unsigned int flags) {
+        int fd = ::memfd_create(name.c_str(), flags);
+        throw_system_error_on(fd == -1, "memfd_create");
+        return file_desc(fd);
+    }
     static file_desc temporary(sstring directory);
     file_desc dup() const {
         int fd = ::dup(get());
