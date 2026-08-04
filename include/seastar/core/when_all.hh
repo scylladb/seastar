@@ -50,8 +50,8 @@ struct identity_futures_tuple {
         p.set_value(std::move(futures));
     }
 
-    static future_type make_ready_future(std::tuple<Futures...> futures) noexcept {
-        return seastar::make_ready_future<std::tuple<Futures...>>(std::move(futures));
+    static future_type make_ready_future(Futures&&... futures) noexcept {
+        return seastar::make_ready_future<std::tuple<Futures...>>(std::move(futures)...);
     }
 
     static future_type current_exception_as_future() noexcept {
@@ -171,7 +171,7 @@ private:
 public:
     static typename ResolvedTupleTransform::future_type wait_all(Futures&&... futures) noexcept {
         if ((futures.available() && ...)) {
-            return ResolvedTupleTransform::make_ready_future(std::make_tuple(std::move(futures)...));
+            return ResolvedTupleTransform::make_ready_future(std::move(futures)...);
         }
         auto state = [&] () noexcept {
             memory::scoped_critical_alloc_section _;
@@ -330,72 +330,45 @@ when_all(FutureIterator begin, FutureIterator end) noexcept {
 
 namespace internal {
 
-template<typename Future>
-struct future_has_value {
-    enum {
-        value = !std::is_same_v<std::decay_t<Future>, future<>>
-    };
-};
-
-template<typename Tuple>
-struct tuple_to_future;
-
-template<typename... Elements>
-struct tuple_to_future<std::tuple<Elements...>> {
-    using value_type = std::tuple<Elements...>;
-    using type = future<value_type>;
-    using promise_type = promise<value_type>;
-
-    // Elements... all come from futures, so we know they are nothrow move
-    // constructible. `future` also has a static assertion to that effect.
-
-    static auto make_ready(std::tuple<Elements...> t) noexcept {
-        return make_ready_future<value_type>(value_type(std::move(t)));
-    }
-
-    static auto make_failed(std::exception_ptr excp) noexcept {
-        return seastar::make_exception_future<value_type>(std::move(excp));
-    }
-};
-
 template<typename... Futures>
 class extract_values_from_futures_tuple {
-    static auto transform(std::tuple<Futures...> futures) noexcept {
-        auto prepare_result = [] (auto futures) noexcept {
-            auto fs = tuple_filter_by_type<internal::future_has_value>(std::move(futures));
-            return tuple_map(std::move(fs), [] (auto&& e) {
-                return e.get();
-            });
-        };
 
-        using tuple_futurizer = internal::tuple_to_future<decltype(prepare_result(std::move(futures)))>;
+    template<typename Future>
+    static constexpr bool is_blank_v = std::same_as<std::decay_t<Future>, future<>>;
 
-        std::exception_ptr excp;
-        tuple_for_each(futures, [&excp] (auto& f) {
-            if (!excp) {
-                if (f.failed()) {
-                    excp = f.get_exception();
-                }
-            } else {
-                f.ignore_ready_future();
-            }
-        });
-        if (excp) {
-            return tuple_futurizer::make_failed(std::move(excp));
-        }
-
-        return tuple_futurizer::make_ready(prepare_result(std::move(futures)));
-    }
 public:
-    using future_type = decltype(transform(std::declval<std::tuple<Futures...>>()));
+    using future_type = futurize_t<decltype(std::tuple_cat(
+        std::declval<std::conditional_t<is_blank_v<Futures>,
+            std::tuple<>, std::tuple<typename Futures::value_type>>>()...))>;
     using promise_type = typename future_type::promise_type;
 
     static void set_promise(promise_type& p, std::tuple<Futures...> tuple) {
-        transform(std::move(tuple)).forward_to(std::move(p));
+        std::apply(&make_ready_future, std::move(tuple)).forward_to(std::move(p));
     }
 
-    static future_type make_ready_future(std::tuple<Futures...> tuple) noexcept {
-        return transform(std::move(tuple));
+    static future_type make_ready_future(Futures&&... futures) noexcept {
+        std::exception_ptr excp;
+        ([&excp]<typename Future>(Future& future) noexcept {
+            if (excp) {
+                future.ignore_ready_future();
+            } else if (future.failed()) {
+                excp = future.get_exception();
+            }
+        }(futures), ...);
+
+        if (excp) {
+            return seastar::make_exception_future<typename future_type::value_type>(std::move(excp));
+        }
+        constexpr auto t = []<typename Future>(Future&& ready) noexcept {
+            if constexpr (is_blank_v<Future>) {
+                ready.ignore_ready_future();
+                return std::make_tuple<>();
+            } else {
+                return std::forward_as_tuple(ready.get());
+            }
+        };
+        return seastar::make_ready_future<typename future_type::value_type>(
+            std::tuple_cat(t(std::move(futures)) ...));
     }
 
     static future_type current_exception_as_future() noexcept {
