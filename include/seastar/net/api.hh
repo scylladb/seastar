@@ -397,6 +397,18 @@ public:
     /// \see listen(socket_address sa, listen_options opts)
     socket_address local_address() const noexcept;
 
+    /// Update the listen backlog on an already-listening socket.
+    ///
+    /// On Linux, this re-invokes the listen() syscall on the underlying
+    /// file descriptor to change the backlog value.
+    /// \throws std::system_error (EOPNOTSUPP) if the socket implementation
+    ///         does not support runtime backlog changes.
+    void set_listen_backlog(int backlog);
+
+    /// Get the currently configured listen backlog.
+    /// Returns -1 if the socket implementation does not track the backlog value.
+    int get_listen_backlog() const;
+
     /// Check whether the \c server_socket is listening on any address.
     ///
     /// \return true if this \c socket_address is bound to an address,

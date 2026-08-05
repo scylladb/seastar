@@ -364,6 +364,19 @@ SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
     BOOST_CHECK_LT(recv_default, 20'000'000);
 }
 
+SEASTAR_THREAD_TEST_CASE(socket_listen_backlog_runtime_update_test) {
+    listen_options lo;
+    lo.reuse_address = true;
+    lo.listen_backlog = 1111;
+
+    server_socket ss = seastar::listen(ipv4_addr("127.0.0.1", 0), lo);
+
+    BOOST_REQUIRE_EQUAL(ss.get_listen_backlog(), 1111);
+
+    ss.set_listen_backlog(1888);
+    BOOST_REQUIRE_EQUAL(ss.get_listen_backlog(), 1888);
+}
+
 static
 void
 test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protocol) {

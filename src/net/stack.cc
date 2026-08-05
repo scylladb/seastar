@@ -227,6 +227,22 @@ socket_address server_socket::local_address() const noexcept {
     return _ssi->local_address();
 }
 
+void server_socket::set_listen_backlog(int backlog) {
+    _ssi->set_listen_backlog(backlog);
+}
+
+int server_socket::get_listen_backlog() const {
+    return _ssi->get_listen_backlog();
+}
+
+void net::server_socket_impl::set_listen_backlog(int backlog) {
+    throw std::system_error(EOPNOTSUPP, std::system_category(), "set_listen_backlog");
+}
+
+int net::server_socket_impl::get_listen_backlog() const {
+    return -1; // -1 signals that the implementation does not track the backlog value
+}
+
 network_interface::network_interface(shared_ptr<net::network_interface_impl> impl) noexcept
     : _impl(std::move(impl))
 {}
