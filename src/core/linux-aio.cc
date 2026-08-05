@@ -25,7 +25,7 @@
 #include <cerrno>
 #include <cstring>
 #include <stdexcept>
-#include <fmt/format.h>
+#include <seastar/core/internal/fmt.hh>
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <valgrind/valgrind.h>

@@ -28,7 +28,7 @@
 #include <gnutls/gnutls.h>
 #include <cstring>
 #include <stdexcept>
-#include <fmt/format.h>
+#include <seastar/core/internal/fmt.hh>
 
 namespace seastar::internal::crypto {
 

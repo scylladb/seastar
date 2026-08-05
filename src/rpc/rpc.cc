@@ -13,7 +13,7 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/range/numeric.hpp>
-#include <fmt/ostream.h>
+#include <seastar/core/internal/fmt.hh>
 
 template <> struct fmt::formatter<seastar::rpc::streaming_domain_type> : fmt::ostream_formatter {};
 

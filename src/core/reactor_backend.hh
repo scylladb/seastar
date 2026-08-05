@@ -35,7 +35,7 @@
 #include <seastar/core/shard_id.hh>
 #include <seastar/core/resource.hh>
 
-#include <fmt/ostream.h>
+#include <seastar/core/internal/fmt.hh>
 #include <sys/time.h>
 #include <bitset>
 #include <thread>

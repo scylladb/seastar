@@ -28,7 +28,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/range/algorithm_ext/erase.hpp>
-#include <fmt/ranges.h>
+#include <seastar/core/internal/fmt.hh>
 
 #include <seastar/core/metrics.hh>
 #include <seastar/core/metrics_api.hh>

@@ -87,8 +87,7 @@
 #define min min    /* prevent xfs.h from defining min() as a macro */
 #include <xfs/xfs.h>
 #undef min
-#include <fmt/ostream.h>
-#include <fmt/ranges.h>
+#include <seastar/core/internal/fmt.hh>
 
 #ifdef SEASTAR_SHUFFLE_TASK_QUEUE
 #include <random>
