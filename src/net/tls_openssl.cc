@@ -62,6 +62,7 @@
 #include <seastar/util/log.hh>
 
 #include "tls-impl.hh"
+#include "tls-session-base.hh"
 #include "tls_openssl.hh"
 
 namespace seastar::tls {
@@ -73,8 +74,6 @@ template <> struct fmt::formatter<seastar::tls::openssl_session> : public fmt::f
 };
 
 namespace seastar {
-
-static logger tls_log("tls");
 
 enum class openssl_errc : int{};
 
@@ -733,7 +732,7 @@ int session_ticket_cb(SSL * s, unsigned char key_name[16],
  * The implmentation below relies on OpenSSL, for the gnutls implementation
  * see tls.cc and the CMake option 'Seastar_USE_OPENSSL'
  */
-class openssl_session : public enable_shared_from_this<openssl_session>, public session_impl {
+class openssl_session : public session_base {
 public:
     using buf_type = temporary_buffer<char>;
     using frag_iter = net::fragment*;
@@ -761,27 +760,8 @@ public:
 
     openssl_session(session_type t, shared_ptr<tls::certificate_credentials> creds,
             std::unique_ptr<net::connected_socket_impl> sock, tls_options options = {})
-      : _sock(std::move(sock))
-      , _local_address([this]() -> sstring {
-            try {
-                return fmt::to_string(_sock->local_address());
-            } catch(const std::system_error&) {
-                return "DISCONNECTED";
-            }
-        }())
-      , _remote_address([this]() -> sstring {
-            try {
-                return fmt::to_string(_sock->remote_address());
-            } catch(const std::system_error&) {
-                return "DISCONNECTED";
-            }
-        }())
+      : session_base(t, std::move(sock), std::move(options))
       , _creds(static_pointer_cast<openssl_provider_certificate_credentials_impl>(creds->_impl))
-      , _in(_sock->source())
-      , _out(_sock->sink())
-      , _in_sem(1)
-      , _out_sem(1)
-      , _options(std::move(options))
       , _output_pending(make_ready_future<>())
       , _ctx(make_ssl_context(t))
       , _ssl([this]() {
@@ -790,8 +770,7 @@ public:
               throw make_openssl_error("Failed to create SSL session");
           }
           return ssl;
-      }())
-      , _type(t) {
+      }()) {
         if (1 != SSL_set_ex_data(_ssl.get(), SSL_EX_DATA_SESSION, this)) {
             throw make_openssl_error("Failed to set EX data for SSL session");
         }
@@ -841,10 +820,6 @@ public:
 
     ~openssl_session() {
         SEASTAR_ASSERT(_output_pending.available());
-    }
-
-    const char * get_type_string() const {
-        return _type == session_type::CLIENT ? "Client": "Server";
     }
 
     // Waits for the put() currently tracked by _output_pending to drain. On
@@ -940,29 +915,11 @@ public:
         }
     }
 
-    future<> do_put(std::vector<temporary_buffer<char>> bufs) {
-        auto i = bufs.begin();
-        auto e = bufs.end();
-        return with_semaphore(_out_sem, 1, [this, i, e] {
-            return do_for_each(i, e, [this](temporary_buffer<char>& b) {
-                return do_put_one(b.get(), b.size());
-            });
-        }).finally([b = std::move(bufs)] {});
-    }
-
-    future<> do_put(temporary_buffer<char> buf) {
-        auto ptr = buf.get();
-        auto size = buf.size();
-        return with_semaphore(_out_sem, 1, [this, ptr, size] {
-            return do_put_one(ptr, size);
-        }).finally([b = std::move(buf)] {});
-    }
-
     // Called post locking of the _out_sem, which should be held until
     // the returned future resolves.
     // Will attempt to send the provided packet.  If a renegotiation is needed
     // any unprocessed part of the packet is returned.
-    future<> do_put_one(const char* ptr, size_t size) {
+    future<> do_put_one(const char* ptr, size_t size) override {
         tls_log.trace("{} do_put", *this);
 
         // A key-update put() from the read path (under _in_sem) may be in flight
@@ -989,55 +946,6 @@ public:
                 co_await wait_for_output();
             }
         }
-    }
-
-    // Used to push unencrypted data through OpenSSL, which will
-    // encrypt it and then place it into the output bio.
-    future<> put(std::span<temporary_buffer<char>> bufs) override {
-        tls_log.trace("{} put", *this);
-        constexpr size_t openssl_max_record_size = 16 * 1024;
-        if (_error) {
-            return make_exception_future(_error);
-        }
-        if (_shutdown) {
-            return make_exception_future<>(
-              std::system_error(EPIPE, std::system_category()));
-        }
-        if (!connected()) {
-            tls_log.trace("{} put: not connected, performing handshake", *this);
-            std::vector<temporary_buffer<char>> p;
-            p.reserve(bufs.size());
-            p.insert(p.end(), std::make_move_iterator(bufs.begin()), std::make_move_iterator(bufs.end()));
-            return handshake().then([this, p = std::move(p)]() mutable {
-               return put(std::span(p));
-            });
-        }
-
-        if (bufs.size() == 1) {
-            return do_put(std::move(bufs.front()));
-        }
-
-        // We want to make sure that we write to the underlying bio with as large
-        // packets as possible. This is because eventually this translates to a
-        // sendmsg syscall. Further it results in larger TLS records which makes
-        // encryption/decryption faster. Hence to avoid cases where we would do
-        // an extra syscall for something like a 100 bytes header we linearize the
-        // packet if it's below the max TLS record size.
-        size_t size = std::accumulate(bufs.begin(), bufs.end(), size_t(0), [] (size_t s, const auto& b) { return s + b.size(); });
-        if (size <= openssl_max_record_size) {
-            temporary_buffer<char> linear(size);
-            char* pos = linear.get_write();
-            for (auto& buf : bufs) {
-                std::copy_n(buf.get(), buf.size(), pos);
-                pos += buf.size();
-            }
-            return do_put(std::move(linear));
-        }
-
-        std::vector<temporary_buffer<char>> p;
-        p.reserve(bufs.size());
-        p.insert(p.end(), std::make_move_iterator(bufs.begin()), std::make_move_iterator(bufs.end()));
-        return do_put(std::move(p));
     }
 
     // Called after locking the _in_sem and _out_sem semaphores.
@@ -1135,34 +1043,11 @@ public:
         );
     }
 
-    // This function will attempt to pull data off of the _in stream
-    // if there isn't already data needing to be processed first.
-    future<> wait_for_input() {
-        tls_log.trace("{} wait_for_input", *this);
-        // If we already have data, then it needs to be processed
-        if (!_input.empty()) {
-            tls_log.trace("{} wait_for_input: input not empty", *this);
-            return make_ready_future();
-        }
-        return _in.get()
-          .then([this](buf_type buf) {
-              // Set EOF if it's empty
-              tls_log.debug("{} wait_for_input: buffer is {}empty", *this, buf.empty() ? "": "not ");
-              _eof |= buf.empty();
-              _input = std::move(buf);
-          })
-          .handle_exception([this](auto ep) {
-              tls_log.debug("{} wait_for_input: exception: {}", *this, seastar::formattable(ep));
-              _error = ep;
-              return make_exception_future(ep);
-          });
-    }
-
     // Called after locking the _in_sem semaphore
     // This function attempts to pull unencrypted data off of the
     // SSL session using SSL_read.  If ther eis no data, then
     // we will call perform_pull and wait for data to arrive.
-    future<buf_type> do_get() {
+    future<buf_type> do_get() override {
         tls_log.trace("{} do_get", *this);
         // Data is available to be pulled of the SSL session if there is pending
         // data on the SSL session or there is data in the in_bio() which SSL reads
@@ -1269,7 +1154,7 @@ public:
     }
 
     // Performs shutdown
-    future<> do_shutdown() {
+    future<> do_shutdown() override {
         tls_log.trace("{} do_shutdown", *this);
         if (_error || !connected()) {
             tls_log.trace("{} do_shutdown: error exists or not connected", *this);
@@ -1375,36 +1260,8 @@ public:
         }
     }
 
-    bool eof() const {
-        return _eof;
-    }
-
-    bool connected() const {
+    bool connected() const override {
         return SSL_is_init_finished(_ssl.get());
-    }
-
-    // This function waits for eof() to occur on the input stream
-    // Unless wait_for_eof_on_shutdown is false
-    future<> wait_for_eof() {
-        tls_log.trace("{} wait_for_eof", *this);
-        return with_semaphore(_in_sem, 1, [this] {
-            if (_error || !connected()) {
-                return make_ready_future();
-            }
-            if (!_options.wait_for_data_on_shutdown) {
-                // Read at most one record. If unread data arrives instead
-                // of EOF, abort the wait immediately rather than looping.
-                if (eof()) {
-                    return make_ready_future<>();
-                }
-                return do_get().discard_result();
-            }
-            return do_until(
-                [this] { return eof(); },
-                [this] { return do_get().discard_result(); });
-        }).finally([this] {
-            tls_log.trace("{} wait_for_eof: complete", *this);
-        });
     }
 
     future<> force_rehandshake() override {
@@ -1427,7 +1284,7 @@ public:
 
     // This function is called to kick off the handshake.  It will obtain
     // locks on the _in_sem and _out_sem semaphores and start the handshake.
-    future<> handshake() {
+    future<> handshake() override {
         tls_log.trace("{} handshake", *this);
         if (_creds->need_load_system_trust()) {
             if (!SSL_CTX_set_default_verify_paths(_ctx.get())) {
@@ -1437,73 +1294,7 @@ public:
             _creds->set_load_system_trust(false);
         }
 
-        return with_semaphore(_in_sem, 1, [this] {
-            return with_semaphore(_out_sem, 1, [this] {
-                return do_handshake().handle_exception([this](auto ep) {
-                    if (!_error) {
-                        _error = ep;
-                    }
-                    return make_exception_future<>(_error);
-                });
-            });
-        });
-    }
-
-    future<> shutdown() {
-        tls_log.trace("{} shutdown", *this);
-        // first, make sure any pending write is done.
-        // bye handshake is a flush operation, but this
-        // allows us to not pay extra attention to output state
-        //
-        // we only send a simple "bye" alert packet. Then we
-        // read from input until we see EOF. Any other reader
-        // before us will get it instead of us, and mark _eof = true
-        // in which case we will be no-op. This is performed all
-        // within do_shutdown
-        return with_semaphore(_out_sem, 1, [this] {
-                                return do_shutdown();
-                              }).then([this] {
-                                return wait_for_eof();
-                              }).finally([me = shared_from_this()]{});
-        // note moved finally clause above. It is theorethically possible
-        // that we could complete do_shutdown just before the close calls
-        // below, get pre-empted, have "close()" finish, get freed, and
-        // then call wait_for_eof on stale pointer.
-    }
-
-    void close() noexcept override {
-        tls_log.trace("{} close", *this);
-        // only do once.
-        if (!std::exchange(_shutdown, true)) {
-            tls_log.trace("{} close: performing shutdown", *this);
-            auto me = shared_from_this();
-            auto f = _options.bye_timeout.count() > 0 && (_options.wait_for_eof_on_shutdown._value == true)
-                // try to bye-handshake us nicely, but after a timeout we forcefully close.
-                ? with_timeout(timer<>::clock::now() + _options.bye_timeout, shutdown())
-                : make_ready_future<>();
-            engine().run_in_background(std::move(f).finally([this] {
-                  _eof = true;
-                  return _in.close();
-              }).finally([this] {
-                  return _out.close();
-              }).finally([this] {
-                  // make sure to wait for handshake attempt to leave semaphores. Must be in same order as
-                  // handshake aqcuire, because in worst case, we get here while a reader is attempting
-                  // re-handshake.
-                  return with_semaphore(_in_sem, 1, [this] {
-                      return with_semaphore(_out_sem, 1, [] { });
-                  });
-              }).handle_exception([me = std::move(me)](std::exception_ptr){
-              }).discard_result());
-        }
-    }
-    // helper for sink
-    future<> flush() noexcept override {
-        return with_semaphore(_out_sem, 1, [this] { return _out.flush(); });
-    }
-
-    seastar::net::connected_socket_impl& socket() const override {
-        return *_sock;
+        return do_handshake_sync([this] { return do_handshake(); });
     }
 
     future<std::optional<session_dn>> get_distinguished_name() override {
@@ -1546,24 +1337,6 @@ public:
         }
         return make_ready_future<result_t>(
           do_get_alt_name_information(peer_cert, types));
-    }
-
-    template<typename Func, typename... Args>
-    auto state_checked_access(Func&& f, Args&& ...args) {
-        using future_type = typename futurize<std::invoke_result_t<Func, Args...>>::type;
-        using result_t = typename future_type::value_type;
-        if (_error) {
-            return make_exception_future<result_t>(_error);
-        }
-        if (_shutdown) {
-            return make_exception_future<result_t>(std::system_error(ENOTCONN, std::system_category()));
-        }
-        if (!connected()) {
-            return handshake().then([this, f = std::move(f), ...args = std::forward<Args>(args)]() mutable {
-                return openssl_session::state_checked_access(std::move(f), std::forward<Args>(args)...);
-            });
-        }
-        return futurize_invoke(f, std::forward<Args>(args)...);
     }
 
     future<sstring> get_cipher_suite() override {
@@ -1610,18 +1383,6 @@ public:
             i2d_SSL_SESSION(sess, &data_ptr);
             return data;
         });
-    }
-
-    // Returns the local address formatted as a string (e.g. 'ip:port') or
-    // `DISCONNECTED` if not connected
-    const sstring& local_address() const noexcept {
-        return _local_address;
-    }
-
-    // Returns the remote address formatted as a string (e.g. 'ip:port') or
-    // `DISCONNECTED` if not connected
-    const sstring& remote_address() const noexcept {
-        return _remote_address;
     }
 
 private:
@@ -2038,34 +1799,18 @@ private:
         return sstring(bio_ptr, len);
     }
 
-    size_t in_avail() const { return _input.size(); }
-
     BIO* in_bio() { return SSL_get_rbio(_ssl.get()); }
     BIO* out_bio() { return SSL_get_wbio(_ssl.get()); }
 
 private:
-    std::unique_ptr<net::connected_socket_impl> _sock;
-    sstring _local_address;
-    sstring _remote_address;
     shared_ptr<openssl_provider_certificate_credentials_impl> _creds;
-    data_source _in;
-    data_sink _out;
-    std::exception_ptr _error;
 
-    // Reads and writes run concurrently (full duplex), serialized by two
-    // disjoint semaphores: _in_sem guards the read path (get()/SSL_read_ex),
-    // _out_sem the write path (put()/SSL_write_ex, plus flush, rehandshake and
-    // shutdown). Operations spanning both take them in the order _in_sem then
-    // _out_sem, so there is no deadlock.
+    // Because _in_sem and _out_sem are disjoint, a read and a write can both
+    // write to the socket at once: the write path always does, and the read
+    // path does too when SSL_read_ex emits a TLS key-update/renegotiation
+    // message. Neither semaphore serializes those socket writes;
+    // _output_pending does.
     //
-    // Because the semaphores are disjoint, a read and a write can both write to
-    // the socket at once: the write path always does, and the read path does too
-    // when SSL_read_ex emits a TLS key-update/renegotiation message. Neither
-    // semaphore serializes those socket writes; _output_pending does.
-    semaphore _in_sem;
-    semaphore _out_sem;
-    tls_options _options;
-
     // The put() currently in flight on _out, or a resolved future when _out is
     // idle. _out is a data_sink, which permits only one put() at a time
     // (posix_data_sink_impl asserts !_p); both the read and write paths can reach
@@ -2088,7 +1833,6 @@ private:
     // bio_write_ex() issues no further puts and re-raises. The failure is terminal
     // (the socket is gone), so _output_pending is never reset.
     shared_future<> _output_pending;
-    buf_type _input;
     // ALPN protocols in OPENSSL format
     // This is a sequence of length-prefixed strings, where the first byte is the length
     // of the first string, followed by the string data, then the length of the second string,
@@ -2096,9 +1840,6 @@ private:
     std::vector<unsigned char> _alpn_protocols;
     ssl_ctx_ptr _ctx;
     ssl_ptr _ssl;
-    session_type _type;
-    bool _eof = false;
-    bool _shutdown = false;
 
     friend int bio_write_ex(BIO* b, const char * data, size_t dlen, size_t * written);
     friend int bio_read_ex(BIO* b, char * data, size_t dlen, size_t *readbytes);

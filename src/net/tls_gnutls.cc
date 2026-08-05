@@ -59,6 +59,7 @@
 #include <seastar/net/stack.hh>
 #include "../core/crypto.hh"
 #include "tls-impl.hh"
+#include "tls-session-base.hh"
 #include "tls_gnutls.hh"
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/variant_utils.hh>
@@ -475,28 +476,24 @@ namespace tls {
  * of these, since we handle handshake etc.
  *
  */
-class session : public enable_shared_from_this<session>, public tls::session_impl {
+class session : public session_base {
 public:
-    enum class type
-        : uint32_t {
-            CLIENT = GNUTLS_CLIENT, SERVER = GNUTLS_SERVER,
-    };
-
-    session(type t, shared_ptr<tls::certificate_credentials> creds,
+    session(session_type t, shared_ptr<tls::certificate_credentials> creds,
             std::unique_ptr<net::connected_socket_impl> sock, tls_options options = {})
-            : _type(t), _sock(std::move(sock)), _creds(static_pointer_cast<gnutls_provider_certificate_credentials_impl>(creds->_impl)),
-                    _in(_sock->source()), _out(_sock->sink()),
-                    _in_sem(1), _out_sem(1), _options(std::move(options)), _output_pending(
-                    make_ready_future<>()), _session([t] {
+            : session_base(t, std::move(sock), std::move(options))
+            , _creds(static_pointer_cast<gnutls_provider_certificate_credentials_impl>(creds->_impl))
+            , _output_pending(make_ready_future<>())
+            , _session([t] {
                 gnutls_session_t session;
-                gtls_chk(gnutls_init(&session, GNUTLS_NONBLOCK|uint32_t(t)));
+                gtls_chk(gnutls_init(&session, GNUTLS_NONBLOCK
+                        | uint32_t(t == session_type::CLIENT ? GNUTLS_CLIENT : GNUTLS_SERVER)));
                 return session;
             }(), &gnutls_deinit) {
         gtls_chk(gnutls_set_default_priority(*this));
         gtls_chk(
                 gnutls_credentials_set(*this, GNUTLS_CRD_CERTIFICATE,
                         *_creds));
-        if (_type == type::SERVER) {
+        if (_type == session_type::SERVER) {
             switch (_creds->get_client_auth()) {
                 case client_auth::NONE:
                 default:
@@ -532,18 +529,18 @@ public:
         // This would be nice, because we preferably want verification to
         // abort hand shake so peer immediately knows we bailed...
 #if GNUTLS_VERSION_NUMBER >= 0x030406
-        if (_type == type::CLIENT) {
+        if (_type == session_type::CLIENT) {
             gnutls_session_set_verify_function(*this, &verify_wrapper);
         }
 #endif
         // if we are a client, check if we have a session ticket to unpack.
-        if (_type == type::CLIENT && !_options.session_resume_data.empty()) {
+        if (_type == session_type::CLIENT && !_options.session_resume_data.empty()) {
             gtls_chk(gnutls_session_set_data(*this, _options.session_resume_data.data(), _options.session_resume_data.size()));
         }
         _options.session_resume_data.clear(); // no need to keep around
 
         // ALPN setup
-        auto& alpn_protocols = _type == type::CLIENT ? _options.alpn_protocols : _creds->_alpn_protocols;
+        auto& alpn_protocols = _type == session_type::CLIENT ? _options.alpn_protocols : _creds->_alpn_protocols;
         if (!alpn_protocols.empty()) {
             std::vector<gnutls_datum_t> alpn_datums;
             alpn_datums.reserve(alpn_protocols.size());
@@ -554,7 +551,7 @@ public:
             gtls_chk(gnutls_alpn_set_protocols(*this, alpn_datums.data(), alpn_datums.size(), 0));
         }
     }
-    session(type t, shared_ptr<certificate_credentials> creds,
+    session(session_type t, shared_ptr<certificate_credentials> creds,
             connected_socket sock,
             tls_options options = {})
             : session(t, std::move(creds), net::get_impl::get(std::move(sock)),
@@ -564,8 +561,6 @@ public:
     ~session() {
         SEASTAR_ASSERT(_output_pending.available());
     }
-
-    typedef temporary_buffer<char> buf_type;
 
     sstring cert_status_to_string(gnutls_certificate_type_t type, unsigned int status) {
         gnutls_datum_t out;
@@ -599,7 +594,7 @@ public:
     }
 
     future<> do_handshake_invoke(int (*func)(gnutls_session_t)) {
-        if (_type == type::CLIENT && !_options.server_name.empty()) {
+        if (_type == session_type::CLIENT && !_options.server_name.empty()) {
             gnutls_server_name_set(*this, GNUTLS_NAME_DNS, _options.server_name.data(), _options.server_name.size());
         }
         try {
@@ -645,7 +640,7 @@ public:
                     });
                 }
             }
-            if (_type == type::CLIENT || _creds->get_client_auth() != client_auth::NONE) {
+            if (_type == session_type::CLIENT || _creds->get_client_auth() != client_auth::NONE) {
                 verify();
             }
             _connected = true;
@@ -667,19 +662,6 @@ public:
         }
         return do_handshake_invoke(&gnutls_handshake);
     }
-    future<> do_handshake_sync(future<> (session::*func)()) {
-        // acquire both semaphores to sync both read & write
-        return with_semaphore(_in_sem, 1, [this, func] {
-            return with_semaphore(_out_sem, 1, [this, func] {
-                return std::invoke(func, this).handle_exception([this](auto ep) {
-                    if (!_error) {
-                        _error = ep;
-                    }
-                    return make_exception_future<>(_error);
-                });
-            });
-        });
-    }
     future<> do_force_rehandshake() {
         return do_handshake_invoke(gnutls_rehandshake);
     }
@@ -688,13 +670,13 @@ public:
             return handshake();
         }
         // Note: only applicable to server.
-        if (_type == type::CLIENT) {
+        if (_type == session_type::CLIENT) {
             throw std::system_error(GNUTLS_E_INVALID_REQUEST, local_error_category(), "re-handshake only applicable for server socket");
         }
-        return do_handshake_sync(&session::do_force_rehandshake);
+        return do_handshake_sync([this] { return do_force_rehandshake(); });
     }
 
-    future<> handshake() {
+    future<> handshake() override {
         // maybe load system certificates before handshake, in case we
         // have not done so yet...
         if (_creds->need_load_system_trust()) {
@@ -702,27 +684,13 @@ public:
                return handshake();
             });
         }
-        return do_handshake_sync(&session::do_handshake);
+        return do_handshake_sync([this] { return do_handshake(); });
     }
 
-    size_t in_avail() const {
-        return _input.size();
+    bool connected() const override {
+        return _connected;
     }
-    bool eof() const {
-        return _eof;
-    }
-    future<> wait_for_input() {
-        if (!_input.empty()) {
-            return make_ready_future<>();
-        }
-        return _in.get().then([this](buf_type buf) {
-            _eof |= buf.empty();
-           _input = std::move(buf);
-        }).handle_exception([this](auto ep) {
-           _error = ep;
-           return make_exception_future(ep);
-        });
-    }
+
     future<> wait_for_output() {
         return std::exchange(_output_pending, make_ready_future()).handle_exception([this](auto ep) {
            _error = ep;
@@ -756,9 +724,9 @@ public:
         }
 
         unsigned int status;
-        auto res = gnutls_certificate_verify_peers3(*this, _type != type::CLIENT || _options.server_name.empty()
+        auto res = gnutls_certificate_verify_peers3(*this, _type != session_type::CLIENT || _options.server_name.empty()
                         ? nullptr : _options.server_name.c_str(), &status);
-        if (res == GNUTLS_E_NO_CERTIFICATE_FOUND && _type != type::CLIENT && _creds->get_client_auth() != client_auth::REQUIRE) {
+        if (res == GNUTLS_E_NO_CERTIFICATE_FOUND && _type != session_type::CLIENT && _creds->get_client_auth() != client_auth::REQUIRE) {
             return;
         }
         if (res < 0) {
@@ -787,19 +755,7 @@ public:
             auto dn = extract_dn_information();
             SEASTAR_ASSERT(dn.has_value()); // otherwise we couldn't have gotten here
 
-            // a switch here might look overelaborate, however,
-            // the compiler will warn us if someone alters the definition of type
-            session_type t;
-            switch (_type) {
-            case type::CLIENT:
-                t = session_type::CLIENT;
-                break;
-            case type::SERVER:
-                t = session_type::SERVER;
-                break;
-            }
-
-            _creds->_dn_callback(t, std::move(dn->subject), std::move(dn->issuer));
+            _creds->_dn_callback(_type, std::move(dn->subject), std::move(dn->issuer));
         }
     }
 
@@ -827,7 +783,7 @@ public:
         });
     }
 
-    future<temporary_buffer<char>> do_get() {
+    future<temporary_buffer<char>> do_get() override {
         // gnutls might have stuff in its buffers.
         auto avail = gnutls_record_check_pending(*this);
         if (avail == 0) {
@@ -872,27 +828,8 @@ public:
     }
 
 private:
-    future<> do_put(std::vector<temporary_buffer<char>> bufs) {
-        auto i = bufs.begin();
-        auto e = bufs.end();
-        return with_semaphore(_out_sem, 1, [this, i, e] {
-            SEASTAR_ASSERT(_output_pending.available());
-            return do_for_each(i, e, [this](temporary_buffer<char>& b) {
-                return do_put_one(b.get(), b.size());
-            });
-        }).finally([b = std::move(bufs)] {});
-    }
-
-    future<> do_put(temporary_buffer<char> buf) {
-        auto ptr = buf.get();
-        auto size = buf.size();
-        return with_semaphore(_out_sem, 1, [this, ptr, size] {
-            SEASTAR_ASSERT(_output_pending.available());
-            return do_put_one(ptr, size);
-        }).finally([b = std::move(buf)] {});
-    }
-
-    future<> do_put_one(const char* ptr, size_t size) {
+    future<> do_put_one(const char* ptr, size_t size) override {
+        SEASTAR_ASSERT(_output_pending.available());
         // #2859
         // Normally, gnutls_record_send will break up data into gnutls_record_get_max_size()
         // sized chunks for us (only processing the first 16k or so of provided buffer).
@@ -929,51 +866,6 @@ private:
     }
 
 public:
-    future<> put(std::span<temporary_buffer<char>> bufs) override {
-        if (_error) {
-            return make_exception_future<>(_error);
-        }
-        if (_shutdown) {
-            return make_exception_future<>(std::system_error(EPIPE, std::system_category()));
-        }
-        if (!_connected) {
-            std::vector<temporary_buffer<char>> p;
-            p.reserve(bufs.size());
-            p.insert(p.end(), std::make_move_iterator(bufs.begin()), std::make_move_iterator(bufs.end()));
-            return handshake().then([this, p = std::move(p)]() mutable {
-               return put(std::span(p));
-            });
-        }
-
-        if (bufs.size() == 1) {
-            return do_put(std::move(bufs.front()));
-        }
-
-        // We want to make sure that we call gnutls_record_send with as large
-        // packets as possible. This is because each call to gnutls_record_send
-        // translates to a sendmsg syscall. Further it results in larger TLS
-        // records which makes encryption/decryption faster. Hence to avoid
-        // cases where we would do an extra syscall for something like a 100
-        // bytes header we linearize the packet if it's below the max TLS record
-        // size.
-
-        size_t size = std::accumulate(bufs.begin(), bufs.end(), size_t(0), [] (size_t s, const auto& b) { return s + b.size(); });
-        if (size <= gnutls_record_get_max_size(*this)) {
-            temporary_buffer<char> linear(size);
-            char* pos = linear.get_write();
-            for (auto& buf : bufs) {
-                std::copy_n(buf.get(), buf.size(), pos);
-                pos += buf.size();
-            }
-            return do_put(std::move(linear));
-        }
-
-        std::vector<temporary_buffer<char>> p;
-        p.reserve(bufs.size());
-        p.insert(p.end(), std::make_move_iterator(bufs.begin()), std::make_move_iterator(bufs.end()));
-        return do_put(std::move(p));
-    }
-
     ssize_t pull(void* dst, size_t len) {
         if (eof()) {
             return 0;
@@ -1049,7 +941,7 @@ public:
             }
         });
     }
-    future<> do_shutdown() {
+    future<> do_shutdown() override {
         if (_error || !_connected) {
             return make_ready_future();
         }
@@ -1068,107 +960,6 @@ public:
             }
         }
         return wait_for_output();
-    }
-    future<> wait_for_eof() {
-        // read records until we get an eof alert
-        // since this call could time out, we must not ac
-        return with_semaphore(_in_sem, 1, [this] {
-            if (_error || !_connected) {
-                return make_ready_future();
-            }
-            if (!_options.wait_for_data_on_shutdown) {
-                if (eof()) {
-                    return make_ready_future<>();
-                }
-                return do_get().discard_result();
-            }
-
-            return repeat([this] {
-                if (eof()) {
-                    return make_ready_future<stop_iteration>(stop_iteration::yes);
-                }
-                return do_get().then([](auto buf) {
-                   return make_ready_future<stop_iteration>(stop_iteration::no);
-                });
-            });
-        });
-    }
-    future<> shutdown() {
-        // first, make sure any pending write is done.
-        // bye handshake is a flush operation, but this
-        // allows us to not pay extra attention to output state
-        //
-        // we only send a simple "bye" alert packet. Then we
-        // read from input until we see EOF. Any other reader
-        // before us will get it instead of us, and mark _eof = true
-        // in which case we will be no-op.
-        return with_semaphore(_out_sem, 1,
-                        std::bind(&session::do_shutdown, this)).then(
-                        std::bind(&session::wait_for_eof, this)).finally([me = shared_from_this()] {});
-        // note moved finally clause above. It is theorethically possible
-        // that we could complete do_shutdown just before the close calls
-        // below, get pre-empted, have "close()" finish, get freed, and
-        // then call wait_for_eof on stale pointer.
-    }
-    void close() noexcept override {
-        // only do once.
-        if (!std::exchange(_shutdown, true)) {
-            auto me = shared_from_this();
-            auto f = _options.bye_timeout.count() > 0 && (_options.wait_for_eof_on_shutdown._value == true)
-                // try to bye-handshake us nicely, but after a timeout we forcefully close.
-                ? with_timeout(timer<>::clock::now() + _options.bye_timeout, shutdown())
-                : make_ready_future<>();
-            engine().run_in_background(std::move(f).finally([this] {
-                _eof = true;
-                try {
-                    (void)_in.close().handle_exception([](std::exception_ptr) {}); // should wake any waiters
-                } catch (...) {
-                }
-                try {
-                    (void)_out.close().handle_exception([](std::exception_ptr) {});
-                } catch (...) {
-                }
-                // make sure to wait for handshake attempt to leave semaphores. Must be in same order as
-                // handshake aqcuire, because in worst case, we get here while a reader is attempting
-                // re-handshake.
-                return with_semaphore(_in_sem, 1, [this] {
-                    return with_semaphore(_out_sem, 1, [] {});
-                });
-            }).then_wrapped([me = std::move(me)](future<> f) { // must keep object alive until here.
-                f.ignore_ready_future();
-            }));
-        }
-    }
-    // helper for sink
-    future<> flush() noexcept override {
-        return with_semaphore(_out_sem, 1, [this] {
-            return _out.flush();
-        });
-    }
-
-    seastar::net::connected_socket_impl& socket() const override {
-        return *_sock;
-    }
-
-    // helper routine.
-    template<typename Func, typename... Args>
-    auto state_checked_access(Func&& f, Args&& ...args) {
-        using future_type = typename futurize<std::invoke_result_t<Func, Args...>>::type;
-        using result_t = typename future_type::value_type;
-        if (_error) {
-            return make_exception_future<result_t>(_error);
-        }
-        if (_shutdown) {
-            return make_exception_future<result_t>(std::system_error(ENOTCONN, std::system_category()));
-        }
-        if (!_connected) {
-            return handshake().then([this, f = std::move(f), ...args = std::forward<Args>(args)]() mutable {
-                // always recurse, in case malicious api caller does a shutdown while the above handshake is
-                // happening. I.e. misuses the api.
-                return session::state_checked_access(std::move(f), std::forward<Args>(args)...);
-            });
-        }
-        return futurize_invoke(f, std::forward<Args>(args)...);
     }
 
     future<bool> is_resumed() override {
@@ -1349,24 +1140,11 @@ private:
         return session_dn{.subject=subject, .issuer=issuer};
     }
 
-    type _type;
-
-    std::unique_ptr<net::connected_socket_impl> _sock;
     shared_ptr<gnutls_provider_certificate_credentials_impl> _creds;
-    data_source _in;
-    data_sink _out;
 
-    semaphore _in_sem, _out_sem;
-
-    tls_options _options;
-
-    bool _eof = false;
-    bool _shutdown = false;
     bool _connected = false;
-    std::exception_ptr _error;
 
     future<> _output_pending;
-    buf_type _input;
 
     // modify this to a unique_ptr to handle exceptions in our constructor.
     std::unique_ptr<std::remove_pointer_t<gnutls_session_t>, void(*)(gnutls_session_t)> _session;
@@ -1383,8 +1161,7 @@ shared_ptr<tls::session_impl> tls::gnutls::make_session(
         shared_ptr<tls::certificate_credentials> creds,
         std::unique_ptr<net::connected_socket_impl> sock,
         const tls::tls_options& options) {
-    auto t = type == tls::session_type::CLIENT ? session::type::CLIENT : session::type::SERVER;
-    return seastar::make_shared<session>(t, std::move(creds), std::move(sock), options);
+    return seastar::make_shared<session>(type, std::move(creds), std::move(sock), options);
 }
 
 const std::error_category& tls::gnutls::error_category() {
