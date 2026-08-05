@@ -22,6 +22,7 @@
 #pragma once
 
 #include "future.hh"
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/chunked_fifo.hh>
 #include <seastar/core/timer.hh>
@@ -601,6 +602,9 @@ public:
         return _n != 0;
     }
 };
+
+template<typename ExceptionFactory, typename Clock>
+struct future_await_checks_preemption<semaphore_units<ExceptionFactory, Clock>> : std::false_type {};
 
 /// \brief Take units from semaphore temporarily
 ///
