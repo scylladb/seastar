@@ -251,10 +251,16 @@ struct [[nodiscard]] SEASTAR_CORO_AWAIT_ELIDABLE without_preemption_check : publ
 
 } // seastar::internal
 
+/// \brief Whether to check for preemption when awaiting a future value type.
+///
+/// Specialize this trait to inherit from \c std::false_type for value types
+/// whose ready futures should be handled immediately by \c co_await.
+template <typename T>
+struct future_await_checks_preemption : std::true_type {};
 
 template<typename T>
 auto operator co_await(future<T>&& f) noexcept {
-    return internal::awaiter<true, T>(std::move(f));
+    return internal::awaiter<future_await_checks_preemption<T>::value, T>(std::move(f));
 }
 
 namespace coroutine {

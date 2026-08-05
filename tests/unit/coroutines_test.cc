@@ -70,6 +70,11 @@ using namespace seastar::tests;
 
 using namespace std::chrono_literals;
 
+struct future_await_without_preemption_check_type {};
+
+template <>
+struct seastar::future_await_checks_preemption<future_await_without_preemption_check_type> : std::false_type {};
+
 namespace {
 
 future<int> old_fashioned_continuations() {
@@ -326,6 +331,22 @@ SEASTAR_TEST_CASE(test_no_preemption) {
     co_await std::move(f);
     BOOST_REQUIRE(!save_x);
     co_return;
+}
+
+SEASTAR_TEST_CASE(test_future_await_without_preemption_check) {
+    bool yielded = false;
+    auto f = yield().then([&yielded] {
+        yielded = true;
+    });
+
+    unsigned preempted = 0;
+    while (preempted < 1000 && !yielded) {
+        preempted += need_preempt();
+        co_await make_ready_future<future_await_without_preemption_check_type>();
+    }
+    auto save_yielded = yielded;
+    co_await std::move(f);
+    BOOST_REQUIRE(!save_yielded);
 }
 
 SEASTAR_TEST_CASE(test_all_simple) {
