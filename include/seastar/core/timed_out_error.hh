@@ -42,7 +42,7 @@ struct default_timeout_exception_factory {
 
 } // namespace seastar
 
-#if FMT_VERSION < 100000
+#if SEASTAR_FMT_VERSION < 100000
 // fmt v10 introduced formatter for std::exception
 template <>
 struct fmt::formatter<seastar::timed_out_error> : fmt::formatter<string_view> {

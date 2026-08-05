@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <seastar/core/internal/fmt.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/optimized_optional.hh>
@@ -223,7 +224,7 @@ public:
 
 }
 
-#if FMT_VERSION < 100000
+#if SEASTAR_FMT_VERSION < 100000
 // fmt v10 introduced formatter for std::exception
 template <>
 struct fmt::formatter<seastar::abort_requested_exception> : fmt::formatter<string_view> {

@@ -852,7 +852,7 @@ std::ostream& operator<<(std::ostream& os, const std::unordered_map<Key, T, Hash
 
 #endif
 
-#if FMT_VERSION >= 110000
+#if SEASTAR_FMT_VERSION >= 110000
 
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 struct fmt::range_format_kind<seastar::basic_sstring<char_type, Size, max_size, NulTerminate>, char_type> : std::integral_constant<fmt::range_format, fmt::range_format::disabled>

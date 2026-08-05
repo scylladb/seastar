@@ -27,6 +27,11 @@
 // individual <fmt/*.h> headers.  For now it is a plain textual include of
 // every fmt header Seastar uses; routing everything through here lets a
 // later change switch to `import fmt;` in one place.
+//
+// It also defines SEASTAR_FMT_VERSION, which the version-dependent parts of
+// Seastar's public headers key off instead of fmt's own FMT_VERSION.  The
+// build may define it (as an integer, MMmmpp, like FMT_VERSION) for setups
+// where fmt does not supply it; otherwise it is taken from fmt.
 
 #include <fmt/format.h>
 #include <fmt/ostream.h>
@@ -36,3 +41,7 @@
 #include <fmt/color.h>
 #include <fmt/compile.h>
 #include <fmt/core.h>
+
+#ifndef SEASTAR_FMT_VERSION
+#define SEASTAR_FMT_VERSION FMT_VERSION
+#endif
