@@ -1096,9 +1096,13 @@ public:
                                 return make_ready_future<>();
                             }
 
-                            if (contains_openssl_error(error_codes, ERR_LIB_SSL, SSL_R_PEER_DID_NOT_RETURN_A_CERTIFICATE) ||
-                                contains_openssl_error(error_codes, ERR_LIB_SSL, SSL_R_CERTIFICATE_VERIFY_FAILED) ||
-                                contains_openssl_error(error_codes, ERR_LIB_SSL, SSL_R_NO_CERTIFICATES_RETURNED)) {
+                            // Consult verify() when the peer certificate is at fault,
+                            // keyed on the verification result rather than on
+                            // version-dependent reason codes. The no-peer-cert codes
+                            // leave that result at X509_V_OK, so check them explicitly.
+                            if (SSL_get_verify_result(_ssl.get()) != X509_V_OK
+                                || contains_openssl_error(error_codes, ERR_LIB_SSL, SSL_R_PEER_DID_NOT_RETURN_A_CERTIFICATE)
+                                || contains_openssl_error(error_codes, ERR_LIB_SSL, SSL_R_NO_CERTIFICATES_RETURNED)) {
                                 try {
                                     verify();
                                 } catch (...) {

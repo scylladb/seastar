@@ -2583,3 +2583,70 @@ SEASTAR_THREAD_TEST_CASE(test_output_pending_exception_on_destroy) {
     uint64_t after = engine().abandoned_failed_futures();
     BOOST_REQUIRE_EQUAL(after, before);
 }
+
+static void require_contains(const sstring& text, std::string_view expected) {
+    BOOST_REQUIRE_MESSAGE(text.find(expected) != sstring::npos,
+        "expected to find \"" << expected << "\" in \"" << text << "\"");
+}
+
+// Runs a handshake expected to fail over a loopback socket pair and returns the
+// server-side exception message. The client's own failure is ignored.
+static sstring failed_handshake_server_error(
+        ::shared_ptr<tls::server_credentials> server_creds,
+        ::shared_ptr<tls::certificate_credentials> client_creds) {
+    auto b1 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::SERVER_TX);
+    auto b2 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::CLIENT_TX);
+
+    auto ssi = std::make_unique<loopback_connected_socket_impl>(b1, b2);
+    auto csi = std::make_unique<loopback_connected_socket_impl>(b2, b1);
+
+    auto ss = tls::wrap_server(server_creds, connected_socket(std::move(ssi))).get();
+    auto cs = tls::wrap_client(client_creds, connected_socket(std::move(csi)),
+                               tls::tls_options{.server_name = "test.scylladb.org"}).get();
+
+    auto strms = ::make_lw_shared<streams>(std::move(cs));
+    auto client_loop = strms->out.write(message)
+        .then([strms] { return strms->out.flush(); })
+        .then([strms] { return strms->in.read().discard_result(); })
+        .handle_exception([](std::exception_ptr) {});
+
+    sstring server_error;
+    try {
+        ss.input().read().get();
+        BOOST_FAIL("Expected the server side of the handshake to fail");
+    } catch (const std::exception& e) {
+        server_error = e.what();
+    }
+    client_loop.get();
+
+    BOOST_TEST_MESSAGE(fmt::format("server side error: {}", server_error).c_str());
+    return server_error;
+}
+
+// A client cert signed by a CA the server does not trust must be reported with
+// the offending certificate's DN, so an operator can tell which client
+// misbehaved. OpenSSL backend only; GnuTLS words these errors differently.
+SEASTAR_THREAD_TEST_CASE(test_x509_server_rejects_client_cert_from_unknown_ca) {
+    if (using_gnutls()) {
+        return;
+    }
+
+    tls::credentials_builder cb;
+    // other.crt is signed by caother, which the server does not trust.
+    cb.set_x509_key_file(certfile("other.crt"), certfile("other.key"), tls::x509_crt_format::PEM).get();
+    cb.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    auto client_creds = cb.build_certificate_credentials();
+
+    tls::credentials_builder sb;
+    sb.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+    sb.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    sb.set_client_auth(tls::client_auth::REQUIRE);
+    sb.set_dh_level();
+    auto server_creds = sb.build_server_credentials();
+
+    auto err = failed_handshake_server_error(server_creds, client_creds);
+
+    require_contains(err, "Issuer");
+    require_contains(err, "Subject");
+    require_contains(err, "other.apa.org");
+}
