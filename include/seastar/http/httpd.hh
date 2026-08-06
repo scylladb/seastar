@@ -77,26 +77,30 @@ class connection : public boost::intrusive::list_base_hook<> {
     queue<std::unique_ptr<http::reply>> _replies { 10 };
     bool _done = false;
     const bool _tls;
+    const listener_tag _listener_tag;
 public:
-    connection(http_server& server, connected_socket&& fd, bool tls)
+    connection(http_server& server, connected_socket&& fd, bool tls, listener_tag tag = no_listener_tag)
             : _server(server)
             , _fd(std::move(fd))
             , _read_buf(_fd.input())
             , _write_buf(_fd.output())
             , _client_addr(_fd.remote_address())
             , _server_addr(_fd.local_address())
-            , _tls(tls) {
+            , _tls(tls)
+            , _listener_tag(tag) {
         on_new_connection();
     }
     connection(http_server& server, connected_socket&& fd,
-            socket_address client_addr, socket_address server_addr, bool tls)
+            socket_address client_addr, socket_address server_addr, bool tls,
+            listener_tag tag = no_listener_tag)
             : _server(server)
             , _fd(std::move(fd))
             , _read_buf(_fd.input())
             , _write_buf(_fd.output())
             , _client_addr(std::move(client_addr))
             , _server_addr(std::move(server_addr))
-            , _tls(tls) {
+            , _tls(tls)
+            , _listener_tag(tag) {
         on_new_connection();
     }
     ~connection();
@@ -124,6 +128,10 @@ class http_server_tester;
 
 class http_server {
     std::vector<server_socket> _listeners;
+    // Tags associated with the listeners, in the same order. May be shorter
+    // than _listeners if listeners were added directly (e.g. via
+    // http_server_tester); missing entries mean no_listener_tag.
+    std::vector<listener_tag> _listener_tags;
     http_stats _stats;
     uint64_t _total_connections = 0;
     uint64_t _current_connections = 0;
@@ -185,10 +193,17 @@ public:
     /// scheduling group.
     void set_request_scheduling_group(scheduling_group sg);
 
-    future<> listen(socket_address addr, server_credentials_ptr credentials);
-    future<> listen(socket_address addr, listen_options lo, server_credentials_ptr credentials);
-    future<> listen(socket_address addr, listen_options lo);
-    future<> listen(socket_address addr);
+    /// Start listening on the given address.
+    ///
+    /// \param tag an opaque value associated with this listener. Every request
+    ///     received on a connection accepted by this listener exposes it via
+    ///     \ref http::request::get_listener_tag(), letting a handler tell
+    ///     listeners apart (e.g. to apply a different authentication policy per
+    ///     endpoint). See \ref listener_tag.
+    future<> listen(socket_address addr, server_credentials_ptr credentials, listener_tag tag = no_listener_tag);
+    future<> listen(socket_address addr, listen_options lo, server_credentials_ptr credentials, listener_tag tag = no_listener_tag);
+    future<> listen(socket_address addr, listen_options lo, listener_tag tag = no_listener_tag);
+    future<> listen(socket_address addr, listener_tag tag = no_listener_tag);
     future<> stop();
 
     future<> do_accepts(int which);
@@ -206,7 +221,7 @@ public:
     static sstring http_date();
 private:
     future<> do_accept_one(int which, bool with_tls);
-    future<> do_process_connection(connected_socket conn_fd, socket_address remote_address, bool tls);
+    future<> do_process_connection(connected_socket conn_fd, socket_address remote_address, bool tls, listener_tag tag);
     boost::intrusive::list<connection> _connections;
     friend class seastar::httpd::connection;
     friend class http_server_tester;
