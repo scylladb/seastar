@@ -202,6 +202,7 @@ void connection::generate_error_reply_and_close(std::unique_ptr<http::request> r
 
 future<> connection::read_one() {
     _parser.init();
+    _parser.set_size_limit(_server.get_request_size_limit());
     return _read_buf.consume(_parser).then([this] () mutable {
         if (_parser.eof()) {
             _done = true;
@@ -222,6 +223,13 @@ future<> connection::read_one() {
             if (req->_version.empty()) {
                 // we might have failed to parse even the version
                 req->_version = "1.1";
+            }
+            if (_parser.size_limit_exceeded()) {
+                auto status = _parser.uri_too_large()
+                        ? http::reply::status_type::uri_too_long
+                        : http::reply::status_type::request_header_fields_too_large;
+                generate_error_reply_and_close(std::move(req), status, "Request line or headers too large");
+                return make_ready_future<>();
             }
             generate_error_reply_and_close(std::move(req), http::reply::status_type::bad_request, "Can't parse the request");
             return make_ready_future<>();
@@ -385,6 +393,14 @@ size_t http_server::get_content_length_limit() const {
 
 void http_server::set_content_length_limit(size_t limit) {
     _content_length_limit = limit;
+}
+
+size_t http_server::get_request_size_limit() const {
+    return _request_size_limit;
+}
+
+void http_server::set_request_size_limit(size_t limit) {
+    _request_size_limit = limit;
 }
 
 bool http_server::get_content_streaming() const {
