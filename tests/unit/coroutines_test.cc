@@ -514,6 +514,48 @@ SEASTAR_TEST_CASE(test_coroutine_return_exception_ptr) {
     });
 }
 
+// Regression test for a lost-wakeup bug in coroutine symmetric transfer.
+//
+// The coroutine::exception, coroutine::return_exception_ptr and
+// coroutine::try_future awaiters resolve the coroutine's promise and then
+// destroy the frame directly, without going through final_suspend(). A waiter
+// that has already suspended on the coroutine must still be woken. The bug
+// captured the waiter for deferred handling by final_suspend() but, since these
+// paths never reach final_suspend(), the waiter was never rescheduled and any
+// code awaiting such a coroutine hung.
+//
+// Each case below forces the waiter to be genuinely suspended by yielding before
+// the result is injected; the pre-existing exception tests resolve synchronously
+// (no suspended waiter) and so did not exercise this path.
+SEASTAR_TEST_CASE(test_exception_awaiter_wakes_suspended_waiter) {
+    // Waiter is a coroutine suspended on the inner coroutine.
+    co_await check_coroutine_throws<std::runtime_error>([] (int& counter) -> future<> {
+        counter_ref ref{counter};
+        co_await yield();
+        co_await coroutine::exception(std::make_exception_ptr(std::runtime_error("threw")));
+    });
+    co_await check_coroutine_throws<std::runtime_error>([] (int& counter) -> future<> {
+        counter_ref ref{counter};
+        co_await yield();
+        co_await coroutine::return_exception_ptr(std::make_exception_ptr(std::runtime_error("threw")));
+    });
+    co_await check_coroutine_throws<std::runtime_error>([] (int& counter) -> future<int> {
+        counter_ref ref{counter};
+        co_await yield();
+        co_await coroutine::try_future(seastar::make_exception_future<int>(std::runtime_error("threw")));
+        co_return 0;
+    });
+
+    // Waiter is a thread blocked in future::get(), matching the file_io_test hang.
+    co_await seastar::async([] {
+        auto throwing = [] () -> future<> {
+            co_await yield();
+            co_await coroutine::return_exception_ptr(std::make_exception_ptr(std::runtime_error("threw")));
+        };
+        BOOST_REQUIRE_THROW(throwing().get(), std::runtime_error);
+    });
+}
+
 SEASTAR_TEST_CASE(test_maybe_yield) {
     int var = 0;
     bool done = false;
