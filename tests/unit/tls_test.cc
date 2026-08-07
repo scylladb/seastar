@@ -2589,6 +2589,11 @@ static void require_contains(const sstring& text, std::string_view expected) {
         "expected to find \"" << expected << "\" in \"" << text << "\"");
 }
 
+static void require_not_contains(const sstring& text, std::string_view unexpected) {
+    BOOST_REQUIRE_MESSAGE(text.find(unexpected) == sstring::npos,
+        "expected not to find \"" << unexpected << "\" in \"" << text << "\"");
+}
+
 // Runs a handshake expected to fail over a loopback socket pair and returns the
 // server-side exception message. The client's own failure is ignored.
 static sstring failed_handshake_server_error(
@@ -2649,4 +2654,33 @@ SEASTAR_THREAD_TEST_CASE(test_x509_server_rejects_client_cert_from_unknown_ca) {
     require_contains(err, "Issuer");
     require_contains(err, "Subject");
     require_contains(err, "other.apa.org");
+}
+
+// A client that rejects the server's certificate chain aborts with an
+// unknown_ca(48) alert, before sending a certificate of its own. The server-side
+// error must name that received alert - not local certificate state such as
+// "no certificate presented by peer", which is a consequence of the abort.
+// OpenSSL backend only; GnuTLS words these errors differently.
+SEASTAR_THREAD_TEST_CASE(test_server_handshake_error_preserves_ssl_error_detail) {
+    if (using_gnutls()) {
+        return;
+    }
+
+    tls::credentials_builder cb;
+    // A trust store that does not contain the server's CA.
+    cb.set_x509_trust_file(certfile("tls-ca-bundle.pem"), tls::x509_crt_format::PEM).get();
+    auto client_creds = cb.build_certificate_credentials();
+
+    tls::credentials_builder sb;
+    sb.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+    sb.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    sb.set_client_auth(tls::client_auth::REQUIRE);
+    sb.set_dh_level();
+    auto server_creds = sb.build_server_credentials();
+
+    auto err = failed_handshake_server_error(server_creds, client_creds);
+
+    require_contains(err, "Received TLS alert from peer");
+    require_contains(err, "unknown ca");
+    require_not_contains(err, "no certificate presented by peer");
 }

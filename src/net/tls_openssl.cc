@@ -2433,8 +2433,13 @@ auto fmt::formatter<seastar::openssl_errc>::format(seastar::openssl_errc error, 
     // Buffer passed to ERR_error_string must be at least 256 bytes large
     // https://www.openssl.org/docs/man3.0/man3/ERR_error_string_n.html
     std::array<char, error_buf_size> buf{};
-    ERR_error_string_n(
-        static_cast<unsigned long>(error), buf.data(), buf.size());
+    const auto code = static_cast<unsigned long>(error);
+    ERR_error_string_n(code, buf.data(), buf.size());
     // ERR_error_string_n does include the terminating null character
+    if (ERR_GET_LIB(code) == ERR_LIB_SSL && ERR_GET_REASON(code) >= SSL_AD_REASON_OFFSET) {
+        // Reason codes >= SSL_AD_REASON_OFFSET are alerts received from the
+        // peer; the default wording obscures that direction.
+        return fmt::format_to(ctx.out(), "Received TLS alert from peer: {}", buf.data());
+    }
     return fmt::format_to(ctx.out(), "{}", buf.data());
 }
