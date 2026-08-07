@@ -20,6 +20,7 @@
  */
 
 #include <exception>
+#include <string_view>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 
@@ -178,6 +179,33 @@ SEASTAR_THREAD_TEST_CASE(test_sleep_abortable_with_exception) {
         caught_exception = true;
     }
     BOOST_REQUIRE(caught_exception);
+}
+
+// Regression test for scylladb/seastar#3452: when the abort_source is already
+// aborted before sleep_abortable subscribes, the custom abort exception must
+// still be propagated, just as it is when the abort lands during the sleep.
+SEASTAR_THREAD_TEST_CASE(test_sleep_abortable_already_aborted_with_exception) {
+    abort_source as;
+    auto expected_message = "expected";
+    // Abort the source *before* calling sleep_abortable, so subscribe() returns
+    // a disengaged optional and the already-aborted fast path is taken.
+    as.request_abort_ex(std::runtime_error(expected_message));
+    auto f = sleep_abortable(10s, as);
+
+    BOOST_REQUIRE_EXCEPTION(f.get(), std::runtime_error, [&] (const std::runtime_error& e) {
+        return e.what() == std::string_view(expected_message);
+    });
+}
+
+// Companion to the above: when the already-aborted source carries no custom
+// exception (plain request_abort), sleep_abortable still fails with
+// sleep_aborted, matching the during-sleep path. See scylladb/seastar#3452.
+SEASTAR_THREAD_TEST_CASE(test_sleep_abortable_already_aborted_no_exception) {
+    abort_source as;
+    as.request_abort();
+    auto f = sleep_abortable(10s, as);
+
+    BOOST_REQUIRE_THROW(f.get(), sleep_aborted);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_destroy_with_moved_subscriptions) {
