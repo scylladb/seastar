@@ -2597,8 +2597,8 @@ public:
 };
 
 bool reactor_backend_selector::has_enough_aio_nr() {
-    auto aio_max_nr = read_first_line_as<unsigned>("/proc/sys/fs/aio-max-nr");
-    auto aio_nr = read_first_line_as<unsigned>("/proc/sys/fs/aio-nr");
+    auto aio_max_nr = read_first_line_as<signed>("/proc/sys/fs/aio-max-nr");
+    auto aio_nr = read_first_line_as<signed>("/proc/sys/fs/aio-nr");
     /* reactor_backend_selector::available() will be execute in early stage,
      * it's before io_setup() issued, and not per-cpu basis.
      * So this method calculates:
