@@ -943,8 +943,7 @@ cpu_pages::allocate_large(unsigned n_pages, bool should_sample) {
 void*
 cpu_pages::allocate_large_aligned(unsigned align_pages, unsigned n_pages, bool should_sample) {
     check_large_allocation(n_pages * page_size);
-    // buddy allocation is always aligned
-    return allocate_large_and_trim(n_pages, should_sample);
+    return allocate_large_and_trim(std::max(align_pages, n_pages), should_sample);
 }
 
 disable_backtrace_temporarily::disable_backtrace_temporarily()
@@ -1792,6 +1791,10 @@ inline void free(void* obj, S size = {}) {
 }
 
 void free_aligned(void* obj, size_t align, size_t size) {
+    if (align > page_size) {
+        free(obj);
+        return;
+    }
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
     }
