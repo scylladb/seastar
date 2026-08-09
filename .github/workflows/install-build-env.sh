@@ -108,6 +108,7 @@ group "configure.py"
     --c++-standard "$STANDARD"  \
     --compiler "$CPP"           \
     --c-compiler "$CC"          \
+    --ngtcp2-provider system     \
     --mode "$MODE"              \
     "${cook_args[@]}"           \
     "${ccache_opt[@]}"          \

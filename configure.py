@@ -170,6 +170,8 @@ arg_parser.add_argument('--c++-standard', action='store', dest='cpp_standard', d
                         help='C++ standard to build with')
 arg_parser.add_argument('--cook', action='append', dest='cook', default=[],
                         help='Supply this dependency locally for development via `cmake-cooking` (can be repeated)')
+arg_parser.add_argument('--ngtcp2-provider', choices=['auto', 'system', 'bundled'], default='auto',
+                        help='Select the ngtcp2 provider: prefer a system package, require it, or use the bundled submodule')
 arg_parser.add_argument('--verbose', dest='verbose', action='store_true', help='Make configure output more verbose.')
 arg_parser.add_argument('--scheduling-groups-count', action='store', dest='scheduling_groups_count', default='16',
                         help='Number of available scheduling groups in the reactor')
@@ -303,6 +305,7 @@ def configure_mode(mode):
         tr(args.cxx_modules, 'MODULE'),
         tr(args.dpdk, 'DPDK'),
         tr(args.dpdk_machine, 'DPDK_MACHINE'),
+        tr(args.ngtcp2_provider.upper(), 'NGTCP2_PROVIDER'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
         tr(args.io_uring, 'IO_URING', value_when_none=None),
         tr(args.lttng, 'LTTNG', value_when_none='yes'),

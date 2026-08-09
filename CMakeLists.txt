@@ -280,6 +280,12 @@ option (Seastar_DPDK
   "Enable DPDK support."
   OFF)
 
+set (Seastar_NGTCP2_PROVIDER
+  "AUTO"
+  CACHE
+  STRING
+  "Select the ngtcp2 provider: AUTO, SYSTEM, or BUNDLED.")
+
 option (Seastar_EXCLUDE_APPS_FROM_ALL
   "When enabled alongside Seastar_APPS, do not build applications by default."
   OFF)
@@ -426,7 +432,7 @@ find_package (ragel 6.10 REQUIRED)
 find_package (Threads REQUIRED)
 find_package (PthreadSetName REQUIRED)
 find_package (Valgrind REQUIRED)
-find_package (ngtcp2 REQUIRED)
+find_package (ngtcp2 1.14.0 REQUIRED)
 
 cmake_dependent_option (Seastar_LOGGER_COMPILE_TIME_FMT
   "Enable the compile-time {fmt} check when formatting logging messages" ON
