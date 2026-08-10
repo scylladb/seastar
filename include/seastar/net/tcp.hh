@@ -532,7 +532,10 @@ private:
             auto x = std::min(_snd.window - window_used, _snd.unsent_len);
 
             // Can not send more than congestion window allows
-            x = std::min(_snd.cwnd, x);
+            if (window_used > _snd.cwnd) {
+                return 0;
+            }
+            x = std::min(_snd.cwnd - window_used, x);
             if (_snd.dupacks == 1 || _snd.dupacks == 2) {
                 // RFC5681 Step 3.1
                 // Send cwnd + 2 * smss per RFC3042
