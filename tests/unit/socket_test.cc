@@ -291,6 +291,24 @@ SEASTAR_THREAD_TEST_CASE(socket_accept_abort_test) {
     when_all(std::move(f), std::move(abort), std::move(check)).get();
 }
 
+// Check that server_socket::abort_accept() and server_socket::local_address()
+// are safe to call on an "empty" server_socket -- one that is either
+// default-constructed or moved-from, and therefore has no underlying
+// server_socket_impl. Previously these two methods dereferenced the
+// underlying impl unconditionally and would crash.
+SEASTAR_THREAD_TEST_CASE(socket_abort_accept_on_empty_test) {
+    server_socket empty_ss;
+    empty_ss.abort_accept();
+    BOOST_CHECK(empty_ss.local_address().is_unspecified());
+
+    server_socket live_ss = seastar::listen(ipv4_addr("127.0.0.1", 0), listen_options{ .reuse_address = true });
+    server_socket moved_to = std::move(live_ss);
+    // live_ss is now moved-from and empty; must still be safe to call.
+    live_ss.abort_accept();
+    BOOST_CHECK(live_ss.local_address().is_unspecified());
+    moved_to.abort_accept();
+}
+
 SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
 
     // Test that setting the send and recv buffer sizes on the listening
