@@ -219,11 +219,16 @@ future<accept_result> server_socket::accept() {
 }
 
 void server_socket::abort_accept() {
-    _ssi->abort_accept();
+    if (_ssi) {
+        _ssi->abort_accept();
+    }
     _aborted = true;
 }
 
 socket_address server_socket::local_address() const noexcept {
+    if (!_ssi) {
+        return {};
+    }
     return _ssi->local_address();
 }
 
