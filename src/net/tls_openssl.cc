@@ -41,6 +41,7 @@
 #include <cassert>
 #include <chrono>
 #include <functional>
+#include <ranges>
 #include <span>
 #include <system_error>
 #include <unordered_set>
@@ -185,6 +186,21 @@ bool contains_openssl_error(const std::vector<openssl_errc> & error_codes, int l
         return ERR_GET_LIB(static_cast<unsigned long>(code)) == lib &&
                ERR_GET_REASON(static_cast<unsigned long>(code)) == reason;
     });
+}
+
+// OpenSSL encodes a TLS alert as an ERR_LIB_SSL reason of SSL_AD_REASON_OFFSET
+// plus the one-byte alert description. ERR_GET_REASON() keeps the ERR_RFLAG_*
+// bits, so flagged reasons exceed the offset without being alerts.
+static std::optional<uint8_t> tls_alert_of_reason(openssl_errc error) {
+    const auto code = static_cast<unsigned long>(error);
+    if (ERR_GET_LIB(code) != ERR_LIB_SSL) {
+        return std::nullopt;
+    }
+    const auto alert_description = ERR_GET_REASON(code) - SSL_AD_REASON_OFFSET;
+    if (!std::in_range<uint8_t>(alert_description)) {
+        return std::nullopt;
+    }
+    return static_cast<uint8_t>(alert_description);
 }
 
 template<typename T>
@@ -795,6 +811,21 @@ public:
         if (1 != SSL_set_ex_data(_ssl.get(), SSL_EX_DATA_SESSION, this)) {
             throw make_openssl_error("Failed to set EX data for SSL session");
         }
+        // Record alerts read from the peer, so a failure caused by a received
+        // alert can be attributed to the peer when it is reported. The reason
+        // code alone cannot make that call: the state machine also raises
+        // alert-range reasons for alerts the local side is about to send.
+        SSL_set_info_callback(_ssl.get(), [](const SSL* ssl, int where, int ret) {
+            if ((where & SSL_CB_READ_ALERT) != SSL_CB_READ_ALERT) {
+                return;
+            }
+            auto* session = static_cast<openssl_session*>(
+                SSL_get_ex_data(ssl, SSL_EX_DATA_SESSION));
+            SEASTAR_ASSERT(session != nullptr);
+            // The description is ret's low byte, the part
+            // SSL_alert_desc_string_long() reads; the high byte is the level.
+            session->_alert_read = static_cast<uint8_t>(ret);
+        });
         bio_ptr in_bio(BIO_new(get_method()));
         bio_ptr out_bio(BIO_new(get_method()));
         if (!in_bio || !out_bio) {
@@ -1059,6 +1090,10 @@ public:
             tls_log.trace("{} do_handshake: already connected", *this);
             return make_ready_future<>();
         }
+        // Scope the recorded alert to this handshake attempt: a renegotiation
+        // clears SSL_is_init_finished(), so get() can drive a second one.
+        // WANT_READ and WANT_WRITE retries stay inside the loop below.
+        _alert_read.reset();
         return do_until(
             [this] { return connected() || eof(); },
             [this] {
@@ -1112,7 +1147,7 @@ public:
                                 }
                                 // Verify did not throw, fall through and make a generic error
                             }
-                            auto err = make_openssl_error("Failed to establish SSL handshake", std::move(error_codes));
+                            auto err = make_handshake_error(std::move(error_codes));
                             return handle_output_error(std::move(err));
                         }
                         default:
@@ -1329,6 +1364,28 @@ public:
             }
             }
         }
+    }
+
+    // Like make_openssl_error(), but labels a code carrying an alert read from
+    // the peer as such: OpenSSL words a received alert as though the local side
+    // found the fault.
+    std::system_error make_handshake_error(std::vector<openssl_errc> error_codes) {
+        static const std::string msg = "Failed to establish SSL handshake";
+        const auto is_peer_alert = [this](openssl_errc code) {
+            return _alert_read.has_value() && tls_alert_of_reason(code) == _alert_read;
+        };
+        if (std::ranges::none_of(error_codes, is_peer_alert)) {
+            return make_openssl_error(msg, std::move(error_codes));
+        }
+        auto rendered = error_codes | std::views::transform([&](openssl_errc code) {
+            return is_peer_alert(code)
+                ? fmt::format("Received TLS alert from peer: {}", code)
+                : fmt::format("{}", code);
+        });
+        return std::system_error(
+            static_cast<int>(error_codes.front()),
+            openssl_error_cat(),
+            fmt::format("{}: [{}]", msg, fmt::join(rendered, ", ")));
     }
 
     void verify() {
@@ -2099,6 +2156,9 @@ private:
     session_type _type;
     bool _eof = false;
     bool _shutdown = false;
+    // Description of the last TLS alert read from the peer, recorded by the
+    // info callback registered in the constructor.
+    std::optional<uint8_t> _alert_read;
 
     friend int bio_write_ex(BIO* b, const char * data, size_t dlen, size_t * written);
     friend int bio_read_ex(BIO* b, char * data, size_t dlen, size_t *readbytes);
