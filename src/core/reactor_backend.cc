@@ -1086,33 +1086,35 @@ bool reactor_backend_epoll_pure::kernel_submit_work() {
         using o = internal::io_request::operation;
         // The returned future will be used to satisfy the promise in io_completion,
         // (via complete_with) so we can ignore the future here.
-        (void)_r._thread_pool->submit<ssize_t>(internal::thread_pool_submit_reason::file_operation, [req]() mutable {
+        // errno is thread-local, so it has to be captured on the syscall thread;
+        // io_completion::complete_with() expects a negative errno, not -1.
+        (void)_r._thread_pool->submit<syscall_result<ssize_t>>(internal::thread_pool_submit_reason::file_operation, [req]() mutable {
             switch (req.opcode()) {
             case o::read: {
                 auto& req_read = req.as<o::read>();
-                return ::pread(req_read.fd, req_read.addr, req_read.size, req_read.pos);
+                return wrap_syscall(::pread(req_read.fd, req_read.addr, req_read.size, req_read.pos));
             }
             case o::readv: {
                 auto& req_readv = req.as<o::readv>();
-                return ::preadv(req_readv.fd, req_readv.iovec, req_readv.iov_len, req_readv.pos);
+                return wrap_syscall(::preadv(req_readv.fd, req_readv.iovec, req_readv.iov_len, req_readv.pos));
             }
             case o::write: {
                 auto& req_write = req.as<o::write>();
-                return ::pwrite(req_write.fd, req_write.addr, req_write.size, req_write.pos);
+                return wrap_syscall(::pwrite(req_write.fd, req_write.addr, req_write.size, req_write.pos));
             }
             case o::writev: {
                 auto& req_writev = req.as<o::writev>();
-                return ::pwritev(req_writev.fd, req_writev.iovec, req_writev.iov_len, req_writev.pos);
+                return wrap_syscall(::pwritev(req_writev.fd, req_writev.iovec, req_writev.iov_len, req_writev.pos));
             }
             case o::fdatasync: {
                 auto& req_fdatasync = req.as<o::fdatasync>();
-                return ssize_t(::fdatasync(req_fdatasync.fd));
+                return wrap_syscall(ssize_t(::fdatasync(req_fdatasync.fd)));
             }
             default:
                 ::abort();
             }
-        }).then([completion] (ssize_t res) {
-            completion->complete_with(res);
+        }).then([completion] (syscall_result<ssize_t> res) {
+            completion->complete_with(res.failed() ? -res.error : res.result);
         });
         return true;
     });
