@@ -235,6 +235,10 @@ public:
     // the future resolves anyway, but backends that submit asynchronously
     // (asymmetric_io_uring) may hand it to the kernel after the calling
     // function has returned.
+    //
+    // sendmsg() and writev() submit at most IOV_MAX iovecs per operation, so a
+    // longer span is a short write rather than an error; callers loop until the
+    // whole span is consumed (see pollable_fd_state::write_all).
     virtual future<std::tuple<pollable_fd, socket_address>>
     accept(pollable_fd_state& listenfd) = 0;
     virtual future<> connect(pollable_fd_state& fd, socket_address& sa) = 0;
