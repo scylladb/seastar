@@ -25,6 +25,7 @@
 #include <seastar/core/on_internal_error.hh>
 #include <seastar/util/assert.hh>
 #include <cstdint>
+#include <span>
 #include <vector>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -212,7 +213,7 @@ public:
         return req;
     }
 
-    static io_request make_writev(int fd, uint64_t pos, std::vector<iovec>& iov, bool nowait_works) {
+    static io_request make_writev(int fd, uint64_t pos, std::span<iovec> iov, bool nowait_works) {
         io_request req;
         req._writev = {
           .op = operation::writev,

@@ -2537,8 +2537,7 @@ public:
     virtual future<size_t> writev(pollable_fd_state& fd, std::span<iovec> iovs) override {
         auto desc = std::make_unique<sized_promise_completion_base>();
         const uint64_t position_file_offset = -1;
-        std::vector<iovec> iov(iovs.begin(), iovs.end());
-        auto req = internal::io_request::make_writev(fd.fd.get(), position_file_offset, iov, false);
+        auto req = internal::io_request::make_writev(fd.fd.get(), position_file_offset, iovs, false);
         return submit_request(std::move(desc), std::move(req));
     }
 };
