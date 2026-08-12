@@ -40,12 +40,19 @@
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/scattered_message.hh>
 #include <seastar/util/assert.hh>
+#include <seastar/util/defer.hh>
 #include <boost/intrusive/slist.hpp>
 #include <memory>
 #include <optional>
 #include <variant>
 #include <utility>
 #include <vector>
+
+// The put() bookkeeping below relies on data_sink::put() being the sole caller
+// of data_sink_impl::put(), which only holds at API level 9 and above.
+#if defined(SEASTAR_DEBUG) && SEASTAR_API_LEVEL >= 9
+#define SEASTAR_DATA_SINK_PUT_DEBUG
+#endif
 
 namespace bi = boost::intrusive;
 
@@ -102,8 +109,23 @@ public:
 };
 
 class data_sink_impl {
+#ifdef SEASTAR_DATA_SINK_PUT_DEBUG
+    // Set while a put() issued through data_sink has not resolved yet.
+    // Implementations are allowed to hold per-sink state for the duration of a
+    // put, which makes two things errors: destroying the sink while this is set,
+    // which leaves the operation and the continuation that cleans up after it
+    // pointing at freed memory, and issuing a second put while it is set, which
+    // makes the two puts share that state.
+    bool _put_in_flight = false;
+
+    friend class data_sink;
+#endif
 public:
-    virtual ~data_sink_impl() {}
+    virtual ~data_sink_impl() {
+#ifdef SEASTAR_DATA_SINK_PUT_DEBUG
+        SEASTAR_DEBUG_ASSERT(!_put_in_flight);
+#endif
+    }
     virtual temporary_buffer<char> allocate_buffer(size_t size) {
         return temporary_buffer<char>(size);
     }
@@ -201,7 +223,18 @@ public:
 #if SEASTAR_API_LEVEL >= 9
     future<> put(std::span<temporary_buffer<char>> data) noexcept {
         try {
+#ifdef SEASTAR_DATA_SINK_PUT_DEBUG
+            auto* dsi = _dsi.get();
+            // this guard enforces the general contract of the data sink that
+            // (1) there are never > 1 puts in flight
+            // (2) we never destroy the sink with a put in flight
+            SEASTAR_DEBUG_ASSERT(!dsi->_put_in_flight);
+            dsi->_put_in_flight = true;
+            auto guard = defer([dsi] () noexcept { dsi->_put_in_flight = false; });
+            return dsi->put(data).finally([guard = std::move(guard)] {});
+#else
             return _dsi->put(data);
+#endif
         } catch (...) {
             return current_exception_as_future();
         }
