@@ -1615,6 +1615,8 @@ protected:
         ::msghdr _mh = {};
         const size_t _to_write;
     public:
+        // iovs is not copied, the span data must remain valid until the
+        // associated request completes.
         sendmsg_completion_base(std::span<iovec> iovs, size_t to_write)
             : _to_write(to_write) {
             _mh.msg_iov = iovs.data();
