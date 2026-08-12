@@ -101,6 +101,11 @@ if [[ "$COMPILER" == clang++-* && "$clang_ver" -ge 20 || "$STANDARD" -ge 26 ]] ;
 fi
 
 group "configure.py"
+# Both TLS backends are requested explicitly rather than left to cmake's
+# auto-detection, so that a TLS development package going missing from the
+# image fails the configure instead of quietly dropping that backend, and the
+# tests which cover it, from the run.
+#
 # OPTIONS / ENABLES intentionally unquoted: each carries multiple
 # whitespace-separated args (e.g. "--cook dpdk --dpdk-machine corei7-avx").
 # shellcheck disable=SC2086
@@ -109,6 +114,8 @@ group "configure.py"
     --compiler "$CPP"           \
     --c-compiler "$CC"          \
     --mode "$MODE"              \
+    --enable-gnutls             \
+    --enable-openssl            \
     "${cook_args[@]}"           \
     "${ccache_opt[@]}"          \
     $OPTIONS                    \
