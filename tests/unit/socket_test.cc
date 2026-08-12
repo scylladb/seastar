@@ -301,6 +301,12 @@ SEASTAR_THREAD_TEST_CASE(socket_abort_accept_on_empty_test) {
     empty_ss.abort_accept();
     BOOST_CHECK(empty_ss.local_address().is_unspecified());
 
+    // accept() on a never-initialized server_socket (never listened,
+    // never aborted) must also fail cleanly with ECONNABORTED, rather
+    // than crash on a null server_socket_impl.
+    server_socket never_initialized;
+    BOOST_REQUIRE_THROW(never_initialized.accept().get(), std::system_error);
+
     server_socket live_ss = seastar::listen(ipv4_addr("127.0.0.1", 0), listen_options{ .reuse_address = true });
     server_socket moved_to = std::move(live_ss);
     // live_ss is now moved-from and empty; must still be safe to call.
