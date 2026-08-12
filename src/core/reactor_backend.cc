@@ -29,6 +29,7 @@
 #include <unordered_map>
 #include <utility>
 #include <variant>
+#include <ranges>
 #include <vector>
 #include <fcntl.h>
 #include <signal.h>
@@ -1637,8 +1638,11 @@ protected:
     protected:
         std::vector<iovec> _iov;
     public:
+        // Submits at most IOV_MAX iovecs, as the kernel rejects anything longer
+        // with EINVAL; an oversized call becomes a short write, matching
+        // sendmsg_completion_base and reactor::do_writev.
         explicit writev_completion_base(std::span<iovec> iovs)
-            : _iov(iovs.begin(), iovs.end()) {}
+            : _iov(std::from_range, iovs.first(std::min<size_t>(iovs.size(), IOV_MAX))) {}
         std::vector<iovec>& iovs() noexcept {
             return _iov;
         }
