@@ -140,6 +140,8 @@ public:
         return req;
     }
 
+    // No copy of iov is made: the returned request points at iov's data(), whose lifetime must extend
+    // until the request is complete.
     static io_request make_readv(int fd, uint64_t pos, std::vector<iovec>& iov, bool nowait_works) {
         io_request req;
         req._readv = {
@@ -212,6 +214,8 @@ public:
         return req;
     }
 
+    // No copy of iov is made: the returned request points at iov's data(), whose lifetime must extend
+    // until the request is complete.
     static io_request make_writev(int fd, uint64_t pos, std::vector<iovec>& iov, bool nowait_works) {
         io_request req;
         req._writev = {

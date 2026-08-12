@@ -228,6 +228,13 @@ public:
     virtual future<> poll_rdhup(pollable_fd_state& fd) = 0;
     virtual void forget(pollable_fd_state& fd) noexcept = 0;
 
+    // For all the data-path methods below, buffer and iovec-array arguments
+    // are borrowed: the caller must keep them alive and unmodified until the
+    // returned future resolves. This includes the iovec array itself, not
+    // just the buffers it points at. Polling backends read the array before
+    // the future resolves anyway, but backends that submit asynchronously
+    // (asymmetric_io_uring) may hand it to the kernel after the calling
+    // function has returned.
     virtual future<std::tuple<pollable_fd, socket_address>>
     accept(pollable_fd_state& listenfd) = 0;
     virtual future<> connect(pollable_fd_state& fd, socket_address& sa) = 0;
