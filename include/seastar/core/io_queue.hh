@@ -60,6 +60,10 @@ class queued_io_request;
 class io_group;
 
 using io_group_ptr = std::shared_ptr<io_group>;
+// Owns the iovec array that an internal::io_request points at, keeping it
+// alive until the operation completes; the request itself only borrows it
+// (see internal::io_request). Passed alongside a request through the
+// submission path and stored in the completion descriptor.
 using iovec_keeper = std::vector<::iovec>;
 
 namespace internal {

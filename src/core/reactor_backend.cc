@@ -1615,6 +1615,9 @@ protected:
         ::msghdr _mh = {};
         const size_t _to_write;
     public:
+        // Points at the caller's iovec array rather than copying it, relying
+        // on the reactor_backend contract that the caller keeps the array
+        // alive until the returned future resolves.
         sendmsg_completion_base(std::span<iovec> iovs, size_t to_write)
             : _to_write(to_write) {
             _mh.msg_iov = iovs.data();

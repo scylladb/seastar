@@ -34,6 +34,14 @@ extern logger io_log;
 
 namespace internal {
 
+// A trivially-copyable description of one kernel I/O operation. It refers to
+// buffers, iovec arrays and socket addresses by pointer and never owns them:
+// whoever creates a request must keep the pointed-to storage alive, and
+// unmodified, until the operation completes, not merely until the request is
+// built or submitted. Requests are typically queued (see io_sink) and reach
+// the kernel later, from a different stack. See iovec_keeper and
+// io_request::part for the usual way to pair a request with the storage that
+// keeps it valid.
 class io_request {
 public:
     enum class operation : char { read, readv, write, writev, fdatasync, recv, recvmsg, send, sendmsg, accept, connect, poll_add, poll_remove, cancel };
@@ -140,6 +148,10 @@ public:
         return req;
     }
 
+    // The returned request points at iov's heap buffer, which must stay alive
+    // and unresized until the operation completes. Moving the vector, e.g.
+    // into an iovec_keeper or a completion object, is fine: a move transfers
+    // the buffer without relocating it.
     static io_request make_readv(int fd, uint64_t pos, std::vector<iovec>& iov, bool nowait_works) {
         io_request req;
         req._readv = {
@@ -212,6 +224,7 @@ public:
         return req;
     }
 
+    // Same iovec lifetime contract as make_readv above.
     static io_request make_writev(int fd, uint64_t pos, std::vector<iovec>& iov, bool nowait_works) {
         io_request req;
         req._writev = {
