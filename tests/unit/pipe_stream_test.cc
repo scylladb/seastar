@@ -22,9 +22,12 @@
 #include <sys/ioctl.h>
 #include <termios.h>
 
+#include <algorithm>
+
 #include <seastar/core/fstream.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/sstring.hh>
+#include <seastar/core/thread.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 
@@ -54,6 +57,46 @@ SEASTAR_THREAD_TEST_CASE(pipe_stream_roundtrip) {
 
     auto buf = in.read_exactly(payload.size()).get();
     BOOST_REQUIRE_EQUAL(sstring(buf.get(), buf.size()), payload);
+
+    out.close().get();
+    in.close().get();
+}
+
+// ---------------------------------------------------------------------------
+// pipe_stream_large_roundtrip
+//
+// A payload much larger than the OS pipe buffer, so the sink issues many
+// writes and hits the partial-write path, where the remaining iovecs are
+// trimmed and resubmitted.  The writer runs concurrently with the reader
+// because a write that fills the pipe buffer cannot complete until the reader
+// drains it.
+// ---------------------------------------------------------------------------
+SEASTAR_THREAD_TEST_CASE(pipe_stream_large_roundtrip) {
+    auto [read_fd, write_fd] = make_pipe().get();
+
+    auto in  = make_pipe_input_stream (std::move(read_fd));
+    auto out = make_pipe_output_stream(std::move(write_fd));
+
+    constexpr size_t payload_size = 4 * 1024 * 1024;
+    sstring payload(sstring::initialized_later(), payload_size);
+    for (size_t i = 0; i < payload_size; ++i) {
+        payload[i] = char('a' + (i % 26));
+    }
+
+    auto writer = async([&out, &payload] {
+        out.write(payload).get();
+        out.flush().get();
+    });
+
+    auto buf = in.read_exactly(payload_size).get();
+    writer.get();
+
+    BOOST_REQUIRE_EQUAL(buf.size(), payload_size);
+    // Compared by offset rather than with BOOST_REQUIRE_EQUAL so that a
+    // mismatch reports one position instead of printing both payloads.
+    auto [it, _] = std::mismatch(buf.get(), buf.get() + buf.size(), payload.begin());
+    BOOST_REQUIRE_MESSAGE(it == buf.get() + buf.size(),
+                          "payload differs at offset " << (it - buf.get()));
 
     out.close().get();
     in.close().get();

@@ -1628,6 +1628,20 @@ protected:
         }
     };
 
+    // io_request refers to the iovec array by pointer, and requests are submitted
+    // asynchronously, so the array must live as long as the operation rather than
+    // as long as the call that builds it.
+    class writev_completion_base : public sized_promise_completion_base {
+    protected:
+        std::vector<iovec> _iov;
+    public:
+        explicit writev_completion_base(std::span<iovec> iovs)
+            : _iov(iovs.begin(), iovs.end()) {}
+        std::vector<iovec>& iovs() noexcept {
+            return _iov;
+        }
+    };
+
     class send_completion_base : public sized_promise_completion_base {
     protected:
         const size_t _to_write;
@@ -2535,10 +2549,9 @@ public:
     }
 
     virtual future<size_t> writev(pollable_fd_state& fd, std::span<iovec> iovs) override {
-        auto desc = std::make_unique<sized_promise_completion_base>();
+        auto desc = std::make_unique<writev_completion_base>(iovs);
         const uint64_t position_file_offset = -1;
-        std::vector<iovec> iov(iovs.begin(), iovs.end());
-        auto req = internal::io_request::make_writev(fd.fd.get(), position_file_offset, iov, false);
+        auto req = internal::io_request::make_writev(fd.fd.get(), position_file_offset, desc->iovs(), false);
         return submit_request(std::move(desc), std::move(req));
     }
 };
