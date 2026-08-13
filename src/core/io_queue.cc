@@ -292,22 +292,12 @@ public:
     metrics::metric_groups metric_groups;
 };
 
-// Single long-lived heap allocation for an in-flight I/O request (used to be
-// two: a queueing wrapper owning a separately-allocated completion object).
-// The queueing state (io_request payload, fair_queue_entry, cancellable_queue
-// link) is now just members here instead of living in a separate owner.
-//
-// Lifetime: allocated in queue_one_request(), owned by no smart pointer --
-// kept alive by being linked into the fair_queue (_fq_entry) and, optionally,
-// a cancellable_queue (_intent) until dispatch(). cancel() (invoked while
-// still queued, e.g. from a cancellable_queue's destructor doing
-// `from_cq_link(*_first).cancel(); pop_front();`) must NOT delete `this` --
-// `_first` is used again right after by the caller, and the fair_queue still
-// holds `_fq_entry` -- so it only resolves the promise and sets `_cancelled`.
-// dispatch() runs once the fair_queue pops _fq_entry: it deletes `this`
-// directly if cancelled, otherwise hands it to the io_sink as an
-// io_completion*, and complete()/set_exception() delete it later. Exactly one
-// of those two paths ever deletes a given object.
+// One allocation for the whole request lifetime (was two). Owned by no smart
+// pointer -- kept alive via intrusive links (_fq_entry, _intent) until
+// dispatch(). cancel() must not delete `this` (still linked/in use by the
+// caller), so it only sets `_cancelled`. dispatch() then deletes `this`
+// directly if cancelled, else hands off to the sink, whose
+// complete()/set_exception() delete it later -- exactly one path ever does.
 class io_desc_read_write final : public io_completion, private internal::io_request {
     io_queue& _ioq;
     io_queue::priority_class_data& _pclass;
@@ -1009,9 +999,7 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
         auto& pclass = find_or_create_class(pc);
         auto cap = request_capacity(dnl);
         auto stream = request_stream(dnl);
-        // Held in a unique_ptr only until fully registered below, since
-        // find_or_create_cancellable_queue() can throw; see the class comment
-        // on io_desc_read_write for how it's reclaimed after that.
+        // unique_ptr only until registered below (throws are possible there).
         auto desc = std::make_unique<io_desc_read_write>(std::move(req), *this, pclass, stream, dnl, cap, std::move(iovs));
         auto fut = desc->get_future();
         if (intent != nullptr) {
