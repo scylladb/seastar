@@ -15,7 +15,14 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      # persist-credentials: false because nothing here pushes. Left at the
+      # default, checkout leaves a credential in .git/config for the rest of
+      # the job — and the rest of this job runs a scanner installed from the
+      # network over the contents of a pull request. A token that no step
+      # needs should not be sitting in the working tree while that happens.
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -25,10 +32,17 @@ jobs:
       # whether a security gate runs at all. Retry before giving up; a
       # transient registry blip is not a security signal and should not read
       # like one.
+      #
+      # --ignore-scripts because a lifecycle script is arbitrary code from the
+      # dependency tree, and this job holds `pull-requests: write` and
+      # `security-events: write`. The CLI does not need them: it declares no
+      # install hook of its own, and `scan` was verified to run correctly from
+      # an --ignore-scripts install. A security gate that opens a shell for
+      # its own supply chain is not a gate.
       - name: Install ThreatCrush
         run: |
           for attempt in 1 2 3; do
-            if npm install -g "@profullstack/threatcrush@latest"; then
+            if npm install -g --ignore-scripts "@profullstack/threatcrush@0.11.0"; then
               exit 0
             fi
             delay=$((attempt * 10))
