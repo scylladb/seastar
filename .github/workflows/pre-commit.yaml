@@ -1,6 +1,11 @@
 name: Pre-commit
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - master
+      - 'seastar-*-branch'
+  pull_request:
 
 jobs:
   pre-commit:

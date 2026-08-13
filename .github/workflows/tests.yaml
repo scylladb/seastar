@@ -5,6 +5,12 @@ permissions:
 
 on:
   push:
+    # topic branches are covered by the pull_request trigger below; without
+    # this filter, a branch pushed to this repo (rather than to a fork) runs
+    # the whole matrix twice
+    branches:
+      - master
+      - 'seastar-*-branch'
   pull_request:
   workflow_dispatch:  # Allows manual triggering
 

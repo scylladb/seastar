@@ -1,6 +1,11 @@
 name: Python format
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - master
+      - 'seastar-*-branch'
+  pull_request:
 
 jobs:
   python-format:
