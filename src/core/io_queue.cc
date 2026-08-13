@@ -1016,9 +1016,7 @@ future<size_t> io_queue::queue_one_request(scheduling_group sg, io_direction_and
         auto& pclass = find_or_create_class(sg);
         auto cap = request_capacity(dnl);
         auto stream = request_stream(dnl);
-        // Held in a unique_ptr only until fully registered below, since
-        // find_or_create_cancellable_queue() can throw; see the class comment
-        // on io_desc_read_write for how it's reclaimed after that.
+        // unique_ptr only until registered below (throws are possible there).
         auto desc = std::make_unique<io_desc_read_write>(std::move(req), *this, pclass, stream, dnl, cap, std::move(iovs));
         auto fut = desc->get_future();
         if (intent != nullptr) {
