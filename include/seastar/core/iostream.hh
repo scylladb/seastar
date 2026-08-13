@@ -133,6 +133,10 @@ public:
     // The caller assumes that the storage that backs this span can be released
     // once this method returns, so implementations should move the buffers into
     // stable storage on their own early, before the returned future resolves.
+    //
+    // The caller will not issue another put() until the returned future resolves,
+    // and will not destroy the sink before then, so implementations may keep
+    // per-put state in the sink for the duration of the operation.
     virtual future<> put(std::span<temporary_buffer<char>> data) = 0;
 #else
     virtual future<> put(net::packet data) = 0;
@@ -210,6 +214,12 @@ protected:
 #endif
 };
 
+/// Pushes bulk data to a provider, such as a TCP connection, a disk file or a
+/// memory buffer.
+///
+/// \note All methods must be called sequentially.  That is, no method may be
+/// invoked before the previous method's returned future is resolved, and the
+/// sink may not be destroyed while a put() is outstanding.
 class data_sink {
     std::unique_ptr<data_sink_impl> _dsi;
 public:
