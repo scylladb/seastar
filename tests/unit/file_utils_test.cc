@@ -33,6 +33,7 @@
 #include <seastar/core/seastar.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/util/defer.hh>
 #include <seastar/util/tmp_file.hh>
 #include <seastar/util/file.hh>
 
@@ -214,13 +215,15 @@ SEASTAR_THREAD_TEST_CASE(test_tmp_dir_with_non_existing_path) {
 SEASTAR_TEST_CASE(tmp_dir_with_thread_test) {
     return tmp_dir::do_with_thread([] (tmp_dir& td) {
         tmp_file tf = make_tmp_file(td.get_path()).get();
+        auto close_tf = defer([&tf] () noexcept {
+            tf.close().get();
+            tf.remove().get();
+        });
         auto& f = tf.get_file();
         auto buf = get_init_buffer(f);
         auto expected = buf.size();
         auto actual = f.dma_write(0, buf.get(), buf.size()).get();
         BOOST_REQUIRE_EQUAL(expected, actual);
-        tf.close().get();
-        tf.remove().get();
     });
 }
 
