@@ -161,31 +161,123 @@ future<> connection::send_buffer(snd_buf buf) {
     }
 }
 
+std::optional<snd_buf> connection::prepare_outgoing_entry(outgoing_entry& d) noexcept {
+    auto expire = d.t.get_timeout();
+    // left_ms is 0 when no timer is set (server treats 0 as "no timeout").
+    // When a timer is set, drop the entry if already expired; otherwise send
+    // the remaining time so the server can honour the deadline too.
+    uint64_t left_ms = 0;
+    if (expire != typename timer<rpc_clock_type>::time_point()) {
+        left_ms = std::chrono::duration_cast<std::chrono::milliseconds>(expire - timer<rpc_clock_type>::clock::now()).count();
+        if (int64_t(left_ms) <= 0) {
+            return std::nullopt;
+        }
+    }
+    if (d.buf.size && _propagate_timeout) {
+        static_assert(snd_buf::chunk_size >= sizeof(uint64_t), "send buffer chunk size is too small");
+        if (_timeout_negotiated) {
+            write_le<uint64_t>(d.buf.front().get_write(), left_ms);
+        } else {
+            d.buf.front().trim_front(sizeof(uint64_t));
+            d.buf.size -= sizeof(uint64_t);
+        }
+    }
+    return std::move(d.buf);
+}
+
 future<> connection::send_entry(outgoing_entry& d) noexcept {
     return futurize_invoke([this, &d] {
-        auto expire = d.t.get_timeout();
-        // left_ms is 0 when no timer is set (server treats 0 as "no timeout").
-        // When a timer is set, drop the entry if already expired; otherwise send
-        // the remaining time so the server can honour the deadline too.
-        uint64_t left_ms = 0;
-        if (expire != typename timer<rpc_clock_type>::time_point()) {
-            left_ms = std::chrono::duration_cast<std::chrono::milliseconds>(expire - timer<rpc_clock_type>::clock::now()).count();
-            if (int64_t(left_ms) <= 0) {
-                return make_ready_future<>();
-            }
+        auto prepared = prepare_outgoing_entry(d);
+        if (!prepared) {
+            return make_ready_future<>();
         }
-        if (d.buf.size && _propagate_timeout) {
-            static_assert(snd_buf::chunk_size >= sizeof(uint64_t), "send buffer chunk size is too small");
-            if (_timeout_negotiated) {
-                write_le<uint64_t>(d.buf.front().get_write(), left_ms);
-            } else {
-                d.buf.front().trim_front(sizeof(uint64_t));
-                d.buf.size -= sizeof(uint64_t);
-            }
-        }
-        auto buf = compress(std::move(d.buf));
+        auto buf = compress(std::move(*prepared));
         return send_buffer(std::move(buf)).then([this] {
             _stats.sent_messages++;
+            return _connected->write_buf.flush();
+        });
+    });
+}
+
+namespace {
+// Concatenates several already-framed snd_bufs into one, preserving order.
+// The result is byte-for-byte what writing each part individually, back to
+// back, would have produced.
+snd_buf concatenate_snd_bufs(std::vector<snd_buf> parts) {
+    size_t total = 0;
+    for (auto& p : parts) {
+        total += p.size;
+    }
+    std::vector<temporary_buffer<char>> frags;
+    frags.reserve(parts.size());
+    for (auto& p : parts) {
+        std::visit([&frags] (auto&& b) {
+            using T = std::decay_t<decltype(b)>;
+            if constexpr (std::is_same_v<T, temporary_buffer<char>>) {
+                frags.push_back(std::move(b));
+            } else {
+                for (auto& f : b) {
+                    frags.push_back(std::move(f));
+                }
+            }
+        }, p.bufs);
+    }
+    return snd_buf(std::move(frags), total);
+}
+} // anonymous namespace
+
+future<> connection::send_entry_with_batching(outgoing_entry& d) noexcept {
+    if (!_compressor || !_batch_frames_negotiated || d.buf.size == 0) {
+        // Empty/control frames must never be merged into a data batch.
+        return send_entry(d);
+    }
+    return futurize_invoke([this, &d] {
+        auto prepared = prepare_outgoing_entry(d);
+        if (!prepared) {
+            return make_ready_future<>();
+        }
+
+        // Peek before allocating: solo path costs the same as send_entry().
+        // d itself is exempt from the cap (goes out alone if oversized).
+        auto next = std::next(_outgoing_queue.iterator_to(d));
+        auto next_fits = [&] (size_t total_bytes) {
+            return next != _outgoing_queue.end()
+                    && next->buf.size != 0
+                    && total_bytes + next->buf.size <= max_batched_bytes;
+        };
+        if (!next_fits(prepared->size)) {
+            auto buf = compress(std::move(*prepared));
+            return send_buffer(std::move(buf)).then([this] {
+                _stats.sent_messages++;
+                return _connected->write_buf.flush();
+            });
+        }
+
+        std::vector<snd_buf> parts;
+        size_t total_bytes = prepared->size;
+        parts.push_back(std::move(*prepared));
+
+        // Pull in further entries already sitting behind d, in order; never
+        // wait for more to arrive. next_fits() already excludes empty/control
+        // frames and anything that would exceed the cap.
+        while (parts.size() < max_batched_messages && next_fits(total_bytes)) {
+            outgoing_entry& cand = *next;
+            auto cand_prepared = prepare_outgoing_entry(cand);
+            if (!cand_prepared) {
+                break; // Already expired: let its own turn drop it.
+            }
+            cand.uncancellable();
+            cand.already_sent = true;
+            total_bytes += cand_prepared->size;
+            parts.push_back(std::move(*cand_prepared));
+            ++next;
+        }
+
+        auto n = parts.size();
+        auto combined = n == 1 ? std::move(parts.front()) : concatenate_snd_bufs(std::move(parts));
+        auto buf = compress(std::move(combined));
+        return send_buffer(std::move(buf)).then([this, n] {
+            _stats.sent_messages += n;
             return _connected->write_buf.flush();
         });
     });
@@ -211,6 +303,11 @@ future<> connection::stop_send_loop(std::exception_ptr ex) {
         // engaged. In the latter case when it will be aborted below the entry's
         // continuation will not be called and its done promise will not resolve
         // the _outgoing_queue_ready, so do it here
+        if (it->already_sent) {
+            // Part of the front entry's in-flight batch; must share its
+            // fate. Batched entries are contiguous, so stop the sweep here.
+            break;
+        }
         if (it != _outgoing_queue.begin()) {
             withdraw(it, ex);
         } else {
@@ -329,9 +426,16 @@ future<> connection::send(snd_buf buf, std::optional<rpc_clock_type::time_point>
                 // If withdrawn the entry is unlinked and this lambda is fired right at once
                 return make_ready_future<>();
             }
+            if (p->already_sent) {
+                // Already sent opportunistically as part of an earlier entry's
+                // batch (see send_entry_with_batching()); just unblock the next
+                // entry in the chain.
+                p->done.set_value();
+                return make_ready_future<>();
+            }
 
             p->uncancellable();
-            return send_entry(*p).then_wrapped([this, p = std::move(p)] (auto f) mutable {
+            return send_entry_with_batching(*p).then_wrapped([this, p = std::move(p)] (auto f) mutable {
                 if (f.failed()) {
                     f.ignore_ready_future();
                     abort();
@@ -478,11 +582,52 @@ connection::read_frame(socket_address info, input_stream<char>& in) {
     });
 }
 
+namespace {
+// FrameType::return_type either *is* the optional<rcv_buf> payload (stream_frame)
+// or is a tuple whose last element is that optional (request/response frame
+// families). Either way, this extracts a reference to it generically.
+template <typename RT>
+const std::optional<rcv_buf>& extract_frame_payload(const RT& ret) {
+    if constexpr (std::is_same_v<RT, std::optional<rcv_buf>>) {
+        return ret;
+    } else {
+        return std::get<std::tuple_size_v<RT> - 1>(ret);
+    }
+}
+} // anonymous namespace
+
+// Reads one frame off `in`. A decompressed blob may hold several coalesced
+// frames; _batched_frames_in/_remaining track it across calls until
+// exhausted. Safe for non-batching peers: a single-frame blob just exhausts
+// right after.
 template<typename FrameType>
 future<typename FrameType::return_type>
 connection::read_frame_compressed(socket_address info, std::unique_ptr<compressor>& compressor, input_stream<char>& in) {
     if (compressor) {
-        return in.read_exactly(4).then([this, info, &in, &compressor] (temporary_buffer<char> compress_header) {
+        auto record_consumed = [this] (const typename FrameType::return_type& ret) {
+            auto& opt = extract_frame_payload(ret);
+            if (!opt) {
+                // Truncated/corrupt frame: this blob can't yield anything
+                // sensible past this point, so drop it. The caller already
+                // treats this "no data" result as a protocol error.
+                _batched_frames_in.reset();
+                _batched_frames_remaining = 0;
+                return;
+            }
+            size_t consumed = FrameType::header_size() + opt->size;
+            _batched_frames_remaining = _batched_frames_remaining > consumed ? _batched_frames_remaining - consumed : 0;
+            if (_batched_frames_remaining == 0) {
+                _batched_frames_in.reset();
+            }
+        };
+        if (_batched_frames_in && _batched_frames_remaining > 0) {
+            // Keep draining frames out of the still-live decompressed blob.
+            return read_frame<FrameType>(info, *_batched_frames_in).then([record_consumed] (typename FrameType::return_type ret) {
+                record_consumed(ret);
+                return ret;
+            });
+        }
+        return in.read_exactly(4).then([this, info, &in, &compressor, record_consumed] (temporary_buffer<char> compress_header) {
             if (compress_header.size() != 4) {
                 if (compress_header.size() != 0) {
                     _logger(info, format("unexpected eof on a {} while reading compression header: expected 4 got {:d}", FrameType::role(), compress_header.size()));
@@ -491,7 +636,7 @@ connection::read_frame_compressed(socket_address info, std::unique_ptr<compresso
             }
             auto ptr = compress_header.get();
             auto size = read_le<uint32_t>(ptr);
-            return read_rcv_buf(in, size).then([this, size, &compressor, info, &in] (rcv_buf compressed_data) {
+            return read_rcv_buf(in, size).then([this, size, &compressor, info, &in, record_consumed] (rcv_buf compressed_data) {
                 if (compressed_data.size != size) {
                     _logger(info, format("unexpected eof on a {} while reading compressed data: expected {:d} got {:d}", FrameType::role(), size, compressed_data.size));
                     return make_ready_future<typename FrameType::return_type>(FrameType::empty_value());
@@ -503,9 +648,13 @@ connection::read_frame_compressed(socket_address info, std::unique_ptr<compresso
                     // The yield() is here to limit the stack depth of the recursion to 1.
                     return yield().then([this, info, &in, &compressor] { return read_frame_compressed<FrameType>(info, compressor, in); });
                 }
+                auto total_size = eb.size;
                 auto source = std::visit([] (auto&& b) { return util::as_input_stream(std::move(b)); }, eb.bufs);
-                return do_with(std::move(source), [this, info] (input_stream<char>& in) {
-                    return read_frame<FrameType>(info, in);
+                _batched_frames_in.emplace(std::move(source));
+                _batched_frames_remaining = total_size;
+                return read_frame<FrameType>(info, *_batched_frames_in).then([record_consumed] (typename FrameType::return_type ret) {
+                    record_consumed(ret);
+                    return ret;
                 });
             });
         });
@@ -695,6 +844,12 @@ client::negotiate(feature_map provided) {
             _id = deserialize_connection_id(e.second);
             break;
         }
+        case protocol_features::BATCH_FRAMES:
+            // Server echoed this back; safe to batch sends to it.
+            if (_options.batch_outgoing_frames) {
+                _batch_frames_negotiated = true;
+            }
+            break;
         default:
             // nothing to do
             ;
@@ -984,6 +1139,10 @@ future<> client::loop(client_options ops, const socket_address& addr, const sock
         if (_options.send_handler_duration) {
             features[protocol_features::HANDLER_DURATION] = "";
         }
+        if (_options.batch_outgoing_frames) {
+            // Declares our receive loop can demultiplex batched frames.
+            features[protocol_features::BATCH_FRAMES] = "";
+        }
         if (_options.stream_parent) {
             features[protocol_features::STREAM_PARENT] = serialize_connection_id(_options.stream_parent);
         }
@@ -1100,6 +1259,14 @@ server::connection::negotiate(feature_map requested) {
         case protocol_features::HANDLER_DURATION:
             _handler_duration_negotiated = true;
             ret[protocol_features::HANDLER_DURATION] = "";
+            break;
+        case protocol_features::BATCH_FRAMES:
+            // Client can demultiplex batched frames; echo back so it learns
+            // we can too, letting batching happen in both directions.
+            if (get_server()._options.batch_outgoing_frames) {
+                _batch_frames_negotiated = true;
+                ret[protocol_features::BATCH_FRAMES] = "";
+            }
             break;
         case protocol_features::STREAM_PARENT: {
             if (!get_server()._options.streaming_domain) {
