@@ -2053,8 +2053,30 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates_with_only_shard0_notify) {
 SEASTAR_TEST_CASE(test_tls_cipher_suite_and_protocol_version, *enable_if_with_networking()) {
     auto certs = ::make_shared<tls::certificate_credentials>();
     co_await certs->set_system_trust();
+    auto addr = co_await google_address();
 
-    auto c = co_await tls::connect(certs, co_await google_address(), tls::tls_options{ .server_name = google_name });
+    connected_socket c;
+    for (int attempt = 1;; ++attempt) {
+        // co_await is not permitted inside a catch handler, so the retry sleep
+        // below happens after the try/catch, gated by this flag.
+        bool retry = false;
+        try {
+            c = co_await tls::connect(certs, addr, tls::tls_options{ .server_name = google_name });
+            break;
+        } catch (const std::system_error&) {
+            // As in connect_to_ssl_addr() above: a real server out on the internet is
+            // subject to transient failures (connection reset, abrupt close, throttling)
+            // that say nothing about what is being tested. Retry a bounded number of
+            // times; a failure that is not transient survives every attempt.
+            if (attempt >= max_connect_attempts) {
+                throw;
+            }
+            retry = true;
+        }
+        if (retry) {
+            co_await sleep(std::chrono::milliseconds(100 * attempt));
+        }
+    }
     BOOST_CHECK_EQUAL(co_await tls::get_cipher_suite(c), "TLS_AES_256_GCM_SHA384");
     BOOST_CHECK_EQUAL(co_await tls::get_protocol_version(c), "TLS1.3");
 }
