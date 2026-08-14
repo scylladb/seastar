@@ -845,6 +845,29 @@ public:
             if (!_options.server_name.empty()) {
                 SSL_set_tlsext_host_name(
                   _ssl.get(), _options.server_name.c_str());
+                if (_creds->_enable_certificate_verification) {
+                    // OpenSSL matches the peer certificate against the name
+                    // we intended to connect to only when that name is
+                    // installed as a reference identifier on the
+                    // verification parameters; chain validation alone
+                    // accepts a certificate issued to anyone, as long as
+                    // the issuer is trusted. A mismatch is reported through
+                    // SSL_get_verify_result(), which verify() converts into
+                    // a verification_error. Matching GnuTLS semantics: an
+                    // IP literal is matched against iPAddress SANs, a DNS
+                    // name against dNSName SANs (subject CN as fallback),
+                    // and partial-wildcard matching is disabled.
+                    auto* param = SSL_get0_param(_ssl.get());
+                    X509_VERIFY_PARAM_set_hostflags(
+                      param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+                    const auto& name = _options.server_name;
+                    if (1 != X509_VERIFY_PARAM_set1_ip_asc(param, name.c_str())
+                        && 1 != X509_VERIFY_PARAM_set1_host(
+                          param, name.c_str(), name.size())) {
+                        throw make_openssl_error(
+                          "Failed to set expected server name");
+                    }
+                }
             }
             SSL_set_connect_state(_ssl.get());
         }
