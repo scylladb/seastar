@@ -328,20 +328,37 @@ private:
             unsigned nr_transmits;
             clock_type::time_point tx_time;
         };
+        // Grouped by access frequency for cache locality: hot (congestion
+        // control + sequence numbers, touched on every ACK), semi-hot
+        // (retransmit counters), cold (queues, promises, RTT stats).
         struct send {
+            // hot
+            uint32_t window;
+            uint32_t cwnd; // Congestion window
+            uint32_t ssthresh; // Slow start threshold
+            uint32_t unsent_len = 0;
+            uint16_t mss;
+            uint16_t dupacks = 0; // Duplicated ACKs
+            uint8_t window_scale;
+            bool closed = false;
+            bool first_rto_sample = true;
+            bool window_probe = false;
+            uint8_t zero_window_probing_out = 0;
             tcp_seq unacknowledged;
             tcp_seq next;
-            uint32_t window;
-            uint8_t window_scale;
-            uint16_t mss;
             tcp_seq urgent;
             tcp_seq wl1;
             tcp_seq wl2;
             tcp_seq initial;
+            tcp_seq recover;
+            // semi-hot
+            unsigned syn_retransmit = 0;
+            unsigned fin_retransmit = 0;
+            uint32_t limited_transfer = 0;
+            uint32_t partial_ack = 0;
+            // cold
             std::deque<unacked_segment> data;
             std::deque<temporary_buffer<char>> unsent;
-            uint32_t unsent_len = 0;
-            bool closed = false;
             promise<> _window_opened;
             // Wait for all data are acked
             std::optional<promise<>> _all_data_acked_promise;
@@ -354,29 +371,20 @@ private:
             std::chrono::milliseconds rttvar;
             // Smoothed round-trip time
             std::chrono::milliseconds srtt;
-            bool first_rto_sample = true;
             clock_type::time_point syn_tx_time;
-            // Congestion window
-            uint32_t cwnd;
-            // Slow start threshold
-            uint32_t ssthresh;
-            // Duplicated ACKs
-            uint16_t dupacks = 0;
-            unsigned syn_retransmit = 0;
-            unsigned fin_retransmit = 0;
-            uint32_t limited_transfer = 0;
-            uint32_t partial_ack = 0;
-            tcp_seq recover;
-            bool window_probe = false;
-            uint8_t zero_window_probing_out = 0;
         } _snd;
+        // Upper bound, not exact: size varies by stdlib (libc++ deques are
+        // smaller) and build mode (debug promise<> is bigger).
+        static_assert(sizeof(send) <= 448, "send layout regressed in size");
         struct receive {
-            tcp_seq next;
+            // hot
             uint32_t window;
-            uint8_t window_scale;
             uint16_t mss;
+            uint8_t window_scale;
+            tcp_seq next;
             tcp_seq urgent;
             tcp_seq initial;
+            // cold
             std::deque<packet> data;
             // The total size of data stored in std::deque<packet> data
             size_t data_size = 0;
@@ -386,6 +394,10 @@ private:
             // Currently, it is the same as default receive window size when window scaling is enabled
             size_t max_receive_buf_size = 3737600;
         } _rcv;
+        // Unlike send, sizeof(receive) doesn't shrink -- its fixed portion
+        // already rounds up the same either way -- but it's still grouped
+        // for locality. Same upper-bound reasoning as send.
+        static_assert(sizeof(receive) <= 256, "receive layout regressed in size");
         tcp_option _option;
         timer<lowres_clock> _delayed_ack;
         // Retransmission timeout
