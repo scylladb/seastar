@@ -637,7 +637,7 @@ public:
     void wait_timed_out(id_type id);
     future<> stop() noexcept;
     void abort_all_streams();
-    void deregister_this_stream();
+    xshard_connection_ptr deregister_this_stream();
     socket_address peer_address() const override {
         return _server_addr;
     }
