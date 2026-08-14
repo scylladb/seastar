@@ -410,13 +410,13 @@ class batched_queue {
 
     std::function<future<>(T*)> _process_func;
     shard_id _processing_shard;
-    // Shard batched_queue itself (i.e. _queue/_cur_batch/_process_fut) lives on.
-    // enqueue()/stop() are not safe to call from any other shard: T's intrusive
-    // hook and _process_fut are plain, unsynchronized state, not smp-safe.
-    shard_id _home_shard = this_shard_id();
     list_type _queue;
     list_type _cur_batch;
     future<> _process_fut = make_ready_future();
+    // Number of process_loop() drain iterations (i.e. smp::submit_to() hops
+    // to _processing_shard) done so far. Only used by tests to verify that
+    // batching amortizes N enqueue()s into far fewer hops.
+    uint64_t _batches_for_testing = 0;
 
 public:
     batched_queue(std::function<future<>(T*)> process_func, shard_id processing_shard)
@@ -428,37 +428,26 @@ public:
         assert(_process_fut.available());
     }
 
-    // Safe to call from any shard: bounces to the home shard if needed.
     future<> stop() noexcept {
-        if (this_shard_id() != _home_shard) {
-            return smp::submit_to(_home_shard, [this] { return stop(); });
-        }
         return std::exchange(_process_fut, make_ready_future());
     }
 
-    // Safe to call from any shard: bounces to the home shard if needed.
-    // This matters for sink_impl::_delete_queue: its enqueue() is invoked
-    // from snd_buf_deleter_impl's destructor, which runs on whichever shard
-    // drops the last reference to a (possibly .share()'d) buffer fragment,
-    // i.e. the connection's shard -- which can differ from the shard
-    // sink_impl (and thus _delete_queue) was constructed on whenever a
-    // stream's dedicated sub-connection is accepted on a shard other than
-    // its parent connection's. Touching _queue/_process_fut directly from
-    // that other shard is an unsynchronized cross-shard access.
     void enqueue(T* buf) noexcept {
-        if (this_shard_id() != _home_shard) {
-            (void)smp::submit_to(_home_shard, [this, buf] { enqueue(buf); });
-            return;
-        }
         _queue.push_back(*buf);
         if (_process_fut.available()) {
             _process_fut = process_loop();
         }
     }
 
+    // Test-only observability: see _batches_for_testing above.
+    uint64_t batches_processed_for_testing() const noexcept {
+        return _batches_for_testing;
+    }
+
     future<> process_loop() {
         return seastar::do_until([this] { return _queue.empty(); }, [this] {
             _cur_batch = std::exchange(_queue, list_type());
+            _batches_for_testing++;
             return smp::submit_to(_processing_shard, [this] {
                 return seastar::do_until([this] { return _cur_batch.empty(); }, [this] {
                     auto* buf = &_cur_batch.front();
