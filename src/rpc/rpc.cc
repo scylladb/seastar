@@ -964,6 +964,17 @@ client::client(const logger& l, void* s, client_options ops, socket socket, cons
 }
 
 future<> client::loop(client_options ops, const socket_address& addr, const socket_address& local) {
+    // _streams[id] (see make_stream_sink()) can be a stream child's last
+    // reference; abort_all_streams()/deregister_this_stream() erase it and
+    // can free `this` while this coroutine is still suspended and will
+    // resume to touch it again. Self-keepalive for the whole coroutine
+    // avoids that, dropped only after _stopped.set_value(). Only stream
+    // children need this; is_stream() isn't set yet here, so check
+    // _options.stream_parent instead.
+    shared_ptr<client> self_keepalive;
+    if (ops.stream_parent) {
+        self_keepalive = shared_from_this();
+    }
     std::exception_ptr ep;
     try {
         connected_socket fd = co_await _socket.connect(addr, local);
