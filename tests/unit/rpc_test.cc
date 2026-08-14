@@ -740,6 +740,63 @@ SEASTAR_TEST_CASE(test_stream_negotiation_error) {
     });
 }
 
+// Regression test for the cross-shard hazard fixed alongside
+// scylladb/scylladb#31016: sink_impl::_delete_queue (a
+// rpc::internal::batched_queue<snd_buf>) has its enqueue()/stop() called from
+// whichever shard drops the last reference to a buffer fragment, which is
+// routinely a different shard than the one the queue itself lives on. Direct,
+// unsynchronized cross-shard access to the queue's intrusive list would
+// corrupt it; this exercises exactly that call pattern on a minimal
+// standalone queue, without needing a real streaming RPC connection.
+SEASTAR_THREAD_TEST_CASE(test_batched_queue_cross_shard_enqueue) {
+    if (this_smp_shard_count() < 2) {
+        return;
+    }
+    struct item : public bi::slist_base_hook<> {};
+
+    unsigned processed = 0;
+    rpc::internal::batched_queue<item> q([&processed] (item* i) {
+        ++processed;
+        delete i;
+        return make_ready_future<>();
+    }, this_shard_id());
+
+    // A single burst finishes (both sides) faster than smp cross-core
+    // dispatch latency, so the two shards' loops never actually overlap.
+    // Use a shared start flag and many small rounds instead, so the two
+    // sides spend a sustained stretch of wall-clock time genuinely
+    // contending on `q` rather than racing to finish first.
+    constexpr unsigned n_rounds = 500;
+    constexpr unsigned n_per_round = 200;
+    unsigned total = 0;
+    for (unsigned round = 0; round < n_rounds; round++) {
+        std::atomic<bool> go{false};
+        auto remote = smp::submit_to(1, [&q, &go] {
+            while (!go.load(std::memory_order_acquire)) {
+                // Short, expected-brief spin: shard 0 sets `go` immediately
+                // after posting this task.
+            }
+            for (unsigned i = 0; i < n_per_round; i++) {
+                q.enqueue(new item());
+            }
+        });
+        go.store(true, std::memory_order_release);
+        for (unsigned i = 0; i < n_per_round; i++) {
+            q.enqueue(new item());
+        }
+        remote.get();
+        total += 2 * n_per_round;
+    }
+
+    // The off-shard enqueue()s bounce home asynchronously; poll for drain.
+    auto deadline = seastar::lowres_clock::now() + std::chrono::seconds(10);
+    while (processed < total && seastar::lowres_clock::now() < deadline) {
+        sleep(std::chrono::milliseconds(10)).get();
+    }
+    BOOST_REQUIRE_EQUAL(processed, total);
+    q.stop().get();
+}
+
 static future<> test_rpc_connection_send_glitch(bool on_client) {
     struct context {
         int limit;
