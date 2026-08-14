@@ -1000,10 +1000,16 @@ void client::abort_all_streams() {
     }
 }
 
-void client::deregister_this_stream() {
+xshard_connection_ptr client::deregister_this_stream() {
     if (_parent) {
-        _parent->_streams.erase(_id);
+        auto it = _parent->_streams.find(_id);
+        if (it != _parent->_streams.end()) {
+            auto s = std::move(it->second);
+            _parent->_streams.erase(it);
+            return s;
+        }
     }
+    return nullptr;
 }
 
 // This is the enlightened copy of the connection::send() method. Its intention is to
@@ -1215,8 +1221,10 @@ future<> client::loop(client_options ops, const socket_address& addr, const sock
     future<> f = co_await coroutine::as_future(stop_send_loop(ep));
     f.ignore_ready_future();
     _outstanding.clear();
+    // Keeps `this` alive (parent's ref) until loop() is done with it.
+    xshard_connection_ptr self_keepalive;
     if (is_stream()) {
-        deregister_this_stream();
+        self_keepalive = deregister_this_stream();
     } else {
         abort_all_streams();
     }
