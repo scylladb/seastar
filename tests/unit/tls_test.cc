@@ -22,6 +22,9 @@
 
 #include <ranges>
 #include <iostream>
+#include <limits>
+#include <cstdlib>
+#include <stdexcept>
 
 #include <seastar/core/do_with.hh>
 #include <seastar/core/sstring.hh>
@@ -76,6 +79,21 @@ using namespace seastar;
 
 static bool using_gnutls() {
     return std::string_view(tls::backend_name()) == "gnutls";
+}
+
+static uint16_t tls_test_port() {
+    if (const char* port = std::getenv("SEASTAR_TLS_TEST_PORT")) {
+        try {
+            auto value = std::stoul(port);
+            if (value == 0 || value > std::numeric_limits<uint16_t>::max()) {
+                throw std::out_of_range(port);
+            }
+            return static_cast<uint16_t>(value);
+        } catch (const std::exception&) {
+            throw std::invalid_argument("invalid SEASTAR_TLS_TEST_PORT");
+        }
+    }
+    return 4712;
 }
 
 // Number of attempts made by the tests that reach a real server over the
@@ -269,7 +287,7 @@ SEASTAR_TEST_CASE(test_alpn_client_server) {
 
     ::listen_options opts;
     opts.reuse_address = true;
-    auto addr = ::make_ipv4_address({0x7f000001, 4712});
+    auto addr = ::make_ipv4_address({0x7f000001, tls_test_port()});
     auto server = tls::listen(certs, addr, opts);
 
     co_await when_all(
@@ -448,7 +466,7 @@ SEASTAR_TEST_CASE(test_failed_connect) {
 SEASTAR_TEST_CASE(test_non_tls) {
     ::listen_options opts;
     opts.reuse_address = true;
-    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto addr = ::make_ipv4_address( {0x7f000001, tls_test_port()});
     auto server = server_socket(seastar::listen(addr, opts));
 
     auto c = server.accept();
@@ -494,7 +512,7 @@ SEASTAR_TEST_CASE(test_abort_accept_before_handshake) {
     return certs->set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).then([certs] {
         ::listen_options opts;
         opts.reuse_address = true;
-        auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+        auto addr = ::make_ipv4_address( {0x7f000001, tls_test_port()});
         auto server = server_socket(tls::listen(certs, addr, opts));
         auto c = server.accept();
         BOOST_CHECK(!c.available()); // should not be finished
@@ -514,7 +532,7 @@ SEASTAR_TEST_CASE(test_abort_accept_after_handshake) {
 
         ::listen_options opts;
         opts.reuse_address = true;
-        auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+        auto addr = ::make_ipv4_address( {0x7f000001, tls_test_port()});
         auto server = tls::listen(certs, addr, opts);
         auto sa = server.accept();
 
@@ -542,7 +560,7 @@ SEASTAR_TEST_CASE(test_abort_accept_on_server_before_handshake) {
     return async([] {
         ::listen_options opts;
         opts.reuse_address = true;
-        auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+        auto addr = ::make_ipv4_address( {0x7f000001, tls_test_port()});
         auto server = server_socket(seastar::listen(addr, opts));
         auto sa = server.accept();
 
@@ -709,12 +727,10 @@ static future<> run_echo_test(sstring message,
                 tls::dn_callback distinguished_name_callback = {}
 )
 {
-    static const auto port = 4711;
-
     auto msg = ::make_shared<sstring>(std::move(message));
     auto certs = ::make_shared<tls::certificate_credentials>();
     auto server = ::make_shared<seastar::sharded<echoserver>>();
-    auto addr = ::make_ipv4_address( {0x7f000001, port});
+    auto addr = ::make_ipv4_address( {0x7f000001, tls_test_port()});
 
     SEASTAR_ASSERT(do_read || loops == 1);
 
@@ -1010,7 +1026,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
 
     ::listen_options opts;
     opts.reuse_address = true;
-    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto addr = ::make_ipv4_address( {0x7f000001, tls_test_port()});
     auto server = tls::listen(certs, addr, opts);
 
     tls::credentials_builder b2;
@@ -1304,7 +1320,7 @@ SEASTAR_THREAD_TEST_CASE(test_closed_write) {
     opts.reuse_address = true;
     opts.set_fixed_cpu(this_shard_id());
 
-    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto addr = ::make_ipv4_address( {0x7f000001, tls_test_port()});
     auto server = tls::listen(serv, addr, opts);
 
     auto check_same_message_two_writes = [](output_stream<char>& out) {
@@ -1424,7 +1440,7 @@ SEASTAR_THREAD_TEST_CASE(test_dn_name_handling) {
     // and the second one uses mtls_client2.crt. Every client sends a short string
     // that server receives and tries to find it in the DN string.
 
-    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto addr = ::make_ipv4_address( {0x7f000001, tls_test_port()});
 
     auto client1_creds = [] {
         tls::credentials_builder builder;
@@ -1502,7 +1518,7 @@ SEASTAR_THREAD_TEST_CASE(test_alt_names) {
     opts.reuse_address = true;
     opts.set_fixed_cpu(this_shard_id());
 
-    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto addr = ::make_ipv4_address( {0x7f000001, tls_test_port()});
     auto server = tls::listen(serv, addr, opts);
 
     {
@@ -1569,7 +1585,7 @@ SEASTAR_THREAD_TEST_CASE(test_peer_certificate_chain_handling) {
     opts.reuse_address = true;
     opts.set_fixed_cpu(this_shard_id());
 
-    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto addr = ::make_ipv4_address( {0x7f000001, tls_test_port()});
     auto server = tls::listen(serv, addr, opts);
 
     {
@@ -1635,7 +1651,7 @@ SEASTAR_THREAD_TEST_CASE(test_skip_wait_for_eof) {
     opts.reuse_address = true;
     opts.set_fixed_cpu(this_shard_id());
 
-    auto addr = ::make_ipv4_address({0x7f000001, 4712});
+    auto addr = ::make_ipv4_address({0x7f000001, tls_test_port()});
     auto server = tls::listen(serv, addr, opts);
 
     {
@@ -1692,7 +1708,7 @@ static void do_test_tls13_session_tickets(bool reset_server) {
     opts.reuse_address = true;
     opts.set_fixed_cpu(this_shard_id());
 
-    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto addr = ::make_ipv4_address( {0x7f000001, tls_test_port()});
     auto server = tls::listen(serv, addr, opts);
 
     tls::session_data sess_data;
@@ -1829,7 +1845,7 @@ SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets_invalidated_by_reload) {
     opts.reuse_address = true;
     opts.set_fixed_cpu(this_shard_id());
 
-    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto addr = ::make_ipv4_address( {0x7f000001, tls_test_port()});
     auto server = tls::listen(serv, addr, opts);
 
     tls::session_data sess_data;
@@ -1969,7 +1985,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates_with_only_shard0_notify) {
 
     ::listen_options opts;
     opts.reuse_address = true;
-    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto addr = ::make_ipv4_address( {0x7f000001, tls_test_port()});
     auto server = tls::listen(certs, addr, opts);
 
     tls::credentials_builder b2;
@@ -2115,7 +2131,7 @@ SEASTAR_THREAD_TEST_CASE(test_send_recv_alloc_limits) {
     auto stats_before = memory::stats();
     memory::scoped_large_allocation_warning_threshold sct(size_limit);
 
-    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto addr = ::make_ipv4_address( {0x7f000001, tls_test_port()});
     auto server = tls::listen(serv, addr, opts);
 
     {
@@ -2382,7 +2398,7 @@ static std::pair<connected_socket, connected_socket> tls_socketpair() {
 
     ::listen_options opts;
     opts.reuse_address = true;
-    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto addr = ::make_ipv4_address( {0x7f000001, tls_test_port()});
     auto ss = tls::listen(certs, addr, opts);
     tls::credentials_builder b;
     b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
