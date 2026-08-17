@@ -96,7 +96,7 @@ function (seastar_add_test name)
 
   cmake_parse_arguments (parsed_args
     ""
-    "WORKING_DIRECTORY;KIND"
+    "WORKING_DIRECTORY;KIND;FILTER;TARGET"
     "RUN_ARGS;SOURCES;LIBRARIES;DEPENDS"
     ${ARGN})
 
@@ -112,7 +112,17 @@ function (seastar_add_test name)
     return ()
   endif ()
 
-  if (parsed_args_SOURCES)
+  if (parsed_args_TARGET)
+    # Run a filtered subset of cases from another test's already-built
+    # executable, so independent subsets can execute concurrently without
+    # rebuilding the shared binary.
+    if (NOT parsed_args_FILTER)
+      message (FATAL_ERROR "TARGET requires FILTER for ${name}")
+    endif ()
+
+    set (executable_target test_unit_${parsed_args_TARGET})
+    set (test_name_prefix Seastar.unit)
+  elseif (parsed_args_SOURCES)
     # These may be unused.
     seastar_jenkins_arguments (${name} jenkins_args)
 
@@ -214,6 +224,38 @@ function (seastar_add_test name)
     set (executable_target test_unit_${name})
     set (test_name_prefix Seastar.unit)
     set (forwarded_args COMMAND ${CMAKE_COMMAND} -E env "${Seastar_TEST_ENVIRONMENT}" ${parsed_args_RUN_ARGS})
+  endif ()
+
+  if (parsed_args_FILTER)
+    # Build the (possibly shared) executable once via a fixture, so shards
+    # that reuse it via TARGET don't race to rebuild it concurrently.
+    set (build_test Seastar.unit.${executable_target}_build)
+    set (build_fixture ${executable_target}_ctest_build)
+    if (NOT TEST ${build_test})
+      add_test (
+        NAME ${build_test}
+        COMMAND ${CMAKE_COMMAND} --build ${Seastar_BINARY_DIR} --target ${executable_target} --parallel 4)
+      set_tests_properties (${build_test}
+        PROPERTIES
+          FIXTURES_SETUP ${build_fixture}
+          TIMEOUT 1800
+          PROCESSORS 4)
+    endif ()
+
+    add_test (
+      NAME ${test_name_prefix}.${name}
+      # Unquoted: Seastar_TEST_ENVIRONMENT is a ;-separated list that must
+      # expand to multiple `-E env` arguments, not a single literal string.
+      COMMAND ${CMAKE_COMMAND} -E env ${Seastar_TEST_ENVIRONMENT}
+        $<TARGET_FILE:${executable_target}>
+        --run_test=${parsed_args_FILTER}
+        -- -c ${Seastar_UNIT_TEST_SMP})
+
+    set_tests_properties (${test_name_prefix}.${name}
+      PROPERTIES
+        FIXTURES_REQUIRED ${build_fixture}
+        TIMEOUT ${Seastar_TEST_TIMEOUT})
+    return ()
   endif ()
 
   #
@@ -499,10 +541,26 @@ seastar_add_test (queue
 seastar_add_test (request_parser
   SOURCES request_parser_test.cc)
 
-seastar_add_test (rpc
+seastar_add_test (rpc_core
   SOURCES
     loopback_socket.hh
-    rpc_test.cc)
+    rpc_test.cc
+  FILTER "test_rpc_connect*,test_rpc_connect_multi_compression_algo*,test_rpc_connect_abort*,test_rpc_cancel*,test_message_to_big*,test_rpc_remote_verb_error*")
+seastar_add_test (rpc_stream
+  TARGET rpc_core
+  FILTER "test_stream_*")
+seastar_add_test (rpc_scheduling
+  TARGET rpc_core
+  FILTER "test_rpc_client_send_glitch*,test_rpc_server_send_glitch*,test_rpc_scheduling*")
+seastar_add_test (rpc_compression
+  TARGET rpc_core
+  FILTER "test_lz4_*,test_compressor_empty_frames*")
+seastar_add_test (rpc_timeouts
+  TARGET rpc_core
+  FILTER "test_max_absolute_timeout*,test_max_relative_timeout*,test_rpc_send_timeout*,test_rpc_abort_connection*,test_timeout_cancel*")
+seastar_add_test (rpc_misc
+  TARGET rpc_core
+  FILTER "test_rpc_tuple*,test_handler_registration*,test_unregister_handler*,test_loggers*,test_connection_id_format*,test_client_info*,test_retrieve_missing_auxiliary_*,test_rpc_metric_domains*,test_rpc_stream_backpressure_across_shards*")
 
 seastar_add_test (semaphore
   SOURCES
