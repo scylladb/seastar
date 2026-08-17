@@ -285,7 +285,7 @@ function (prepend_each var prefix)
 endfunction ()
 
 add_custom_target (test_unit
-  COMMAND ctest --verbose -R Seastar.unit
+  COMMAND ctest --verbose --parallel -R Seastar.unit
   USES_TERMINAL)
 
 seastar_add_test (abort_source
@@ -379,6 +379,9 @@ seastar_add_test (abortable_fifo
 
 seastar_add_test (io_queue
   SOURCES io_queue_test.cc)
+set_tests_properties (Seastar.unit.io_queue
+  PROPERTIES
+    RUN_SERIAL TRUE)
 
 if (Seastar_LTTNG)
   add_custom_target (test_unit_io_trace_lttng_run
@@ -852,6 +855,10 @@ seastar_add_test (tls
   SOURCES tls_test.cc
   LIBRARIES Boost::filesystem
   WORKING_DIRECTORY ${Seastar_BINARY_DIR})
+set_tests_properties (Seastar.unit.tls
+  PROPERTIES
+    ENVIRONMENT SEASTAR_TLS_TEST_PORT=4711
+    RESOURCE_LOCK tls_listen_ports)
 
 # Re-run an existing test against one named crypto provider. The test binary
 # is reused via CUSTOM rather than compiled a second time, so the extra run
@@ -883,10 +890,18 @@ endif ()
 list (REMOVE_AT crypto_providers 0)
 
 # Whatever backends are left are exercised by re-running the tests which
-# actually speak TLS against each of them.
+# actually speak TLS against each of them. tls_test.cc listens on a single
+# fixed port per process (SEASTAR_TLS_TEST_PORT), so each provider run needs
+# its own port plus a shared lock to keep them from ever overlapping.
+set (tls_test_port 4712)
 foreach (provider ${crypto_providers})
   seastar_add_crypto_provider_test (tls ${provider}
     DEPENDS tls_files testcrt othercrt mtls_certs https_server)
+  set_tests_properties (Seastar.unit.tls_${provider}
+    PROPERTIES
+      ENVIRONMENT SEASTAR_TLS_TEST_PORT=${tls_test_port}
+      RESOURCE_LOCK tls_listen_ports)
+  math (EXPR tls_test_port "${tls_test_port} + 1")
   seastar_add_crypto_provider_test (httpd ${provider}
     DEPENDS testcrt mtls_certs)
 endforeach ()
@@ -952,6 +967,7 @@ add_test (
   COMMAND ${CMAKE_COMMAND} --build ${Seastar_BINARY_DIR} --target test_unit_json2code_run)
 set_tests_properties (Seastar.unit.json2code
   PROPERTIES
+    RESOURCE_LOCK json2code_listen_port
     TIMEOUT ${Seastar_TEST_TIMEOUT})
 
 add_executable (metrics_tester
@@ -974,6 +990,7 @@ add_test (
   COMMAND ${CMAKE_COMMAND} --build ${Seastar_BINARY_DIR} --target test_unit_prometheus_run)
 set_tests_properties (Seastar.unit.prometheus
   PROPERTIES
+    RESOURCE_LOCK prometheus_listen_port
     TIMEOUT ${Seastar_TEST_TIMEOUT})
 
 seastar_add_test (gate
