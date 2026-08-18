@@ -437,7 +437,10 @@ if (Seastar_LTTNG)
     COMMAND ${CMAKE_COMMAND} --build ${Seastar_BINARY_DIR} --target test_unit_io_trace_lttng_run)
   set_tests_properties (Seastar.unit.io_trace_lttng
     PROPERTIES
-      TIMEOUT ${Seastar_TEST_TIMEOUT})
+      TIMEOUT ${Seastar_TEST_TIMEOUT}
+      # Exclusive host-wide LTTng session; concurrent I/O from other
+      # tests can starve its event stream and drop trace events.
+      RUN_SERIAL TRUE)
 endif ()
 
 seastar_add_test (fair_queue

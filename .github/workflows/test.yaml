@@ -50,6 +50,8 @@ jobs:
     runs-on: ${{ inputs.arch == 'arm' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     container:
       image: ubuntu:26.04
+      # --privileged: needed to raise fs.aio-max-nr (below) for -j4 test runs.
+      options: --privileged
     steps:
       - name: Show parameters
         run: |
@@ -100,4 +102,10 @@ jobs:
 
       - name: Test
         if: ${{ ! contains(inputs.enables, 'cxx-modules') }}
-        run: ./test.py --mode=${{ inputs.mode }} ${{ inputs.test-args }}
+        # aio-max-nr is a single global (non-namespaced) counter shared by
+        # every concurrently-running Seastar process in the container; the
+        # default is too low for several test binaries opening AIO contexts
+        # at once under -j4.
+        run: |
+          echo 1048576 > /proc/sys/fs/aio-max-nr
+          ./test.py --mode=${{ inputs.mode }} -j4 ${{ inputs.test-args }}
