@@ -41,6 +41,8 @@ if __name__ == "__main__":
     parser.add_argument('--async-workers-cpuset', action="store", default='',
                         help="CPUs for the asymmetric_io_uring async workers, which that backend requires. "
                              "Defaults to the highest CPU id this process may run on.")
+    parser.add_argument('--jobs', '-j', action="store", default=None, type=int,
+                        help="Run up to this many tests in parallel (default: serial)")
     parser.add_argument('--verbose', '-v', action = 'store_true', default = False,
                         help = 'Verbose reporting')
     parser.add_argument('--offline', action="store_true", default = False,
@@ -74,6 +76,8 @@ if __name__ == "__main__":
             TRANSLATED_CTEST_ARGS += ['--verbose']
         if args.name:
             TRANSLATED_CTEST_ARGS += ['-R', args.name]
+        if args.jobs:
+            TRANSLATED_CTEST_ARGS += ['--parallel', str(args.jobs)]
 
         # Seastar reads options from SEASTAR_OPTIONS, which a test's own arguments
         # override, so this leaves the tests which pin a backend on the one they
@@ -82,6 +86,10 @@ if __name__ == "__main__":
         seastar_options = []
         if args.reactor_backend:
             seastar_options += ['--reactor-backend', args.reactor_backend]
+        if args.jobs and args.jobs > 1:
+            # Each shard reserves 10000 AIO iocbs by default; a few concurrent tests
+            # exhaust fs.aio-max-nr (65536 on CI) and fail in io_setup().
+            seastar_options += ['--max-networking-io-control-blocks', '1000']
         cpuset = args.async_workers_cpuset
         if not cpuset and args.reactor_backend == 'asymmetric_io_uring':
             # That backend refuses to start without CPUs for its async workers.

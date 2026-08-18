@@ -437,7 +437,10 @@ if (Seastar_LTTNG)
     COMMAND ${CMAKE_COMMAND} --build ${Seastar_BINARY_DIR} --target test_unit_io_trace_lttng_run)
   set_tests_properties (Seastar.unit.io_trace_lttng
     PROPERTIES
-      TIMEOUT ${Seastar_TEST_TIMEOUT})
+      TIMEOUT ${Seastar_TEST_TIMEOUT}
+      # Exclusive host-wide LTTng session; concurrent I/O from other
+      # tests can starve its event stream and drop trace events.
+      RUN_SERIAL TRUE)
 endif ()
 
 seastar_add_test (fair_queue
@@ -610,6 +613,11 @@ seastar_add_test (sstring
 
 seastar_add_test (stall_detector
   SOURCES stall_detector_test.cc)
+set_tests_properties (Seastar.unit.stall_detector
+  PROPERTIES
+    # Counts stall reports against wall-clock spin times; CPU contention
+    # from parallel tests skews the counts.
+    RUN_SERIAL TRUE)
 
 seastar_add_test (stream_reader
   SOURCES stream_reader_test.cc)
@@ -622,6 +630,11 @@ seastar_add_test (scheduling_group
 
 seastar_add_test (scheduling_group_nesting
   SOURCES scheduling_group_nesting_test.cc)
+set_tests_properties (Seastar.unit.scheduling_group_nesting
+  PROPERTIES
+    # test_fairness measures CPU-share ratios; contention from other tests
+    # running in parallel skews it past its deviation tolerance.
+    RUN_SERIAL TRUE)
 
 seastar_add_test (timer
   SOURCES timer_test.cc)
