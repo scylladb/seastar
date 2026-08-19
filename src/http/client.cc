@@ -457,15 +457,13 @@ future<> client::do_make_request(connection& con, const request& req, reply_hand
 }
 
 future<> client::close() noexcept {
-    if (_pool.empty()) {
+    return do_until([this] { return _pool.empty(); }, [this] {
+        connection_ptr con = _pool.front().shared_from_this();
+        _pool.pop_front();
+        http_log.trace("closing connection {}", con->_fd.local_address());
+        return con->close().finally([con] {});
+    }).then([this] {
         return _new_connections->close();
-    }
-
-    connection_ptr con = _pool.front().shared_from_this();
-    _pool.pop_front();
-    http_log.trace("closing connection {}", con->_fd.local_address());
-    return con->close().then([this, con] {
-        return close();
     });
 }
 
