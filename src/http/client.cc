@@ -467,11 +467,18 @@ future<> client::do_make_request(connection& con, const request& req, reply_hand
 }
 
 future<> client::close() noexcept {
+    // Closing the gate rejects new connections from this point on. Requests
+    // parked in get_connection() are woken so they observe it and bail out.
+    auto all_connections_gone = _gate.close();
+    _wait_con.broadcast();
+
     return do_until([this] { return _pool.empty(); }, [this] {
         connection_ptr con = _pool.front().shared_from_this();
         _pool.pop_front();
         http_log.trace("closing connection {}", con->_fd.local_address());
         return con->close().finally([con] {});
+    }).then([all_connections_gone = std::move(all_connections_gone)] () mutable {
+        return std::move(all_connections_gone);
     }).then([this] {
         return _new_connections->close();
     });
