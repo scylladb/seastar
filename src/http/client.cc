@@ -45,7 +45,7 @@ logger http_log("http");
 namespace http {
 namespace internal {
 
-client_ref::client_ref(http::client* c) noexcept : _c(c) {
+client_ref::client_ref(http::client* c, gate::holder hold) noexcept : _c(c), _hold(std::move(hold)) {
     _c->_nr_connections++;
 }
 
@@ -258,8 +258,9 @@ future<client::connection_ptr> client::get_connection(abort_source* as) {
 }
 
 future<client::connection_ptr> client::make_connection(abort_source* as) {
+    auto hold = _gate.hold();
     _total_new_connections++;
-    return _new_connections->make(as).then([cr = internal::client_ref(this)] (connected_socket cs) mutable {
+    return _new_connections->make(as).then([cr = internal::client_ref(this, std::move(hold))] (connected_socket cs) mutable {
         http_log.trace("created new http connection {}", cs.local_address());
         auto con = seastar::make_shared<connection>(std::move(cs), std::move(cr));
         return make_ready_future<connection_ptr>(std::move(con));

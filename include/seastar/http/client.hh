@@ -30,6 +30,7 @@
 #include <seastar/http/reply.hh>
 #include <seastar/http/retry_strategy.hh>
 #include <seastar/core/condition-variable.hh>
+#include <seastar/core/gate.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/util/integrated-length.hh>
 
@@ -77,10 +78,11 @@ namespace internal {
 
 class client_ref {
     http::client* _c;
+    gate::holder _hold;
 public:
-    client_ref(http::client* c) noexcept;
+    client_ref(http::client* c, gate::holder hold) noexcept;
     ~client_ref();
-    client_ref(client_ref&& o) noexcept : _c(std::exchange(o._c, nullptr)) {}
+    client_ref(client_ref&& o) noexcept : _c(std::exchange(o._c, nullptr)), _hold(std::move(o._hold)) {}
     client_ref(const client_ref&) = delete;
 };
 
@@ -191,6 +193,7 @@ private:
     unsigned long _total_new_connections = 0;
     std::unique_ptr<retry_strategy> _retry_strategy;
     condition_variable _wait_con;
+    gate _gate;
     util::integrated_length<unsigned, lowres_clock, std::chrono::microseconds> _requests_queued;
     connections_list_t _pool;
     http::client_stats _http_stats;
