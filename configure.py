@@ -216,6 +216,16 @@ add_tristate(
     help='Support io_uring via liburing')
 add_tristate(
     arg_parser,
+    name='gnutls',
+    dest='gnutls',
+    help='the GnuTLS TLS/crypto backend')
+add_tristate(
+    arg_parser,
+    name='openssl',
+    dest='openssl',
+    help='the OpenSSL TLS/crypto backend')
+add_tristate(
+    arg_parser,
     name='lttng',
     dest='lttng',
     help='LTTng-UST tracepoint support for IO tracing')
@@ -304,6 +314,8 @@ def configure_mode(mode):
         tr(args.dpdk_machine, 'DPDK_MACHINE'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
         tr(args.io_uring, 'IO_URING', value_when_none=None),
+        tr(args.gnutls, 'GNUTLS', value_when_none=None),
+        tr(args.openssl, 'OPENSSL', value_when_none=None),
         tr(args.lttng, 'LTTNG', value_when_none='yes'),
         tr(args.alloc_failure_injection, 'ALLOC_FAILURE_INJECTION', value_when_none='DEFAULT'),
         tr(args.task_backtrace, 'TASK_BACKTRACE'),

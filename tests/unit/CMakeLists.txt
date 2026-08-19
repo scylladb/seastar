@@ -853,17 +853,43 @@ seastar_add_test (tls
   LIBRARIES Boost::filesystem
   WORKING_DIRECTORY ${Seastar_BINARY_DIR})
 
-# the `tls` test above runs with the default crypto provider, which by
-# convention is GnuTLS, if is available. When both GnuTLS and OpenSSL are
-# available this test provides coverage for the OpenSSL provider. This reuses
-# the tls_test binary built above via CUSTOM to avoid compiling it twice.
-if (Seastar_OPENSSL AND Seastar_GNUTLS)
-  seastar_add_test (tls_openssl
+# Re-run an existing test against one named crypto provider. The test binary
+# is reused via CUSTOM rather than compiled a second time, so the extra run
+# costs only its own runtime.
+function (seastar_add_crypto_provider_test name provider)
+  cmake_parse_arguments (parsed_args "" "" "DEPENDS" ${ARGN})
+
+  seastar_add_test (${name}_${provider}
     KIND CUSTOM
     WORKING_DIRECTORY ${Seastar_BINARY_DIR}
-    RUN_ARGS $<TARGET_FILE:test_unit_tls> -- -c ${Seastar_UNIT_TEST_SMP} --crypto-provider openssl)
-  add_dependencies (test_unit_tls_openssl_run test_unit_tls tls_files testcrt othercrt mtls_certs https_server)
+    RUN_ARGS $<TARGET_FILE:test_unit_${name}> -- -c ${Seastar_UNIT_TEST_SMP} --crypto-provider ${provider})
+  # DEPENDS cannot be forwarded to seastar_add_test: for a CUSTOM test it
+  # attaches them to test_unit_${name}_${provider}, which is not a target.
+  add_dependencies (test_unit_${name}_${provider}_run
+    test_unit_${name}
+    ${parsed_args_DEPENDS})
+endfunction ()
+
+# The tests registered above run with the default crypto provider, which is
+# the first candidate create_crypto_provider_option() compiles in, so this
+# list must stay in the order the #ifdefs there appear.
+set (crypto_providers "")
+if (Seastar_GNUTLS)
+  list (APPEND crypto_providers gnutls)
 endif ()
+if (Seastar_OPENSSL)
+  list (APPEND crypto_providers openssl)
+endif ()
+list (REMOVE_AT crypto_providers 0)
+
+# Whatever backends are left are exercised by re-running the tests which
+# actually speak TLS against each of them.
+foreach (provider ${crypto_providers})
+  seastar_add_crypto_provider_test (tls ${provider}
+    DEPENDS tls_files testcrt othercrt mtls_certs https_server)
+  seastar_add_crypto_provider_test (httpd ${provider}
+    DEPENDS testcrt mtls_certs)
+endforeach ()
 
 seastar_add_test (tuple_utils
   KIND BOOST
