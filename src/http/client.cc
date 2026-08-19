@@ -234,6 +234,10 @@ client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, 
 }
 
 future<client::connection_ptr> client::get_connection(abort_source* as) {
+    if (_gate.is_closed()) {
+        return make_exception_future<connection_ptr>(gate_closed_exception());
+    }
+
     if (!_pool.empty()) {
         connection_ptr con = _pool.front().shared_from_this();
         _pool.pop_front();
@@ -258,6 +262,11 @@ future<client::connection_ptr> client::get_connection(abort_source* as) {
 }
 
 future<client::connection_ptr> client::make_connection(abort_source* as) {
+    if (_gate.is_closed()) {
+        return make_exception_future<connection_ptr>(gate_closed_exception());
+    }
+
+    // Checked just above and nothing below preempts, so this cannot throw.
     auto hold = _gate.hold();
     _total_new_connections++;
     return _new_connections->make(as).then([cr = internal::client_ref(this, std::move(hold))] (connected_socket cs) mutable {
@@ -268,7 +277,7 @@ future<client::connection_ptr> client::make_connection(abort_source* as) {
 }
 
 future<> client::put_connection(connection_ptr con) {
-    if (con->_persistent && (_nr_connections <= _max_connections)) {
+    if (!_gate.is_closed() && con->_persistent && (_nr_connections <= _max_connections)) {
         http_log.trace("push http connection {} to pool", con->_fd.local_address());
         _pool.push_back(*con);
         _wait_con.signal();
