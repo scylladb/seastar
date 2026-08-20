@@ -24,6 +24,8 @@
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/prometheus.hh>
+#include <seastar/core/relabel_config.hh>
+#include <seastar/core/sleep.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/util/closeable.hh>
 
@@ -189,6 +191,66 @@ struct prometheus_test_fixture {
             expected, ss.str()));
     }
 };
+
+namespace {
+
+// Propagating a label to the other shards is a background task, so poll for it.
+future<bool> label_is_known_on(unsigned shard, sstring label) {
+    return smp::submit_to(shard, [label = std::move(label)] () -> future<bool> {
+        auto deadline = lowres_clock::now() + 10s;
+        while (!mi::get_local_impl()->get_labels().contains(label)) {
+            if (lowres_clock::now() > deadline) {
+                co_return false;
+            }
+            co_await sleep(1ms);
+        }
+        co_return true;
+    });
+}
+
+future<> require_label_on_all_shards(sstring label) {
+    for (auto shard : this_smp_all_shards()) {
+        BOOST_REQUIRE_MESSAGE(co_await label_is_known_on(shard, label),
+                fmt::format("label {} was not propagated to shard {}", label, shard));
+    }
+}
+
+}
+
+SEASTAR_TEST_CASE(test_metric_labels_are_propagated_to_all_shards) {
+    if (this_smp_shard_count() < 2) {
+        co_return;
+    }
+
+    sm::metric_groups metrics;
+    metrics.add_group("propagation", {
+        sm::make_counter("metric", sm::description("metric"),
+                {sm::label("propagated_label")("value")}, [] { return 1; })
+    });
+    // Labels of metrics registered before the metrics are exported are shared
+    // as a whole set.
+    co_await mi::get_local_impl()->propagate_labels();
+    co_await require_label_on_all_shards("propagated_label");
+
+    // From then on, a label is shared when the metric introducing it is
+    // registered.
+    metrics.add_group("propagation", {
+        sm::make_counter("automatic_metric", sm::description("metric"),
+                {sm::label("automatic_label")("value")}, [] { return 1; })
+    });
+    co_await require_label_on_all_shards("automatic_label");
+
+    // Including a label that only relabeling introduces.
+    std::vector<sm::relabel_config> relabel_configs(1);
+    relabel_configs[0].source_labels = {"__name__"};
+    relabel_configs[0].target_label = "relabel_label";
+    relabel_configs[0].replacement = "value";
+    relabel_configs[0].expr = "propagation_metric";
+    co_await sm::set_relabel_configs(relabel_configs);
+    co_await require_label_on_all_shards("relabel_label");
+
+    co_await sm::set_relabel_configs({});
+}
 
 SEASTAR_TEST_CASE(test_basic_counter) {
     test_config cfg{data_type::COUNTER};
@@ -845,4 +907,3 @@ SEASTAR_TEST_CASE(test_family_filter_mixed_prefixed_and_unprefixed) {
         R"(seastar_group_1_metric_2{label-0="label-0-2",shard="0"} 123)" "\n"
     );
 }
-
