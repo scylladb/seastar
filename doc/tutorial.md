@@ -579,7 +579,7 @@ seastar::future<int> exception_propagating() {
         co_return seastar::coroutine::exception(fut.get_exception());
     }
 
-    co_return seastar::coroutine::make_exception(3); // Custom exceptions can be propagated without throwing
+    co_return seastar::coroutine::exception(std::make_exception_ptr(3)); // Custom exceptions can be propagated without throwing
 }
 ```
 

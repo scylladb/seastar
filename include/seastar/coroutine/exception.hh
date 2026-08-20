@@ -80,35 +80,6 @@ struct exception {
 /// Allows propagating an exception from a coroutine directly rather than
 /// throwing it.
 ///
-/// `make_exception()` returns an object which must be co_returned.
-/// Co_returning the object will immediately resolve the current coroutine
-/// to the given exception.
-///
-/// \note Due to language limitations, this function doesn't work in coroutines
-/// which return future<>. Consider using return_exception instead.
-///
-/// Example usage:
-///
-/// ```
-/// co_return coroutine::make_exception(std::runtime_error("something failed miserably"));
-/// ```
-[[deprecated("Use co_await coroutine::return_exception_ptr or co_return coroutine::exception instead")]]
-[[nodiscard]]
-inline exception make_exception(std::exception_ptr ex) noexcept {
-    return exception(std::move(ex));
-}
-
-template<typename T>
-[[deprecated("Use co_await coroutine::return_exception_ptr or co_return coroutine::exception instead")]]
-[[nodiscard]]
-exception make_exception(T&& t) noexcept {
-    log_exception_trace(log_level::trace);
-    return exception(std::make_exception_ptr(std::forward<T>(t)));
-}
-
-/// Allows propagating an exception from a coroutine directly rather than
-/// throwing it.
-///
 /// `return_exception_ptr()` returns an object which must be co_awaited.
 /// Co_awaiting the object will immediately resolve the current coroutine
 /// to the given exception.
@@ -143,18 +114,18 @@ inline exception return_exception_ptr(std::exception_ptr ex) noexcept {
 /// ```
 /// co_await coroutine::return_exception(std::runtime_error("something failed miserably"));
 /// ```
-[[deprecated("Use co_await coroutine::return_exception_ptr instead")]]
-[[nodiscard]]
-inline exception return_exception(std::exception_ptr ex) noexcept {
-    return exception(std::move(ex));
-}
-
 template<typename T>
 [[nodiscard]]
 exception return_exception(T&& t) noexcept {
     log_exception_trace(log_level::trace);
     return exception(std::make_exception_ptr(std::forward<T>(t)));
 }
+
+/// Passing an exception_ptr to the template overload above would nest it
+/// inside a new exception_ptr via std::make_exception_ptr(), silently
+/// discarding the original exception. Reject it at compile time and point
+/// callers to return_exception_ptr() instead.
+exception return_exception(std::exception_ptr) = delete;
 
 inline auto operator co_await(exception ex) noexcept {
     return internal::exception_awaiter(std::move(ex.eptr));
