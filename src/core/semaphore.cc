@@ -20,7 +20,7 @@
  */
 
 
-#include <fmt/format.h>
+#include <seastar/core/internal/fmt.hh>
 
 #include <seastar/core/semaphore.hh>
 

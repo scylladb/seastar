@@ -35,9 +35,7 @@
 #include <atomic>
 #include <mutex>
 #include <type_traits>
-#include <fmt/core.h>
-#include <fmt/format.h>
-#include <fmt/std.h>
+#include <seastar/core/internal/fmt.hh>
 
 /// \addtogroup logging
 /// @{
@@ -61,7 +59,7 @@ namespace internal {
 // std::string_view without the caller needing to know which is in play.
 template <typename FormatString>
 fmt::string_view format_string_view(const FormatString& format) noexcept {
-#if defined(SEASTAR_LOGGER_COMPILE_TIME_FMT) && FMT_VERSION >= 100000
+#if defined(SEASTAR_LOGGER_COMPILE_TIME_FMT) && SEASTAR_FMT_VERSION >= 100000
     return format.get();
 #else
     return fmt::string_view(format);
@@ -120,7 +118,7 @@ public:
         /// implicitly construct format_info from a constant format string
         /// \param fmt - {fmt} style format string
         template <std::convertible_to<std::string_view> S>
-        FMT_CONSTEVAL inline format_info(const S& format,
+        consteval inline format_info(const S& format,
                            std::source_location loc = std::source_location::current()) noexcept
             : format(format)
             , loc(loc)
@@ -134,7 +132,7 @@ public:
             : format(s)
             , loc(loc)
         {}
-#if FMT_VERSION >= 100000
+#if SEASTAR_FMT_VERSION >= 100000
         using runtime_format_string_t = fmt::runtime_format_string<char>;
 #else
         using runtime_format_string_t = fmt::basic_runtime<char>;
@@ -145,7 +143,7 @@ public:
             , loc(loc)
         {}
         /// implicitly construct format_info with no format string.
-        FMT_CONSTEVAL format_info() noexcept
+        consteval format_info() noexcept
             : format_info("")
         {}
         fmt::format_string<Args...> format;
@@ -609,7 +607,7 @@ std::ostream& operator<<(std::ostream&, const std::system_error&);
 }
 #endif
 
-#if FMT_VERSION < 120201
+#if SEASTAR_FMT_VERSION < 120201
 
 // Seastar has no business defining a {fmt} formatter for std::exception_ptr,
 // a type it does not own; that is for the standard library or {fmt} to do (see
