@@ -35,6 +35,8 @@
 #include <seastar/http/json_path.hh>
 #include <seastar/http/response_parser.hh>
 #include <sstream>
+#include <cstdlib>
+#include <ctime>
 #include <seastar/core/shared_future.hh>
 #include <seastar/http/client.hh>
 #include <seastar/http/url.hh>
@@ -2913,6 +2915,221 @@ SEASTAR_TEST_CASE(test_mtls_san_propagation) {
         };
         BOOST_REQUIRE(has_san(tls::subject_alt_name_type::dnsname, "san-client.server.com"));
         BOOST_REQUIRE(has_san(tls::subject_alt_name_type::uri, "spiffe://example.com/client"));
+
+        server.stop().get();
+    });
+}
+
+// Format a time_point as an ASN.1 GeneralizedTime string (YYYYMMDDHHMMSSZ),
+// suitable for openssl's -not_before/-not_after options.
+static std::string to_asn1_time(std::chrono::system_clock::time_point tp) {
+    auto t = std::chrono::system_clock::to_time_t(tp);
+    std::tm tm;
+    ::gmtime_r(&t, &tm);
+    char buf[sizeof("YYYYMMDDHHMMSSZ")];
+    std::strftime(buf, sizeof(buf), "%Y%m%d%H%M%SZ", &tm);
+    return std::string(buf);
+}
+
+// Verify that if a client certificate expires while a keep-alive mTLS
+// connection stays open, the server rejects further requests on that same
+// connection with 401 "Client certificate has expired" (src/http/httpd.cc,
+// connection::read_one()). This test is unavoidably timing-based: it signs
+// a very short-lived client certificate (issued with the existing mtls_ca
+// certificate authority) immediately before connecting, and sleeps until
+// just past its expiry before the second request.
+//
+// Note if a client certificate is *already* expired when the connection is
+// being established, the error handling is different from what we check here -
+// The lower-level TLS implementation will reject the handshake before the
+// connection is ever handed to the http server. That case is tested below in
+// a separate test - test_mtls_client_cert_already_expired().
+SEASTAR_TEST_CASE(test_mtls_client_cert_expiry) {
+    return seastar::async([] {
+        // How long the freshly-signed client certificate remains valid for,
+        // starting from just before the connection is established. Only
+        // needs to comfortably outlast certificate signing + the TLS
+        // handshake + one HTTP round trip.
+        constexpr auto validity = std::chrono::seconds(2);
+
+        tmpdir tmp;
+        auto client_key = (tmp.path() / "expiry_client.key").string();
+        auto client_csr = (tmp.path() / "expiry_client.csr").string();
+        auto client_crt = (tmp.path() / "expiry_client.crt").string();
+
+        auto run = [](sstring cmd) {
+            BOOST_REQUIRE_EQUAL(std::system(cmd.c_str()), 0);
+        };
+
+        // Key generation and the CSR aren't time-sensitive, so do them
+        // up front, before starting the validity-window clock.
+        run(seastar::format("openssl ecparam -name prime256v1 -genkey -noout -out {}", client_key));
+        run(seastar::format("openssl req -new -sha256 -key {} -subj /CN=expiry-client.org -out {}", client_key, client_csr));
+
+        // Uses build-system generated mtls_ca.crt/mtls_ca.key (the same CA
+        // that signs mtls_server.crt and mtls_client1.crt elsewhere in this
+        // file) as the issuer for the short-lived client certificate.
+        auto expiry = std::chrono::system_clock::now() + validity;
+        run(seastar::format("openssl x509 -req -sha256 -in {} -CA {} -CAkey {} -set_serial 1000 "
+                    "-not_before {} -not_after {} -out {}",
+                    client_csr, certfile("mtls_ca.crt"), certfile("mtls_ca.key"),
+                    to_asn1_time(std::chrono::system_clock::now() - std::chrono::hours(1)),
+                    to_asn1_time(expiry), client_crt));
+
+        tls::credentials_builder server_builder;
+        server_builder.set_x509_trust_file(certfile("mtls_ca.crt"), tls::x509_crt_format::PEM).get();
+        server_builder.set_x509_key_file(certfile("mtls_server.crt"), certfile("mtls_server.key"), tls::x509_crt_format::PEM).get();
+        server_builder.set_client_auth(tls::client_auth::REQUIRE);
+        auto server_creds = server_builder.build_server_credentials();
+
+        tls::credentials_builder client_builder;
+        client_builder.set_x509_trust_file(certfile("mtls_ca.crt"), tls::x509_crt_format::PEM).get();
+        client_builder.set_x509_key_file(client_crt, client_key, tls::x509_crt_format::PEM).get();
+        auto client_creds = client_builder.build_certificate_credentials();
+
+        auto addr = socket_address(ipv4_addr("127.0.0.1", 0));
+        listen_options lo;
+        lo.reuse_address = true;
+        lo.set_fixed_cpu(this_shard_id());
+
+        http_server server("test");
+        server._routes.put(GET, "/test", new function_handler([](const_req req) {
+            return "";
+        }, "txt"));
+
+        server.listen(addr, lo, server_creds).get();
+        auto actual_addr = http_server_tester::listeners(server)[0].local_address();
+
+        // Run the client in a separate fiber so the reactor can
+        // interleave client and server TLS handshake progress.
+        future<> client_fiber = seastar::async([&] {
+            auto c_socket = tls::connect(client_creds, actual_addr,
+                    tls::tls_options{.server_name = sstring("server.redpanda.com")}).get();
+            auto input = c_socket.input();
+            auto output = c_socket.output();
+            auto close_in = deferred_close(input);
+            auto close_out = deferred_close(output);
+
+            // First request: the certificate is still valid, so it succeeds.
+            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\n\r\n")).get();
+            output.flush().get();
+            auto resp1 = input.read().get();
+            BOOST_REQUIRE_NE(resp1.size(), 0u);
+            BOOST_REQUIRE_NE(std::string(resp1.get(), resp1.size()).find("200 OK"), std::string::npos);
+
+            // Sleep until we know the client certificate has expired:
+            auto remaining = expiry + std::chrono::milliseconds(10) - std::chrono::system_clock::now();
+            if (remaining > remaining.zero()) {
+                seastar::sleep(std::chrono::duration_cast<std::chrono::milliseconds>(remaining)).get();
+            }
+
+            // Second request, on the same connection: the client certificate
+            // expiry is now in the past, so the server rejects it.
+            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\n\r\n")).get();
+            output.flush().get();
+            auto resp2 = input.read().get();
+            BOOST_REQUIRE_NE(resp2.size(), 0u);
+            std::string resp2_str(resp2.get(), resp2.size());
+            BOOST_REQUIRE_NE(resp2_str.find("401"), std::string::npos);
+            BOOST_REQUIRE_NE(resp2_str.find("Client certificate has expired"), std::string::npos);
+        });
+
+        client_fiber.get();
+
+        server.stop().get();
+    });
+}
+
+// Verify that a client certificate that is *already* expired when the
+// connection is being established is rejected during the TLS handshake's
+// own certificate verification (this is true for both GnuTLS and OpenSSL
+// backends), rather than ever reaching connection::prepare()'s post-handshake
+// expiry check. The two backends surface the rejection to the client a little
+// differently -- OpenSSL throws on connect()/the first read or write, GnuTLS
+// instead (at least, when this test was written) just closes the connection,
+// which shows up as a clean (zero-byte) read with no exception. So this test
+// accepts either kind of errors as evidence of rejection and also confirms it
+// via the server's tls_handshake_errors() counter.
+SEASTAR_TEST_CASE(test_mtls_client_cert_already_expired) {
+    return seastar::async([] {
+        tmpdir tmp;
+        auto client_key = (tmp.path() / "expired_client.key").string();
+        auto client_csr = (tmp.path() / "expired_client.csr").string();
+        auto client_crt = (tmp.path() / "expired_client.crt").string();
+
+        auto run = [](sstring cmd) {
+            BOOST_REQUIRE_EQUAL(std::system(cmd.c_str()), 0);
+        };
+
+        run(seastar::format("openssl ecparam -name prime256v1 -genkey -noout -out {}", client_key));
+        run(seastar::format("openssl req -new -sha256 -key {} -subj /CN=already-expired-client.org -out {}", client_key, client_csr));
+        // A validity window that is in the past regardless of when
+        // this test actually runs.
+        run(seastar::format("openssl x509 -req -sha256 -in {} -CA {} -CAkey {} -set_serial 1001 "
+                    "-not_before {} -not_after {} -out {}",
+                    client_csr, certfile("mtls_ca.crt"), certfile("mtls_ca.key"),
+                    "20200101000000Z", "20200102000000Z", client_crt));
+
+        tls::credentials_builder server_builder;
+        server_builder.set_x509_trust_file(certfile("mtls_ca.crt"), tls::x509_crt_format::PEM).get();
+        server_builder.set_x509_key_file(certfile("mtls_server.crt"), certfile("mtls_server.key"), tls::x509_crt_format::PEM).get();
+        server_builder.set_client_auth(tls::client_auth::REQUIRE);
+        auto server_creds = server_builder.build_server_credentials();
+
+        tls::credentials_builder client_builder;
+        client_builder.set_x509_trust_file(certfile("mtls_ca.crt"), tls::x509_crt_format::PEM).get();
+        client_builder.set_x509_key_file(client_crt, client_key, tls::x509_crt_format::PEM).get();
+        auto client_creds = client_builder.build_certificate_credentials();
+
+        auto addr = socket_address(ipv4_addr("127.0.0.1", 0));
+        listen_options lo;
+        lo.reuse_address = true;
+        lo.set_fixed_cpu(this_shard_id());
+
+        http_server server("test");
+        server._routes.put(GET, "/test", new function_handler([](const_req req) {
+            return "";
+        }, "txt"));
+
+        server.listen(addr, lo, server_creds).get();
+        auto actual_addr = http_server_tester::listeners(server)[0].local_address();
+
+        BOOST_REQUIRE_EQUAL(server.tls_handshake_errors(), 0u);
+
+        // As explained above, we can learn the handshake was rejected either
+        // an exception, or by the server abruptly closing the connection
+        // (which shows up like an EOF, i.e., a zero-byte read).
+        // A real HTTP response (in particular a "200 OK" or even "401 Client
+        // Certificate Expired") would mean the certificate was wrongly
+        // accepted or rejected at an unexpected layer.
+        future<> client_fiber = seastar::async([&] {
+            try {
+                auto c_socket = tls::connect(client_creds, actual_addr,
+                        tls::tls_options{.server_name = sstring("server.redpanda.com")}).get();
+                auto input = c_socket.input();
+                auto output = c_socket.output();
+                auto close_in = deferred_close(input);
+                auto close_out = deferred_close(output);
+
+                output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\n\r\n")).get();
+                output.flush().get();
+                auto resp = input.read().get();
+                // Expected: the server closed the connection during TLS
+                // handshake verification, so we got a zero-byte read.
+                BOOST_REQUIRE_EQUAL(resp.size(), 0u);
+            } catch (...) {
+                // Expected: the handshake failed once forced to complete.
+            }
+        });
+
+        client_fiber.get();
+
+        // Give the server a moment to process the failed connection.
+        seastar::sleep(std::chrono::milliseconds(100)).get();
+
+        // Confirm the rejection happened during TLS handshake verification,
+        // not merely e.g. a client giving up for an unrelated reason.
+        BOOST_REQUIRE_GE(server.tls_handshake_errors(), 1u);
 
         server.stop().get();
     });

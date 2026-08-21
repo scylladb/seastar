@@ -21,6 +21,7 @@
 #pragma once
 
 #include <any>
+#include <chrono>
 #include <memory>
 #include <span>
 #include <string_view>
@@ -178,6 +179,7 @@ public:
     virtual void close() = 0;
     virtual seastar::net::connected_socket_impl& socket() const = 0;
     virtual future<std::optional<session_dn>> get_distinguished_name() = 0;
+    virtual future<std::optional<std::chrono::system_clock::time_point>> get_certificate_expiry() = 0;
     virtual future<std::vector<subject_alt_name>> get_alt_name_information(
         std::unordered_set<subject_alt_name_type> types) = 0;
     virtual future<bool> is_resumed() = 0;
@@ -263,6 +265,9 @@ public:
     }
     future<std::optional<session_dn>> get_distinguished_name() {
         return _session->get_distinguished_name();
+    }
+    future<std::optional<std::chrono::system_clock::time_point>> get_certificate_expiry() {
+        return _session->get_certificate_expiry();
     }
     future<std::vector<subject_alt_name>> get_alt_name_information(std::unordered_set<subject_alt_name_type> types) {
         return _session->get_alt_name_information(std::move(types));
