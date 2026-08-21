@@ -4,16 +4,18 @@ Seastar provides an interface to handle signals natively and safely as asynchron
 
 ## Default Signal Handlers
 
-Seastar sets by default signal handlers for SIGINT/SIGTERM that call reactor::stop(). The reactor will then execute callbacks installed by reactor::at_exit().
+By default, Seastar sets signal handlers for `SIGINT` and `SIGTERM` that call `reactor::stop()`. The reactor then executes callbacks installed by `reactor::at_exit()`.
 
-You can disable this behavior, by setting `app_template::config::auto_handle_sigint_sigterm` to false. This flag is provided in the header [seastar/core/app-template.hh](../include/seastar/core/app-template..hh). Then, Seastar will not set signal handlers, and the default behavior of the Linux kernel will be preserved (terminate the program).
+You can disable this behavior by setting `app_template::config::auto_handle_sigint_sigterm` to `false`. This flag is provided in [seastar/core/app-template.hh](../include/seastar/core/app-template.hh). Seastar will then leave these signal handlers unset, preserving the default Linux behavior of terminating the program.
 
 ### Examples
 
-```C++
+```cpp
 #include <seastar/core/app-template.hh>
+#include <iostream>
+#include <utility>
 
-int main(int ac, char** av) {
+int main(int argc, char** argv) {
     seastar::app_template::config cfg;
     cfg.auto_handle_sigint_sigterm = false;
     seastar::app_template app(std::move(cfg));
@@ -26,20 +28,21 @@ int main(int ac, char** av) {
 
 ## Custom Signal Handler
 
-In order to set a custom signal handler, Seastar provides a procedure called `seastar::handle_signal` in the header [seastar/core/signal.hh](../include/seastar/core/signal.hh). It registers a custom handler for the specified signal based on the configuration params.
+To set a custom signal handler, use `seastar::handle_signal` from [seastar/core/signal.hh](../include/seastar/core/signal.hh). It registers a custom handler for the specified signal.
 
-The procedure must be called inside the `app.run()` lambda, otherwise it's UB.
+The function must be called inside the `app.run()` lambda; calling it elsewhere causes undefined behavior.
 
 ### Examples
 
-```C++
+```cpp
 #include <seastar/core/app-template.hh>
 #include <seastar/core/signal.hh>
+#include <iostream>
 
 int main(int argc, char** argv) {
     seastar::app_template app;
     return app.run(argc, argv, [] {
-        seastar::handle_signal(SIGINT, [&] {
+        seastar::handle_signal(SIGINT, [] {
             std::cout << "caught sigint\n";
         }, true);
     });

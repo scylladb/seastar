@@ -2,29 +2,23 @@ Contributing to Seastar
 =======================
 
 # Sending Patches
-Seastar follows a patch submission similar to Linux. Send patches to seastar-dev, with a DCO signed off message. Use git send-email to send your patch.
+
+Seastar follows a patch-submission workflow similar to that of the Linux kernel. Send patches to `seastar-dev` with a DCO sign-off. Use `git send-email` to send your patch.
 
 Example:
 
-1. When you commit, use "-s " in your git commit command, which adds a DCO signed off message. DCO is a "Developer's Certificate of Origin" http://elinux.org/Developer_Certificate_Of_Origin
+1. When you commit, use `-s` in your Git command. This adds a sign-off for the [Developer Certificate of Origin](https://developercertificate.org/).
 
-For the commit message, you can prefix a tag for an area of the codebase the patch is addressing
+   You can prefix the commit message with a tag identifying the area of the codebase that the patch addresses:
 
         git commit -s -m "core: some descriptive commit message"
 
-2. then send an email to the google group
+2. Then send an email to the Google Group:
 
         git send-email <revision>..<final_revision> --to seastar-dev@googlegroups.com
 
-NOTE: for sending replies to patches, use --in-reply-to with the message ID of the original message. Also, if you are sending out a new version of the change, use git rebase and then a `git send-email` with a `-v2`, for instance, to denote that it is a second version.
+When replying to patches, use `--in-reply-to` with the message ID of the original message. If you are sending a new version of a change, use `git rebase` and then `git send-email` with an option such as `-v2` to indicate that it is the second version.
 
 # Testing and Approval
-Run test.py and ensure tests are passing (at least) as well as before the patch.
 
-
-
-
-
-
-
-
+Run `test.py` and ensure that tests pass at least as well as they did before the patch.

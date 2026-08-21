@@ -34,7 +34,7 @@ Coroutines, like lambdas, can capture variables from their enclosing
 scope. Additionally, coroutines capture their arguments, which can occur
 by value or by reference, depending on the argument's declaration.
 
-The lambda's captures however are captured by reference. To understand why,
+The lambda's captures, however, are captured by reference. To understand why,
 consider that the coroutine translation process notionally transforms a member function
 (`lambda::operator()`) to a free function:
 
@@ -73,13 +73,13 @@ A lambda of the form
 [captures...] (this auto, arguments...)
 ```
 
-Is transformed to a function call operator of the form
+is transformed to a function call operator of the form
 
 ```cpp
 seastar::future<> lambda::operator()(this auto, arguments...);
 ```
 
-Which in turn is equivalent to the free function
+which in turn is equivalent to the free function
 
 ```cpp
 seastar::future<> lambda_call_operator(lambda, arguments...);
@@ -96,7 +96,7 @@ The solution is to avoid copying or moving the lambda into
 the memory area managed by `seastar::future::then()`. Instead,
 the lambda spends its life as a temporary. We then rely on C++
 temporary lifetime extension rules to extend its life until the
-future returned is ready, at which point the captures can longer
+returned future is ready, at which point the captures can no longer
 be accessed.
 
 ```cpp
@@ -111,9 +111,9 @@ only difference is that it works with temporaries); it can be safely moved to
 the memory area managed by `seastar::future::then()` since it's only used
 to call the real lambda, and then is safe to discard.
 
-## Alternative solution (pre C++23) when lifetime extension cannot be used.
+## Alternative solution (pre-C++23) when lifetime extension cannot be used
 
-If the lambda coroutine is not co_await'ed immediately, we cannot rely on
+If the lambda coroutine is not awaited immediately, we cannot rely on
 lifetime extension and so we must name the coroutine and use `std::ref()` to
 refer to it without copying it from the coroutine frame:
 
@@ -125,4 +125,3 @@ refer to it without copying it from the coroutine frame:
     auto f = seastar::yield().then(std::ref(a_lambda));
     co_await std::move(f);
 ```
-

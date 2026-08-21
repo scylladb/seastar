@@ -10,7 +10,7 @@ Examples include:
   * the result computation that requires the values from
     one or more other futures.
 
-a *promise* is an object or function that provides you with a future,
+A *promise* is an object or function that provides you with a future,
 with the expectation that it will fulfill the future.
 
 Promises and futures simplify asynchronous programming since they decouple
@@ -27,11 +27,11 @@ operation:
 
 ```C++
 future<int> get();   // promises an int will be produced eventually
-future<> put(int)    // promises to store an int
+future<> put(int);   // promises to store an int
 
-void f() {
-    get().then([] (int value) {
-        put(value + 1).then([] {
+future<> f() {
+    return get().then([] (int value) {
+        return put(value + 1).then([] {
             std::cout << "value stored successfully\n";
         });
     });
@@ -52,10 +52,10 @@ could be rewritten as:
 
 ```C++
 future<int> get();   // promises an int will be produced eventually
-future<> put(int)    // promises to store an int
+future<> put(int);   // promises to store an int
 
-void f() {
-    get().then([] (int value) {
+future<> f() {
+    return get().then([] (int value) {
         return put(value + 1);
     }).then([] {
         std::cout << "value stored successfully\n";
@@ -70,16 +70,16 @@ Loops are achieved with a tail call; for example:
 
 ```C++
 future<int> get();   // promises an int will be produced eventually
-future<> put(int)    // promises to store an int
+future<> put(int);   // promises to store an int
 
 future<> loop_to(int end) {
-    if (value == end) {
-        return make_ready_future<>();
-    }
-    get().then([end] (int value) {
-        return put(value + 1);
-    }).then([end] {
-        return loop_to(end);
+    return get().then([end] (int value) {
+        if (value == end) {
+            return make_ready_future<>();
+        }
+        return put(value + 1).then([end] {
+            return loop_to(end);
+        });
     });
 }
 ```
@@ -128,9 +128,9 @@ request parse(buffer buf);
 future<response> process(request req);
 future<> send(response resp);
 
-void f() {
-    receive().then([] (buffer buf) {
-        return process(parse(std::move(buf));
+future<> f() {
+    return receive().then([] (buffer buf) {
+        return process(parse(std::move(buf)));
     }).then([] (response resp) {
         return send(std::move(resp));
     }).then([] {
@@ -146,8 +146,8 @@ void f() {
 ```
 
 The previous future is passed as a parameter to the lambda, and its value can
-be inspected with `f.get()`. When the `get()` variable is called as a
-function, it will re-throw the exception that aborted processing, and you can
+be inspected with `f.get()`. When the future's `get()` method is called,
+it will rethrow the exception that aborted processing, and you can
 then apply any needed error handling.  It is essentially a transformation of
 
 ```C++
@@ -170,7 +170,7 @@ void f() {
 ```
 
 Note, however, that the `.then_wrapped()` clause will be scheduled both when
-exception occurs or not. Therefore, the mere fact that `.then_wrapped()` is
+whether or not an exception occurs. Therefore, the mere fact that `.then_wrapped()` is
 executed does not mean that an exception was thrown. Only the execution of the
 catch block can guarantee that.
 
@@ -194,9 +194,8 @@ void f() {
 ```
 ### Setup notes
 
-SeaStar is a high performance framework and tuned to get the best
-performance by default. As such, we're tuned towards polling vs interrupt
-driven. Our assumption is that applications written for SeaStar will be
+Seastar is a high-performance framework tuned for the best
+performance by default. As such, it favors polling over interrupt-driven
+operation. The assumption is that applications written for Seastar will be
 busy handling 100,000 IOPS and beyond. Polling means that each of our
-cores will consume 100% cpu even when no work is given to it.
-
+cores will consume 100% CPU even when they have no work.

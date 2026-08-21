@@ -1,4 +1,4 @@
-## Building seastar in Docker container
+## Building Seastar in a Docker container
 
 To build a Docker image:
 
@@ -13,7 +13,7 @@ $ ./configure.py
 $ ninja -C build/release
 ```
 
-You can run them inside container, e.g. like this
+You can run them inside a container, for example:
 
 ```
 $ seabuild() { docker run -v $HOME/seastar/:/seastar -u $(id -u):$(id -g) -w /seastar -t seastar-dev "$@"; }

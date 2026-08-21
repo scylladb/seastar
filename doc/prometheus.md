@@ -3,19 +3,19 @@
 Seastar supports the Prometheus protocol for metrics reporting.
 Supported exposition formats are the 0.0.4 text and protocol buffer formats.
 
-More on the formats can be found at the [Prometheus documentations](https://prometheus.io/docs/instrumenting/exposition_formats/)
+For more information about these formats, see the [Prometheus documentation](https://prometheus.io/docs/instrumenting/exposition_formats/).
 
-By default, Seastar would listen on port `9180` and the `localhost`.
+By default, Seastar listens on port `9180` on `localhost`.
 
 See the Seastar configuration documentation on how to change the default configuration.
 
-Seastar would reply based on the content type header, so pointing your browser to:
+Seastar responds based on the `Content-Type` header, so opening
 `http://localhost:9180/metrics/` will return a text representation of the metrics with their documentation.
 
-Starting from Prometheus 2.0, the binary protocol is no longer supported.
-While seastar still supports the binary protocol, it would be deprecated in a future release.
+Starting with Prometheus 2.0, the binary protocol is no longer supported.
+While Seastar still supports the binary protocol, that support may be deprecated in a future release.
 
-## Querying subset of the metrics
+## Querying a subset of the metrics
 Seastar supports querying for a subset of the metrics by their names and labels.
 
 Filtering is recommended when you only need a subset of the available metrics, especially
@@ -26,11 +26,11 @@ server when scraping and storing metrics.
 ### Filtering by a metric name
 Use the `__name__` query parameter to select according to a metric name or a prefix.
 
-For example, to get all the http metrics, point your browser to:
-`http://localhost:9180/metrics?__name__=http*` note the asterisk symbol following the http.
+For example, to get all HTTP metrics, open
+`http://localhost:9180/metrics?__name__=http*`. Note the asterisk following `http`.
 Filtering by name only supports prefix matching.
 
-To query for only the http requests served metric, point your browser to `http://localhost:9180/metrics?__name__=httpd_requests_served`
+To query for only the HTTP requests-served metric, open `http://localhost:9180/metrics?__name__=httpd_requests_served`.
 
 You can use either the full metric name as it appears in the output (e.g., `seastar_httpd_requests_served`)
 or the name without the prefix (e.g., `httpd_requests_served`). Both forms work identically.
@@ -39,7 +39,7 @@ or the name without the prefix (e.g., `httpd_requests_served`). Both forms work 
 You can specify multiple `__name__` parameters to query for several specific metrics at once.
 A metric is included if it matches any of the specified names.
 
-For example, to get both the http requests and connections metrics:
+For example, to get both the HTTP requests and connections metrics:
 `http://localhost:9180/metrics?__name__=httpd_requests_served&__name__=httpd_connections_total`
 
 This also works with prefix matching:
@@ -49,8 +49,8 @@ This also works with prefix matching:
 The Prometheus protocol uses labels to differentiate the characteristics of the thing that is being measured.
 For example, in Seastar, it is common to report each metric per shard and add a `shard` label to the metric.
 
-You can filter by any label using regular expressions. If you use multiple labels in your query, all conditions should be met.
-A missing label is considered an empty string. The expression should match the entire label value,
+You can filter by any label using regular expressions. If you use multiple labels in your query, all conditions must be met.
+A missing label is considered an empty string. The expression should match the entire label value;
 to match a missing label, you can use `label=` or `label=^$`.
 
 Here are a few examples:
@@ -61,15 +61,14 @@ http://localhost:9180/metrics?shard=1|0
 To get all metrics without a `service` label:
 http://localhost:9180/metrics?service=
 
-To get all metrics with a `service` label equals `prometheus` and from shard `0`:
+To get all metrics whose `service` label equals `prometheus` and that come from shard `0`:
 http://localhost:9180/metrics?service=prometheus&shard=0
 
 ## Remove the help lines
-Sending the help associated with each metric on each request is an overhead.
+Sending the help associated with each metric on every request adds overhead.
 Prometheus itself does not use those help lines.
 Seastar supports an option to remove those lines from the metrics output using the `__help__` query parameter.
-To remove the help lines set `__help__=false`
-for example:
+To remove the help lines, set `__help__=false`. For example:
 `http://localhost:9180/metrics?__help__=false`
 
 ## Aggregation
@@ -82,12 +81,12 @@ However, there are times when it is necessary to inspect the fine-grained metric
 This can be achieved by adding `__aggregate__=false` to the query string. For example:
 `http://localhost:9180/metrics?__aggregate__=false`
 
-### Configuring the Prometheus server for picking specific metrics
-The [Prometheus configuration](https://prometheus.io/docs/prometheus/1.8/configuration/configuration/) describes the general Prometheus configuration.
+### Configuring the Prometheus server to select specific metrics
+The [Prometheus configuration documentation](https://prometheus.io/docs/prometheus/latest/configuration/configuration/) describes the general configuration format.
 
-To specify a specific metric or metrics add a `metrics_path` to the scrape config in the prometheus.yml file
+To specify one or more metrics, add a `metrics_path` to the scrape configuration in the `prometheus.yml` file.
 
-For example, the following scrape config will query for all the http metrics:
+For example, the following scrape configuration queries all HTTP metrics:
 
 ```
   scrape_configs:
@@ -108,4 +107,3 @@ To query for multiple specific metrics, list them in the array:
       params:
         __name__: ['httpd_requests_served', 'httpd_connections_total', 'scheduler*']
 ```
-

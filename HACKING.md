@@ -44,13 +44,13 @@ See the instructions in [README.md](./README.md).
 
 ## Using an IDE with CMake support
 
-If you use `configure.py` or `cooking.sh` to to configure Seastar, then the easiest way to use an IDE (such as Qt Creator, or CLion) for development is to instruct the IDE, when it invokes CMake, to include the following option:
+If you use `configure.py` or `cooking.sh` to configure Seastar, then the easiest way to use an IDE (such as Qt Creator or CLion) for development is to instruct the IDE, when it invokes CMake, to include the following option:
 
 ```
 -DCMAKE_PREFIX_PATH=${source_dir}/build/_cooking/installed
 ```
 
-where `${source_dir}` is the root of the Seastar source tree on your file-system.
+where `${source_dir}` is the root of the Seastar source tree on your filesystem.
 
 This will allow the IDE to also index Seastar's dependencies.
 

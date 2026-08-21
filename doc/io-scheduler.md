@@ -1,4 +1,4 @@
-IO scheduler uses rate-limiter to throttle the amount of data it dispatches into the disk.
+The I/O scheduler uses a rate limiter to throttle the amount of data it dispatches to the disk.
 
 # Basic math
 
@@ -21,7 +21,7 @@ The main equation turns into
 
 $$ \frac {d}{dt} \( \frac {bytes_r + m_b \times bytes_w} {bandwidth_{r_{max}}} + \frac {ios_r + m_o \times ios_w} {iops_{r_{max}}} \) \le 1.0 $$
 
-Requests are asigned a 2d value of _{1, bytes}_ for reads and _{m<sub>o</sub>, m<sub>b</sub> * bytes}_ for writes called "tickets"
+Requests are assigned a two-dimensional value called a "ticket": _{1, bytes}_ for reads and _{m<sub>o</sub>, m<sub>b</sub> * bytes}_ for writes.
 
 The "normalization" operation is defined as
 
@@ -35,13 +35,13 @@ The time-derivative limitation is then implemented with the token bucket algorit
 
 # Token bucket
 
-The algorithm creates token bucket with the refill rate of _1.0_ and each request wants to carry the fractional token value of _tokens = N(ticket)_ with _ticket_ defined above
+The algorithm creates a token bucket with a refill rate of _1.0_. Each request carries the fractional token value _tokens = N(ticket)_, with _ticket_ defined above.
 
-The bucket additionally requires the _limit_ parameter which is the maximum number of tokens the bucket may hold. This value is calculated using the _io_latency_goal_ parameter, to be the amount of tokens accumulated for the _io_latency_goal_ duration
+The bucket also requires the _limit_ parameter, which is the maximum number of tokens it may hold. This value is calculated using the _io_latency_goal_ parameter and is the number of tokens accumulated during the _io_latency_goal_ duration.
 
 # Slowing down the flow
 
-Let's assume we need to reduce the rate of request run-time. This means that we want to
+Let's assume we need to reduce the rate at which requests run. This means that we want to
 
 $$ \frac {d}{dt} \( \frac {bytes_r + m_b \times bytes_w} {bandwidth_{r_{max}} \times \alpha} + \frac {ios_r + m_o \times ios_w} {iops_{r_{max}} \times \beta} \) \le 1.0 \ \  \alpha \le 1.0 \ \beta \le 1.0 $$
 
@@ -53,23 +53,23 @@ The main equation then turns into
 
 $$ \frac {d}{dt} \sum_{ticket} \gamma \times N(ticket) \le 1.0 $$
 
-which in turn means, that we can just multiply the request cost (in tokens) by some number above 1.0
+This means that we can multiply the request cost (in tokens) by a number greater than 1.0.
 
 # Detecting the slowdown
 
 Let's say that
 
-_d<sub>i</sub>_ -- the amount of requests dispatched at tick _i_
-_p<sub>i</sub>_ -- the amount of requests processed by disk at tick _i_
-_c<sub>i</sub>_ -- the amount of requests completed by reactor loop at tick _i_
+_d<sub>i</sub>_ -- the number of requests dispatched at tick _i_
+_p<sub>i</sub>_ -- the number of requests processed by the disk at tick _i_
+_c<sub>i</sub>_ -- the number of requests completed by the reactor loop at tick _i_
 
 We can observe _d<sub>i</sub>_ and _c<sub>i</sub>_ in the dispatcher, but _not_ the _p<sub>i</sub>_, because we don't have direct access to disks' queues
 
 After _n_ ticks we have
 
-_D<sub>n</sub>_ -- total amount of requests dispatched,
-_P<sub>n</sub>_ -- total amount of requests processed,
-_C<sub>n</sub>_ -- total amount of requests completed,
+_D<sub>n</sub>_ -- total number of requests dispatched,
+_P<sub>n</sub>_ -- total number of requests processed,
+_C<sub>n</sub>_ -- total number of requests completed,
 
 $$ D_n = \sum_{i=0}^n d_i $$
 
@@ -108,10 +108,10 @@ _Rd<sub>n</sub>_ is the ratio of dispatched to processed requests. If it's 1, we
 
 $$ \lim_{n\to\infty} Rc_n = \lim_{n\to\infty} \frac {P_n} {C_n} = \lim_{n\to\infty} \frac {C_n + Qc_n} { C_n} = \lim_{n\to\infty} \(1 +  \frac {Qc_n} {C_n} \) = 1 + \lim_{n\to\infty} \frac {Qc_n} {C_n}$$
 
-The _Qc<sub>n</sub>_ doesn't grow over time. It's non-zero, but it's upper bound by some value. Respectively
+_Qc<sub>n</sub>_ does not grow over time. It is nonzero but bounded above by some value. Therefore,
 
 $$ \lim_{n\to\infty} Rc_n = 1 $$
 
 $$ \lim_{n\to\infty} \frac {D_n} {C_n} = \lim_{n\to\infty} \( Rd_n \times Rc_n \) =  \lim_{n\to\infty} Rd_n  $$
 
-IOW -- we can say if the disk is accumulating the queue or not by observing the dispatched-to-completed (to _completed_, not _processed_) over a long enough time
+In other words, we can determine whether the disk is accumulating a queue by observing the dispatched-to-completed ratio (using _completed_, not _processed_) for long enough.
