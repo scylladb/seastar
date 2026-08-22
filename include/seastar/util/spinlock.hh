@@ -24,6 +24,7 @@
 #include <seastar/util/assert.hh>
 
 #include <atomic>
+#include <new>
 
 #if defined(__x86_64__) || defined(__i386__)
 #include <xmmintrin.h>
@@ -92,7 +93,6 @@ namespace util {
 // Async-signal safe.
 // unlock() "synchronizes with" lock().
 #ifdef __cpp_lib_hardware_interference_size
-#include <new>
 class alignas(std::hardware_constructive_interference_size) spinlock {
 #else
 // x86-64 cache line size
