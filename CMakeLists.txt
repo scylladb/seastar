@@ -800,6 +800,7 @@ add_library (seastar
   src/rpc/lz4_fragmented_compressor.cc
   src/rpc/rpc.cc
   src/util/alloc_failure_injector.cc
+  src/util/assert.cc
   src/util/backtrace.cc
   src/util/conversions.cc
   src/util/exceptions.cc
