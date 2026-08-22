@@ -344,8 +344,6 @@ public:
         delete this;
     }
 
-    bool is_cancelled() const noexcept { return _cancelled; }
-
     // Resolves the future right away, but keeps `this` alive: it is
     // still referenced from the fair_queue (and possibly still being
     // walked by the caller, see the class comment above). It is
