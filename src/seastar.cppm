@@ -687,6 +687,7 @@ using seastar::log_cli::options;
 export namespace seastar::memory {
 
 using seastar::memory::allocation_site;
+using seastar::memory::contiguous_mapping;
 using seastar::memory::disable_abort_on_alloc_failure_temporarily;
 using seastar::memory::free_memory;
 using seastar::memory::generate_memory_diagnostics_report;
@@ -694,6 +695,7 @@ using seastar::memory::get_large_allocation_warning_threshold;
 using seastar::memory::get_memory_layout;
 using seastar::memory::is_abort_on_allocation_failure;
 using seastar::memory::local_failure_injector;
+using seastar::memory::map_contiguous;
 using seastar::memory::memory_diagnostics_writer;
 using seastar::memory::memory_layout;
 using seastar::memory::min_free_memory;

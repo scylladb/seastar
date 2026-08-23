@@ -4090,6 +4090,7 @@ smp_options::smp_options(program_options::option_group* parent_group)
     , memory(*this, "memory", std::nullopt, "memory to use, in bytes (ex: 4G) (default: all)")
     , reserve_memory(*this, "reserve-memory", {}, "memory reserved to OS (if --memory not specified)")
     , hugepages(*this, "hugepages", {}, "path to accessible hugetlbfs mount (typically /dev/hugepages/something)")
+    , memfd(*this, "memfd", {}, "back shard memory with a memfd, exposing it to users (default: enabled when transparent hugepages are available for memfd, or when overprovisioned)")
     , lock_memory(*this, "lock-memory", {}, "lock all memory (prevents swapping)")
     , thread_affinity(*this, "thread-affinity", true, "pin threads to their cpus (disable for overprovisioning)")
 #ifdef SEASTAR_HAVE_HWLOC
@@ -4529,6 +4530,20 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     if (smp_opts.hugepages) {
         hugepages_path = smp_opts.hugepages.get_value();
     }
+    // Back shard memory with a memfd (unless hugetlbfs is used, which provides
+    // its own backing file). When --memfd is not given explicitly, enable it by
+    // default whenever transparent hugepages are available for memfd, or when
+    // overprovisioned (where THP is disabled but memfd is still desirable).
+    bool use_memfd = false;
+    if (!hugepages_path && smp_opts.memory_allocator == memory_allocator::seastar) {
+        if (smp_opts.memfd) {
+            use_memfd = smp_opts.memfd.get_value();
+        } else {
+            use_memfd = memory::internal::memfd_create_available()
+                    && (memory::internal::transparent_hugepages_enabled_for_memfd()
+                        || reactor_opts.overprovisioned);
+        }
+    }
     auto mlock = false;
     if (smp_opts.lock_memory) {
         mlock = smp_opts.lock_memory.get_value();
@@ -4575,7 +4590,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     }
     std::optional<memory::internal::numa_layout> layout;
     if (smp_opts.memory_allocator == memory_allocator::seastar) {
-        layout = memory::configure(allocations[0].mem, mbind, use_transparent_hugepages, hugepages_path);
+        layout = memory::configure(allocations[0].mem, mbind, use_transparent_hugepages, use_memfd, hugepages_path);
     } else {
         // #2148 - if running seastar allocator but options that contradict this, we still need to
         // init memory at least minimally, otherwise a bunch of stuff breaks.
@@ -4757,7 +4772,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     smp::_this_smp = this;
     for (i = 1; i < _shard_count; i++) {
         auto allocation = allocations[i];
-        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_sampling_rate, mbind, backend_selector, reactor_cfg, &mtx, &layout, use_transparent_hugepages, allocate_qs_owner, allocate_smp_queues, backend_configurator, &backend_configuration_initialized] {
+        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_sampling_rate, mbind, backend_selector, reactor_cfg, &mtx, &layout, use_transparent_hugepages, use_memfd, allocate_qs_owner, allocate_smp_queues, backend_configurator, &backend_configuration_initialized] {
           try {
             // initialize thread_locals that are equal across all reacto threads of this smp instance
             smp::_tmain = smp_tmain;
@@ -4768,7 +4783,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
                 smp::pin(allocation.cpu_id);
             }
             if (smp_opts.memory_allocator == memory_allocator::seastar) {
-                auto another_layout = memory::configure(allocation.mem, mbind, use_transparent_hugepages, hugepages_path);
+                auto another_layout = memory::configure(allocation.mem, mbind, use_transparent_hugepages, use_memfd, hugepages_path);
                 auto guard = std::lock_guard(mtx);
                 *layout = memory::internal::merge(std::move(*layout), std::move(another_layout));
             } else {
