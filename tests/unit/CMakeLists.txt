@@ -311,6 +311,10 @@ seastar_add_test (allocator
 seastar_add_app_test (alien
   SOURCES alien_test.cc)
 
+seastar_add_test (contiguous_mapping
+  SOURCES contiguous_mapping_test.cc
+  RUN_ARGS --memfd 1)
+
 seastar_add_test (checked_ptr
   SOURCES checked_ptr_test.cc)
 

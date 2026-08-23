@@ -25,11 +25,14 @@
 #include <seastar/core/bitops.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/sampler.hh>
+#include <algorithm>
 #include <new>
 #include <cstdint>
+#include <span>
 #include <functional>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace seastar {
@@ -387,6 +390,104 @@ struct memory_layout {
 // Discover virtual address range used by the allocator on current shard.
 // Supported only when seastar allocator is enabled.
 memory::memory_layout get_memory_layout();
+
+/// A contiguous range of address space aliasing discontiguous shard memory.
+///
+/// When the shard's memory is backed by a file (see the \p use_memfd parameter
+/// of \ref configure()) it can be mapped more than once, unlike anonymous
+/// memory. This makes it possible to recover a large contiguous range of
+/// address space from a set of smaller, scattered allocations: the allocations
+/// keep their original addresses, and in addition appear back-to-back in the
+/// range owned by this object. Both mappings refer to the same physical
+/// memory, so a store through one is visible through the other.
+///
+/// The object owns a fixed-size reservation of address space, which is filled
+/// in, from its start, by one or more calls to \ref append(). The reservation
+/// beyond the appended ranges is inaccessible, so the mapping never has to be
+/// relocated as it grows, and accesses beyond \ref size() trap. This makes the
+/// tail of the reservation usable as a guard region.
+///
+/// The contiguous mapping cannot use transparent hugepages (its constituent
+/// ranges are not hugepage aligned in the backing file), so accessing memory
+/// through it is more TLB-expensive than accessing it through the allocator's
+/// own mapping.
+///
+/// The appended ranges must remain allocated for as long as the mapping exists.
+class contiguous_mapping {
+    char* _addr = nullptr;
+    size_t _capacity = 0;
+    size_t _size = 0;
+public:
+    /// Constructs an empty mapping, owning no address space.
+    contiguous_mapping() noexcept = default;
+    /// Reserves address space for the mapping. The reserved address space is
+    /// inaccessible until ranges are appended to it with \ref append().
+    ///
+    /// \param capacity number of bytes to reserve; must be a multiple of
+    ///        \ref page_size.
+    /// \throw std::invalid_argument if \p capacity is not page aligned.
+    /// \throw std::system_error if the address space cannot be reserved.
+    explicit contiguous_mapping(size_t capacity);
+    contiguous_mapping(contiguous_mapping&& x) noexcept
+            : _addr(std::exchange(x._addr, nullptr))
+            , _capacity(std::exchange(x._capacity, 0))
+            , _size(std::exchange(x._size, 0)) {
+    }
+    contiguous_mapping& operator=(contiguous_mapping&& x) noexcept {
+        if (this != &x) {
+            this->~contiguous_mapping();
+            new (this) contiguous_mapping(std::move(x));
+        }
+        return *this;
+    }
+    ~contiguous_mapping();
+    /// Maps more of the shard's memory at the end of the mapping, growing it by
+    /// the total size of \p ranges. The ranges are mapped in the order given,
+    /// with no gaps between them, and the memory they alias is not modified.
+    ///
+    /// \param ranges address ranges within the shard's memory; each range must
+    ///        start on, and have a size that is a multiple of, \ref page_size.
+    /// \throw std::runtime_error if the shard's memory is not backed by a file.
+    /// \throw std::invalid_argument if a range is not page aligned, or is not
+    ///        contained in the shard's memory.
+    /// \throw std::bad_alloc if the ranges do not fit in the remaining
+    ///        capacity.
+    /// \throw std::system_error if a range cannot be mapped.
+    void append(std::span<const std::span<char>> ranges);
+    /// Returns the start of the mapping, or \p nullptr if no address space is
+    /// reserved. The address does not change as the mapping grows.
+    char* data() const noexcept { return _addr; }
+    /// Returns the number of accessible bytes, i.e., the total size of the
+    /// ranges appended so far.
+    size_t size() const noexcept { return _size; }
+    /// Returns the number of bytes of address space reserved for the mapping.
+    size_t capacity() const noexcept { return _capacity; }
+    /// Returns the accessible part of the mapping.
+    std::span<char> range() const noexcept { return {_addr, _size}; }
+};
+
+/// Maps address ranges of the shard's memory into a single contiguous range of
+/// address space.
+///
+/// \param ranges address ranges within the shard's memory, in the order they
+///        are to appear in the result; each range must start on, and have a
+///        size that is a multiple of, \ref page_size.
+/// \param capacity number of bytes of address space to reserve, for later
+///        growth with \ref contiguous_mapping::append(); must be page aligned.
+///        Clamped up to the total size of \p ranges.
+/// \return a mapping of the concatenation of \p ranges.
+/// \throw see \ref contiguous_mapping::contiguous_mapping() and
+///        \ref contiguous_mapping::append().
+inline
+contiguous_mapping map_contiguous(std::span<const std::span<char>> ranges, size_t capacity = 0) {
+    size_t total = 0;
+    for (auto range : ranges) {
+        total += range.size();
+    }
+    auto ret = contiguous_mapping(std::max(capacity, total));
+    ret.append(ranges);
+    return ret;
+}
 
 /// Returns the size of free memory in bytes.
 size_t free_memory();

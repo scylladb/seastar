@@ -1289,6 +1289,9 @@ allocate_hugetlbfs_memory(file_desc& fd, void* where, size_t how_much) {
 
 mmap_area
 static allocate_memfd_memory(file_desc& fd, void* where, size_t how_much) {
+    // The file grows in step with the shard's memory, which grows upwards, so
+    // the file offset of an address is its distance from the start of the
+    // shard's memory. contiguous_mapping::append() relies on that.
     auto pos = fd.size();
     fd.truncate(pos + how_much);
     auto ret = fd.map(
@@ -2044,6 +2047,62 @@ bool drain_cross_cpu_freelist() {
 
 memory_layout get_memory_layout() {
     return get_cpu_mem().memory_layout();
+}
+
+contiguous_mapping::contiguous_mapping(size_t capacity) {
+    if (capacity % page_size != 0) {
+        throw std::invalid_argument("contiguous_mapping: capacity is not page aligned");
+    }
+    if (capacity == 0) {
+        return;
+    }
+    // Reserve address space only; append() maps the shard's memory into it. The
+    // still-unused tail stays inaccessible, so it also serves as a guard region.
+    auto p = ::mmap(nullptr, capacity, PROT_NONE,
+            MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    throw_system_error_on(p == MAP_FAILED, "contiguous_mapping: mmap");
+    _addr = reinterpret_cast<char*>(p);
+    _capacity = capacity;
+}
+
+contiguous_mapping::~contiguous_mapping() {
+    if (_addr) {
+        ::munmap(_addr, _capacity);
+    }
+}
+
+void contiguous_mapping::append(std::span<const std::span<char>> ranges) {
+    auto layout = get_memory_layout();
+    if (!layout.memfd) {
+        throw std::runtime_error("contiguous_mapping: the shard's memory is not backed by a file"
+                " (see the --memfd option)");
+    }
+    // Validate everything before mapping anything, so a bad request leaves the
+    // mapping unchanged.
+    size_t total = 0;
+    for (auto range : ranges) {
+        auto start = reinterpret_cast<uintptr_t>(range.data());
+        if (start % page_size != 0 || range.size() % page_size != 0) {
+            throw std::invalid_argument("contiguous_mapping: address range is not page aligned");
+        }
+        if (start < layout.start || start > layout.end || range.size() > layout.end - start) {
+            throw std::invalid_argument("contiguous_mapping: address range is outside the shard's memory");
+        }
+        total += range.size();
+    }
+    if (total > _capacity - _size) {
+        throw std::bad_alloc();
+    }
+    for (auto range : ranges) {
+        // The allocator maps its memory from the backing file in address order,
+        // starting at offset zero, so an address maps to a file offset simply by
+        // subtracting the start of the shard's memory.
+        auto offset = reinterpret_cast<uintptr_t>(range.data()) - layout.start;
+        auto p = ::mmap(_addr + _size, range.size(), PROT_READ | PROT_WRITE,
+                MAP_SHARED | MAP_FIXED, *layout.memfd, offset);
+        throw_system_error_on(p == MAP_FAILED, "contiguous_mapping::append: mmap");
+        _size += range.size();
+    }
 }
 
 size_t min_free_memory() {
@@ -2824,6 +2883,17 @@ bool drain_cross_cpu_freelist() {
 
 memory_layout get_memory_layout() {
     throw std::runtime_error("get_memory_layout() not supported");
+}
+
+contiguous_mapping::contiguous_mapping(size_t) {
+    throw std::runtime_error("contiguous_mapping is not supported with the default allocator");
+}
+
+contiguous_mapping::~contiguous_mapping() {
+}
+
+void contiguous_mapping::append(std::span<const std::span<char>>) {
+    throw std::runtime_error("contiguous_mapping is not supported with the default allocator");
 }
 
 size_t min_free_memory() {
