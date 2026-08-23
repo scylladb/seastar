@@ -24,18 +24,14 @@
 #include <chrono>
 #include <memory>
 #include <vector>
-#include <cstring>
 #include <sys/types.h>
 
 #include <seastar/core/future.hh>
-#include <seastar/net/byteorder.hh>
 #include <seastar/net/socket_defs.hh>
 #include <seastar/net/packet.hh>
-#include <seastar/core/internal/api-level.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/file-types.hh>
 #include <seastar/core/iostream.hh>
-#include <seastar/util/std-compat.hh>
 #include <seastar/util/program-options.hh>
 
 namespace seastar {

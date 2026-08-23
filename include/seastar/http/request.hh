@@ -37,7 +37,6 @@
 #include <seastar/http/mime_types.hh>
 #include <seastar/http/types.hh>
 #include <seastar/net/socket_defs.hh>
-#include <seastar/net/api.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/util/string_utils.hh>

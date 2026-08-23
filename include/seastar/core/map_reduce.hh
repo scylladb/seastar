@@ -22,7 +22,6 @@
 
 #pragma once
 
-#include <iterator>
 
 #include <seastar/core/future.hh>
 #include <seastar/core/shared_ptr.hh>

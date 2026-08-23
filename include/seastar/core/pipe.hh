@@ -24,8 +24,6 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/queue.hh>
 
-#include <seastar/util/std-compat.hh>
-
 /// \defgroup fiber-module Fibers
 ///
 /// \brief Fibers of execution

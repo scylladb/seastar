@@ -25,7 +25,6 @@
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/timer-set.hh>
 #include <seastar/util/assert.hh>
-#include <seastar/util/std-compat.hh>
 #include <boost/intrusive/list.hpp>
 #include <chrono>
 #include <optional>

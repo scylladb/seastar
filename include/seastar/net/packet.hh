@@ -25,7 +25,6 @@
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/net/const.hh>
 #include <seastar/util/assert.hh>
-#include <seastar/util/std-compat.hh>
 #include <span>
 #include <algorithm>
 #include <cstdint>

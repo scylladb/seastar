@@ -27,6 +27,7 @@
 #include <boost/functional/hash.hpp>
 
 #include <deque>
+#include <set>
 
 /*!
  * \file metrics_api.hh

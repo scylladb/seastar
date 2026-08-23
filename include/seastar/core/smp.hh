@@ -29,6 +29,7 @@
 #include <seastar/core/reactor_config.hh>
 #include <seastar/core/resource.hh>
 #include <seastar/core/shard_id.hh>
+#include <seastar/core/cacheline.hh>
 
 #include <boost/lockfree/spsc_queue.hpp>
 #include <deque>

@@ -36,7 +36,6 @@
 #include "prometheus-impl.hh"
 
 #include <boost/algorithm/string/replace.hpp>
-#include <boost/range/algorithm_ext/erase.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/range/algorithm.hpp>
 #include <boost/range/combine.hpp>

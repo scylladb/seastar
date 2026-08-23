@@ -30,10 +30,8 @@
 
 #include <seastar/util/assert.hh>
 
-#include <sys/types.h>
 #include <sys/stat.h>
 #include <arpa/inet.h>
-#include <unistd.h>
 
 #include <seastar/net/native-stack.hh>
 #include "net/native-stack-impl.hh"

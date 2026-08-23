@@ -35,7 +35,6 @@
 #include <seastar/core/queue.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/core/metrics_registration.hh>
-#include <seastar/util/std-compat.hh>
 #include <seastar/http/routes.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/core/shared_ptr.hh>

@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include <cassert>
 #include <cstdint>
 #include <cstdlib>
 #include <new>

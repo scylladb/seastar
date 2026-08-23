@@ -20,7 +20,6 @@
  */
 
 
-#include <array>
 #include <chrono>
 #include <cstdint>
 #include <mutex>
@@ -34,6 +33,7 @@
 #include <seastar/util/integrated-length.hh>
 
 #include <seastar/core/file.hh>
+#include <seastar/core/align.hh>
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/io_intent.hh>
 #include <seastar/core/reactor.hh>

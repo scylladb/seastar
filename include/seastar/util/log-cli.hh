@@ -23,7 +23,6 @@
 
 #include <boost/program_options.hpp>
 
-#include <algorithm>
 #include <unordered_map>
 
 #include <seastar/util/log.hh>

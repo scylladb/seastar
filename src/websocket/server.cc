@@ -22,6 +22,7 @@
 #include <seastar/websocket/server.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/log.hh>
 #include <seastar/http/request.hh>

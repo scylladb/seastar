@@ -18,6 +18,7 @@
 /*
  * Copyright 2015 Cloudius Systems
  */
+#include <iostream>
 #include <cmath>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/app-template.hh>

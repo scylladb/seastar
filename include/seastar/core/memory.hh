@@ -25,7 +25,6 @@
 #include <seastar/core/bitops.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/sampler.hh>
-#include <new>
 #include <cstdint>
 #include <functional>
 #include <optional>

@@ -27,16 +27,14 @@
 #include <functional>
 #include <unordered_map>
 #include <utility>
-#include <string>
-#include <map>
 #include <iostream>
-#include <unordered_map>
 
 #include <seastar/core/seastar.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/core/scollectd_api.hh>
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/byteorder.hh>
-#include <seastar/core/print.hh>
 #include <seastar/core/shared_ptr.hh>
 
 #include "core/scollectd-impl.hh"

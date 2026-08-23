@@ -40,7 +40,6 @@
 #include <seastar/core/internal/poll.hh>
 #include "core/vla.hh"
 #include <seastar/core/reactor.hh>
-#include <seastar/core/stream.hh>
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/align.hh>
 #include <seastar/core/metrics.hh>

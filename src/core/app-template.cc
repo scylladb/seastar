@@ -33,7 +33,6 @@
 #include <seastar/core/alien.hh>
 #include <seastar/core/scollectd.hh>
 #include <seastar/core/metrics_api.hh>
-#include <seastar/core/print.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/log-cli.hh>
 #include <seastar/net/native-stack.hh>

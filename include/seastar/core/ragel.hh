@@ -29,7 +29,6 @@
 #include <algorithm>
 #include <memory>
 #include <cassert>
-#include <optional>
 #include <seastar/core/future.hh>
 
 namespace seastar {

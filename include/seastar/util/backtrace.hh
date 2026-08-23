@@ -33,6 +33,7 @@
 #endif
 #include <iosfwd>
 #include <memory>
+#include <source_location>
 #include <variant>
 #include <boost/container/static_vector.hpp>
 #include <fmt/ostream.h>

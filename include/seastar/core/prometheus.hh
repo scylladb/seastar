@@ -24,8 +24,9 @@
 #include <seastar/http/httpd.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/metrics_api.hh>
-#include <seastar/util/std-compat.hh>
+#include <seastar/core/internal/api-level.hh>
 #include <optional>
+#include <string_view>
 
 struct prometheus_test_fixture;
 

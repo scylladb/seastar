@@ -19,6 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
+#include <iostream>
 #include <memory>
 #include <seastar/http/httpd.hh>
 #include <seastar/http/handlers.hh>

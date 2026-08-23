@@ -20,14 +20,10 @@
  */
 
 
-#include <string.h>
-#include <string>
-#include <vector>
 #include <sstream>
 #include <fmt/core.h>
 
 #include <seastar/core/loop.hh>
-#include <seastar/core/print.hh>
 #include <seastar/json/json_elements.hh>
 
 namespace seastar {

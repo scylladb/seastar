@@ -21,8 +21,6 @@
 #include <seastar/core/future-util.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/sleep.hh>
-#include <seastar/core/print.hh>
-#include <seastar/core/semaphore.hh>
 
 namespace seastar {
 

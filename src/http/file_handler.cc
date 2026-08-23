@@ -21,7 +21,6 @@
 
 
 #include <algorithm>
-#include <iostream>
 #include <memory>
 #include <string_view>
 
@@ -30,7 +29,6 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/fstream.hh>
 #include <seastar/core/shared_ptr.hh>
-#include <seastar/core/app-template.hh>
 #include <seastar/http/exception.hh>
 
 namespace seastar {

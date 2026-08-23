@@ -23,6 +23,7 @@
 
 #include <boost/range/adaptor/map.hpp>
 #include <chrono>
+#include <limits>
 
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/reactor_config.hh>

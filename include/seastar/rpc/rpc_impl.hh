@@ -21,6 +21,7 @@
 #pragma once
 
 #include <seastar/core/format.hh>
+#include <seastar/core/byteorder.hh>
 #include <seastar/core/function_traits.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
@@ -28,7 +29,6 @@
 #include <seastar/util/assert.hh>
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/util/log.hh>
-#include <seastar/core/simple-stream.hh>
 #include <seastar/core/deleter.hh>
 
 #include <boost/type.hpp> // for compatibility

@@ -45,13 +45,14 @@
 #include <chrono>
 #include <memory>
 #include <concepts>
+#include <netdb.h>
+#include <poll.h>
 
 #include <ares.h>
 #include <boost/lexical_cast.hpp>
 
 #include <ostream>
 #include <seastar/util/assert.hh>
-#include <seastar/util/std-compat.hh>
 #include <seastar/util/lazy.hh>
 #include <seastar/net/inet_address.hh>
 
@@ -62,7 +63,6 @@
 #include <seastar/core/timer.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/gate.hh>
-#include <seastar/core/print.hh>
 
 namespace seastar::net {
 

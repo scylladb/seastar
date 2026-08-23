@@ -39,7 +39,6 @@
 #include <openssl/x509v3.h>
 
 #include <cassert>
-#include <chrono>
 #include <functional>
 #include <ranges>
 #include <span>
@@ -56,7 +55,6 @@
 #include <seastar/core/shared_future.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/with_timeout.hh>
-#include <seastar/net/stack.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/later.hh>

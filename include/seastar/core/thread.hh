@@ -28,9 +28,7 @@
 #include <seastar/core/timer.hh>
 #include <seastar/core/scheduling.hh>
 #include <memory>
-#include <type_traits>
 #include <seastar/util/assert.hh>
-#include <seastar/util/std-compat.hh>
 #include <ucontext.h>
 #include <boost/intrusive/list.hpp>
 

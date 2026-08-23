@@ -32,7 +32,6 @@
 #include <seastar/core/resource.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/semaphore.hh>
-#include <seastar/core/print.hh>
 #include <seastar/core/on_internal_error.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/align.hh>

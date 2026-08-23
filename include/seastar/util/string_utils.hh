@@ -30,8 +30,6 @@
 
 #pragma once
 
-#include <cstring>
-#include <stdio.h>
 
 #include <seastar/core/sstring.hh>
 

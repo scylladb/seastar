@@ -82,7 +82,6 @@
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 
-#include <boost/container/static_vector.hpp>
 
 #include <dlfcn.h>
 
@@ -92,7 +91,6 @@
 #include <algorithm>
 #include <limits>
 #include <atomic>
-#include <mutex>
 #include <functional>
 #include <cstring>
 #include <utility>
@@ -105,10 +103,8 @@
 
 #include <seastar/core/cacheline.hh>
 #include <seastar/core/memory.hh>
-#include <seastar/core/print.hh>
 #include <seastar/util/alloc_failure_injector.hh>
 #include <seastar/util/memory_diagnostics.hh>
-#include <seastar/util/std-compat.hh>
 #include <seastar/util/sampler.hh>
 #include <seastar/util/log.hh>
 #include <seastar/core/aligned_buffer.hh>

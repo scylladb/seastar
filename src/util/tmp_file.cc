@@ -20,13 +20,11 @@
  * Copyright 2020 ScyllaDB
  */
 
-#include <iostream>
 #include <random>
 
 #include <seastar/core/seastar.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/exceptions.hh>
-#include <seastar/util/std-compat.hh>
 #include <seastar/util/tmp_file.hh>
 #include <seastar/util/file.hh>
 

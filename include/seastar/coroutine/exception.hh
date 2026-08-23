@@ -24,7 +24,6 @@
 #include <seastar/core/future.hh>
 #include <coroutine>
 #include <exception>
-#include <source_location>
 
 namespace seastar {
 

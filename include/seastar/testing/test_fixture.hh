@@ -29,7 +29,6 @@
 #include <seastar/util/defer.hh>
 #include <seastar/testing/seastar_test.hh>
 #include <seastar/testing/test_runner.hh>
-#include <seastar/util/defer.hh>
 
 namespace seastar::testing {
 namespace detail {

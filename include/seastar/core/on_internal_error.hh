@@ -21,8 +21,6 @@
 
 #pragma once
 
-#include <seastar/util/assert.hh>
-#include <seastar/util/std-compat.hh>
 #include <exception>
 #include <string_view>
 

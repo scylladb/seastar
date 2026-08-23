@@ -60,6 +60,7 @@
 
 #include <seastar/core/exception_hacks.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/util/std-compat.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/assert.hh>
 

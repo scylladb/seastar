@@ -18,6 +18,7 @@
 /*
  * Copyright 2015 Cloudius Systems
  */
+#include <iostream>
 #include <cmath>
 #include <ranges>
 

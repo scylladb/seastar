@@ -20,14 +20,11 @@
  */
 
 
-#include <iostream>
 #include <algorithm>
-#include <cctype>
 #include <cstdint>
 #include <functional>
 #include <memory>
 
-#include <seastar/core/print.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/net/packet.hh>
 

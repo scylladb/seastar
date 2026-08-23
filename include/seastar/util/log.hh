@@ -21,11 +21,9 @@
 #pragma once
 
 #include <seastar/core/sstring.hh>
-#include <seastar/util/backtrace.hh>
 #include <seastar/util/log-impl.hh>
 #include <seastar/util/log-level.hh>
 #include <seastar/core/lowres_clock.hh>
-#include <seastar/util/std-compat.hh>
 
 #include <concepts>
 #include <source_location>
@@ -34,7 +32,6 @@
 #include <iosfwd>
 #include <atomic>
 #include <mutex>
-#include <type_traits>
 #include <fmt/core.h>
 #include <fmt/format.h>
 #include <fmt/std.h>

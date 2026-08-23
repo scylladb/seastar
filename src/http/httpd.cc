@@ -22,25 +22,17 @@
 
 #include <memory>
 #include <algorithm>
-#include <bitset>
-#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <functional>
-#include <iostream>
-#include <limits>
-#include <queue>
-#include <unordered_map>
 #include <vector>
 
 #include <seastar/core/sstring.hh>
-#include <seastar/core/app-template.hh>
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/metrics.hh>
-#include <seastar/core/print.hh>
 #include <seastar/http/httpd.hh>
 #include <seastar/http/internal/content_source.hh>
 #include <seastar/http/reply.hh>

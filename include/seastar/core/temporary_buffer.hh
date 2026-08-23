@@ -30,8 +30,6 @@
 #include <malloc.h>
 
 #include <seastar/core/deleter.hh>
-#include <seastar/util/eclipse.hh>
-#include <seastar/util/std-compat.hh>
 #include <seastar/util/assert.hh>
 
 namespace seastar {

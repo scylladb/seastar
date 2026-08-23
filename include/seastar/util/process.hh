@@ -23,15 +23,9 @@
 #pragma once
 
 #include <sys/types.h>
-#include <algorithm>
 #include <filesystem>
-#include <initializer_list>
-#include <iterator>
-#include <string_view>
-#include <utility>
 #include <variant>
 #include <vector>
-#include <fmt/format.h>
 #include <seastar/core/iostream.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/sstring.hh>

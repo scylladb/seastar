@@ -20,7 +20,6 @@
  */
 
 
-#include <iostream>
 
 #include <seastar/http/matcher.hh>
 

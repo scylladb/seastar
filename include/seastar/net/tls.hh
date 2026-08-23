@@ -25,15 +25,14 @@
 #include <unordered_set>
 #include <map>
 #include <any>
+#include <string_view>
 #include <fmt/format.h>
 
 #include <seastar/core/future.hh>
-#include <seastar/core/internal/api-level.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/net/socket_defs.hh>
 #include <seastar/net/inet_address.hh>
-#include <seastar/util/std-compat.hh>
 #include <seastar/net/api.hh>
 
 namespace seastar {

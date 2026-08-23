@@ -22,8 +22,7 @@
 #pragma once
 
 #include <seastar/core/smp.hh>
-#include <seastar/core/deleter.hh>
-#include <seastar/core/queue.hh>
+#include <seastar/core/circular_buffer.hh>
 #include <seastar/core/stream.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/net/toeplitz.hh>

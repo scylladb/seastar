@@ -29,7 +29,6 @@
 
 #include <seastar/core/loop.hh>
 #include <seastar/core/when_all.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/http/client.hh>
 #include <seastar/http/common.hh>
 #include <seastar/http/request.hh>

@@ -31,8 +31,6 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
-#include <ranges>
-#include <regex>
 #include <seastar/util/log-level.hh>
 #include <thread>
 #include <unordered_map>
@@ -108,7 +106,6 @@
 #include <rte_launch.h>
 #endif
 #ifdef __GNUC__
-#include <iostream>
 #include <system_error>
 #include <cxxabi.h>
 #endif
@@ -131,6 +128,7 @@
 #include <seastar/core/prefetch.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/util/std-compat.hh>
 #include <seastar/core/report_exception.hh>
 #include <seastar/core/resource.hh>
 #include <seastar/core/scheduling.hh>

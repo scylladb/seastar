@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include "future.hh"
 #include <seastar/core/future.hh>
 #include <seastar/core/chunked_fifo.hh>
 #include <seastar/core/timer.hh>

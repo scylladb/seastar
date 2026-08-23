@@ -24,7 +24,6 @@
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/semaphore.hh>
-#include <seastar/util/std-compat.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <boost/lockfree/spsc_queue.hpp>
 

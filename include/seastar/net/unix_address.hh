@@ -21,8 +21,6 @@
 #pragma once
 
 #include <iosfwd>
-#include <sys/types.h>
-#include <sys/un.h>
 #include <string>
 
 namespace seastar {

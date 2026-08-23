@@ -48,7 +48,6 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/net/socket_defs.hh>
 #include <seastar/util/assert.hh>
-#include <seastar/util/std-compat.hh>
 
 namespace seastar {
 
