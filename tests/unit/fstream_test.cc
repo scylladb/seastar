@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <iostream>
 #include <numeric>
+#include <ranges>
 #include <seastar/core/fstream.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/core/shared_ptr.hh>
@@ -37,10 +38,7 @@
 #include <seastar/util/assert.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/tmp_file.hh>
-#include <boost/range/adaptor/transformed.hpp>
-#include <boost/algorithm/cxx11/any_of.hpp>
 #include "mock_file.hh"
-#include <boost/range/irange.hpp>
 #include <seastar/util/closeable.hh>
 #include <seastar/util/alloc_failure_injector.hh>
 
@@ -288,9 +286,9 @@ SEASTAR_TEST_CASE(test_input_stream_esp_around_eof) {
         auto flen = uint64_t(5341);
         auto rdist = std::uniform_int_distribution<int>(0, std::numeric_limits<char>::max());
         auto reng = testing::local_random_engine;
-        auto data = boost::copy_range<std::vector<uint8_t>>(
-                boost::irange<uint64_t>(0, flen)
-                | boost::adaptors::transformed([&] (int x) { return rdist(reng); }));
+        auto data = std::views::iota(uint64_t(0), flen)
+                | std::views::transform([&] (uint64_t) { return rdist(reng); })
+                | std::ranges::to<std::vector<uint8_t>>();
         auto filename = (t.get_path() / "testfile.tmp").native();
         auto f = open_file_dma(filename,
                 open_flags::rw | open_flags::create | open_flags::truncate).get();
@@ -382,7 +380,7 @@ SEASTAR_TEST_CASE(file_handle_test) {
                 }
             });
         }).get();
-        BOOST_REQUIRE(!boost::algorithm::any_of_equal(bad, 1u));
+        BOOST_REQUIRE(!std::ranges::contains(bad, 1u));
     });
 }
 

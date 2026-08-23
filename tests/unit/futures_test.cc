@@ -51,11 +51,8 @@
 #include <seastar/util/assert.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/later.hh>
-#include <boost/iterator/counting_iterator.hpp>
 #include <seastar/testing/thread_test_case.hh>
 
-#include <boost/range/iterator_range.hpp>
-#include <boost/range/irange.hpp>
 
 #include <seastar/core/internal/api-level.hh>
 #include <unistd.h>
@@ -905,7 +902,8 @@ SEASTAR_TEST_CASE(test_when_any_variadic_ii)
 SEASTAR_TEST_CASE(test_map_reduce) {
     auto square = [] (long x) { return make_ready_future<long>(x*x); };
     long n = 1000;
-    return map_reduce(boost::make_counting_iterator<long>(0), boost::make_counting_iterator<long>(n),
+    auto seq = std::views::iota(0l, n);
+    return map_reduce(seq.begin(), seq.end(),
             square, long(0), std::plus<long>()).then([n] (auto result) {
         auto m = n - 1; // counting does not include upper bound
         BOOST_REQUIRE_EQUAL(result, (m * (m + 1) * (2*m + 1)) / 6);
@@ -915,7 +913,8 @@ SEASTAR_TEST_CASE(test_map_reduce) {
 SEASTAR_TEST_CASE(test_map_reduce_simple) {
     return do_with(0L, [] (auto& res) {
         long n = 10;
-        return map_reduce(boost::make_counting_iterator<long>(0), boost::make_counting_iterator<long>(n),
+        auto seq = std::views::iota(0l, n);
+        return map_reduce(seq.begin(), seq.end(),
                 [] (long x) { return x; },
                 [&res] (long x) { res += x; }).then([n, &res] {
             long expected = (n * (n - 1)) / 2;
@@ -927,7 +926,8 @@ SEASTAR_TEST_CASE(test_map_reduce_simple) {
 SEASTAR_TEST_CASE(test_map_reduce_tuple) {
     return do_with(0L, 0L, [] (auto& res0, auto& res1) {
         long n = 10;
-        return map_reduce(boost::make_counting_iterator<long>(0), boost::make_counting_iterator<long>(n),
+        auto seq = std::views::iota(0l, n);
+        return map_reduce(seq.begin(), seq.end(),
                 [] (long x) { return std::tuple<long, long>(x, -x); },
                 [&res0, &res1] (std::tuple<long, long> t) { res0 += std::get<0>(t); res1 += std::get<1>(t); }).then([n, &res0, &res1] {
             long expected = (n * (n - 1)) / 2;
@@ -970,7 +970,8 @@ SEASTAR_TEST_CASE(test_map_reduce_lifetime) {
     };
     return do_with(0L, [] (auto& res) {
         long n = 10;
-        return map_reduce(boost::make_counting_iterator<long>(0), boost::make_counting_iterator<long>(n),
+        auto seq = std::views::iota(0l, n);
+        return map_reduce(seq.begin(), seq.end(),
                 map{}, reduce{res}).then([n, &res] {
             long expected = (n * (n - 1)) / 2;
             BOOST_REQUIRE_EQUAL(res, expected);
@@ -1006,7 +1007,8 @@ SEASTAR_TEST_CASE(test_map_reduce0_lifetime) {
         }
     };
     long n = 10;
-    return map_reduce(boost::make_counting_iterator<long>(0), boost::make_counting_iterator<long>(n),
+    auto seq = std::views::iota(0l, n);
+    return map_reduce(seq.begin(), seq.end(),
             map{}, 0L, reduce{}).then([n] (long res) {
         long expected = (n * (n - 1)) / 2;
         BOOST_REQUIRE_EQUAL(res, expected);
@@ -1052,8 +1054,9 @@ SEASTAR_TEST_CASE(test_map_reduce1_lifetime) {
         }
     };
     long n = 10;
-    return map_reduce(boost::make_counting_iterator<long>(0), boost::make_counting_iterator<long>(n),
-                      map{}, reduce{}).then([n] (long res) {
+    auto seq = std::views::iota(0l, n);
+    return map_reduce(seq.begin(), seq.end(),
+            map{}, reduce{}).then([n] (long res) {
         long expected = (n * (n - 1)) / 2;
         BOOST_REQUIRE_EQUAL(res, expected);
     });
@@ -1240,7 +1243,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each) {
         }).get();
 
         // immediate result
-        auto range = boost::copy_range<std::vector<int>>(boost::irange(1, 6));
+        auto range = std::views::iota(1, 6) | std::ranges::to<std::vector>();
         auto sum = 0;
         parallel_for_each(range, [&sum] (int v) {
             sum += v;
@@ -2304,7 +2307,7 @@ SEASTAR_THREAD_TEST_CASE(test_max_concurrent_for_each) {
         return make_exception_future<>(std::bad_function_call());
     }).get();
 
-    auto range = boost::copy_range<std::vector<int>>(boost::irange(1, 8));
+    auto range = std::views::iota(1, 8) | std::ranges::to<std::vector>();
 
     BOOST_TEST_MESSAGE("iterator");
     auto sum = 0;

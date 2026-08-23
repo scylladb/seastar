@@ -32,7 +32,6 @@
 #include <seastar/util/assert.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/print.hh>
-#include <boost/range/irange.hpp>
 #include <chrono>
 
 using namespace seastar;

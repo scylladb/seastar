@@ -31,7 +31,6 @@
 #include <seastar/core/manual_clock.hh>
 #include <seastar/core/timed_out_error.hh>
 #include <seastar/util/later.hh>
-#include <boost/range/irange.hpp>
 
 using namespace seastar;
 using namespace std::chrono_literals;

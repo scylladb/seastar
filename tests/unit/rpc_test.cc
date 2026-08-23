@@ -19,6 +19,8 @@
  * Copyright (C) 2016 ScyllaDB
  */
 
+#include <numeric>
+
 #include "loopback_socket.hh"
 #include "seastar/core/condition-variable.hh"
 #include "seastar/core/temporary_buffer.hh"
@@ -44,7 +46,6 @@
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/reactor.hh>
 
-#include <boost/range/numeric.hpp>
 
 #include <span>
 
@@ -1188,7 +1189,7 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
                 return buf.size();
             },
             [] (const std::vector<temporary_buffer<char>>& bufs) {
-                return boost::accumulate(bufs, size_t(0), [] (size_t sz, const temporary_buffer<char>& buf) {
+                return std::accumulate(bufs.begin(), bufs.end(), size_t(0), [] (size_t sz, const temporary_buffer<char>& buf) {
                     return sz + buf.size();
                 });
             }
