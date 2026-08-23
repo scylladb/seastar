@@ -87,10 +87,20 @@ void exception_generator(uint32_t test_instance, int nesting_level) {
 // thrown by the  exception generator function with a specific output.
 std::string exception_generator_str(uint32_t test_instance,int nesting_level) {
     std::ostringstream ret;
+#ifdef _LIBCPP_VERSION
+    // libc++'s throw_with_nested() uses its own __nested<T> wrapper class.
+    // Type names are taken verbatim from the demangler, which may or may not
+    // include the inline ABI namespace depending on the class.
+    const std::string runtime_err_str = "std::runtime_error";
+    const std::string unknown_obj_str = "unknown_obj";
+    const std::string nested_exception_with_unknown_obj_str = "std::__nested<unknown_obj>";
+    const std::string nested_exception_with_runtime_err_str = "std::__nested<std::runtime_error>";
+#else
     const std::string runtime_err_str = "std::runtime_error";
     const std::string unknown_obj_str = "unknown_obj";
     const std::string nested_exception_with_unknown_obj_str = "std::_Nested_exception<unknown_obj>";
     const std::string nested_exception_with_runtime_err_str = "std::_Nested_exception<std::runtime_error>";
+#endif
 
     for(; nesting_level > 0; nesting_level--) {
         if (test_instance & 1) {
@@ -171,7 +181,11 @@ BOOST_AUTO_TEST_CASE(nested_exception_logging3) {
         }
     }
 
+#ifdef _LIBCPP_VERSION
+    std::string expected_string("std::__nested<unknown_obj>: std::__nested<std::__1::system_error> (error generic:1, my error: Operation not permitted): very_important_exception (very important information)");
+#else
     std::string expected_string("std::_Nested_exception<unknown_obj>: std::_Nested_exception<std::system_error> (error generic:1, my error: Operation not permitted): very_important_exception (very important information)");
+#endif
 
     BOOST_REQUIRE_EQUAL(log_msg.str(), expected_string);
 }
@@ -222,7 +236,7 @@ BOOST_AUTO_TEST_CASE(throw_with_backtrace_exception_logging) {
     }
 
 #ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
-    auto regex_str = "backtraced<std::runtime_error> \\(throw_with_backtrace_exception_logging Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?\\)";
+    auto regex_str = "backtraced<std::runtime_error> \\(throw_with_backtrace_exception_logging Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-z]+\\))?\\)";
     check_regex_match(log_msg.str(), regex_str);
 #endif
 }
@@ -240,7 +254,14 @@ BOOST_AUTO_TEST_CASE(throw_with_backtrace_nested_exception_logging) {
     }
 
 #ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
-    auto regex_str = "std::_Nested_exception<unknown_obj>.*backtraced<std::runtime_error> \\(outer Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?\\)";
+#ifdef _LIBCPP_VERSION
+    // libc++'s throw_with_nested() uses its own __nested<T> wrapper class.
+    static const char* nested_exception_re = "std::__nested<unknown_obj>";
+#else
+    static const char* nested_exception_re = "std::_Nested_exception<unknown_obj>";
+#endif
+
+    auto regex_str = std::string(nested_exception_re) + ".*backtraced<std::runtime_error> \\(outer Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-z]+\\))?\\)";
     check_regex_match(log_msg.str(), regex_str);
 #endif
 }
@@ -264,7 +285,7 @@ BOOST_AUTO_TEST_CASE(throw_with_backtrace_seastar_nested_exception_logging) {
     }
 
 #ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
-    auto regex_str = "seastar::nested_exception:.*backtraced<std::runtime_error> \\(inner Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?\\)"
+    auto regex_str = "seastar::nested_exception:.*backtraced<std::runtime_error> \\(inner Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-z]+\\))?\\)"
             " \\(while cleaning up after unknown_obj\\)";
     check_regex_match(log_msg.str(), regex_str);
 #endif
@@ -290,8 +311,8 @@ BOOST_AUTO_TEST_CASE(double_throw_with_backtrace_seastar_nested_exception_loggin
     BOOST_TEST_MESSAGE(log_msg.str());
 
 #ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
-    auto regex_str = "seastar::nested_exception:.*backtraced<std::runtime_error> \\(inner Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?\\)"
-            " \\(while cleaning up after .*backtraced<std::runtime_error> \\(outer Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-f]+\\))?\\)\\)";
+    auto regex_str = "seastar::nested_exception:.*backtraced<std::runtime_error> \\(inner Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-z]+\\))?\\)"
+            " \\(while cleaning up after .*backtraced<std::runtime_error> \\(outer Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+(\\s+\\(BuildId: [0-9a-z]+\\))?\\)\\)";
     check_regex_match(log_msg.str(), regex_str);
 #endif
 }
