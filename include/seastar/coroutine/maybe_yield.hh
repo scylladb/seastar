@@ -22,7 +22,6 @@
 #pragma once
 
 #include <concepts>
-#include <type_traits>
 #include <seastar/core/coroutine.hh>
 
 namespace seastar::coroutine {

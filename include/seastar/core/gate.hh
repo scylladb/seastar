@@ -25,8 +25,6 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/util/assert.hh>
-#include <seastar/util/std-compat.hh>
-#include <cassert>
 #include <exception>
 #include <optional>
 #include <utility>

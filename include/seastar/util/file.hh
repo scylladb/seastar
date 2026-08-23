@@ -28,7 +28,6 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/coroutine.hh>
 #include <seastar/coroutine/as_future.hh>
-#include <seastar/util/std-compat.hh>
 #include <seastar/util/short_streams.hh>
 
 namespace seastar {

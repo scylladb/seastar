@@ -21,12 +21,8 @@
 
 #include <link.h>
 #include <sys/types.h>
-#include <unistd.h>
 #include <algorithm>
 #include <cstddef>
-#include <cerrno>
-#include <cstring>
-#include <iostream>
 #include <source_location>
 #include <variant>
 #include <vector>

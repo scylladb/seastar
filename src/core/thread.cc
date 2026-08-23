@@ -37,6 +37,7 @@
 #include <boost/intrusive/list.hpp>
 
 #include <seastar/core/thread.hh>
+#include <seastar/util/std-compat.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/internal/current_task.hh>
 #include <seastar/util/assert.hh>

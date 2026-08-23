@@ -44,7 +44,6 @@
 #include <memory>
 #include <vector>
 #include <optional>
-#include <boost/any.hpp>
 #include <boost/program_options.hpp>
 #include <boost/container/static_vector.hpp>
 

@@ -27,8 +27,6 @@
 #include <seastar/core/seastar.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/gate.hh>
-#include <seastar/core/queue.hh>
-#include <seastar/core/when_all.hh>
 #include <seastar/websocket/common.hh>
 
 namespace seastar::experimental::websocket {

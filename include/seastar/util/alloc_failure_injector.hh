@@ -23,7 +23,6 @@
 
 #include <limits>
 #include <cstdint>
-#include <functional>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/critical_alloc_section.hh>
 

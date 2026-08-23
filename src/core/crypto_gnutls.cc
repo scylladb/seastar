@@ -22,7 +22,6 @@
 #include "crypto.hh"
 #include "../net/tls-impl.hh"
 #include "../net/tls_gnutls.hh"
-#include <seastar/net/stack.hh>
 #include <seastar/util/defer.hh>
 #include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>

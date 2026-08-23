@@ -41,7 +41,6 @@
 #include <fmt/ranges.h>
 #endif
 #include <seastar/util/assert.hh>
-#include <seastar/util/std-compat.hh>
 #include <seastar/core/temporary_buffer.hh>
 
 namespace seastar {

@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include <boost/program_options/variables_map.hpp>
 #include <unordered_map>
 
 #include <seastar/http/matchrules.hh>

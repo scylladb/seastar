@@ -57,13 +57,11 @@
 #include <seastar/util/eclipse.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/noncopyable_function.hh>
-#include <seastar/util/std-compat.hh>
 #include "internal/pollable_fd.hh"
 
 #include <atomic>
 #include <cassert>
 #include <chrono>
-#include <cstring>
 #include <memory>
 #include <string_view>
 #include <unordered_map>

@@ -20,7 +20,6 @@
  */
 
 #include <cstring>
-#include <ostream>
 
 #include <seastar/util/internal/build_id.hh>
 

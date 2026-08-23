@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include <cstdio>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>

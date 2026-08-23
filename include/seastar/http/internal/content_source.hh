@@ -25,7 +25,6 @@
 #include <seastar/core/iostream.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/http/common.hh>
-#include <seastar/util/log.hh>
 #include <seastar/http/exception.hh>
 
 namespace seastar {

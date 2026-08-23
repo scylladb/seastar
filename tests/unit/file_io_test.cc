@@ -37,6 +37,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/stall_sampler.hh>
 #include <seastar/core/aligned_buffer.hh>
+#include <seastar/core/align.hh>
 #include <seastar/core/io_intent.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/util/assert.hh>

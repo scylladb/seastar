@@ -22,14 +22,11 @@
 #pragma once
 
 #include <unordered_map>
-#include <map>
-#include <functional>
 #include <deque>
 #include <chrono>
 #include <cstring>
 #include <random>
 #include <span>
-#include <stdexcept>
 #include <system_error>
 #include <seastar/core/internal/md5.hh>
 #include <seastar/core/shared_ptr.hh>
@@ -43,7 +40,6 @@
 #include <seastar/net/const.hh>
 #include <seastar/net/packet-util.hh>
 #include <seastar/util/assert.hh>
-#include <seastar/util/std-compat.hh>
 
 namespace seastar {
 

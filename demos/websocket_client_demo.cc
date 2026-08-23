@@ -16,6 +16,7 @@
  * under the License.
  */
 
+#include <iostream>
 #include <seastar/websocket/client.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/thread.hh>

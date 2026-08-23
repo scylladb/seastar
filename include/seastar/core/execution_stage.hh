@@ -30,7 +30,6 @@
 #include <seastar/util/reference_wrapper.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/tuple_utils.hh>
-#include <seastar/util/std-compat.hh>
 #include <fmt/format.h>
 #include <vector>
 #include <boost/container/static_vector.hpp>

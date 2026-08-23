@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include <seastar/core/cacheline.hh>
 #include <seastar/core/timer.hh>
 
 #include <chrono>

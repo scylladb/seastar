@@ -23,7 +23,6 @@
 #pragma once
 
 #include <seastar/core/future.hh>
-#include <seastar/core/loop.hh>
 #include <seastar/util/tuple_utils.hh>
 #include <seastar/util/critical_alloc_section.hh>
 #include <cstddef>

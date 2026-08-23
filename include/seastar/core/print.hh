@@ -22,8 +22,6 @@
 #pragma once
 
 #include <seastar/core/format.hh>
-#include <seastar/core/sstring.hh>
-#include <fmt/ostream.h>
 #include <iostream>
 #include <iomanip>
 #include <chrono>

@@ -21,12 +21,11 @@
  */
 
 
-#include <memory>
 #include <optional>
 #include <regex>
 #include <boost/algorithm/cxx11/any_of.hpp>
 #include <sys/utsname.h>
-#include <iostream>
+#include <ostream>
 
 #include <seastar/core/internal/uname.hh>
 

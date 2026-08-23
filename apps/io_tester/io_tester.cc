@@ -18,6 +18,7 @@
 /*
  * Copyright (C) 2017 ScyllaDB
  */
+#include <iostream>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/reactor.hh>

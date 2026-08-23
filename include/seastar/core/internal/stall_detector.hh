@@ -24,7 +24,6 @@
 
 #include <signal.h>
 #include <atomic>
-#include <limits>
 #include <chrono>
 #include <functional>
 #include <memory>

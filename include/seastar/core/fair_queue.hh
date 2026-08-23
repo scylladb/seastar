@@ -25,12 +25,10 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
-#include <seastar/core/metrics_registration.hh>
 #include <seastar/util/assert.hh>
 
 #include <chrono>
 #include <cstdint>
-#include <functional>
 #include <optional>
 #include <queue>
 #include <fmt/ostream.h>

@@ -25,13 +25,11 @@
 #include <type_traits>
 #include <utility>
 #include <functional>
-#include <array>
 #include <iterator>
 #include <stdint.h>
 #include <memory>
 #include <string>
 #include <tuple>
-#include <chrono>
 
 #include <seastar/core/future.hh>
 #include <seastar/net/byteorder.hh>

@@ -24,7 +24,6 @@
 #include <map>
 #include <unordered_map>
 #include <unordered_set>
-#include <list>
 #include <variant>
 #include <boost/intrusive/list.hpp>
 #include <seastar/core/future.hh>
@@ -32,10 +31,8 @@
 #include <seastar/net/api.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/core/shared_ptr.hh>
-#include <seastar/core/condition-variable.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/rpc/rpc_types.hh>
-#include <seastar/core/byteorder.hh>
 #include <seastar/core/shared_future.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/weak_ptr.hh>

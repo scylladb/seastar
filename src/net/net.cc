@@ -31,7 +31,6 @@
 #include <seastar/core/internal/poll.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/metrics.hh>
-#include <seastar/core/print.hh>
 #include <seastar/net/inet_address.hh>
 #include <seastar/util/assert.hh>
 

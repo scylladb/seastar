@@ -20,12 +20,10 @@
  */
 #pragma once
 
-#include <boost/intrusive/unordered_set.hpp>
 #include <boost/intrusive/list.hpp>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
-#include <assert.h>
 #include <vector>
 #include <algorithm>
 #include <seastar/core/metrics.hh>

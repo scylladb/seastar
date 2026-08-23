@@ -24,14 +24,13 @@
 #include <boost/algorithm/cxx11/none_of.hpp>
 #include <boost/next_prior.hpp>
 #include <yaml-cpp/yaml.h>
-#include <algorithm>
 #include <istream>
 #include <optional>
 #include <unordered_map>
 #include <string>
 
 #include <seastar/net/config.hh>
-#include <seastar/core/print.hh>
+#include <seastar/core/format.hh>
 
 using namespace boost::algorithm;
 

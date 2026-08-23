@@ -23,9 +23,6 @@
 
 #include <seastar/util/spinlock.hh>
 #include <seastar/core/shared_ptr.hh>
-#include <cassert>
-#include <cstdlib>
-#include <memory>
 #include <optional>
 #include <string>
 #include <vector>

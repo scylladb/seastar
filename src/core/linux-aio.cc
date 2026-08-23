@@ -31,7 +31,6 @@
 #include <valgrind/valgrind.h>
 
 #include <seastar/core/internal/linux-aio.hh>
-#include <seastar/core/print.hh>
 #include <seastar/util/read_first_line.hh>
 
 namespace seastar {

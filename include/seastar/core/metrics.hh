@@ -29,10 +29,8 @@
 #include <variant>
 #include <fmt/format.h>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/shared_ptr.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/metrics_types.hh>
-#include <seastar/util/std-compat.hh>
 #include <seastar/util/bool_class.hh>
 
 /*! \file metrics.hh

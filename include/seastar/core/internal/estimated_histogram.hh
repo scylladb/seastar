@@ -22,8 +22,6 @@
 #pragma once
 
 #include <cmath>
-#include <algorithm>
-#include <vector>
 #include <chrono>
 #include <string>
 #include <seastar/core/metrics_types.hh>

@@ -31,6 +31,7 @@
 #include <sys/inotify.h>
 
 #include <seastar/core/posix.hh>
+#include <seastar/util/std-compat.hh>
 #include <seastar/core/align.hh>
 #include <seastar/util/critical_alloc_section.hh>
 #include <seastar/util/assert.hh>

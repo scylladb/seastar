@@ -22,10 +22,8 @@
 
 #include <boost/algorithm/string.hpp>
 #include <boost/lexical_cast.hpp>
-#include <cctype>
 
 #include <seastar/util/conversions.hh>
-#include <seastar/core/print.hh>
 
 namespace seastar {
 

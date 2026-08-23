@@ -23,7 +23,6 @@
 #include <openssl/evp.h>
 #include "../net/tls-impl.hh"
 #include "../net/tls_openssl.hh"
-#include <seastar/net/stack.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/defer.hh>
@@ -31,7 +30,6 @@
 #include <openssl/err.h>
 #include <cstring>
 #include <stdexcept>
-#include <fmt/format.h>
 
 namespace seastar::internal::crypto {
 

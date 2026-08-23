@@ -55,7 +55,6 @@
 #include <seastar/core/internal/buffer_allocator.hh>
 #include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/core/internal/uname.hh>
-#include <seastar/core/print.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/reactor_config.hh>

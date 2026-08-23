@@ -24,7 +24,6 @@
 #include <seastar/core/chunked_fifo.hh>
 #include <seastar/core/internal/io_request.hh>
 
-#include <concepts>
 #include <cstddef>
 #include <type_traits>
 #include <utility>

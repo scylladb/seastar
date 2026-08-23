@@ -23,7 +23,6 @@
 
 #include <seastar/core/future.hh>
 #include <exception>
-#include <cassert>
 
 namespace seastar {
 

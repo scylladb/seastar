@@ -22,9 +22,7 @@
 
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <netinet/ip.h>
 #include <array>
-#include <cassert>
 #include <functional>
 #include <iosfwd>
 #include <fmt/ostream.h>

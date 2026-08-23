@@ -21,9 +21,6 @@
 #ifdef SEASTAR_HAVE_DPDK
 
 
-#include <cinttypes>
-#include <atomic>
-#include <iostream>
 #include <vector>
 #include <queue>
 #include <getopt.h>

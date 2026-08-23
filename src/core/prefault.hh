@@ -27,7 +27,6 @@
 
 #include <seastar/core/posix.hh>
 #include <seastar/core/resource.hh>
-#include <seastar/core/task.hh>
 #include <seastar/core/memory.hh>
 
 namespace seastar::alien {

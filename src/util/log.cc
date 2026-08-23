@@ -50,7 +50,6 @@
 #include <seastar/util/internal/array_map.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/future.hh>
-#include <seastar/core/print.hh>
 
 
 #include "core/program_options.hh"

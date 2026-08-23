@@ -19,7 +19,6 @@
 
 
 #include <boost/container_hash/hash_fwd.hpp>
-#include <ranges>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/metrics_api.hh>
 #include <string_view>

@@ -25,7 +25,7 @@
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/net/packet.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/util/std-compat.hh>
+#include <string_view>
 
 namespace seastar {
 

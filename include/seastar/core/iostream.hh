@@ -40,10 +40,7 @@
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/scattered_message.hh>
 #include <seastar/util/assert.hh>
-#include <seastar/util/std-compat.hh>
 #include <boost/intrusive/slist.hpp>
-#include <ranges>
-#include <algorithm>
 #include <memory>
 #include <optional>
 #include <variant>

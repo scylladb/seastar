@@ -21,11 +21,7 @@
 
 #pragma once
 
-#include <system_error>
 #include <vector>
-#include <unordered_map>
-#include <memory>
-#include <seastar/util/std-compat.hh>
 
 #include <seastar/core/future.hh>
 #include <seastar/core/sstring.hh>

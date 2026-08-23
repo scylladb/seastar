@@ -22,18 +22,13 @@
 
 #pragma once
 
-#include <boost/asio/ip/address_v4.hpp>
-#include <arpa/inet.h>
 #include <unordered_map>
 #include <cstdint>
-#include <array>
-#include <map>
 #include <list>
 #include <chrono>
 
 #include <seastar/util/internal/array_map.hh>
 #include <seastar/net/byteorder.hh>
-#include <seastar/core/byteorder.hh>
 #include <seastar/net/arp.hh>
 #include <seastar/net/ip_checksum.hh>
 #include <seastar/net/const.hh>

@@ -43,7 +43,6 @@
 #include <seastar/util/read_first_line.hh>
 #include <seastar/util/log.hh>
 #include <seastar/core/io_queue.hh>
-#include <seastar/core/print.hh>
 #include "cgroup.hh"
 
 #if SEASTAR_HAVE_HWLOC

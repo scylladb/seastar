@@ -2,7 +2,6 @@
 #include <seastar/rpc/multi_algo_compressor_factory.hh>
 #include <seastar/core/align.hh>
 #include <seastar/core/seastar.hh>
-#include <seastar/core/print.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/coroutine/as_future.hh>

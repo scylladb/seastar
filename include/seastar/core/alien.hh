@@ -31,7 +31,6 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/core/cacheline.hh>
-#include <seastar/core/sstring.hh>
 #include <seastar/core/metrics_registration.hh>
 
 /// \file
