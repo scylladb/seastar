@@ -37,11 +37,10 @@
 
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/algorithm/string.hpp>
-#include <boost/range/algorithm.hpp>
-#include <boost/range/combine.hpp>
 #include <seastar/core/thread.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/util/assert.hh>
+#include <algorithm>
 #include <ranges>
 #include <regex>
 #include <string_view>
@@ -625,9 +624,7 @@ class metric_family_iterator {
         const sstring *new_name = nullptr;
         const mi::metric_family_info* new_family_info = nullptr;
         _info._size = 0;
-        for (auto&& i : boost::combine(_positions, _families)) {
-            auto& pos_in_metric_per_shard = boost::get<0>(i);
-            auto& metric_family = boost::get<1>(i);
+        for (auto&& [pos_in_metric_per_shard, metric_family] : std::views::zip(_positions, _families)) {
             if (_info._name &&  pos_in_metric_per_shard < metric_family->metadata->size() &&
                     metric_family->metadata->at(pos_in_metric_per_shard).mf.name.compare(*_info._name) <= 0) {
                 pos_in_metric_per_shard++;
@@ -724,9 +721,7 @@ public:
 
     void foreach_metric(std::function<void(const mi::metric_value&, const mi::metric_series_metadata&)>&& f) {
         // iterating over the shard vector and the position vector
-        for (auto&& i : boost::combine(_positions, _families)) {
-            auto& pos_in_metric_per_shard = boost::get<0>(i);
-            auto& metric_family = boost::get<1>(i);
+        for (auto&& [pos_in_metric_per_shard, metric_family] : std::views::zip(_positions, _families)) {
             if (pos_in_metric_per_shard >= metric_family->metadata->size()) {
                 // no more metric family in this shard
                 continue;
@@ -737,9 +732,7 @@ public:
             if (metadata.mf.name == name()) {
                 const mi::value_vector& values = metric_family->values[pos_in_metric_per_shard];
                 const mi::metric_metadata_fifo& metrics_metadata = metadata.metrics;
-                for (auto&& vm : boost::combine(values, metrics_metadata)) {
-                    auto& value = boost::get<0>(vm);
-                    auto& metric_metadata = boost::get<1>(vm);
+                for (auto&& [value, metric_metadata] : std::views::zip(values, metrics_metadata)) {
                     f(value, metric_metadata);
                 }
             }
@@ -780,7 +773,7 @@ metric_family_iterator metrics_families_per_shard::find_bound(const sstring& fam
 
     for (auto& shard_info : _data) {
         std::vector<mi::metric_family_metadata>& metadata = *(shard_info->metadata);
-        std::vector<mi::metric_family_metadata>::iterator it_b = boost::range::upper_bound(metadata, family_name, comp);
+        std::vector<mi::metric_family_metadata>::iterator it_b = std::upper_bound(metadata.begin(), metadata.end(), family_name, comp);
         positions.emplace_back(it_b - metadata.begin());
     }
     return metric_family_iterator(*this, std::move(positions));

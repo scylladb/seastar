@@ -54,22 +54,13 @@
 #include <sys/eventfd.h>
 #include <poll.h>
 #include <netinet/in.h>
-#include <boost/lexical_cast.hpp>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/constants.hpp>
 #include <boost/algorithm/string/find_iterator.hpp>
 #include <boost/algorithm/string/finder.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/container/small_vector.hpp>
-#include <boost/iterator/counting_iterator.hpp>
 #include <boost/intrusive/list.hpp>
-#include <boost/range/adaptor/transformed.hpp>
-#include <boost/range/numeric.hpp>
-#include <boost/range/algorithm/sort.hpp>
-#include <boost/range/algorithm/remove_if.hpp>
-#include <boost/range/algorithm/find_if.hpp>
-#include <boost/algorithm/clamp.hpp>
-#include <boost/version.hpp>
 #define __user /* empty */  // for xfs includes, below
 #include <linux/types.h> // for xfs, below
 #include <sys/ioctl.h>
