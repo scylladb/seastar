@@ -661,6 +661,40 @@ public:
     }
 };
 
+// Run the client side of the echo test: connect to the server and exchange
+// the message `loops` times, verifying every echo.
+//
+// Always closes the output stream; an error from echoing takes precedence
+// over one thrown by close() (verification errors are reported by close(),
+// which waits for the flush to actually happen).
+static future<> echo_client_session(::shared_ptr<sstring> msg,
+                                    ::shared_ptr<tls::certificate_credentials> certs,
+                                    socket_address addr,
+                                    const sstring& name,
+                                    int loops,
+                                    bool do_read)
+{
+    auto s = co_await tls::connect(certs, addr, tls::tls_options{.server_name = name});
+    auto strms = ::make_lw_shared<streams>(std::move(s));
+
+    auto echo = [strms, msg, loops]() -> future<> {
+        for (auto i = 0; i < loops; i++) {
+            co_await strms->out.write(*msg);
+            co_await strms->out.flush();
+            auto buf = co_await strms->in.read_exactly(msg->size());
+            if (buf.empty()) {
+                throw std::runtime_error("Unexpected EOF");
+            }
+            sstring tmp(buf.begin(), buf.end());
+            BOOST_CHECK(*msg == tmp);
+        }
+    };
+
+    co_await echo().finally([do_read, strms]() -> future<> {
+        return do_read ? strms->out.close() : make_ready_future<>();
+    });
+}
+
 static future<> run_echo_test(sstring message,
                 int loops,
                 sstring trust,
@@ -684,59 +718,24 @@ static future<> run_echo_test(sstring message,
 
     SEASTAR_ASSERT(do_read || loops == 1);
 
-    future<> f = make_ready_future();
-
     if (!client_crt.empty() && !client_key.empty()) {
-        f = certs->set_x509_key_file(client_crt, client_key, tls::x509_crt_format::PEM);
+        co_await certs->set_x509_key_file(client_crt, client_key, tls::x509_crt_format::PEM);
         if (distinguished_name_callback) {
             certs->set_dn_verification_callback(std::move(distinguished_name_callback));
         }
     }
+    co_await certs->set_x509_trust_file(trust, tls::x509_crt_format::PEM);
 
-    return f.then([=] {
-        return certs->set_x509_trust_file(trust, tls::x509_crt_format::PEM);
-    }).then([=] {
-        return server->start(msg->size(), use_dh_params).then([=]() {
-            sstring server_trust;
-            if (ca != tls::client_auth::NONE) {
-                server_trust = trust;
-            }
-            return server->invoke_on_all(&echoserver::listen, addr, crt, key, ca, server_trust);
-        }).then([=] {
-            return tls::connect(certs, addr, tls::tls_options{.server_name=name}).then([loops, msg, do_read](::connected_socket s) {
-                auto strms = ::make_lw_shared<streams>(std::move(s));
-                auto range = std::views::iota(0, loops);
-                return do_for_each(range, [strms, msg](auto) {
-                    auto f = strms->out.write(*msg);
-                    return f.then([strms, msg]() {
-                        return strms->out.flush().then([strms, msg] {
-                            return strms->in.read_exactly(msg->size()).then([msg](temporary_buffer<char> buf) {
-                                if (buf.empty()) {
-                                    throw std::runtime_error("Unexpected EOF");
-                                }
-                                sstring tmp(buf.begin(), buf.end());
-                                BOOST_CHECK(*msg == tmp);
-                            });
-                        });
-                    });
-                }).then_wrapped([strms, do_read] (future<> f1) {
-                    // Always call close()
-                    return (do_read ? strms->out.close() : make_ready_future<>()).then_wrapped([strms, f1 = std::move(f1)] (future<> f2) mutable {
-                        // Verification errors will be reported by the call to output_stream::close(),
-                        // which waits for the flush to actually happen. They can also be reported by the
-                        // input_stream::read_exactly() call. We want to keep only one and avoid nested exception mess.
-                        if (f1.failed()) {
-                            (void)f2.handle_exception([] (std::exception_ptr ignored) { });
-                            return std::move(f1);
-                        }
-                        (void)f1.handle_exception([] (std::exception_ptr ignored) { });
-                        return f2;
-                    }).finally([strms] { });
-                });
-            });
-        }).finally([server] {
-            return server->stop().finally([server]{});
-        });
+    co_await [=]() -> future<> {
+        co_await server->start(msg->size(), use_dh_params);
+        sstring server_trust;
+        if (ca != tls::client_auth::NONE) {
+            server_trust = trust;
+        }
+        co_await server->invoke_on_all(&echoserver::listen, addr, crt, key, ca, server_trust);
+        co_await echo_client_session(msg, certs, addr, name, loops, do_read);
+    }().finally([server] {
+        return server->stop();
     });
 }
 
