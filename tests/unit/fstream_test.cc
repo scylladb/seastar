@@ -47,34 +47,19 @@
 using namespace seastar;
 namespace fs = std::filesystem;
 
-struct writer {
-    output_stream<char> out;
-    static future<shared_ptr<writer>> make(file f) {
-        return make_file_output_stream(std::move(f)).then([] (output_stream<char>&& os) {
-            return make_shared<writer>(writer{std::move(os)});
-        });
-    }
-};
-
-struct reader {
-    input_stream<char> in;
-    reader(file f) : in(make_file_input_stream(std::move(f))) {}
-    reader(file f, file_input_stream_options options) : in(make_file_input_stream(std::move(f), std::move(options))) {}
-};
-
 SEASTAR_TEST_CASE(test_fstream) {
     return tmp_dir::do_with([] (tmp_dir& t) -> future<> {
         auto filename = (t.get_path() / "testfile.tmp").native();
 
         auto wf = co_await open_file_dma(filename, open_flags::rw | open_flags::create | open_flags::truncate);
-        writer w{co_await make_file_output_stream(std::move(wf))};
+        auto out = co_await make_file_output_stream(std::move(wf));
 
         {
             auto buf = std::make_unique<char[]>(4096);
             buf[0] = '[';
             buf[1] = 'A';
             buf[4095] = ']';
-            co_await w.out.write(buf.get(), 4096);
+            co_await out.write(buf.get(), 4096);
         }
 
         {
@@ -82,9 +67,9 @@ SEASTAR_TEST_CASE(test_fstream) {
             buf[0] = '[';
             buf[1] = 'B';
             buf[8191] = ']';
-            co_await w.out.write(buf.get(), 8192);
+            co_await out.write(buf.get(), 8192);
         }
-        co_await w.out.close();
+        co_await out.close();
 
         /*  file content after running the above:
          * 00000000  5b 41 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |[A..............|
@@ -97,28 +82,29 @@ SEASTAR_TEST_CASE(test_fstream) {
          * 00002ff0  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 5d  |...............]|
          * 00003000
          */
-        reader r{co_await open_file_dma(filename, open_flags::ro)};
-        auto buf = co_await r.in.read_exactly(4096 + 8192);
+        auto rf = co_await open_file_dma(filename, open_flags::ro);
+        auto in = make_file_input_stream(std::move(rf));
+        auto buf = co_await in.read_exactly(4096 + 8192);
         auto p = buf.get();
         BOOST_REQUIRE(p[0] == '[' && p[1] == 'A' && p[4095] == ']');
         BOOST_REQUIRE(p[4096] == '[' && p[4096 + 1] == 'B' && p[4096 + 8191] == ']');
-        co_await r.in.close();
+        co_await in.close();
     });
 }
 
 SEASTAR_TEST_CASE(test_consume_skip_bytes) {
-    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+    return tmp_dir::do_with([] (tmp_dir& t) -> future<> {
         auto filename = (t.get_path() / "testfile.tmp").native();
-        auto f = open_file_dma(filename,
-                               open_flags::rw | open_flags::create | open_flags::truncate).get();
-        auto w = writer::make(std::move(f)).get();
-        auto write_block = [w] (char c, size_t size) {
+        auto wf = co_await open_file_dma(filename,
+                               open_flags::rw | open_flags::create | open_flags::truncate);
+        auto out = co_await make_file_output_stream(std::move(wf));
+        auto write_block = [&out] (char c, size_t size) -> future<> {
             std::vector<char> vec(size, c);
-            w->out.write(&vec.front(), vec.size()).get();
+            co_await out.write(&vec.front(), vec.size());
         };
-        write_block('a', 8192);
-        write_block('b', 8192);
-        w->out.close().get();
+        co_await write_block('a', 8192);
+        co_await write_block('b', 8192);
+        co_await out.close();
         /*  file content after running the above:
          * 00000000  61 61 61 61 61 61 61 61  61 61 61 61 61 61 61 61  |aaaaaaaaaaaaaaaa|
          * *
@@ -126,9 +112,8 @@ SEASTAR_TEST_CASE(test_consume_skip_bytes) {
          * *
          * 00004000
          */
-        f = open_file_dma(filename, open_flags::ro).get();
-        auto r = make_lw_shared<reader>(std::move(f), file_input_stream_options{512});
-        auto close_r_in = deferred_close(r->in);
+        auto rf = co_await open_file_dma(filename, open_flags::ro);
+        auto in = make_file_input_stream(std::move(rf), file_input_stream_options{512});
         struct consumer {
             uint64_t _count = 0;
             using consumption_result_type = typename input_stream<char>::consumption_result_type;
@@ -171,7 +156,9 @@ SEASTAR_TEST_CASE(test_consume_skip_bytes) {
                 }
             }
         };
-        r->in.consume(consumer{}).get();
+        co_await in.consume(consumer{}).finally([&in] {
+            return in.close();
+        });
     });
 }
 
@@ -180,16 +167,16 @@ SEASTAR_TEST_CASE(test_fstream_unaligned) {
         auto filename = (t.get_path() / "testfile.tmp").native();
 
         auto wf = co_await open_file_dma(filename, open_flags::rw | open_flags::create | open_flags::truncate);
-        writer w{co_await make_file_output_stream(std::move(wf))};
+        auto out = co_await make_file_output_stream(std::move(wf));
 
         {
             auto buf = std::make_unique<char[]>(40);
             buf[0] = '[';
             buf[1] = 'A';
             buf[39] = ']';
-            co_await w.out.write(buf.get(), 40);
+            co_await out.write(buf.get(), 40);
         }
-        co_await w.out.close();
+        co_await out.close();
 
         {
             // assert that file was indeed truncated to the amount of bytes written.
@@ -197,11 +184,12 @@ SEASTAR_TEST_CASE(test_fstream_unaligned) {
             BOOST_REQUIRE_EQUAL(co_await sf.size(), 40u);
         }
 
-        reader r{co_await open_file_dma(filename, open_flags::ro)};
-        auto buf = co_await r.in.read_exactly(40);
+        auto rf = co_await open_file_dma(filename, open_flags::ro);
+        auto in = make_file_input_stream(std::move(rf));
+        auto buf = co_await in.read_exactly(40);
         auto p = buf.get();
         BOOST_REQUIRE(p[0] == '[' && p[1] == 'A' && p[39] == ']');
-        co_await r.in.close();
+        co_await in.close();
     });
 }
 
