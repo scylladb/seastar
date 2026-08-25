@@ -21,6 +21,7 @@
 
 #include <seastar/core/reactor.hh>
 #include <seastar/core/seastar.hh>
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/memory.hh>
@@ -120,113 +121,109 @@ SEASTAR_TEST_CASE(test_file_desc_fdinfo) {
 }
 
 SEASTAR_TEST_CASE(socket_on_close_test) {
-    return seastar::async([&] {
-        listen_options lo;
-        lo.reuse_address = true;
-        server_socket ss = seastar::listen(ipv4_addr("127.0.0.1", 12345), lo);
+    listen_options lo;
+    lo.reuse_address = true;
+    server_socket ss = seastar::listen(ipv4_addr("127.0.0.1", 12345), lo);
 
-        bool server_closed = false;
-        bool client_notified = false;
+    bool server_closed = false;
+    bool client_notified = false;
 
-        auto client = seastar::async([&] {
-            connected_socket cln = connect(ipv4_addr("127.0.0.1", 12345)).get();
+    auto client = [&]() -> future<> {
+        connected_socket cln = co_await connect(ipv4_addr("127.0.0.1", 12345));
 
-            auto close_wait_fiber = cln.wait_input_shutdown().then([&] {
-                BOOST_REQUIRE_EQUAL(server_closed, true);
-                client_notified = true;
-                fmt::print("Client: server closed\n");
-            });
-
-            auto out = cln.output();
-            auto in = cln.input();
-
-            while (!client_notified) {
-                fmt::print("Client: -> message\n");
-                out.write("hello").get();
-                out.flush().get();
-                seastar::sleep(std::chrono::milliseconds(250)).get();
-                fmt::print("Client: <- message\n");
-                auto buf = in.read().get();
-                if (!buf) {
-                    fmt::print("Client: server eof\n");
-                    break;
-                }
-                seastar::sleep(std::chrono::milliseconds(250)).get();
-            }
-
-            out.close().get();
-            in.close().get();
-            close_wait_fiber.get();
+        auto close_wait_fiber = cln.wait_input_shutdown().then([&] {
+            BOOST_REQUIRE_EQUAL(server_closed, true);
+            client_notified = true;
+            fmt::print("Client: server closed\n");
         });
 
-        auto server = seastar::async([&] {
-            accept_result acc = ss.accept().get();
-            auto out = acc.connection.output();
-            auto in = acc.connection.input();
+        auto out = cln.output();
+        auto in = cln.input();
 
-            for (int i = 0; i < 3; i++) {
-                auto buf = in.read().get();
-                BOOST_REQUIRE_EQUAL(client_notified, false);
-                out.write(std::move(buf)).get();
-                out.flush().get();
-                fmt::print("Server: served\n");
+        while (!client_notified) {
+            fmt::print("Client: -> message\n");
+            co_await out.write("hello");
+            co_await out.flush();
+            co_await seastar::sleep(std::chrono::milliseconds(250));
+            fmt::print("Client: <- message\n");
+            auto buf = co_await in.read();
+            if (!buf) {
+                fmt::print("Client: server eof\n");
+                break;
             }
+            co_await seastar::sleep(std::chrono::milliseconds(250));
+        }
 
-            server_closed = true;
-            fmt::print("Server: closing\n");
-            out.close().get();
-            in.close().get();
-        });
+        co_await out.close();
+        co_await in.close();
+        co_await std::move(close_wait_fiber);
+    };
 
-        when_all(std::move(client), std::move(server)).discard_result().get();
-    });
+    auto server = [&]() -> future<> {
+        accept_result acc = co_await ss.accept();
+        auto out = acc.connection.output();
+        auto in = acc.connection.input();
+
+        for (int i = 0; i < 3; i++) {
+            auto buf = co_await in.read();
+            BOOST_REQUIRE_EQUAL(client_notified, false);
+            co_await out.write(std::move(buf));
+            co_await out.flush();
+            fmt::print("Server: served\n");
+        }
+
+        server_closed = true;
+        fmt::print("Server: closing\n");
+        co_await out.close();
+        co_await in.close();
+    };
+
+    co_await when_all(client(), server());
 }
 
 SEASTAR_TEST_CASE(socket_on_close_local_shutdown_test) {
-    return seastar::async([&] {
-        listen_options lo;
-        lo.reuse_address = true;
-        server_socket ss = seastar::listen(ipv4_addr("127.0.0.1", 12345), lo);
+    listen_options lo;
+    lo.reuse_address = true;
+    server_socket ss = seastar::listen(ipv4_addr("127.0.0.1", 12345), lo);
 
-        bool server_closed = false;
-        bool client_notified = false;
+    bool server_closed = false;
+    bool client_notified = false;
 
-        auto client = seastar::async([&] {
-            connected_socket cln = connect(ipv4_addr("127.0.0.1", 12345)).get();
+    auto client = [&]() -> future<> {
+        connected_socket cln = co_await connect(ipv4_addr("127.0.0.1", 12345));
 
-            auto close_wait_fiber = cln.wait_input_shutdown().then([&] {
-                BOOST_REQUIRE_EQUAL(server_closed, false);
-                client_notified = true;
-                fmt::print("Client: socket closed\n");
-            });
-
-            auto out = cln.output();
-            cln.shutdown_input();
-
-            auto fin = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-            do {
-                seastar::yield().get();
-            } while (!client_notified && std::chrono::steady_clock::now() < fin);
-            BOOST_REQUIRE_EQUAL(client_notified, true);
-
-            out.write("hello").get();
-            out.flush().get();
-            out.close().get();
-
-            close_wait_fiber.get();
+        auto close_wait_fiber = cln.wait_input_shutdown().then([&] {
+            BOOST_REQUIRE_EQUAL(server_closed, false);
+            client_notified = true;
+            fmt::print("Client: socket closed\n");
         });
 
-        auto server = seastar::async([&] {
-            accept_result acc = ss.accept().get();
-            auto in = acc.connection.input();
-            auto buf = in.read().get();
-            server_closed = true;
-            fmt::print("Server: closing\n");
-            in.close().get();
-        });
+        auto out = cln.output();
+        cln.shutdown_input();
 
-        when_all(std::move(client), std::move(server)).discard_result().get();
-    });
+        auto fin = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+        do {
+            co_await seastar::yield();
+        } while (!client_notified && std::chrono::steady_clock::now() < fin);
+        BOOST_REQUIRE_EQUAL(client_notified, true);
+
+        co_await out.write("hello");
+        co_await out.flush();
+        co_await out.close();
+
+        co_await std::move(close_wait_fiber);
+    };
+
+    auto server = [&]() -> future<> {
+        accept_result acc = co_await ss.accept();
+        auto in = acc.connection.input();
+        auto buf = co_await in.read();
+        server_closed = true;
+        fmt::print("Server: closing\n");
+        co_await in.close();
+    };
+
+    co_await when_all(client(), server());
 }
 
 // The test makes sure it's possible to abort connect()-ing a socket before
