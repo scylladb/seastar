@@ -83,59 +83,54 @@ static bool using_gnutls() {
 // max_attempts defaults to 1 (i.e. no retry) below.
 static constexpr int max_connect_attempts = 5;
 
-static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> certs, socket_address addr, const sstring& name = {}, int max_attempts = 1) {
-    return repeat_until_value([=, attempts = 0]() mutable {
-      ++attempts;
-      return futurize_invoke([=] {
-        return tls::connect(certs, addr, tls::tls_options{.server_name = name}).then([](connected_socket s) {
-            return do_with(std::move(s), [](connected_socket& s) {
-                return do_with(s.output(), [&s](auto& os) {
-                    static const sstring msg("GET / HTTP/1.0\r\n\r\n");
-                    auto f = os.write(msg);
-                    return f.then([&s, &os]() mutable {
-                        auto f = os.flush();
-                        return f.then([&s]() mutable {
-                            return do_with(s.input(), sstring{}, [](auto& in, sstring& buffer) {
-                                return do_until(std::bind(&input_stream<char>::eof, std::cref(in)), [&buffer, &in] {
-                                    auto f = in.read();
-                                    return f.then([&](temporary_buffer<char> buf) {
-                                        buffer.append(buf.get(), buf.size());
-                                    });
-                                }).then([&buffer]() -> future<std::optional<bool>> {
-                                    if (buffer.empty()) {
-                                        // # 1127 google servers have a (pretty short) timeout between connect and expected first
-                                        // write. If we are delayed inbetween connect and write above (cert verification, scheduling
-                                        // solar spots or just time sharing on AWS) we could get a short read here. Just retry.
-                                        // If we get an actual error, it is either on protocol level (exception) or HTTP error.
-                                        return make_ready_future<std::optional<bool>>(std::nullopt);
-                                    }
-                                    BOOST_CHECK(buffer.size() > 8);
-                                    BOOST_CHECK_EQUAL(buffer.substr(0, 5), sstring("HTTP/"));
-                                    return make_ready_future<std::optional<bool>>(true);
-                                });
-                            });
-                        });
-                    }).finally([&os] {
-                        return os.close();
-                    });
-                });
-            });
-        });
-      }).then_wrapped([attempts, max_attempts](future<std::optional<bool>> f) -> future<std::optional<bool>> {
-        if (!f.failed() || attempts >= max_attempts) {
-            return f;
+// Issue one GET request over the connection and read the response.
+// Returns true if the server sent a response.
+static future<bool> send_request_and_read_response(input_stream<char> is, output_stream<char>& os, const sstring& msg) {
+    co_await os.write(msg);
+    co_await os.flush();
+
+    sstring buffer;
+    while (!is.eof()) {
+        auto buf = co_await is.read();
+        buffer.append(buf.get(), buf.size());
+    }
+    if (buffer.empty()) {
+        // # 1127 google servers have a (pretty short) timeout between connect and expected first
+        // write. If we are delayed inbetween connect and write above (cert verification, scheduling
+        // solar spots or just time sharing on AWS) we could get a short read here. Just retry.
+        co_return false;
+    }
+    BOOST_CHECK(buffer.size() > 8);
+    BOOST_CHECK_EQUAL(buffer.substr(0, 5), sstring("HTTP/"));
+    co_return true;
+}
+
+static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> certs, socket_address addr, sstring name = {}, int max_attempts = 1) {
+    static const sstring msg("GET / HTTP/1.0\r\n\r\n");
+
+    for (int attempts = 1; ; ++attempts) {
+        bool responded = false;
+        try {
+            auto s = co_await tls::connect(certs, addr, tls::tls_options{.server_name = name});
+            auto os = s.output();
+            // always close(); closing waits for the flush to complete
+            responded = co_await send_request_and_read_response(s.input(), os, msg)
+                .finally([&os] { return os.close(); });
+        } catch (...) {
+            // When the peer is a real server out on the internet, a certain amount
+            // of transient failure (connection reset, abrupt close, throttling) is
+            // inherent and says nothing about what is being tested. Back off and
+            // try again; a failure that is not transient survives every attempt and
+            // is reported unchanged.
+            if (attempts >= max_attempts) {
+                throw;
+            }
         }
-        // When the peer is a real server out on the internet, a certain amount
-        // of transient failure (connection reset, abrupt close, throttling) is
-        // inherent and says nothing about what is being tested. Back off and
-        // try again; a failure that is not transient survives every attempt and
-        // is reported unchanged.
-        f.ignore_ready_future();
-        return sleep(std::chrono::milliseconds(100 * attempts)).then([] {
-            return make_ready_future<std::optional<bool>>(std::nullopt);
-        });
-      });
-    }).discard_result();
+        if (responded) {
+            co_return;
+        }
+        co_await sleep(std::chrono::milliseconds(100 * attempts));
+    }
 }
 
 static const auto google_name = "www.google.com";
@@ -666,6 +661,40 @@ public:
     }
 };
 
+// Run the client side of the echo test: connect to the server and exchange
+// the message `loops` times, verifying every echo.
+//
+// Always closes the output stream; an error from echoing takes precedence
+// over one thrown by close() (verification errors are reported by close(),
+// which waits for the flush to actually happen).
+static future<> echo_client_session(::shared_ptr<sstring> msg,
+                                    ::shared_ptr<tls::certificate_credentials> certs,
+                                    socket_address addr,
+                                    const sstring& name,
+                                    int loops,
+                                    bool do_read)
+{
+    auto s = co_await tls::connect(certs, addr, tls::tls_options{.server_name = name});
+    auto strms = ::make_lw_shared<streams>(std::move(s));
+
+    auto echo = [strms, msg, loops]() -> future<> {
+        for (auto i = 0; i < loops; i++) {
+            co_await strms->out.write(*msg);
+            co_await strms->out.flush();
+            auto buf = co_await strms->in.read_exactly(msg->size());
+            if (buf.empty()) {
+                throw std::runtime_error("Unexpected EOF");
+            }
+            sstring tmp(buf.begin(), buf.end());
+            BOOST_CHECK(*msg == tmp);
+        }
+    };
+
+    co_await echo().finally([do_read, strms]() -> future<> {
+        return do_read ? strms->out.close() : make_ready_future<>();
+    });
+}
+
 static future<> run_echo_test(sstring message,
                 int loops,
                 sstring trust,
@@ -689,59 +718,24 @@ static future<> run_echo_test(sstring message,
 
     SEASTAR_ASSERT(do_read || loops == 1);
 
-    future<> f = make_ready_future();
-
     if (!client_crt.empty() && !client_key.empty()) {
-        f = certs->set_x509_key_file(client_crt, client_key, tls::x509_crt_format::PEM);
+        co_await certs->set_x509_key_file(client_crt, client_key, tls::x509_crt_format::PEM);
         if (distinguished_name_callback) {
             certs->set_dn_verification_callback(std::move(distinguished_name_callback));
         }
     }
+    co_await certs->set_x509_trust_file(trust, tls::x509_crt_format::PEM);
 
-    return f.then([=] {
-        return certs->set_x509_trust_file(trust, tls::x509_crt_format::PEM);
-    }).then([=] {
-        return server->start(msg->size(), use_dh_params).then([=]() {
-            sstring server_trust;
-            if (ca != tls::client_auth::NONE) {
-                server_trust = trust;
-            }
-            return server->invoke_on_all(&echoserver::listen, addr, crt, key, ca, server_trust);
-        }).then([=] {
-            return tls::connect(certs, addr, tls::tls_options{.server_name=name}).then([loops, msg, do_read](::connected_socket s) {
-                auto strms = ::make_lw_shared<streams>(std::move(s));
-                auto range = std::views::iota(0, loops);
-                return do_for_each(range, [strms, msg](auto) {
-                    auto f = strms->out.write(*msg);
-                    return f.then([strms, msg]() {
-                        return strms->out.flush().then([strms, msg] {
-                            return strms->in.read_exactly(msg->size()).then([msg](temporary_buffer<char> buf) {
-                                if (buf.empty()) {
-                                    throw std::runtime_error("Unexpected EOF");
-                                }
-                                sstring tmp(buf.begin(), buf.end());
-                                BOOST_CHECK(*msg == tmp);
-                            });
-                        });
-                    });
-                }).then_wrapped([strms, do_read] (future<> f1) {
-                    // Always call close()
-                    return (do_read ? strms->out.close() : make_ready_future<>()).then_wrapped([strms, f1 = std::move(f1)] (future<> f2) mutable {
-                        // Verification errors will be reported by the call to output_stream::close(),
-                        // which waits for the flush to actually happen. They can also be reported by the
-                        // input_stream::read_exactly() call. We want to keep only one and avoid nested exception mess.
-                        if (f1.failed()) {
-                            (void)f2.handle_exception([] (std::exception_ptr ignored) { });
-                            return std::move(f1);
-                        }
-                        (void)f1.handle_exception([] (std::exception_ptr ignored) { });
-                        return f2;
-                    }).finally([strms] { });
-                });
-            });
-        }).finally([server] {
-            return server->stop().finally([server]{});
-        });
+    co_await [=]() -> future<> {
+        co_await server->start(msg->size(), use_dh_params);
+        sstring server_trust;
+        if (ca != tls::client_auth::NONE) {
+            server_trust = trust;
+        }
+        co_await server->invoke_on_all(&echoserver::listen, addr, crt, key, ca, server_trust);
+        co_await echo_client_session(msg, certs, addr, name, loops, do_read);
+    }().finally([server] {
+        return server->stop();
     });
 }
 
@@ -2449,7 +2443,7 @@ SEASTAR_THREAD_TEST_CASE(test_send_two_large) {
     constexpr size_t total_size = 2 * buf_size;
 
     std::default_random_engine random_engine(42);
-    auto dist = std::uniform_int_distribution<char>();
+    auto dist = std::uniform_int_distribution<int>();
 
     auto expected_data = temporary_buffer<char>(total_size);
     std::generate(expected_data.get_write(), expected_data.get_write() + total_size,
