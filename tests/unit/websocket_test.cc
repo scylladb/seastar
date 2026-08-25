@@ -5,6 +5,7 @@
 #include <seastar/core/future.hh>
 #include <seastar/websocket/server.hh>
 #include <seastar/websocket/client.hh>
+#include <seastar/core/coroutine.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/http/response_parser.hh>
@@ -37,53 +38,40 @@ std::string build_request(std::string_view key_base64, std::string_view subproto
 }
 
 future<> test_websocket_handshake_common(std::string subprotocol) {
-    return seastar::async([=] {
-        const std::string request = build_request("dGhlIHNhbXBsZSBub25jZQ==", subprotocol);
+    const std::string request = build_request("dGhlIHNhbXBsZSBub25jZQ==", subprotocol);
 
-        loopback_connection_factory factory;
-        loopback_socket_impl lsi(factory);
+    loopback_connection_factory factory;
+    loopback_socket_impl lsi(factory);
 
-        auto acceptor = factory.get_server_socket().accept();
-        auto connector = lsi.connect(socket_address(), socket_address());
-        connected_socket sock = connector.get();
-        auto input = sock.input();
-        auto output = sock.output();
+    future<accept_result> accepted = factory.get_server_socket().accept();
+    connected_socket sock = co_await lsi.connect(socket_address(), socket_address());
+    auto input = sock.input();
+    auto output = sock.output();
 
-        websocket::server dummy;
-        dummy.register_handler(subprotocol, [] (input_stream<char>& in,
-                        output_stream<char>& out) {
-                return repeat([&in, &out]() {
-                    return in.read().then([&out](temporary_buffer<char> f) {
-                        std::cerr << "f.size(): " << f.size() << "\n";
-                        if (f.empty()) {
-                            return make_ready_future<stop_iteration>(stop_iteration::yes);
-                        } else {
-                            return out.write(std::move(f)).then([&out]() {
-                                return out.flush().then([] {
-                                    return make_ready_future<stop_iteration>(stop_iteration::no);
-                                });
-                            });
-                        }
-                    });
-                });
-            });
-        websocket::server_connection conn(dummy, acceptor.get().connection);
-        future<> serve = conn.process();
-        auto close = defer([&conn, &input, &output, &serve] () noexcept {
-            conn.close().get();
-            input.close().get();
-            output.close().get();
-            serve.get();
-         });
+    websocket::server dummy;
+    dummy.register_handler(subprotocol, [](input_stream<char>& in, output_stream<char>& out) -> future<> {
+        while (true) {
+            auto f = co_await in.read();
+            if (f.empty()) {
+                break;
+            }
+            co_await out.write(std::move(f));
+            co_await out.flush();
+        }
+    });
+    websocket::server_connection conn(dummy, (co_await std::move(accepted)).connection);
+    future<> serve = conn.process();
 
+    std::exception_ptr ex;
+    try {
         // Send the handshake
-        output.write(request).get();
-        output.flush().get();
+        co_await output.write(request);
+        co_await output.flush();
         // Check that the server correctly computed the response
         // according to WebSocket handshake specification
         http_response_parser parser;
         parser.init();
-        input.consume(parser).get();
+        co_await input.consume(parser);
         std::unique_ptr<http::reply> resp = parser.get_parsed_response();
         SEASTAR_ASSERT(resp);
         sstring websocket_accept = resp->_headers["Sec-WebSocket-Accept"];
@@ -96,7 +84,18 @@ future<> test_websocket_handshake_common(std::string subprotocol) {
         for (auto& header : resp->_headers) {
             std::cout << header.first << ':' << header.second << std::endl;
         }
-    });
+    } catch (...) {
+        ex = std::current_exception();
+    }
+
+    co_await conn.close();
+    co_await input.close();
+    co_await output.close();
+    co_await std::move(serve);
+
+    if (ex) {
+        std::rethrow_exception(ex);
+    }
 }
 
 SEASTAR_TEST_CASE(test_websocket_handshake) {
@@ -108,74 +107,73 @@ SEASTAR_TEST_CASE(test_websocket_handshake_no_subprotocol) {
 }
 
 future<> test_websocket_handler_registration_common(std::string subprotocol) {
-    return seastar::async([=] {
-        loopback_connection_factory factory;
-        loopback_socket_impl lsi(factory);
+    loopback_connection_factory factory;
+    loopback_socket_impl lsi(factory);
 
-        auto acceptor = factory.get_server_socket().accept();
-        auto connector = lsi.connect(socket_address(), socket_address());
-        connected_socket sock = connector.get();
-        auto input = sock.input();
-        auto output = sock.output();
+    future<accept_result> accepted = factory.get_server_socket().accept();
+    connected_socket sock = co_await lsi.connect(socket_address(), socket_address());
+    auto input = sock.input();
+    auto output = sock.output();
 
-        // Setup server
-        websocket::server ws;
-        ws.register_handler(subprotocol, [] (input_stream<char>& in,
-                        output_stream<char>& out) {
-            return repeat([&in, &out]() {
-                return in.read().then([&out](temporary_buffer<char> f) {
-                    std::cerr << "f.size(): " << f.size() << "\n";
-                    if (f.empty()) {
-                        return make_ready_future<stop_iteration>(stop_iteration::yes);
-                    } else {
-                        return out.write(std::move(f)).then([&out]() {
-                            return out.flush().then([] {
-                                return make_ready_future<stop_iteration>(stop_iteration::no);
-                            });
-                        });
-                    }
-                });
-            });
-        });
-        websocket::server_connection conn(ws, acceptor.get().connection);
-        future<> serve = conn.process();
-
-        auto close = defer([&conn, &input, &output, &serve] () noexcept {
-            conn.close().get();
-            input.close().get();
-            output.close().get();
-            serve.get();
-         });
-
-        // handshake
-        const std::string request = build_request("dGhlIHNhbXBsZSBub25jZQ==", subprotocol);
-        output.write(request).get();
-        output.flush().get();
-
-        unsigned reply_size = 156;
-        if (!subprotocol.empty()) {
-            reply_size += ("\r\nSec-WebSocket-Protocol: "sv).size() + subprotocol.size();
+    // Setup server
+    websocket::server ws;
+    ws.register_handler(subprotocol, [](input_stream<char>& in, output_stream<char>& out) -> future<> {
+        while (true) {
+            auto f = co_await in.read();
+            if (f.empty()) {
+                break;
+            }
+            co_await out.write(std::move(f));
+            co_await out.flush();
         }
-        input.read_exactly(reply_size).get();
+    });
+    websocket::server_connection conn(ws, (co_await std::move(accepted)).connection);
+    future<> serve = conn.process();
 
-        unsigned ws_frame_len = 10;
+    // handshake
+    const std::string request = build_request("dGhlIHNhbXBsZSBub25jZQ==", subprotocol);
 
-        // Sending and receiving a websocket frame
-        const std::string ws_frame = std::string(
-            "\202\204"  // 1000 0002 1000 0100
-            "TEST"      // Masking Key
-            "\0\0\0\0", ws_frame_len); // Masked Message - TEST
-        const auto rs_frame = std::string(
-            "\202\004" // 1000 0002 0000 0100
-            "TEST", 6);    // Message - TEST
+    unsigned reply_size = 156;
+    if (!subprotocol.empty()) {
+        reply_size += ("\r\nSec-WebSocket-Protocol: "sv).size() + subprotocol.size();
+    }
 
-        output.write(ws_frame).get();
-        output.flush().get();
+    unsigned ws_frame_len = 10;
 
-        auto response = input.read_exactly(6).get();
+    // Sending and receiving a websocket frame
+    const std::string ws_frame = std::string(
+        "\202\204"  // 1000 0002 1000 0100
+        "TEST"      // Masking Key
+        "\0\0\0\0", ws_frame_len); // Masked Message - TEST
+    const auto rs_frame = std::string(
+        "\202\004" // 1000 0002 0000 0100
+        "TEST", 6);    // Message - TEST
+
+    std::exception_ptr ex;
+    try {
+        co_await output.write(request);
+        co_await output.flush();
+
+        co_await input.read_exactly(reply_size);
+
+        co_await output.write(ws_frame);
+        co_await output.flush();
+
+        auto response = co_await input.read_exactly(6);
         auto response_str = std::string(response.begin(), response.end());
         BOOST_REQUIRE_EQUAL(rs_frame, response_str);
-    });
+    } catch (...) {
+        ex = std::current_exception();
+    }
+
+    co_await conn.close();
+    co_await input.close();
+    co_await output.close();
+    co_await std::move(serve);
+
+    if (ex) {
+        std::rethrow_exception(ex);
+    }
 }
 
 SEASTAR_TEST_CASE(test_websocket_handler_registration) {
