@@ -1256,8 +1256,8 @@ SEASTAR_THREAD_TEST_CASE(test_posix_file_dma_read_bulk) {
     static constexpr size_t data_size = 5 * test_posix_file_impl::block_size + 123;
     temporary_buffer<char> data(data_size);
     auto random_engine = testing::local_random_engine;
-    auto dist = std::uniform_int_distribution<char>();
-    std::ranges::generate(data.get_write(), data.end(), [&] { return dist(random_engine); });
+    auto dist = std::uniform_int_distribution<int>(0, 255);
+    std::ranges::generate(data.get_write(), data.end(), [&] { return static_cast<char>(dist(random_engine)); });
     auto f = std::make_unique<test_posix_file_impl>(data);
 
     auto read_and_validate = [&] (size_t offset, size_t length) {

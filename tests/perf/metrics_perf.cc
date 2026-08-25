@@ -40,13 +40,18 @@ auto irange(size_t upper_bound) {
 }
 
 void remove_existing_metrics() {
-    const auto& map = seastar::metrics::impl::get_value_map();
-
-    for (auto& family : map) {
-        auto name = family.first;
-        for (auto& series: family.second) {
-            seastar::metrics::impl::unregister_metric(series.second->get_id());
+    // Unregistering invalidates iterators into the value map, so collect
+    // the metric ids first and only then remove them.
+    std::vector<seastar::metrics::impl::metric_id> ids;
+    for (const auto& family : seastar::metrics::impl::get_value_map()) {
+        for (const auto& series : family.second) {
+            if (series.second) {
+                ids.push_back(series.second->get_id());
+            }
         }
+    }
+    for (const auto& id : ids) {
+        seastar::metrics::impl::unregister_metric(id);
     }
 
     assert(seastar::metrics::impl::get_value_map().size() == 0);

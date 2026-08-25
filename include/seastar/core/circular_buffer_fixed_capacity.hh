@@ -130,6 +130,9 @@ public:
             _idx -= n;
             return *this;
         }
+        ValueType& operator[](difference_type n) const {
+            return _start[mask(_idx + n)].data;
+        }
         bool operator==(const cbiterator& rhs) const {
             return _idx == rhs._idx;
         }
