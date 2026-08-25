@@ -506,44 +506,36 @@ SEASTAR_TEST_CASE(test_match_rule_order_with_param) {
     return make_ready_future<>();
 }
 
-future<> test_transformer_stream(std::stringstream& ss, content_replace& cr, std::vector<sstring>&& buffer_parts) {
-    std::unique_ptr<seastar::http::request> req = std::make_unique<seastar::http::request>();
+static future<> test_transformer_stream(std::stringstream& ss, content_replace& cr, std::vector<sstring> buffer_parts) {
+    auto req = std::make_unique<seastar::http::request>();
     ss.str("");
     req->_headers["Host"] = "localhost";
     output_stream_options opts;
     opts.trim_to_size = true;
-    return do_with(output_stream<char>(cr.transform(std::move(req), "json", output_stream<char>(testing::memory_data_sink(ss), 32000, opts))),
-            std::vector<sstring>(std::move(buffer_parts)), [] (output_stream<char>& os, std::vector<sstring>& parts) {
-        return do_for_each(parts, [&os](auto& p) {
-            return os.write(p);
-        }).then([&os] {
-            return os.close();
-        });
-    });
+    output_stream<char> os(cr.transform(std::move(req), "json", output_stream<char>(testing::memory_data_sink(ss), 32000, opts)));
+    for (auto& part : buffer_parts) {
+        co_await os.write(part);
+    }
+    co_await os.close();
 }
 
 SEASTAR_TEST_CASE(test_transformer) {
-    return do_with(std::stringstream(), content_replace("json"), [] (std::stringstream& ss, content_replace& cr) {
-        output_stream_options opts;
-        opts.trim_to_size = true;
-        return do_with(output_stream<char>(cr.transform(std::make_unique<seastar::http::request>(), "html", output_stream<char>(testing::memory_data_sink(ss), 32000, opts))),
-                [] (output_stream<char>& os) {
-            return os.write(sstring("hello-{{Protocol}}-xyz-{{Host}}")).then([&os] {
-                return os.close();
-            });
-        }).then([&ss, &cr] () {
-            BOOST_REQUIRE_EQUAL(ss.str(), "hello-{{Protocol}}-xyz-{{Host}}");
-            return test_transformer_stream(ss, cr, {"hell", "o-{", "{Pro", "tocol}}-xyz-{{Ho", "st}}{{Pr"}).then([&ss, &cr] {
-                BOOST_REQUIRE_EQUAL(ss.str(), "hello-http-xyz-localhost{{Pr");
-                return test_transformer_stream(ss, cr, {"hell", "o-{{", "Pro", "tocol}}{{Protocol}}-{{Protoxyz-{{Ho", "st}}{{Pr"}).then([&ss, &cr] {
-                    BOOST_REQUIRE_EQUAL(ss.str(), "hello-httphttp-{{Protoxyz-localhost{{Pr");
-                    return test_transformer_stream(ss, cr, {"hell", "o-{{Pro", "t{{Protocol}}ocol}}", "{{Host}}"}).then([&ss] {
-                        BOOST_REQUIRE_EQUAL(ss.str(), "hello-{{Prothttpocol}}localhost");
-                    });
-                });
-            });
-        });
-    });
+    std::stringstream ss;
+    content_replace cr("json");
+
+    output_stream_options opts;
+    opts.trim_to_size = true;
+    output_stream<char> os(cr.transform(std::make_unique<seastar::http::request>(), "html", output_stream<char>(testing::memory_data_sink(ss), 32000, opts)));
+    co_await os.write(sstring("hello-{{Protocol}}-xyz-{{Host}}"));
+    co_await os.close();
+
+    BOOST_REQUIRE_EQUAL(ss.str(), "hello-{{Protocol}}-xyz-{{Host}}");
+    co_await test_transformer_stream(ss, cr, {"hell", "o-{", "{Pro", "tocol}}-xyz-{{Ho", "st}}{{Pr"});
+    BOOST_REQUIRE_EQUAL(ss.str(), "hello-http-xyz-localhost{{Pr");
+    co_await test_transformer_stream(ss, cr, {"hell", "o-{{", "Pro", "tocol}}{{Protocol}}-{{Protoxyz-{{Ho", "st}}{{Pr"});
+    BOOST_REQUIRE_EQUAL(ss.str(), "hello-httphttp-{{Protoxyz-localhost{{Pr");
+    co_await test_transformer_stream(ss, cr, {"hell", "o-{{Pro", "t{{Protocol}}ocol}}", "{{Host}}"});
+    BOOST_REQUIRE_EQUAL(ss.str(), "hello-{{Prothttpocol}}localhost");
 }
 
 
