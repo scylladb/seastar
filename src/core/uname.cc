@@ -21,9 +21,10 @@
  */
 
 
+#include <algorithm>
 #include <optional>
+#include <ranges>
 #include <regex>
-#include <boost/algorithm/cxx11/any_of.hpp>
 #include <sys/utsname.h>
 #include <ostream>
 
@@ -107,7 +108,7 @@ uname_t parse_uname(const char* u) {
 
 
 bool uname_t::whitelisted(std::initializer_list<const char*> wl) const {
-    return boost::algorithm::any_of(wl, [this] (const char* v) {
+    return std::ranges::any_of(wl, [this] (const char* v) {
         return same_as_or_descendant_of(parse_uname(v));
     });
 }

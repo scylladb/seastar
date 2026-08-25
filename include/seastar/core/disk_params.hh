@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include <boost/range/adaptor/map.hpp>
+#include <ranges>
 #include <chrono>
 #include <limits>
 
@@ -92,7 +92,7 @@ public:
     struct io_queue::config generate_config(const disk_params& p, unsigned q, unsigned nr_groups) const;
 
     auto queue_ids() {
-        return boost::adaptors::keys(_disks);
+        return _disks | std::views::keys;
     }
 
     const std::vector<dev_t>& queue_devices(unsigned q) const {

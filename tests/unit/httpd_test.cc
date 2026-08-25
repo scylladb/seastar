@@ -2,6 +2,8 @@
  * Copyright 2015 Cloudius Systems
  */
 
+#include <algorithm>
+#include <ranges>
 #include <seastar/http/function_handlers.hh>
 #include <seastar/http/httpd.hh>
 #include <seastar/http/handlers.hh>
@@ -28,7 +30,6 @@
 #include "loopback_socket.hh"
 #include "memory-data-sink.hh"
 #include "tmpdir.hh"
-#include <boost/algorithm/string.hpp>
 #include <boost/dll.hpp>
 #include <seastar/core/thread.hh>
 #include <seastar/util/noncopyable_function.hh>
@@ -2645,8 +2646,10 @@ SEASTAR_THREAD_TEST_CASE(test_reply_cookies) {
     auto e = std::remove(headers_str.begin(), headers_str.end(), '\r');
     sstring headers_str_no_cr(headers_str.begin(), e);
 
-    std::vector<sstring> lines;
-    boost::split(lines, headers_str_no_cr, boost::is_any_of("\n"));
+    auto lines = headers_str_no_cr
+                 | std::views::split('\n')
+                 | std::views::transform([] (auto&& r) { return sstring(r.begin(), r.end()); })
+                 | std::ranges::to<std::vector>();
     BOOST_REQUIRE_EQUAL(lines.size(), 4);
     lines.pop_back(); // last line is empty
     std::sort(lines.begin(), lines.end());
@@ -2664,8 +2667,10 @@ SEASTAR_TEST_CASE(test_http_request_formatting) {
     // Plain conversion to string
     auto str = fmt::to_string(req);
     fmt::print("{}\n", str);
-    std::vector<std::string> parts;
-    boost::split(parts, str, boost::is_any_of(" "));
+    auto parts = str
+                 | std::views::split(' ')
+                 | std::views::transform([] (auto&& r) { return sstring(r.begin(), r.end()); })
+                 | std::ranges::to<std::vector>();
     BOOST_REQUIRE_EQUAL(parts.size(), 6);
     std::sort(parts.begin() + 2, parts.begin() + 5); // headers can come in any order
     BOOST_REQUIRE_EQUAL(parts[0], "PUT");
@@ -2687,8 +2692,10 @@ SEASTAR_TEST_CASE(test_http_reply_formatting) {
     // Plain conversion to string
     auto str = fmt::to_string(rep);
     fmt::print("{}\n", str);
-    std::vector<std::string> parts;
-    boost::split(parts, str, boost::is_any_of(" "));
+    auto parts = str
+                 | std::views::split(' ')
+                 | std::views::transform([] (auto&& r) { return sstring(r.begin(), r.end()); })
+                 | std::ranges::to<std::vector>();
     BOOST_REQUIRE_EQUAL(parts.size(), 5);
     std::sort(parts.begin() + 2, parts.begin() + 4); // headers can come in any order
     BOOST_REQUIRE_EQUAL(parts[0], "200");

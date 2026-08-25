@@ -34,7 +34,6 @@
 #include <seastar/core/when_all.hh>
 #include <seastar/core/when_any.hh>
 #include <seastar/core/with_timeout.hh>
-#include <boost/range/irange.hpp>
 
 using namespace seastar;
 using namespace std::chrono_literals;

@@ -4,14 +4,14 @@
 #include <seastar/core/seastar.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/metrics.hh>
+#include <ranges>
+
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/switch_to.hh>
 #include <seastar/util/memory-data-source.hh>
 #include <seastar/util/assert.hh>
-#include <boost/range/adaptor/map.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/algorithm/string.hpp>
-#include <boost/range/numeric.hpp>
 #include <fmt/ostream.h>
 
 template <> struct fmt::formatter<seastar::rpc::streaming_domain_type> : fmt::ostream_formatter {};
@@ -243,8 +243,8 @@ future<> connection::send_negotiation_frame(feature_map features) {
     auto negotiation_frame_feature_record_size = [] (const feature_map::value_type& e) {
         return 8 + e.second.size();
     };
-    auto extra_len = boost::accumulate(
-        features | boost::adaptors::transformed(negotiation_frame_feature_record_size), uint32_t(0));
+    auto extra_len = std::ranges::fold_left(
+        features | std::views::transform(negotiation_frame_feature_record_size), uint32_t(0), std::plus());
     temporary_buffer<char> reply(sizeof(negotiation_frame) + extra_len);
     auto p = reply.get_write();
     p = std::copy_n(rpc_magic, 8, p);
@@ -1307,7 +1307,7 @@ future<> server::connection::deregister_this_stream() {
 }
 
 future<> server::connection::abort_all_streams() {
-    return parallel_for_each(_streams | boost::adaptors::map_values, [] (xshard_connection_ptr s) {
+    return parallel_for_each(_streams | std::views::values, [] (xshard_connection_ptr s) {
         return smp::submit_to(s->get_owner_shard(), [s] {
             s->get()->abort();
         });
@@ -1384,7 +1384,7 @@ future<> server::shutdown() {
         _servers.erase(*_options.streaming_domain);
     }
     return _ss_stopped.get_future().then([this] {
-        return parallel_for_each(_conns | boost::adaptors::map_values, [] (shared_ptr<connection> conn) {
+        return parallel_for_each(_conns | std::views::values, [] (shared_ptr<connection> conn) {
             return conn->stop();
         });
     }).finally([this] {

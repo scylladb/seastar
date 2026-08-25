@@ -20,8 +20,7 @@
  */
 
 #include <random>
-#include <boost/range.hpp>
-#include <boost/range/irange.hpp>
+#include <ranges>
 
 #include <seastar/testing/perf_tests.hh>
 #include <seastar/testing/random.hh>
@@ -43,7 +42,7 @@ struct parallel_for_each {
 
     parallel_for_each()
         : empty_range()
-        , range(boost::copy_range<std::vector<int>>(boost::irange(1, max_range_size)))
+        , range(std::views::iota(1, max_range_size) | std::ranges::to<std::vector>())
     { }
 };
 

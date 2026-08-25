@@ -22,11 +22,11 @@
 
 #include <any>
 #include <memory>
+#include <ranges>
 #include <span>
 #include <string_view>
 #include <unordered_set>
 
-#include <boost/range/iterator_range.hpp>
 
 #include <seastar/core/future.hh>
 #include <seastar/core/shared_ptr.hh>
@@ -102,7 +102,7 @@ template<typename Blobs, typename Visitor>
 void visit_blobs(Blobs& blobs, Visitor&& visitor) {
     auto visit = [&](const std::string_view& key, auto* vt) {
         auto tr = blobs.equal_range(key);
-        for (auto& p : boost::make_iterator_range(tr.first, tr.second)) {
+        for (auto& p : std::ranges::subrange(tr.first, tr.second)) {
             auto* v = std::any_cast<std::decay_t<decltype(*vt)>>(&p.second);
             visitor(key, *v);
         }

@@ -36,10 +36,6 @@
 #include <gnutls/gnutls.h>
 #include <gnutls/x509.h>
 
-#include <boost/any.hpp>
-#include <boost/range/iterator_range.hpp>
-#include <boost/range/adaptor/map.hpp>
-
 #include <fmt/core.h>
 #include <fmt/ostream.h>
 

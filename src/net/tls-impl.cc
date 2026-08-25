@@ -21,10 +21,9 @@
 
 #include <chrono>
 #include <filesystem>
+#include <ranges>
 #include <sys/stat.h>
 
-#include <boost/range/adaptor/map.hpp>
-#include <boost/range/algorithm/copy.hpp>
 
 #include <seastar/core/file.hh>
 #include <seastar/core/fsnotify.hh>
@@ -587,7 +586,7 @@ public:
         }
         void do_callback(std::exception_ptr ep = {}) {
             if (_cb && !_files.empty()) {
-                _cb(*this, boost::copy_range<std::unordered_set<sstring>>(_files | boost::adaptors::map_keys), std::move(ep)).get();
+                _cb(*this, _files | std::views::keys | std::ranges::to<std::unordered_set<sstring>>(), std::move(ep)).get();
             }
         }
         // called from seastar::thread
