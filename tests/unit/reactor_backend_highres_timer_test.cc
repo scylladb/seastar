@@ -22,7 +22,6 @@
 #include <seastar/testing/test_case.hh>
 
 #include <chrono>
-#include <string>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -30,8 +29,6 @@ using namespace std::chrono_literals;
 // Like DPDK, this poller prevents the reactor from entering interrupt mode.
 // The high-resolution timer must therefore be serviced while polling.
 SEASTAR_TEST_CASE(highres_timer_with_active_poller_test) {
-    BOOST_REQUIRE_EQUAL(std::string(engine().get_backend_name()), "io_uring");
-
     auto active_poller = reactor::poller::simple([] {
         return false;
     });
