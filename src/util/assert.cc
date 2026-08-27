@@ -26,7 +26,7 @@
 namespace seastar::internal {
 [[noreturn]] void assert_fail(const char *msg, const char *file, int line,
                               const char *func) {
-    fprintf(stderr, "%s:%u: %s: Assertion `%s` failed.\n", file, line, func, msg);
+    fprintf(stderr, "%s:%d: %s: Assertion `%s` failed.\n", file, line, func, msg);
     std::fflush(stderr);
     std::terminate();
 }
