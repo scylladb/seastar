@@ -75,7 +75,9 @@ SEASTAR_TEST_CASE(tcp_packet_test) {
     }
 
     return async([] {
-        auto sc = server_socket(engine().net().listen(ipv6_addr{"::1"}, {}));
+        listen_options lo;
+        lo.set_fixed_cpu(this_shard_id());
+        auto sc = server_socket(engine().net().listen(ipv6_addr{"::1"}, lo));
         auto la = sc.local_address();
 
         BOOST_REQUIRE(la.addr().is_ipv6());

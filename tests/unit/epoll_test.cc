@@ -42,6 +42,7 @@ SEASTAR_THREAD_TEST_CASE(epoll_busy_spin_on_socket_error_test) {
     auto start_busy_time = engine().total_busy_time();
 
     listen_options lo;
+    lo.set_fixed_cpu(this_shard_id());
     lo.reuse_address = true;
     server_socket ss = seastar::listen(ipv4_addr(0), lo);
 

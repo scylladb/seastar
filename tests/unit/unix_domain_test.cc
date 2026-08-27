@@ -72,7 +72,9 @@ private:
 };
 
 future<> ud_server_client::init_server() {
-    return do_with(seastar::listen(server_addr), [this](server_socket& lstn) mutable {
+    listen_options lo;
+    lo.set_fixed_cpu(this_shard_id());
+    return do_with(seastar::listen(server_addr, lo), [this](server_socket& lstn) mutable {
 
         lstn_sock = &lstn; // required when aborting (on some tests)
 

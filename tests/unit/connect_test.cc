@@ -28,7 +28,9 @@ SEASTAR_TEST_CASE(test_unconnected_socket_shutsdown_established_connection) {
     std::default_random_engine& rnd = testing::local_random_engine;
     auto distr = std::uniform_int_distribution<uint16_t>(12000, 65000);
     auto sa = make_ipv4_address({"127.0.0.1", distr(rnd)});
-    return do_with(engine().net().listen(sa, listen_options()), [sa] (auto& listener) {
+    listen_options lo;
+    lo.set_fixed_cpu(this_shard_id());
+    return do_with(engine().net().listen(sa, lo), [sa] (auto& listener) {
         auto f = listener.accept();
         auto unconn = make_socket();
         auto connf = unconn.connect(sa);
@@ -54,7 +56,9 @@ SEASTAR_TEST_CASE(test_accept_after_abort) {
     std::default_random_engine& rnd = testing::local_random_engine;
     auto distr = std::uniform_int_distribution<uint16_t>(12000, 65000);
     auto sa = make_ipv4_address({"127.0.0.1", distr(rnd)});
-    return do_with(seastar::server_socket(engine().net().listen(sa, listen_options())), [] (auto& listener) {
+    listen_options lo;
+    lo.set_fixed_cpu(this_shard_id());
+    return do_with(seastar::server_socket(engine().net().listen(sa, lo)), [] (auto& listener) {
         using ftype = future<accept_result>;
         promise<ftype> p;
         future<ftype> done = p.get_future();
