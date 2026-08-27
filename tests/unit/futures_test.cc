@@ -3033,3 +3033,21 @@ void compile_tests() {
     static_assert(std::is_same_v<function_traits<decltype(many_args)>::arg<3>::type, char>);
     static_assert(std::is_same_v<function_traits<decltype(many_args)>::arg<7>::type, std::string>);
 }
+
+SEASTAR_TEST_CASE(test_when_all_exception) {
+    return when_all(make_ready_future(), make_exception_future<>(std::runtime_error("test"))).then([] (std::tuple<future<>, future<>> t) {
+        auto& f0 = std::get<0>(t);
+        BOOST_REQUIRE(f0.available() && !f0.failed());
+        auto& f1 = std::get<1>(t);
+        BOOST_REQUIRE(f1.available() && f1.failed());
+        BOOST_REQUIRE_THROW(f1.get(), std::runtime_error);
+    });
+}
+
+SEASTAR_TEST_CASE(test_when_all_succeed_exception) {
+    return when_all_succeed(make_ready_future(), make_exception_future<>(std::runtime_error("test")),
+            make_exception_future<>(std::out_of_range("test"))).then_wrapped([] (auto f) {
+        // Expect the first exception to be encountered to propagate to the resulting future
+        BOOST_REQUIRE_THROW(f.get(), std::runtime_error);
+    });
+}
