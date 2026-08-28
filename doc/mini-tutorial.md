@@ -169,8 +169,8 @@ void f() {
 }
 ```
 
-Note, however, that the `.then_wrapped()` clause will be scheduled both when
-whether or not an exception occurs. Therefore, the mere fact that `.then_wrapped()` is
+Note, however, that the `.then_wrapped()` clause will be scheduled whether or
+not an exception occurs. Therefore, the mere fact that `.then_wrapped()` is
 executed does not mean that an exception was thrown. Only the execution of the
 catch block can guarantee that.
 

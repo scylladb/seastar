@@ -9,8 +9,11 @@ By default, Seastar listens on port `9180` on `localhost`.
 
 See the Seastar configuration documentation on how to change the default configuration.
 
-Seastar responds based on the `Content-Type` header, so opening
-`http://localhost:9180/metrics/` will return a text representation of the metrics with their documentation.
+Seastar uses the protocol buffer format only when it is enabled in the server
+configuration and the request's `Accept` header contains a media type beginning with
+`application/vnd.google.protobuf;`; otherwise, it uses the text format. Therefore,
+opening `http://localhost:9180/metrics/` in a browser returns a text representation
+of the metrics with their documentation.
 
 Starting with Prometheus 2.0, the binary protocol is no longer supported.
 While Seastar still supports the binary protocol, that support may be deprecated in a future release.

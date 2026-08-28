@@ -55,8 +55,8 @@ bucket. The "ticket lock" model works the same way.
 ### Capped release
 
 The implementation additionally supports a "capped release." In this mode,
-when tokens are not replenished from nowhere, but leak into the main bucket
-from another bucket into which the caller must explicitly put them. This mode
+tokens are not created during replenishment. Instead, they move into the main
+bucket from another bucket that the caller must explicitly refill. This mode
 can be useful when the token bucket guards entry into a location
 that can temporarily (or constantly, which would indicate
 a bucket misconfiguration) slow down and stop handling tokens at the given

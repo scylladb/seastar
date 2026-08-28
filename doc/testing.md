@@ -18,7 +18,7 @@ There are three categories of boost-based tests in our system:
 
 ## Tests' organization
 
-* Tests defined with `BOOST_AUTO_TEST_CASE` are driven by Boost.Test's built-in test runner. They require defining [`BOOST_TEST_MODULE`](https://www.boost.org/latest/libs/test/doc/html/boost_test/tests_organization/test_tree/master_test_suite.html) to include the runner in the executable. These tests support additional features like fixtures and data-driven testing.
+* Tests defined with `BOOST_AUTO_TEST_CASE` are driven by Boost.Test's built-in test runner. They require defining [`BOOST_TEST_MODULE`](https://www.boost.org/doc/libs/release/libs/test/doc/html/boost_test/utf_reference/link_references/link_boost_test_module_macro.html) to include the runner in the executable. These tests support additional features like fixtures and data-driven testing.
 * `SEASTAR_TEST_CASE` and `SEASTAR_THREAD_TEST_CASE` tests only support decorators and share a common test runner, allowing them to be co-located in the same test suite.
 * Seastar tests can be co-located with "native" Boost tests. The `SEASTAR_TEST_CASE` / `SEASTAR_THREAD_TEST_CASE` restrictions above apply to the entire test binary, and the `BOOST_TEST_MODULE` macro must not be defined.
 

@@ -12,6 +12,7 @@ You can disable this behavior by setting `app_template::config::auto_handle_sigi
 
 ```cpp
 #include <seastar/core/app-template.hh>
+#include <seastar/core/future.hh>
 #include <iostream>
 #include <utility>
 
@@ -22,6 +23,7 @@ int main(int argc, char** argv) {
 
     return app.run(argc, argv, [] {
         std::cout << "SIGINT/SIGTERM will terminate the program\n";
+        return seastar::make_ready_future<>();
     });
 }
 ```
@@ -36,7 +38,9 @@ The function must be called inside the `app.run()` lambda; calling it elsewhere 
 
 ```cpp
 #include <seastar/core/app-template.hh>
+#include <seastar/core/future.hh>
 #include <seastar/core/signal.hh>
+#include <csignal>
 #include <iostream>
 
 int main(int argc, char** argv) {
@@ -45,6 +49,7 @@ int main(int argc, char** argv) {
         seastar::handle_signal(SIGINT, [] {
             std::cout << "caught sigint\n";
         }, true);
+        return seastar::make_ready_future<>();
     });
 }
 ```
