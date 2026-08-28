@@ -301,6 +301,17 @@ thread_context::yield() {
     switch_out();
 }
 
+scheduling_group
+thread_context::switch_to(scheduling_group new_sg) {
+    auto prev_sg = group();
+    if (new_sg == prev_sg) {
+        return prev_sg;
+    }
+    set_scheduling_group(new_sg);
+    yield();
+    return prev_sg;
+}
+
 void
 thread_context::reschedule() {
     schedule(this);
@@ -374,6 +385,10 @@ void init() {
 
 void thread::yield() {
     thread_impl::get()->yield();
+}
+
+scheduling_group thread::switch_to(scheduling_group new_sg) {
+    return thread_impl::get()->switch_to(new_sg);
 }
 
 }

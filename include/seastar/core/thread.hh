@@ -121,6 +121,7 @@ public:
     bool should_yield() const;
     void reschedule();
     void yield();
+    scheduling_group switch_to(scheduling_group new_sg);
     task* waiting_task() noexcept override { return _done.waiting_task(); }
     friend class thread;
     friend void thread_impl::switch_in(thread_context*);
@@ -173,6 +174,36 @@ public:
     /// Gives other threads/fibers a chance to run on current CPU.
     /// The current thread will resume execution promptly.
     static void yield();
+    /// \brief Switch the current thread to a different scheduling group.
+    ///
+    /// Moves the currently running thread to \c new_sg: subsequent execution
+    /// of this thread (including the remainder of the calling function) is
+    /// accounted for, and scheduled as, \c new_sg instead of whatever group
+    /// the thread was created or last switched into.
+    ///
+    /// If \c new_sg is already the thread's current scheduling group, this
+    /// call is a no-op: it returns immediately without yielding. Otherwise,
+    /// it is equivalent to \ref yield() into the new group: other
+    /// threads/fibers get a chance to run before this thread resumes.
+    ///
+    /// This is the \ref thread counterpart of \ref coroutine::switch_to,
+    /// which does the same for coroutines.
+    ///
+    /// \param new_sg the scheduling group to switch to
+    /// \return the scheduling group the thread was in before the switch, so
+    ///         the caller can switch back later if desired.
+    ///
+    /// Example:
+    /// \code
+    ///    seastar::thread th([sg] {
+    ///        ... // do some preliminary work
+    ///        auto prev_sg = seastar::thread::switch_to(sg);
+    ///        ... // do some work accounted to sg
+    ///        seastar::thread::switch_to(prev_sg);
+    ///        ... // do some more work
+    ///    });
+    /// \endcode
+    static scheduling_group switch_to(scheduling_group new_sg);
     /// \brief Checks whether this thread ought to call yield() now.
     ///
     /// Useful where we cannot call yield() immediately because we
