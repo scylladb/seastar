@@ -523,7 +523,7 @@ protected:
         } else {
             pos = _next_seq_pos;
             _next_seq_pos += req_size();
-            if (_next_seq_pos >= _config.file_size) {
+            if (_next_seq_pos + req_size() > _config.file_size) {
                 _overflows++;
                 if (req_type() != request_type::append) {
                     _next_seq_pos = 0;
@@ -533,10 +533,18 @@ protected:
         return pos + _offset;
     }
 
+    // Index i denotes the request-size-aligned offset i * request_size, so the
+    // largest index that still leaves a whole request inside the file is one
+    // below the number of requests the file holds.
+    static uint64_t max_pos_index(const job_config& cfg) {
+        uint64_t requests = cfg.file_size / cfg.shard_info.request_size;
+        return requests > 0 ? requests - 1 : 0;
+    }
+
 public:
     io_class_data(job_config cfg)
             : class_data(std::move(cfg))
-            , _pos_distribution(0,  _config.file_size / _config.shard_info.request_size)
+            , _pos_distribution(0, max_pos_index(_config))
             , _alignment(_config.shard_info.request_size >= 4096 ? 4096 : 512)
             , _queue_length_timer([this] { update_queue_length(); })
             , _disk_queue_lengths(extended_p_square_probabilities = quantiles_short)
