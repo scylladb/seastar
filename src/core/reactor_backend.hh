@@ -60,6 +60,7 @@
 namespace seastar {
 
 class reactor;
+class thread_pool;
 // FIXME: merge it with storage context below. At this point the
 // main thing to do is unify the iocb list
 struct aio_general_context {
@@ -116,6 +117,9 @@ class aio_storage_context {
     void signal_retry_loop();
     void reap_pending_retries();
 
+    // Dedicated syscall thread for this context's blocking io_submit() fallbacks.
+    std::unique_ptr<thread_pool> _aio_thread_pool;
+
 public:
     explicit aio_storage_context(reactor& r);
     ~aio_storage_context();
@@ -124,6 +128,8 @@ public:
     bool submit_work();
     bool can_sleep() const;
     future<> stop() noexcept;
+
+    thread_pool* aio_thread_pool() noexcept { return _aio_thread_pool.get(); }
 };
 
 class completion_with_iocb {
@@ -263,6 +269,10 @@ public:
 
     virtual pollable_fd_state_ptr make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) = 0;
 
+    // Some backends create and manage their own thread pool for aio fallbacks.
+    // This should return a pointer to one if it exists, or nullptr otherwise.
+    virtual thread_pool* aio_thread_pool() noexcept { return nullptr; }
+
 protected:
     reactor_backend(uses_blocking_io blocking_io, supports_aio_fdatasync aio_fdatasync)
         : _blocking_io(blocking_io)
@@ -337,6 +347,8 @@ public:
 
     virtual pollable_fd_state_ptr
     make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
+
+    thread_pool* aio_thread_pool() noexcept override { return _storage_context.aio_thread_pool(); }
 };
 
 class reactor_backend_aio : public reactor_backend {
@@ -389,6 +401,8 @@ public:
 
     virtual pollable_fd_state_ptr
     make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
+
+    thread_pool* aio_thread_pool() noexcept override { return _storage_context.aio_thread_pool(); }
 };
 
 class reactor_backend_uring;
