@@ -253,6 +253,10 @@ protected:
     // Resolved when the connection's loop is over.  It is a shared_promise
     // because more than one owner may need to wait for the connection to stop.
     shared_promise<> _stopped;
+    // Waits for the connection's loop to be over, without aborting it.
+    future<> get_stopped_future() noexcept {
+        return _stopped.get_shared_future();
+    }
     stats _stats;
     const logger& _logger;
     // The owner of the pointer below is an instance of rpc::protocol<typename Serializer> class.

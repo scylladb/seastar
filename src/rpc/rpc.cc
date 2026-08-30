@@ -356,7 +356,7 @@ future<> connection::stop() noexcept {
     } catch (...) {
         log_exception(*this, log_level::error, "fail to shutdown connection while stopping", std::current_exception());
     }
-    return _stopped.get_shared_future();
+    return get_stopped_future();
 }
 
 template<typename Connection>
@@ -827,7 +827,7 @@ future<> client::stop() noexcept {
     } catch(...) {
         log_exception(*this, log_level::error, "fail to shutdown connection while stopping", std::current_exception());
     }
-    return _stopped.get_shared_future();
+    return get_stopped_future();
 }
 
 void client::abort_all_streams() {
