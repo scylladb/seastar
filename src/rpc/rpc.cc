@@ -1064,6 +1064,13 @@ future<> client::loop(client_options ops, const socket_address& addr, const sock
     } else {
         abort_all_streams();
     }
+    // The _streams map and the application's sink and source handles may all
+    // have released the stream connections aborted above while their loops are
+    // still winding down.  This client owns them until then, so wait for them
+    // here, before anything can drop the last reference to a connection that is
+    // still running.  This is also what makes client::stop() wait for them: it
+    // waits for _stopped, which is only set below.
+    co_await _streams_gate.close();
     if (_compressor) {
         co_await _compressor->close();
     }

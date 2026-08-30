@@ -251,7 +251,8 @@ protected:
     std::optional<socket_and_buffers> _connected;
     std::optional<shared_promise<>> _negotiated = shared_promise<>();
     // Resolved when the connection's loop is over.  It is a shared_promise
-    // because more than one owner may need to wait for the connection to stop.
+    // because more than one owner may need to wait for the connection to stop
+    // before releasing it, see client::_streams_gate.
     shared_promise<> _stopped;
     // Waits for the connection's loop to be over, without aborting it.
     future<> get_stopped_future() noexcept {
@@ -562,6 +563,9 @@ private:
     socket_address _server_addr, _local_addr;
     client_options _options;
     weak_ptr<client> _parent; // for stream clients
+    // Tracks the background waits that keep this client's stream connections
+    // alive until their loops are over, see make_stream_sink().
+    gate _streams_gate;
 
     metrics _metrics;
 
@@ -639,6 +643,9 @@ public:
                 }
                 xshard_connection_ptr s = make_lw_shared(make_foreign(static_pointer_cast<rpc::connection>(c)));
                 this->register_stream(c->get_connection_id(), s);
+                // Keep the stream connection alive until its loop is over.
+                auto gh = _streams_gate.hold();
+                (void)c->get_stopped_future().finally([c, gh = std::move(gh)] {});
                 return sink<Out...>(make_shared<internal::sink_impl<Serializer, Out...>>(std::move(s)));
             }).handle_exception([c] (std::exception_ptr eptr) {
                 // If await_connection fails we need to stop the client
