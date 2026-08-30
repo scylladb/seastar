@@ -250,7 +250,9 @@ protected:
     bool _error = false;
     std::optional<socket_and_buffers> _connected;
     std::optional<shared_promise<>> _negotiated = shared_promise<>();
-    promise<> _stopped;
+    // Resolved when the connection's loop is over.  It is a shared_promise
+    // because more than one owner may need to wait for the connection to stop.
+    shared_promise<> _stopped;
     stats _stats;
     const logger& _logger;
     // The owner of the pointer below is an instance of rpc::protocol<typename Serializer> class.
