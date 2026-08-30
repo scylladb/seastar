@@ -347,6 +347,14 @@ void connection::abort() {
     if (!_error) {
         _error = true;
         _connected->fd.shutdown_input();
+        if (is_stream()) {
+            // A stream connection's loop may be parked waiting for the
+            // application to consume what it has already received, and
+            // shutting the input down does not wake it up.  Break the
+            // backpressure too, otherwise the loop never ends.
+            _stream_queue.abort(std::make_exception_ptr(stream_closed()));
+            _stream_sem.broken(stream_closed());
+        }
     }
 }
 
