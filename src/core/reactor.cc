@@ -2617,7 +2617,10 @@ void reactor::register_metrics() {
 
     auto io_fallback_counter = [this](const sstring& reason_str, internal::thread_pool_submit_reason r) {
         static auto reason_label = sm::label("reason");
-        return sm::make_counter("io_threaded_fallbacks", std::bind(&thread_pool::count, _thread_pool.get(), r),
+        thread_pool* aio_pool = _backend->aio_thread_pool();
+        thread_pool* pool = (r == internal::thread_pool_submit_reason::aio_fallback && aio_pool)
+                ? aio_pool : _thread_pool.get();
+        return sm::make_counter("io_threaded_fallbacks", std::bind(&thread_pool::count, pool, r),
                 sm::description("Total number of io-threaded-fallbacks operations"), { reason_label(reason_str), });
     };
 
@@ -3069,26 +3072,26 @@ public:
 };
 
 class reactor::syscall_pollfn final : public reactor::pollfn {
-    reactor& _r;
+    thread_pool& _p;
 public:
-    syscall_pollfn(reactor& r) : _r(r) {}
+    syscall_pollfn(thread_pool& p) : _p(p) {}
     virtual bool poll() final override {
-        return _r._thread_pool->complete();
+        return _p.complete();
     }
     virtual bool pure_poll() override final {
         return poll(); // actually performs work, but triggers no user continuations, so okay
     }
     virtual bool try_enter_interrupt_mode() override {
-        _r._thread_pool->enter_interrupt_mode();
+        _p.enter_interrupt_mode();
         if (poll()) {
             // raced
-            _r._thread_pool->exit_interrupt_mode();
+            _p.exit_interrupt_mode();
             return false;
         }
         return true;
     }
     virtual void exit_interrupt_mode() override final {
-        _r._thread_pool->exit_interrupt_mode();
+        _p.exit_interrupt_mode();
     }
 };
 
@@ -3382,7 +3385,11 @@ int reactor::do_run() {
         });
     }
 
-    poller syscall_poller(std::make_unique<syscall_pollfn>(*this));
+    poller syscall_poller(std::make_unique<syscall_pollfn>(*_thread_pool));
+    std::optional<poller> aio_syscall_poller;
+    if (auto* aio_pool = _backend->aio_thread_pool()) {
+        aio_syscall_poller = poller(std::make_unique<syscall_pollfn>(*aio_pool));
+    }
 
     poller drain_cross_cpu_freelist(std::make_unique<drain_cross_cpu_freelist_pollfn>());
 
