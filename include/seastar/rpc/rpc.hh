@@ -626,7 +626,14 @@ public:
     }
     template<typename Serializer, typename... Out>
     future<sink<Out...>> make_stream_sink(socket socket) {
-        return await_connection().then([this, socket = std::move(socket)] () mutable {
+        // Hold the gate for as long as the stream connection is being created,
+        // so that this client cannot finish stopping, and be destroyed, while
+        // a stream of its own is still coming up and referring back to it.
+        auto gh = _streams_gate.try_hold();
+        if (!gh) {
+            return make_exception_future<sink<Out...>>(closed_error());
+        }
+        return await_connection().then([this, socket = std::move(socket), gh = std::move(*gh)] () mutable {
             if (!this->get_connection_id()) {
                 return make_exception_future<sink<Out...>>(std::runtime_error("Streaming is not supported by the server"));
             }
@@ -637,14 +644,14 @@ public:
             auto c = make_shared<client>(_logger, _serializer, o, std::move(socket), _server_addr, _local_addr);
             c->_parent = this->weak_from_this();
             c->_is_stream = true;
-            return c->await_connection().then([c, this] {
+            return c->await_connection().then([c, this, gh = std::move(gh)] () mutable {
                 if (_error) {
                     throw closed_error();
                 }
                 xshard_connection_ptr s = make_lw_shared(make_foreign(static_pointer_cast<rpc::connection>(c)));
                 this->register_stream(c->get_connection_id(), s);
-                // Keep the stream connection alive until its loop is over.
-                auto gh = _streams_gate.hold();
+                // Hand the holder over to keep the stream connection alive
+                // until its loop is over.
                 (void)c->get_stopped_future().finally([c, gh = std::move(gh)] {});
                 return sink<Out...>(make_shared<internal::sink_impl<Serializer, Out...>>(std::move(s)));
             }).handle_exception([c] (std::exception_ptr eptr) {
