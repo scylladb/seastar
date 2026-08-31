@@ -270,6 +270,13 @@ cooking_ingredient (c-ares
 
 set (dpdk_args
   --default-library=static
+  # meson derives libdir from the host: lib/<multiarch> if dpkg-architecture is
+  # installed, lib64 if /usr/lib64 is a real directory, lib otherwise. Only the
+  # first two are on the PKG_CONFIG_PATH that cmake's FindPkgConfig builds from
+  # CMAKE_PREFIX_PATH on a debian-like system, so a host without dpkg-dev but
+  # with a real /usr/lib64 installs libdpdk.pc where find_package (dpdk) will
+  # not look. Pin the layout instead of inheriting the guess.
+  --libdir=lib
   -Dc_args="-Wno-error"
   -Denable_docs=false
   -Denable_apps=dpdk-testpmd
