@@ -40,6 +40,7 @@
 #include <seastar/core/when_all.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/posix-stack.hh>
+#include <seastar/util/closeable.hh>
 #include <stdexcept>
 
 #include <fstream>
@@ -423,6 +424,11 @@ SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
     BOOST_CHECK_LT(recv_default, 20'000'000);
 }
 
+// Every connection goes to the shard that its source port selects. Shards
+// other than 0 start to accept 50ms late, so the first connections for them
+// are queued before an accept() waits. The server reports the remote port
+// that the connection shows (with proxy_protocol, the port from the header)
+// on both delivery paths.
 static
 void
 test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protocol) {
@@ -440,25 +446,31 @@ test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protoc
         int bad_proxy_send = 0;
         int bad_recv = 0;
         int bad_shard = 0;
+        int bad_remote_port = 0;
         int good = 0;
     };
 
     struct shard_number_server {
         server_socket ss;
+        std::chrono::milliseconds accept_delay;
         future<> runner;
-        shard_number_server(socket_address addr, listen_options lo)
+        shard_number_server(socket_address addr, listen_options lo, std::chrono::milliseconds accept_delay)
                 : ss(seastar::listen(addr, lo))
+                , accept_delay(accept_delay)
                 , runner(run()) {
         }
         future<> run() {
             try {
+                if (this_shard_id() != 0) {
+                    co_await seastar::sleep(accept_delay);
+                }
                 while (true) {
                     auto [cs, _] = co_await ss.accept();
                     auto out = cs.output();
                     auto in = cs.input();
-                    unsigned shard_id = this_shard_id();
-                    char buf[4];
-                    write_be<unsigned>(buf, shard_id);
+                    char buf[8];
+                    write_be<unsigned>(buf, this_shard_id());
+                    write_be<unsigned>(buf + 4, cs.remote_address().port());
                     co_await out.write(buf, sizeof(buf));
                     co_await out.close();
                     co_await in.close();
@@ -473,7 +485,8 @@ test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protoc
         }
     };
     auto server = sharded<shard_number_server>();
-    server.start(listen_addr, lo).get();
+    server.start(listen_addr, lo, std::chrono::milliseconds(50)).get();
+    auto stop_server = deferred_stop(server);
     auto smp_count = this_smp_shard_count();
     promise<> client_done;
     auto client = std::async(std::launch::async, [&] {
@@ -550,9 +563,9 @@ test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protoc
                     continue;
                 }
             }
-            char buf[4];
-            auto recv_result = ::recv(conn, buf, sizeof(buf), 0);
-            if (recv_result != 4) {
+            char buf[8];
+            auto recv_result = ::recv(conn, buf, sizeof(buf), MSG_WAITALL);
+            if (recv_result != 8) {
                 ++r.bad_recv;
                 continue;
             }
@@ -561,13 +574,17 @@ test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protoc
                 ++r.bad_shard;
                 continue;
             }
+            if (read_be<unsigned>(buf + 4) != client_addr.port()) {
+                ++r.bad_remote_port;
+                continue;
+            }
             ++r.good;
         }
         alien::submit_to(alien, 0, [&] { client_done.set_value(); return make_ready_future<>(); });
         return r;
     });
     client_done.get_future().get();
-    server.stop().get();
+    stop_server.stop_now();
     auto results = client.get();
     BOOST_REQUIRE_EQUAL(results.attempts, 100);
     BOOST_REQUIRE_EQUAL(results.bad_socket, 0);
@@ -578,6 +595,7 @@ test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protoc
     BOOST_REQUIRE_EQUAL(results.bad_proxy_send, 0);
     BOOST_REQUIRE_EQUAL(results.bad_recv, 0);
     BOOST_REQUIRE_EQUAL(results.bad_shard, 0);
+    BOOST_REQUIRE_EQUAL(results.bad_remote_port, 0);
 }
 
 SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv4_test) {
