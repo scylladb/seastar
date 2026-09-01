@@ -42,6 +42,7 @@
 #include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/coroutine.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/core/byteorder.hh>
 #include <seastar/net/posix-stack.hh>
 #include <seastar/net/net.hh>
@@ -113,6 +114,31 @@ std::pair<size_t, deleter> wrapped_iovecs::populate(std::span<temporary_buffer<c
 namespace net {
 
 using namespace seastar;
+
+static thread_local std::unordered_map<conntrack::endpoint, long> hosted_counts;
+
+long&
+conntrack::hosted_counter(const endpoint& ep) {
+    return hosted_counts[ep];
+}
+
+long
+conntrack::hosted_count(const endpoint& ep) {
+    // Read-only: don't create an entry for an endpoint this shard never hosted
+    // a connection for, or every collect_hosted() would grow every shard's map.
+    auto i = hosted_counts.find(ep);
+    return i == hosted_counts.end() ? 0 : i->second;
+}
+
+future<std::vector<long>>
+conntrack::collect_hosted(endpoint ep) {
+    auto counts = this_smp().all_shards() | std::views::transform([&ep] (shard_id cpu) {
+        return smp::submit_to(cpu, [ep] {
+            return posix_ap_server_socket_impl::listening(ep) ? hosted_count(ep) : not_listening;
+        });
+    });
+    return when_all_succeed(counts.begin(), counts.end());
+}
 
 class posix_connected_socket_operations {
 public:
@@ -816,6 +842,11 @@ posix_reuseport_server_socket_impl::abort_accept() {
 
 socket_address posix_reuseport_server_socket_impl::local_address() const {
     return _lfd.get_file_desc().get_address();
+}
+
+bool
+posix_ap_server_socket_impl::listening(const protocol_and_socket_address& ep) {
+    return ports.contains(ep);
 }
 
 void
