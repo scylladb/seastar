@@ -21,7 +21,10 @@
 
 #pragma once
 
+#include <deque>
 #include <numeric>
+#include <string_view>
+#include <vector>
 
 #include <seastar/testing/seastar_test.hh>
 #include <seastar/core/file.hh>
@@ -111,6 +114,79 @@ public:
     virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, io_intent*) noexcept override {
         auto length = verify_read(offset, range_size);
         return make_ready_future<temporary_buffer<uint8_t>>(temporary_buffer<uint8_t>(length));
+    }
+};
+
+// A write-only file keeping its contents in memory, which can be told to
+// complete write requests only partially, the way a buffered (non-O_DIRECT)
+// write may do. Every request is checked to start at a DMA-aligned position,
+// which is what a writer using dma_write() has to guarantee.
+class mock_write_only_file final : public file_impl {
+    std::vector<char> _data;
+    std::deque<size_t> _partial_writes;
+    bool _closed = false;
+public:
+    // The next write requests complete only the given number of bytes each.
+    // Once the list is exhausted, writes complete in full again.
+    void complete_partially(std::initializer_list<size_t> lengths) {
+        _partial_writes.insert(_partial_writes.end(), lengths.begin(), lengths.end());
+    }
+    std::string_view contents() const noexcept {
+        return {_data.data(), _data.size()};
+    }
+
+    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent*) noexcept override {
+        BOOST_CHECK(!_closed);
+        BOOST_CHECK_EQUAL(pos % _disk_write_dma_alignment, 0u);
+        auto written = len;
+        if (!_partial_writes.empty()) {
+            written = std::min(len, _partial_writes.front());
+            _partial_writes.pop_front();
+        }
+        if (_data.size() < pos + written) {
+            _data.resize(pos + written);
+        }
+        std::copy_n(static_cast<const char*>(buffer), written, _data.begin() + pos);
+        return make_ready_future<size_t>(written);
+    }
+    virtual future<size_t> write_dma(uint64_t, std::vector<iovec>, io_intent*) noexcept override {
+        return make_exception_future<size_t>(std::bad_function_call());
+    }
+    virtual future<size_t> read_dma(uint64_t, void*, size_t, io_intent*) noexcept override {
+        return make_exception_future<size_t>(std::bad_function_call());
+    }
+    virtual future<size_t> read_dma(uint64_t, std::vector<iovec>, io_intent*) noexcept override {
+        return make_exception_future<size_t>(std::bad_function_call());
+    }
+    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t, size_t, io_intent*) noexcept override {
+        return make_exception_future<temporary_buffer<uint8_t>>(std::bad_function_call());
+    }
+    virtual future<> flush() noexcept override {
+        return make_ready_future<>();
+    }
+    virtual future<struct stat> stat() noexcept override {
+        return make_exception_future<struct stat>(std::bad_function_call());
+    }
+    virtual future<> truncate(uint64_t length) noexcept override {
+        _data.resize(length);
+        return make_ready_future<>();
+    }
+    virtual future<> discard(uint64_t, uint64_t) noexcept override {
+        return make_exception_future<>(std::bad_function_call());
+    }
+    virtual future<> allocate(uint64_t, uint64_t) noexcept override {
+        return make_exception_future<>(std::bad_function_call());
+    }
+    virtual future<uint64_t> size() noexcept override {
+        return make_ready_future<uint64_t>(_data.size());
+    }
+    virtual future<> close() noexcept override {
+        BOOST_CHECK(!_closed);
+        _closed = true;
+        return make_ready_future<>();
+    }
+    virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)>) override {
+        throw std::bad_function_call();
     }
 };
 
