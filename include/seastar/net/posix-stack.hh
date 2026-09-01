@@ -20,10 +20,12 @@
  */
 
 #pragma once
+#include <chrono>
 #include <limits>
 #include <tuple>
 #include <unordered_set>
 #include <vector>
+#include <seastar/core/lowres_clock.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/net/stack.hh>
@@ -173,6 +175,39 @@ public:
     }
 };
 
+// A reuseport listener's private balancer: an estimate of how the connections
+// of one listening endpoint are spread across shards, used to decide whether a
+// connection accepted on this shard stays here or is handed off.
+//
+// With SO_REUSEPORT every shard accepts independently, so no single balancer
+// sees all connections. Each listener tracks its own placements in its view
+// and occasionally corrects the view with an exact snapshot of the real
+// per-shard counts (conntrack::collect_hosted()). The snapshot probability is
+// min(refresh_weight / average-connections-per-shard, 1): the first few
+// connections per shard are placed with accurate information, while at higher
+// connection counts the collection cost is amortized over many accepts.
+class sampled_conntrack : public enable_lw_shared_from_this<sampled_conntrack> {
+public:
+    static constexpr long refresh_weight = 10;
+    // Upper bound on the view's age; see maybe_collect().
+    static constexpr std::chrono::milliseconds max_view_age{100};
+private:
+    conntrack::endpoint _endpoint;
+    std::vector<long> _view;    // estimated hosted connections, indexed by shard
+    std::vector<long> _placed;  // our placements since the in-flight collection started
+    bool _collecting = false;
+    lowres_clock::time_point _refreshed = lowres_clock::time_point::min();
+public:
+    explicit sampled_conntrack(conntrack::endpoint ep);
+    // Chooses the shard to host a newly accepted connection, accounts for the
+    // placement in the local view, and possibly triggers an asynchronous
+    // refresh of the view.
+    shard_id place();
+private:
+    shard_id least_loaded() const;
+    void maybe_collect();
+};
+
 class posix_data_source_impl final : public data_source_impl, private internal::buffer_allocator {
     std::pmr::polymorphic_allocator<char>* _buffer_allocator;
     pollable_fd _fd;
@@ -244,6 +279,27 @@ public:
     // Whether a listener on this shard claims the endpoint.
     static bool listening(const protocol_and_socket_address& ep);
 
+    // The delivery maps above are shared with posix_reuseport_server_socket_impl,
+    // whose listeners receive connections handed off by other shards through
+    // move_connected_socket() too. The helpers below operate on those maps.
+
+    // Returns a queued connection for the endpoint if one is pending, otherwise
+    // registers the caller as the endpoint's waiter (at most one may exist) and
+    // resolves once a connection is delivered.
+    static future<accept_result> wait_connection(int protocol, const socket_address& sa, std::pmr::polymorphic_allocator<char>* allocator);
+    // Whether a waiter is currently registered for the endpoint.
+    static bool has_waiter(int protocol, const socket_address& sa);
+    // Fails the endpoint's waiter with the given exception. Returns false when
+    // no waiter is registered.
+    static bool fail_waiter(int protocol, const socket_address& sa, std::exception_ptr ex);
+    // Drops the endpoint's queued connections and fails its waiter, if any,
+    // with ECONNABORTED.
+    static void abort_pending(int protocol, const socket_address& sa);
+    // Claims the endpoint for a listener; throws EADDRINUSE when the endpoint
+    // is already claimed on this shard.
+    static void register_endpoint(int protocol, const socket_address& sa);
+    static void unregister_endpoint(int protocol, const socket_address& sa);
+
     template <typename T>
     friend class std::hash;
 };
@@ -268,16 +324,35 @@ public:
 };
 
 class posix_reuseport_server_socket_impl : public server_socket_impl {
-    socket_address _sa;
-    int _protocol;
-    pollable_fd _lfd;
-    std::pmr::polymorphic_allocator<char>* _allocator;
+    // Shared with the detached kernel-accept continuation, which can be in
+    // flight while the listener is destroyed (see arm()).
+    struct state {
+        int protocol;
+        socket_address sa;
+        pollable_fd lfd;
+        std::pmr::polymorphic_allocator<char>* allocator;
+        lw_shared_ptr<sampled_conntrack> tracker;
+        // A failure of the kernel accept, or of routing its connection,
+        // observed while no accept() was waiting, reported to the next
+        // accept() call. One slot suffices: after a failure the kernel accept
+        // is not re-armed until an accept() call first consumes the error.
+        std::exception_ptr pending_error;
+        bool accept_armed = false;
+        bool aborted = false;
+    };
+    lw_shared_ptr<state> _state;
 public:
     explicit posix_reuseport_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
-        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _allocator(allocator) {}
+        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator);
+    ~posix_reuseport_server_socket_impl();
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
+private:
+    // Starts one kernel accept on the listener, unless one is already running.
+    // Its completion routes the connection to the shard chosen by the tracker
+    // and re-arms while a local accept() call is left waiting.
+    static void arm(lw_shared_ptr<state> st);
 };
 
 class posix_network_stack : public network_stack {
