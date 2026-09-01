@@ -34,6 +34,9 @@
 
 #pragma once
 
+#include <cstdint>
+#include <limits>
+#include <optional>
 #include <random>
 
 // See also: https://perfetto.dev/docs/design-docs/heapprofd-sampling for more
@@ -41,9 +44,13 @@
 
 class sampler {
 public:
-    sampler() : random_gen(rd_device()) {
-        set_sampling_interval(0);
-    }
+    /// Constructs a sampler with sampling disabled.
+    ///
+    /// The constructor is constexpr (and the destructor trivial) so that a
+    /// thread_local object embedding a sampler can be constant-initialized,
+    /// which is what keeps the seastar allocator's thread_local state free of
+    /// TLS initialization guards.
+    constexpr sampler() = default;
     /// Sets the sampling interval in bytes. Setting it to 0 means to never sample
     void set_sampling_interval(uint64_t sampling_interval) {
         sampling_interval_ = sampling_interval;
@@ -148,19 +155,26 @@ private:
     }
 
     int64_t next_sampling_interval() {
+        if (!random_gen_) {
+            // Seeded on first use: std::random_device and std::mt19937_64 are
+            // not constant-initializable, and sampling is usually never enabled.
+            random_gen_.emplace(std::random_device()());
+        }
         std::exponential_distribution<double> dist(sampling_rate_);
-        int64_t next = static_cast<int64_t>(dist(random_gen));
+        int64_t next = static_cast<int64_t>(dist(*random_gen_));
         // We approximate the geometric distribution using an exponential
         // distribution.
         return next;
     }
 
-    uint64_t sampling_interval_; // Sample every N bytes ; 0 means off
-    double sampling_rate_; // 1 / sampling_interval_ ; used by the exp distribution
+    uint64_t sampling_interval_ = 0; // Sample every N bytes ; 0 means off
+    double sampling_rate_ = 0; // 1 / sampling_interval_ ; used by the exp distribution
     // How many bytes remain to be allocated before we take a sample.
     // Specifically, if this member has value N, a sample will be taken of the allocation
     // that allocates the Nth+1 byte.
-    int64_t interval_to_next_sample_;
-    std::random_device rd_device;
-    std::mt19937_64 random_gen;
+    //
+    // Sampling is off initially, so this is set very large: see
+    // set_sampling_interval().
+    int64_t interval_to_next_sample_ = std::numeric_limits<int64_t>::max();
+    std::optional<std::mt19937_64> random_gen_; // seeded on first use
 };
