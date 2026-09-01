@@ -216,9 +216,9 @@ class Metrics:
 
 
 class TestPrometheus(unittest.TestCase):
-    # This class uses the default load balancing of the exporter. In
-    # practice, shard 0 then serves all scrapes. Shard 0 also has all the
-    # test metrics. TestPrometheusNonMetricsShard uses a shard without them.
+    # This class uses the default load balancing of the exporter. Then any
+    # shard can serve a scrape. Shard 0 has all the test metrics.
+    # TestPrometheusNonMetricsShard uses a shard without them.
     exporter_path = None
     exporter_process = None
     exporter_config = None
