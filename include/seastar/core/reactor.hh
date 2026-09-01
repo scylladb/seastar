@@ -133,7 +133,10 @@ void at_destroy(Func&& func);
 void at_exit(noncopyable_function<future<> ()> func);
 void set_current_task(task* t);
 
-pollable_fd posix_listen(socket_address sa, listen_options opts = {});
+// With reuseport set, the listening socket is created with SO_REUSEPORT, so
+// every shard can bind its own listening socket to the same address and the
+// kernel spreads incoming connections across them.
+pollable_fd posix_listen(socket_address sa, listen_options opts = {}, bool reuseport = false);
 future<> posix_connect(pollable_fd pfd, socket_address sa, socket_address local);
 
 }
@@ -438,7 +441,6 @@ private:
 
     uint64_t pending_task_count() const;
     bool have_more_tasks() const;
-    bool posix_reuseport_detect();
     future<> rename_scheduling_group_specific_data(scheduling_group sg);
     future<seastar::scheduling_group> init_scheduling_group(sstring name, sstring shortname, float shares, scheduling_supergroup p);
     future<> init_scheduling_group(scheduling_group sg, sstring name, sstring shortname, float shares, scheduling_supergroup p);
