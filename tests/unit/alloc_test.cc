@@ -222,9 +222,19 @@ struct thread_alloc_info {
     void *ptr;
 };
 
+// Gives the calling thread a chance to lazily initialize whatever per-thread
+// state the allocator needs, so that it is not accounted to the measurement
+// which follows. In particular, the first allocation in a thread registers a
+// thread_local destructor, and that registration itself allocates.
+static void warm_up_thread_local_state() {
+    void* volatile p = ::malloc(1);
+    ::free(p);
+}
+
 template <typename Func>
 thread_alloc_info run_with_stats(Func&& f) {
     return std::async([&f](){
+        warm_up_thread_local_state();
         auto before = seastar::memory::stats();
         void* ptr = f();
         auto after = seastar::memory::stats();
@@ -237,6 +247,7 @@ void test_allocation_function(Func f) {
     // alien alloc and free
     auto alloc_info = run_with_stats(f);
     auto free_info = std::async([p = alloc_info.ptr]() {
+        warm_up_thread_local_state();
         auto before = seastar::memory::stats();
         free(p);
         auto after = seastar::memory::stats();
@@ -257,6 +268,7 @@ void test_allocation_function(Func f) {
     // reactor alloc, alien free
     void *p = f();
     auto alien_cross_frees = std::async([p]() {
+        warm_up_thread_local_state();
         auto frees_before = memory::stats().cross_cpu_frees();
         free(p);
         return memory::stats().cross_cpu_frees()-frees_before;
