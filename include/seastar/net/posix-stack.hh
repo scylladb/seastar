@@ -20,7 +20,10 @@
  */
 
 #pragma once
+#include <limits>
+#include <tuple>
 #include <unordered_set>
+#include <vector>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/net/stack.hh>
@@ -58,6 +61,11 @@ using namespace seastar;
 //
 // Right now this class is used by the posix_server_socket_impl, but it could be used by any other.
 class conntrack {
+public:
+    // Identifies a listening endpoint whose accepted connections are tracked:
+    // the protocol and the address the application asked to listen on.
+    using endpoint = std::tuple<int, socket_address>;
+private:
     class load_balancer {
         std::vector<unsigned> _cpu_load;
     public:
@@ -84,17 +92,58 @@ class conntrack {
     void closed_cpu(shard_id cpu) {
         _lb->closed_cpu(cpu);
     }
+
+    // Exact counts of the connections this shard currently hosts, per
+    // endpoint. Only the owning shard touches its counters, so no
+    // synchronization is involved; other shards obtain a snapshot with
+    // collect_hosted(), paying one cross-shard message per shard. Entries are
+    // never erased (outstanding handles point into the map), so the map's
+    // size is bounded by the number of distinct endpoints listened on over
+    // the process lifetime.
+    static long& hosted_counter(const endpoint& ep);
 public:
+    // The hosted-connection count of the calling shard for the given endpoint.
+    static long hosted_count(const endpoint& ep);
+    // The count that collect_hosted() reports for a shard without a listener
+    // for the endpoint. Such a shard drops the connections handed to it, so a
+    // balancer must never choose it. It is half the maximum, so that adding
+    // placements to it cannot overflow.
+    static constexpr long not_listening = std::numeric_limits<long>::max() / 2;
+    // A snapshot of every shard's hosted-connection count for the given
+    // endpoint, indexed by shard id, with not_listening for a shard without a
+    // listener for it. The counts are collected in parallel, but
+    // are not a consistent cross-shard view: each shard's count is read at
+    // whatever time its message is served.
+    static future<std::vector<long>> collect_hosted(endpoint ep);
+
     class handle {
+        // Takes the connection back out of its hosting shard's counter.
+        struct hosted_release {
+            shard_id cpu;
+            void operator()(long* counter) const noexcept {
+                if (cpu == this_shard_id()) {
+                    --*counter;
+                } else {
+                    // FIXME: future is discarded
+                    (void)smp::submit_to(cpu, [counter] { --*counter; });
+                }
+            }
+        };
         shard_id _host_cpu;
         shard_id _target_cpu;
         foreign_ptr<lw_shared_ptr<load_balancer>> _lb;
+        std::unique_ptr<long, hosted_release> _hosted;
     public:
         handle() : _lb(nullptr) {}
         handle(shard_id cpu, lw_shared_ptr<load_balancer> lb)
             : _host_cpu(this_shard_id())
             , _target_cpu(cpu)
             , _lb(make_foreign(std::move(lb))) {}
+        // Counts a connection that arrived on its hosting shard in that
+        // shard's hosted counter for ep; the handle takes it back out.
+        explicit handle(const endpoint& ep)
+            : _lb(nullptr)
+            , _hosted(&++hosted_counter(ep), hosted_release{this_shard_id()}) {}
 
         handle(const handle&) = delete;
         handle(handle&&) = default;
@@ -166,7 +215,7 @@ struct proxy_data {
 };
 
 class posix_ap_server_socket_impl : public server_socket_impl {
-    using protocol_and_socket_address = std::tuple<int, socket_address>;
+    using protocol_and_socket_address = conntrack::endpoint;
     struct connection {
         pollable_fd fd;
         socket_address addr;
@@ -192,6 +241,8 @@ public:
         return _sa;
     }
     static void move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, std::optional<proxy_data> addr_data_opt, std::pmr::polymorphic_allocator<char>* allocator);
+    // Whether a listener on this shard claims the endpoint.
+    static bool listening(const protocol_and_socket_address& ep);
 
     template <typename T>
     friend class std::hash;
