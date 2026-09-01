@@ -87,6 +87,7 @@
 
 #ifndef SEASTAR_DEFAULT_ALLOCATOR
 #include <new>
+#include <array>
 #include <cstdint>
 #include <algorithm>
 #include <limits>
@@ -433,8 +434,9 @@ class small_pool {
     page_list _span_list;
     static constexpr unsigned idx_frac_bits = 2;
 public:
-    explicit small_pool(unsigned object_size, bool is_sampled) noexcept;
-    ~small_pool();
+    // constexpr so that small_pool_array, and with it the thread_local
+    // cpu_pages, can be constant-initialized.
+    explicit constexpr small_pool(unsigned object_size, bool is_sampled) noexcept;
     inline void* allocate();
     void deallocate(void* object);
     unsigned object_size() const { return _object_size; }
@@ -482,7 +484,7 @@ small_pool::size_to_idx(unsigned size) {
             + ((size - 1) >> (log2floor(size) - idx_frac_bits));
 }
 
-small_pool::small_pool(unsigned object_size, bool is_sampled) noexcept
+constexpr small_pool::small_pool(unsigned object_size, bool is_sampled) noexcept
     : _object_size(object_size)
 #ifdef SEASTAR_HEAPPROF
     , _sampled_pool(is_sampled)
@@ -525,21 +527,20 @@ class small_pool_array {
 public:
     static constexpr unsigned nr_small_pools = small_pool::size_to_idx(4 * page_size) + 1;
 private:
-    union u {
-        small_pool a[nr_small_pools];
-        u() {
-            for (unsigned i = 0; i < nr_small_pools; ++i) {
-                new (&a[i]) small_pool(small_pool::idx_to_size(i), sampled);
-            }
-        }
-        ~u() {
-            // cannot really call destructor, since other
-            // objects may be freed after we are gone.
-        }
-    } _u;
+    template <unsigned... Idx>
+    static constexpr std::array<small_pool, nr_small_pools>
+    make_pools(std::integer_sequence<unsigned, Idx...>) noexcept {
+        return {small_pool(small_pool::idx_to_size(Idx), sampled)...};
+    }
+    // Constant-initialized, and never destroyed: other objects may be freed
+    // after we are gone.
+    std::array<small_pool, nr_small_pools> _pools
+            = make_pools(std::make_integer_sequence<unsigned, nr_small_pools>());
 public:
-    small_pool& operator[](unsigned idx) { return _u.a[idx]; }
+    small_pool& operator[](unsigned idx) { return _pools[idx]; }
 };
+
+static_assert(std::is_trivially_destructible_v<small_pool_array<false>>);
 
 static constexpr size_t max_small_allocation
     = small_pool::idx_to_size(small_pool_array<false>::nr_small_pools - 1);
@@ -1433,11 +1434,6 @@ void cpu_pages::set_min_free_pages(size_t pages) {
     }
     min_free_pages = pages;
     maybe_reclaim();
-}
-
-small_pool::~small_pool() {
-    _min_free = _max_free = 0;
-    trim_free_list();
 }
 
 /**
