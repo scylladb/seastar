@@ -523,9 +523,7 @@ public:
         return internal::posix_listen(sa, opts);
     }
 
-    // FIXME: reuseport currently leads to heavy load imbalance.
-    // Until we fix that, just disable it unconditionally.
-    bool posix_reuseport_available() const { return false; }
+    bool posix_reuseport_available() const;
     bool posix_sock_need_nonblock() const;
     bool have_aio_fdatasync() const;
 

@@ -1642,6 +1642,18 @@ void reactor::configure(const reactor_options& opts) {
     }
 }
 
+bool reactor::posix_reuseport_available() const {
+    static const bool available = [] {
+        try {
+            file_desc::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0).setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
+            return true;
+        } catch (const std::system_error&) {
+            return false;
+        }
+    }();
+    return available;
+}
+
 namespace internal {
 
 pollable_fd posix_listen(socket_address sa, listen_options opts, bool reuseport) {

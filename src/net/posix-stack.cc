@@ -1126,6 +1126,20 @@ posix_network_stack::posix_network_stack(const program_options::option_group& op
 {
 }
 
+// The balanced reuseport path handles only the default connection-distribution
+// balancing of TCP listeners on a concrete port. The single-listener path is
+// kept for: fixed and port placement, proxy-protocol listeners, SCTP (kernel
+// reuseport support is probed on a TCP socket only), and ephemeral-port
+// listens (each shard would bind a different port, forming no reuseport
+// group - and a second such listen on one shard must not fail).
+static bool use_reuseport(bool stack_reuseport, const listen_options& opt, const socket_address& sa) {
+    return stack_reuseport
+        && opt.lba == server_socket::load_balancing_algorithm::connection_distribution
+        && !opt.proxy_protocol
+        && opt.proto == transport::TCP
+        && sa.port() != 0;
+}
+
 server_socket
 posix_network_stack::listen(socket_address sa, listen_options opt) {
     using server_socket = seastar::server_socket;
@@ -1137,8 +1151,8 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
         return server_socket(std::make_unique<posix_server_socket_impl>(0, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, opt.proxy_protocol, _allocator));
     }
     auto protocol = static_cast<int>(opt.proto);
-    return _reuseport ?
-        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), _allocator))
+    return use_reuseport(_reuseport, opt, sa) ?
+        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt, true), _allocator))
         :
         server_socket(std::make_unique<posix_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, opt.proxy_protocol, _allocator));
 }
@@ -1163,8 +1177,8 @@ posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
         return server_socket(std::make_unique<posix_ap_server_socket_impl>(0, sa, _allocator));
     }
     auto protocol = static_cast<int>(opt.proto);
-    return posix_network_stack::_reuseport ?
-        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), _allocator))
+    return use_reuseport(posix_network_stack::_reuseport, opt, sa) ?
+        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt, true), _allocator))
         :
         server_socket(std::make_unique<posix_ap_server_socket_impl>(protocol, sa, _allocator));
 }
@@ -1238,9 +1252,6 @@ private:
                 fd.setsockopt(IPPROTO_IPV6, IPV6_RECVPKTINFO, 1);
             } else {
                 fd.setsockopt(SOL_IP, IP_PKTINFO, 1);
-            }
-            if (engine().posix_reuseport_available()) {
-                fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
             }
         }
 
