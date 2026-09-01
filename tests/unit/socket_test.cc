@@ -62,7 +62,7 @@ future<> handle_connection(connected_socket s) {
 
 future<> echo_server_loop() {
     return do_with(
-        server_socket(listen(make_ipv4_address({1234}), listen_options{.reuse_address = true})), [](auto& listener) {
+        server_socket(listen(make_ipv4_address({1234}), listen_options{.reuse_address = true, .lba = server_socket::load_balancing_algorithm::fixed, .fixed_cpu = this_shard_id()})), [](auto& listener) {
               // Connect asynchronously in background.
               (void)connect(make_ipv4_address({"127.0.0.1", 1234})).then([](connected_socket&& socket) {
                   socket.shutdown_output();
@@ -94,6 +94,7 @@ SEASTAR_TEST_CASE(socket_allocation_test) {
 SEASTAR_TEST_CASE(socket_skip_test) {
     return seastar::async([&] {
         listen_options lo;
+        lo.set_fixed_cpu(this_shard_id());
         lo.reuse_address = true;
         server_socket ss = seastar::listen(ipv4_addr("127.0.0.1", 1234), lo);
 
@@ -122,6 +123,7 @@ SEASTAR_TEST_CASE(test_file_desc_fdinfo) {
 SEASTAR_TEST_CASE(socket_on_close_test) {
     return seastar::async([&] {
         listen_options lo;
+        lo.set_fixed_cpu(this_shard_id());
         lo.reuse_address = true;
         server_socket ss = seastar::listen(ipv4_addr("127.0.0.1", 12345), lo);
 
@@ -185,6 +187,7 @@ SEASTAR_TEST_CASE(socket_on_close_test) {
 SEASTAR_TEST_CASE(socket_on_close_local_shutdown_test) {
     return seastar::async([&] {
         listen_options lo;
+        lo.set_fixed_cpu(this_shard_id());
         lo.reuse_address = true;
         server_socket ss = seastar::listen(ipv4_addr("127.0.0.1", 12345), lo);
 
@@ -266,7 +269,7 @@ SEASTAR_TEST_CASE(socket_connect_abort_test) {
 // Check that server_socket::accept() is abortable by server_socket::abort_accept()
 SEASTAR_THREAD_TEST_CASE(socket_accept_abort_test) {
     ipv4_addr addr("127.0.0.1", 3174);
-    server_socket ss = seastar::listen(addr, listen_options{ .reuse_address = true });
+    server_socket ss = seastar::listen(addr, listen_options{ .reuse_address = true, .lba = server_socket::load_balancing_algorithm::fixed, .fixed_cpu = this_shard_id() });
     bool too_late = false;
     auto f = async([&] {
         try {
@@ -557,7 +560,9 @@ SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv6_proxy_test) {
 
 SEASTAR_THREAD_TEST_CASE(inet_local_remote_address_sanity) {
     auto addr = make_ipv4_address(11003);
-    auto ls = listen(addr);
+    listen_options lo;
+    lo.set_fixed_cpu(this_shard_id());
+    auto ls = listen(addr, lo);
     auto ar_f = ls.accept();
 
     std::optional<connected_socket> cs = connect(addr).get();

@@ -268,6 +268,7 @@ SEASTAR_TEST_CASE(test_alpn_client_server) {
     certs->set_alpn_protocols({"h2", "http/1.1"});
 
     ::listen_options opts;
+    opts.set_fixed_cpu(this_shard_id());
     opts.reuse_address = true;
     auto addr = ::make_ipv4_address({0x7f000001, 4712});
     auto server = tls::listen(certs, addr, opts);
@@ -447,6 +448,7 @@ SEASTAR_TEST_CASE(test_failed_connect) {
 
 SEASTAR_TEST_CASE(test_non_tls) {
     ::listen_options opts;
+    opts.set_fixed_cpu(this_shard_id());
     opts.reuse_address = true;
     auto addr = ::make_ipv4_address( {0x7f000001, 4712});
     auto server = server_socket(seastar::listen(addr, opts));
@@ -493,6 +495,7 @@ SEASTAR_TEST_CASE(test_abort_accept_before_handshake) {
     auto certs = ::make_shared<tls::server_credentials>(::make_shared<tls::dh_params>());
     return certs->set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).then([certs] {
         ::listen_options opts;
+        opts.set_fixed_cpu(this_shard_id());
         opts.reuse_address = true;
         auto addr = ::make_ipv4_address( {0x7f000001, 4712});
         auto server = server_socket(tls::listen(certs, addr, opts));
@@ -513,6 +516,7 @@ SEASTAR_TEST_CASE(test_abort_accept_after_handshake) {
         certs->set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
 
         ::listen_options opts;
+        opts.set_fixed_cpu(this_shard_id());
         opts.reuse_address = true;
         auto addr = ::make_ipv4_address( {0x7f000001, 4712});
         auto server = tls::listen(certs, addr, opts);
@@ -541,6 +545,7 @@ SEASTAR_TEST_CASE(test_abort_accept_after_handshake) {
 SEASTAR_TEST_CASE(test_abort_accept_on_server_before_handshake) {
     return async([] {
         ::listen_options opts;
+        opts.set_fixed_cpu(this_shard_id());
         opts.reuse_address = true;
         auto addr = ::make_ipv4_address( {0x7f000001, 4712});
         auto server = server_socket(seastar::listen(addr, opts));
@@ -614,6 +619,9 @@ public:
             });
         }
         return f.then([this, addr] {
+            // Note: echoserver runs as sharded<echoserver> with listen() invoked
+            // on all shards (see run_echo_test()), so keep the default
+            // connection-distribution load balancing.
             ::listen_options opts;
             opts.reuse_address = true;
 
@@ -1009,6 +1017,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
     }).get();
 
     ::listen_options opts;
+    opts.set_fixed_cpu(this_shard_id());
     opts.reuse_address = true;
     auto addr = ::make_ipv4_address( {0x7f000001, 4712});
     auto server = tls::listen(certs, addr, opts);
@@ -1450,6 +1459,7 @@ SEASTAR_THREAD_TEST_CASE(test_dn_name_handling) {
 
     auto fetch_dn = [server_creds, addr] (sstring id, shared_ptr<tls::certificate_credentials> client_cred) {
         listen_options lo{};
+        lo.set_fixed_cpu(this_shard_id());
         lo.reuse_address = true;
         auto server_sock = tls::listen(server_creds, addr, lo);
 
@@ -1968,6 +1978,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates_with_only_shard0_notify) {
     });
 
     ::listen_options opts;
+    opts.set_fixed_cpu(this_shard_id());
     opts.reuse_address = true;
     auto addr = ::make_ipv4_address( {0x7f000001, 4712});
     auto server = tls::listen(certs, addr, opts);
@@ -2381,6 +2392,7 @@ static std::pair<connected_socket, connected_socket> tls_socketpair() {
     certs->set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
 
     ::listen_options opts;
+    opts.set_fixed_cpu(this_shard_id());
     opts.reuse_address = true;
     auto addr = ::make_ipv4_address( {0x7f000001, 4712});
     auto ss = tls::listen(certs, addr, opts);

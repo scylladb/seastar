@@ -186,6 +186,7 @@ static void test_proxy_header_negative(
     std::vector<char> header) {
 
     listen_options lo;
+    lo.set_fixed_cpu(this_shard_id());
     lo.reuse_address = true;
     lo.proxy_protocol = true;
 
@@ -220,6 +221,7 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_bad_signature) {
 
 SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_small_packet_incomplete_header) {
     listen_options lo;
+    lo.set_fixed_cpu(this_shard_id());
     lo.reuse_address = true;
     lo.proxy_protocol = true;
 
@@ -251,6 +253,7 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_small_packet_incomplete_header) {
 
 SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_small_packet_incomplete_addresses) {
     listen_options lo;
+    lo.set_fixed_cpu(this_shard_id());
     lo.reuse_address = true;
     lo.proxy_protocol = true;
 
@@ -295,6 +298,7 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_small_packet_incomplete_addresses) {
 
 SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_local_mode) {
     listen_options lo;
+    lo.set_fixed_cpu(this_shard_id());
     lo.reuse_address = true;
     lo.proxy_protocol = true;
 
@@ -333,6 +337,7 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_local_mode_wrong_family) {
 
 SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_ipv4_addresses) {
     listen_options lo;
+    lo.set_fixed_cpu(this_shard_id());
     lo.reuse_address = true;
     lo.proxy_protocol = true;
 
@@ -363,6 +368,7 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_ipv4_addresses) {
 
 SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_ipv6_addresses) {
     listen_options lo;
+    lo.set_fixed_cpu(this_shard_id());
     lo.reuse_address = true;
     lo.proxy_protocol = true;
 
@@ -417,6 +423,7 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_unsupported_protocol) {
 
 SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_length_too_short_ipv4) {
     listen_options lo;
+    lo.set_fixed_cpu(this_shard_id());
     lo.reuse_address = true;
     lo.proxy_protocol = true;
 
@@ -458,6 +465,7 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_length_too_short_ipv4) {
 
 SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_length_too_short_ipv6) {
     listen_options lo;
+    lo.set_fixed_cpu(this_shard_id());
     lo.reuse_address = true;
     lo.proxy_protocol = true;
 
@@ -497,6 +505,7 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_length_too_short_ipv6) {
 SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_with_tlvs) {
     // TLVs should be skipped/ignored by the implementation
     listen_options lo;
+    lo.set_fixed_cpu(this_shard_id());
     lo.reuse_address = true;
     lo.proxy_protocol = true;
 
@@ -535,6 +544,7 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_with_tlvs) {
 SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_extreme_ports) {
     // Test with port 0 and port 65535
     listen_options lo;
+    lo.set_fixed_cpu(this_shard_id());
     lo.reuse_address = true;
     lo.proxy_protocol = true;
 
