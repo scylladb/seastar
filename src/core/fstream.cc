@@ -462,8 +462,16 @@ private:
                 [this, pos, buf = std::move(buf), truncate, buf_size] (size_t size) mutable {
             // short write handling
             if (size < buf_size) {
-                buf.trim_front(size);
-                return do_put(pos + size, std::move(buf)).then([this, truncate] {
+                // A write completes a multiple of the disk alignment only when it
+                // goes through O_DIRECT; a buffered one (which is what the reactor
+                // does with the kernel page cache enabled) can complete any amount.
+                // Resume from the last aligned boundary, writing the partially
+                // completed block again: dma_write() requires an aligned position,
+                // and padding an unaligned tail as above would spill over the end
+                // of this request.
+                auto done = align_down<size_t>(size, _file.disk_write_dma_alignment());
+                buf.trim_front(done);
+                return do_put(pos + done, std::move(buf)).then([this, truncate] {
                     if (truncate) {
                         return _file.truncate(_pos);
                     }

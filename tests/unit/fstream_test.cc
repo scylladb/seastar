@@ -539,3 +539,37 @@ SEASTAR_TEST_CASE(test_close_error) {
 }
 
 #endif // SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
+
+// dma_write() may complete a request only partially. For O_DIRECT files the
+// completed amount is always a multiple of the disk write alignment, but for
+// buffered writes -- which is what the reactor does with the kernel page cache
+// enabled -- it can be anything. The output stream has to resume such a write
+// from an aligned position, otherwise it violates dma_write()'s alignment
+// requirement and writes zero padding past the end of the request.
+SEASTAR_TEST_CASE(test_fstream_short_write) {
+    return seastar::async([] {
+        constexpr size_t buffer_size = 8192;
+        // Enough to fill the stream buffer a few times and leave an unaligned
+        // tail for the final flush.
+        std::vector<char> data(3 * buffer_size + 1000);
+        for (size_t i = 0; i < data.size(); i++) {
+            data[i] = char(i % 251);
+        }
+
+        for (auto write_behind : {0u, 4u}) {
+            for (auto completed : {size_t(1), size_t(100), size_t(4095), size_t(4096), size_t(4097), buffer_size - 1}) {
+                auto mf = make_shared<mock_write_only_file>();
+                mf->complete_partially({completed, completed});
+
+                file_output_stream_options options;
+                options.buffer_size = buffer_size;
+                options.write_behind = write_behind;
+                auto out = make_file_output_stream(file(mf), options).get();
+                out.write(data.data(), data.size()).get();
+                out.close().get();
+
+                BOOST_REQUIRE_EQUAL(mf->contents(), std::string_view(data.data(), data.size()));
+            }
+        }
+    });
+}
