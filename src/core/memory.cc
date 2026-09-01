@@ -711,16 +711,18 @@ struct cpu_pages {
 // mark_shard_dead_on_thread_exit below.
 static_assert(std::is_trivially_destructible_v<cpu_pages>);
 
+// cpu_mem is constant-initialized (and trivially destructible), so the compiler
+// needs no TLS initialization guard for it: an access compiles down to a plain
+// thread-pointer-relative address computation. It must have been initialize()d
+// by init_cpu_mem() before it is used, though.
 static constinit thread_local cpu_pages cpu_mem;
 std::atomic<unsigned> cpu_pages::cpu_id_gen;
 cpu_pages* cpu_pages::all_cpus[max_cpus];
 
-static cpu_pages& get_cpu_mem();
-
 #ifdef SEASTAR_HEAPPROF
 
 void set_heap_profiling_sampling_rate(size_t sample_rate) {
-    bool current_sample_rate = get_cpu_mem().heap_prof_sampler.sampling_interval();
+    bool current_sample_rate = cpu_mem.heap_prof_sampler.sampling_interval();
     if (sample_rate) {
         if (!current_sample_rate) {
             seastar_logger.info("Enabling heap profiler - using {} bytes sampling rate", sample_rate);
@@ -733,11 +735,11 @@ void set_heap_profiling_sampling_rate(size_t sample_rate) {
             seastar_logger.info("Disabling heap profiler");
         }
     }
-    get_cpu_mem().heap_prof_sampler.set_sampling_interval(sample_rate);
+    cpu_mem.heap_prof_sampler.set_sampling_interval(sample_rate);
 }
 
 size_t get_heap_profiling_sample_rate() {
-    return get_cpu_mem().heap_prof_sampler.sampling_interval();
+    return cpu_mem.heap_prof_sampler.sampling_interval();
 }
 
 static thread_local int64_t scoped_heap_profiling_embed_count = 0;
@@ -1055,7 +1057,7 @@ allocation_site_ptr get_allocation_site() {
 allocation_site_ptr&
 small_pool::alloc_site_holder(void* ptr) {
     if (objects_page_aligned()) {
-        return get_cpu_mem().to_page(ptr)->alloc_site;
+        return cpu_mem.to_page(ptr)->alloc_site;
     } else {
         return *reinterpret_cast<allocation_site_ptr*>(reinterpret_cast<char*>(ptr) + _object_size - sizeof(allocation_site_ptr));
     }
@@ -1197,7 +1199,7 @@ cpu_pages::is_local_pointer(void* ptr) {
 inline bool
 cpu_pages::try_free_fastpath(void* ptr) {
     if (__builtin_expect(is_local_pointer(ptr), true)) {
-        auto pool = get_cpu_mem().to_page(ptr)->pool;
+        auto pool = cpu_mem.to_page(ptr)->pool;
         if (__builtin_expect(pool && !pool->is_sampled_pool(), true)) {
             alloc_stats::increment_local(alloc_stats::types::frees);
             pool->deallocate(ptr);
@@ -1221,9 +1223,9 @@ static void free_slowpath(void* obj, S size) {
     if (cpu_pages::is_local_pointer(obj)) {
         alloc_stats::increment_local(alloc_stats::types::frees);
         if constexpr (std::is_same_v<decltype(size), no_size>) {
-            get_cpu_mem().free(obj);
+            cpu_mem.free(obj);
         } else {
-            get_cpu_mem().free(obj, size);
+            cpu_mem.free(obj, size);
         }
     } else {
         cpu_pages::do_foreign_free(obj);
@@ -1521,8 +1523,8 @@ void*
 small_pool::add_more_objects() {
     auto goal = (_min_free + _max_free) / 2;
     while (!_span_list.empty() && _free_count < goal) {
-        page& span = _span_list.front(get_cpu_mem().pages);
-        _span_list.pop_front(get_cpu_mem().pages);
+        page& span = _span_list.front(cpu_mem.pages);
+        _span_list.pop_front(cpu_mem.pages);
         while (span.freelist) {
             auto obj = span.freelist;
             span.freelist = span.freelist->next;
@@ -1534,15 +1536,15 @@ small_pool::add_more_objects() {
     }
     while (_free_count < goal) {
         auto span_size = _span_sizes.preferred;
-        auto data = reinterpret_cast<char*>(get_cpu_mem().allocate_large(span_size, false));
+        auto data = reinterpret_cast<char*>(cpu_mem.allocate_large(span_size, false));
         if (!data) {
             span_size = _span_sizes.fallback;
-            data = reinterpret_cast<char*>(get_cpu_mem().allocate_large(span_size, false));
+            data = reinterpret_cast<char*>(cpu_mem.allocate_large(span_size, false));
             if (!data) {
                 break;
             }
         }
-        auto span = get_cpu_mem().to_page(data);
+        auto span = cpu_mem.to_page(data);
         span_size = span->span_size;
         _pages_in_use += span_size;
         for (unsigned i = 0; i < span_size; ++i) {
@@ -1570,18 +1572,18 @@ small_pool::trim_free_list() {
         auto obj = _free;
         _free = _free->next;
         --_free_count;
-        page* span = get_cpu_mem().to_page(obj);
+        page* span = cpu_mem.to_page(obj);
         span -= span->offset_in_span;
         if (!span->freelist) {
             new (&span->link) page_list_link();
-            _span_list.push_front(get_cpu_mem().pages, *span);
+            _span_list.push_front(cpu_mem.pages, *span);
         }
         obj->next = span->freelist;
         span->freelist = obj;
         if (--span->nr_small_alloc == 0) {
             _pages_in_use -= span->span_size;
-            _span_list.erase(get_cpu_mem().pages, *span);
-            get_cpu_mem().free_span(span - get_cpu_mem().pages, span->span_size);
+            _span_list.erase(cpu_mem.pages, *span);
+            cpu_mem.free_span(span - cpu_mem.pages, span->span_size);
         }
     }
 }
@@ -1610,7 +1612,7 @@ inline void* allocate_large(size_t size, bool should_sample) {
     if (!size_in_pages) {
         return nullptr;
     }
-    return get_cpu_mem().allocate_large(*size_in_pages, should_sample);
+    return cpu_mem.allocate_large(*size_in_pages, should_sample);
 }
 
 void* allocate_large_aligned(size_t align, size_t size, bool should_sample) {
@@ -1619,11 +1621,11 @@ void* allocate_large_aligned(size_t align, size_t size, bool should_sample) {
         return nullptr;
     }
     unsigned align_in_pages = std::max(align, page_size) >> page_bits;
-    return get_cpu_mem().allocate_large_aligned(align_in_pages, *size_in_pages, should_sample);
+    return cpu_mem.allocate_large_aligned(align_in_pages, *size_in_pages, should_sample);
 }
 
 void free_large(void* ptr) {
-    return get_cpu_mem().free_large(ptr);
+    return cpu_mem.free_large(ptr);
 }
 
 size_t object_size(void* ptr) {
@@ -1634,16 +1636,6 @@ size_t object_size(void* ptr) {
 [[gnu::cold]]
 static void init_cpu_mem() {
     cpu_mem.initialize();
-}
-
-[[gnu::always_inline]]
-static inline cpu_pages& get_cpu_mem()
-{
-    // cpu_mem is constant-initialized (and trivially destructible), so the
-    // compiler needs no TLS initialization guard here: the access compiles down
-    // to a plain thread-pointer-relative address computation. The instance must
-    // have been initialize()d by init_cpu_mem() before it is used, though.
-    return cpu_mem;
 }
 
 #ifdef SEASTAR_DEBUG_ALLOCATIONS
@@ -1660,12 +1652,12 @@ void* allocate_from_sampled_small_pool(size_t size) {
         size = 1 << log2ceil(size);
     }
     auto idx = small_pool::size_to_idx(size);
-    auto& pool = get_cpu_mem().sampled_small_pools[idx];
+    auto& pool = cpu_mem.sampled_small_pools[idx];
     dassert(size <= pool.object_size());
     void* ptr = pool.allocate();
     if (__builtin_expect(ptr != nullptr, true)) {
         // we failed to allocate, so we won't sample either
-        auto alloc_site = get_cpu_mem().add_alloc_site(pool.object_size());
+        auto alloc_site = cpu_mem.add_alloc_site(pool.object_size());
         new (&pool.alloc_site_holder(ptr)) allocation_site_ptr{alloc_site};
     }
     return ptr;
@@ -1680,7 +1672,7 @@ void* allocate_from_small_pool(size_t size)
         size = 1 << log2ceil(size);
     }
     auto idx = small_pool::size_to_idx(size);
-    auto& pool = get_cpu_mem().small_pools[idx];
+    auto& pool = cpu_mem.small_pools[idx];
     dassert(size <= pool.object_size());
     return pool.allocate();
 }
@@ -1742,7 +1734,7 @@ void *allocate_slowpath(size_t size) {
     }
     // On the fast path we've already called maybe_sample, except in the case
     // of !is_reactor_thread (we don't sample such alloctions).
-    bool should_sample = get_cpu_mem().definitely_sample(size);
+    bool should_sample = cpu_mem.definitely_sample(size);
     void* ptr;
     if (size <= max_small_allocation) {
 #ifdef SEASTAR_HEAPPROF
@@ -1768,7 +1760,7 @@ void *allocate_slowpath(size_t size) {
 [[gnu::always_inline]]
 inline void* allocate(size_t size) {
     size = std::max(size, sizeof(free_object));
-    if (__builtin_expect(is_reactor_thread && !get_cpu_mem().maybe_sample(size) && size <= max_small_allocation, true)) {
+    if (__builtin_expect(is_reactor_thread && !cpu_mem.maybe_sample(size) && size <= max_small_allocation, true)) {
         auto ptr = allocate_from_small_pool<alignment_t::unaligned>(size);
         return finish_allocation(ptr, size);
     }
@@ -1790,8 +1782,7 @@ void* allocate_aligned(size_t align, size_t size) {
         size = std::max(sizeof(free_object), align);
     }
 #ifdef SEASTAR_HEAPPROF
-    auto& mem = get_cpu_mem();
-    bool should_sample = mem.maybe_sample(size) && mem.definitely_sample(size);
+    bool should_sample = cpu_mem.maybe_sample(size) && cpu_mem.definitely_sample(size);
 #else
     bool should_sample = false;
 #endif
@@ -1847,7 +1838,7 @@ void free_aligned(void* obj, size_t align, size_t size) {
 void shrink(void* obj, size_t new_size) {
     alloc_stats::increment_local(alloc_stats::types::frees);
     alloc_stats::increment_local(alloc_stats::types::allocs); // keep them balanced
-    get_cpu_mem().shrink(obj, new_size);
+    cpu_mem.shrink(obj, new_size);
 }
 
 void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
@@ -1869,24 +1860,24 @@ reclaimer::reclaimer(std::function<reclaiming_result ()> reclaim, reclaimer_scop
 reclaimer::reclaimer(std::function<reclaiming_result (request)> reclaim, reclaimer_scope scope)
     : _reclaim(std::move(reclaim))
     , _scope(scope) {
-    get_cpu_mem().reclaimers->push_back(this);
+    cpu_mem.reclaimers->push_back(this);
 }
 
 reclaimer::~reclaimer() {
-    auto& r = *get_cpu_mem().reclaimers;
+    auto& r = *cpu_mem.reclaimers;
     r.erase(std::find(r.begin(), r.end(), this));
 }
 
 void set_large_allocation_warning_threshold(size_t threshold) {
-    get_cpu_mem().large_allocation_warning_threshold.set(threshold);
+    cpu_mem.large_allocation_warning_threshold.set(threshold);
 }
 
 size_t get_large_allocation_warning_threshold() {
-    return get_cpu_mem().large_allocation_warning_threshold.warn;
+    return cpu_mem.large_allocation_warning_threshold.warn;
 }
 
 void disable_large_allocation_warning() {
-    get_cpu_mem().large_allocation_warning_threshold.set(std::numeric_limits<size_t>::max());
+    cpu_mem.large_allocation_warning_threshold.set(std::numeric_limits<size_t>::max());
 }
 
 void configure_minimal() {
@@ -1962,14 +1953,14 @@ configure(std::vector<resource::memory> m, bool mbind,
         sys_alloc = [fdp] (void* where, size_t how_much) {
             return allocate_hugetlbfs_memory(*fdp, where, how_much);
         };
-        get_cpu_mem().replace_memory_backing(sys_alloc);
+        cpu_mem.replace_memory_backing(sys_alloc);
     }
-    get_cpu_mem().resize(total, sys_alloc);
+    cpu_mem.resize(total, sys_alloc);
     size_t pos = 0;
     for (auto&& x : m) {
         unsigned long nodemask = 1UL << x.nodeid;
         if (mbind) {
-            auto start = get_cpu_mem().mem() + pos;
+            auto start = cpu_mem.mem() + pos;
             auto r = seastar::memory::mbind(
                             start, x.bytes,
                             MPOL_PREFERRED,
@@ -2001,23 +1992,23 @@ statistics stats() {
 }
 
 size_t free_memory() {
-    return get_cpu_mem().nr_free_pages * page_size;
+    return cpu_mem.nr_free_pages * page_size;
 }
 
 bool drain_cross_cpu_freelist() {
-    return get_cpu_mem().drain_cross_cpu_freelist();
+    return cpu_mem.drain_cross_cpu_freelist();
 }
 
 memory_layout get_memory_layout() {
-    return get_cpu_mem().memory_layout();
+    return cpu_mem.memory_layout();
 }
 
 size_t min_free_memory() {
-    return get_cpu_mem().min_free_pages * page_size;
+    return cpu_mem.min_free_pages * page_size;
 }
 
 void set_min_free_pages(size_t pages) {
-    get_cpu_mem().set_min_free_pages(pages);
+    cpu_mem.set_min_free_pages(pages);
 }
 
 static thread_local int report_on_alloc_failure_suppressed = 0;
@@ -2119,8 +2110,8 @@ static constexpr human_readable_value to_hr_number(uint64_t number) {
 }
 
 seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar::internal::log_buf::inserter_iterator it) {
-    auto free_mem = get_cpu_mem().nr_free_pages * page_size;
-    auto total_mem = get_cpu_mem().nr_pages * page_size;
+    auto free_mem = cpu_mem.nr_free_pages * page_size;
+    auto total_mem = cpu_mem.nr_pages * page_size;
     it = fmt::format_to(it, "Dumping seastar memory diagnostics\n");
 
     it = fmt::format_to(it, "Used memory:   {}\n", to_hr_size(total_mem - free_mem));
@@ -2136,8 +2127,8 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
 
     it = fmt::format_to(it, "Small pools:\n");
     it = fmt::format_to(it, "objsz spansz usedobj memory unused wst%\n");
-    for (unsigned i = 0; i < get_cpu_mem().small_pools.nr_small_pools; i++) {
-        auto& sp = get_cpu_mem().small_pools[i];
+    for (unsigned i = 0; i < cpu_mem.small_pools.nr_small_pools; i++) {
+        auto& sp = cpu_mem.small_pools[i];
         // We don't use pools too small to fit a free_object, so skip these, they
         // are always empty.
         if (sp.object_size() < sizeof(free_object)) {
@@ -2152,7 +2143,7 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
         uint32_t span_freelist_objs = 0;
         auto front = sp._span_list._front;
         while (front) {
-            auto& span = get_cpu_mem().pages[front];
+            auto& span = cpu_mem.pages[front];
             auto capacity_in_objects = span.span_size * page_size / sp.object_size();
             span_freelist_objs += capacity_in_objects - span.nr_small_alloc;
             front = span.link._next;
@@ -2177,8 +2168,8 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
     std::array<uint32_t, cpu_pages::nr_span_lists> span_size_histogram;
     span_size_histogram.fill(0);
 
-    for (unsigned i = 0; i < get_cpu_mem().nr_pages;) {
-        const auto span_size = get_cpu_mem().pages[i].span_size;
+    for (unsigned i = 0; i < cpu_mem.nr_pages;) {
+        const auto span_size = cpu_mem.pages[i].span_size;
         if (!span_size) {
             ++i;
             continue;
@@ -2187,12 +2178,12 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
         i += span_size;
     }
 
-    for (unsigned i = 0; i< get_cpu_mem().nr_span_lists; i++) {
-        auto& span_list = get_cpu_mem().free_spans[i];
+    for (unsigned i = 0; i< cpu_mem.nr_span_lists; i++) {
+        auto& span_list = cpu_mem.free_spans[i];
         auto front = span_list._front;
         uint32_t free_pages = 0;
         while (front) {
-            auto& span = get_cpu_mem().pages[front];
+            auto& span = cpu_mem.pages[front];
             free_pages += span.span_size;
             front = span.link._next;
         }
@@ -2294,13 +2285,13 @@ static bool try_trigger_error_injector() {
 
 std::vector<allocation_site> sampled_memory_profile() {
     disable_backtrace_temporarily dbt;
-    auto& alloc_sites = *get_cpu_mem().alloc_sites;
+    auto& alloc_sites = *cpu_mem.alloc_sites;
     std::vector<allocation_site> ret(alloc_sites.begin(), alloc_sites.end());
     return ret;
 }
 
 size_t sampled_memory_profile(allocation_site* output, size_t size) {
-    auto& alloc_sites = *get_cpu_mem().alloc_sites;
+    auto& alloc_sites = *cpu_mem.alloc_sites;
     auto to_copy = std::min(size, alloc_sites.size());
     std::copy_n(alloc_sites.begin(), to_copy, output);
     return to_copy;
