@@ -115,3 +115,86 @@ $$ \lim_{n\to\infty} Rc_n = 1 $$
 $$ \lim_{n\to\infty} \frac {D_n} {C_n} = \lim_{n\to\infty} \( Rd_n \times Rc_n \) =  \lim_{n\to\infty} Rd_n  $$
 
 IOW -- we can say if the disk is accumulating the queue or not by observing the dispatched-to-completed (to _completed_, not _processed_) over a long enough time
+
+# Shard-aware dispatch
+
+The global token bucket described above limits the total disk throughput across
+all shards.  The dispatch algorithm distributes those tokens to individual
+priority classes on each shard so that:
+
+1. Each class gets a share of the total capacity proportional to its configured
+   shares.
+2. A busy shard cannot starve a quiet one — tokens accumulate independently per
+   consumer, proportionally to shares, from a shared clock counter.
+3. Scheduling supergroups (groups of classes) form an intermediate level: the
+   group receives tokens as a single entity and redistributes among its member
+   classes.
+
+## Object hierarchy
+
+```
+io_group (shared across all shards)
+├── io_throttler[0..1]              (one per stream: read, write)
+│   └── shard_aware_token_bucket    (THE global rate limiter)
+└── priority_class_data[]           (per-class bandwidth token_bucket)
+
+io_queue (one per shard)
+├── stream[0..1]                    (reference to io_throttler + local_publisher)
+├── dispatch_root                   (per-shard tree root, owns satb consumers)
+│   ├── priority_class_group_data   (scheduling supergroup, interior node)
+│   │   ├── priority_class_data     (leaf: holds request queue)
+│   │   └── priority_class_data
+│   ├── priority_class_data         (root-level class, no group)
+│   └── ...
+└── ...
+```
+
+## Token flow
+
+On every `poll_io_queue()` call the scheduler executes two phases:
+
+**Phase 1 — Token distribution (top-down tree walk):**
+
+1. `replenish_capacity(now)` — advances the global token bucket clock,
+   converting elapsed wall time into tokens at the configured rate.
+2. `dispatch_root.refill()` — the root's consumer drains its accumulated
+   tokens from the global bucket into the root's local pouch.  Each consumer
+   accumulates tokens proportionally to its registered shares out of
+   `total_shares` across all active consumers on all shards.
+3. `dispatch_root.redistribute()` — recursively distributes the root pouch
+   to children (groups and root-level classes) proportionally to their shares.
+   Groups in turn redistribute to their member classes the same way.
+
+**Phase 2 — Dispatch (per-class request drain):**
+
+For each priority class that has queued requests and is plugged (not
+bandwidth-throttled):
+
+```
+for req in class.queue:
+    if class.try_consume(req.cost):
+        req.dispatch()
+    else:
+        break   // out of tokens, wait for next poll
+```
+
+A class runs out of tokens when its share of the global capacity for this poll
+interval is exhausted.  Remaining requests wait for the next poll, where fresh
+tokens will have accumulated.
+
+## Bandwidth throttling
+
+Independent of the share-based dispatch budget, each class may have an explicit
+bandwidth cap configured via `io_group::priority_class_data::token_bucket`.
+A `bandwidth_throttler` object monitors consumption against this per-class (and
+optionally per-group) bucket.  When the class exceeds its bandwidth budget:
+
+1. `grab(tokens)` detects a deficit and calls `unplug()` on the class (or group),
+   removing it from dispatch.
+2. A timer is armed for the duration needed to replenish the deficit.
+3. When the timer fires, `try_to_replenish()` re-checks and calls `plug()` to
+   re-enable dispatch.
+
+The plug/unplug mechanism integrates with the token distribution: unplugged
+entities do not receive tokens during redistribution and do not contribute
+their shares to siblings' denominators.
