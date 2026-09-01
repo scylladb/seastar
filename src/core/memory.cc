@@ -93,7 +93,9 @@
 #include <limits>
 #include <atomic>
 #include <functional>
+#include <cstddef>
 #include <cstring>
+#include <memory>
 #include <utility>
 #include <boost/intrusive/list.hpp>
 #include <sys/mman.h>
@@ -572,13 +574,37 @@ struct cross_cpu_free_item {
     cross_cpu_free_item* next;
 };
 
+/// Uninitialized storage for a single object of type \c T, whose lifetime is
+/// managed explicitly by the user.
+///
+/// The wrapper is trivially default constructible and trivially destructible,
+/// even if \c T is neither. This lets a thread_local aggregate containing one
+/// be constant-initialized, which in turn means the compiler needs no TLS
+/// initialization guard for accesses to it - something we cannot afford on the
+/// allocator fast path. The object must be construct()ed before use, and is
+/// never destroyed.
+template <typename T>
+class manual_lifetime {
+    alignas(T) std::byte _storage[sizeof(T)] = {};
+public:
+    /// Constructs the object, passing \c args to its constructor.
+    template <typename... Args>
+    void construct(Args&&... args) {
+        std::construct_at(get(), std::forward<Args>(args)...);
+    }
+    /// Returns a pointer to the object, which must have been construct()ed.
+    T* get() { return reinterpret_cast<T*>(_storage); }
+    T& operator*() { return *get(); }
+    T* operator->() { return get(); }
+};
+
 struct cpu_pages {
     small_pool_array<false> small_pools;
     uint32_t min_free_pages = 20000000 / page_size;
-    char* memory;
-    page* pages;
-    uint32_t nr_pages;
-    uint32_t nr_free_pages;
+    char* memory = nullptr;
+    page* pages = nullptr;
+    uint32_t nr_pages = 0;
+    uint32_t nr_free_pages = 0;
     uint32_t current_min_free_pages = 0;
     struct {
         size_t warn = std::numeric_limits<size_t>::max();
@@ -610,21 +636,19 @@ struct cpu_pages {
         }
     } large_allocation_warning_threshold = {};
     unsigned cpu_id = -1U;
-    std::function<void (std::function<void ()>)> reclaim_hook;
-    std::vector<reclaimer*> reclaimers;
+    // Constructed by initialize(), see manual_lifetime
+    manual_lifetime<std::function<void (std::function<void ()>)>> reclaim_hook;
+    // Constructed by initialize(), see manual_lifetime
+    manual_lifetime<std::vector<reclaimer*>> reclaimers;
     static constexpr unsigned nr_span_lists = 32;
     page_list free_spans[nr_span_lists];  // contains aligned spans with span_size == 2^idx
-    alignas(seastar::cache_line_size) std::atomic<cross_cpu_free_item*> xcpu_freelist;
+    alignas(seastar::cache_line_size) std::atomic<cross_cpu_free_item*> xcpu_freelist = nullptr;
     static std::atomic<unsigned> cpu_id_gen;
     static cpu_pages* all_cpus[max_cpus];
-    union asu {
-        using alloc_sites_type = std::unordered_set<allocation_site>;
-        asu() : alloc_sites{} {
-        }
-        ~asu() {} // alloc_sites live forever
-        alloc_sites_type alloc_sites;
-    } asu;
-    allocation_site_ptr alloc_site_list_head = nullptr; // For easy traversal of asu.alloc_sites from scylla-gdb.py
+    using alloc_sites_type = std::unordered_set<allocation_site>;
+    // Constructed by initialize(), see manual_lifetime; alloc sites live forever
+    manual_lifetime<alloc_sites_type> alloc_sites;
+    allocation_site_ptr alloc_site_list_head = nullptr; // For easy traversal of alloc_sites from scylla-gdb.py
     sampler heap_prof_sampler;
     small_pool_array<true> sampled_small_pools;
 
@@ -678,10 +702,16 @@ struct cpu_pages {
     bool maybe_sample(size_t size);
     bool definitely_sample(size_t size);
     memory::memory_layout memory_layout();
-    ~cpu_pages();
 };
 
-static thread_local cpu_pages cpu_mem;
+// cpu_pages is constant-initialized and trivially destructible, so that
+// accessing the thread_local instance requires neither a TLS initialization
+// guard nor a __cxa_thread_atexit() registration. Anything that needs
+// destruction is either wrapped in manual_lifetime (and leaked), or handled by
+// mark_shard_dead_on_thread_exit below.
+static_assert(std::is_trivially_destructible_v<cpu_pages>);
+
+static constinit thread_local cpu_pages cpu_mem;
 std::atomic<unsigned> cpu_pages::cpu_id_gen;
 cpu_pages* cpu_pages::all_cpus[max_cpus];
 
@@ -929,7 +959,7 @@ cpu_pages::remove_alloc_site(allocation_site_ptr alloc_site, size_t deallocated_
                 alloc_site_list_head = alloc_site->next;
             }
 
-            asu.alloc_sites.erase(*alloc_site);
+            alloc_sites->erase(*alloc_site);
         }
     }
 }
@@ -1000,15 +1030,15 @@ allocation_site_ptr get_allocation_site() {
     disable_backtrace_temporarily dbt;
     allocation_site new_alloc_site;
     new_alloc_site.backtrace = get_backtrace();
-    if (cpu_mem.asu.alloc_sites.size() >= 1000
-        && cpu_mem.asu.alloc_sites.find(new_alloc_site) == cpu_mem.asu.alloc_sites.end()) {
+    if (cpu_mem.alloc_sites->size() >= 1000
+        && cpu_mem.alloc_sites->find(new_alloc_site) == cpu_mem.alloc_sites->end()) {
         // Drop sample for now. Could do something smarter like dropping a
         // current one at random but needs more work in remove_alloc_site as we
         // might then have allocations for which the allocsite is no longer
         // alive
         return nullptr;
     }
-    auto insert_result = cpu_mem.asu.alloc_sites.insert(std::move(new_alloc_site));
+    auto insert_result = cpu_mem.alloc_sites->insert(std::move(new_alloc_site));
     allocation_site_ptr alloc_site = &*insert_result.first;
     if (insert_result.second) {
         alloc_site->next = cpu_mem.alloc_site_list_head;
@@ -1252,11 +1282,23 @@ void cpu_pages::shrink(void* ptr, size_t new_size) {
     free_span_unaligned(idx + new_size_pages, old_size_pages - new_size_pages);
 }
 
-cpu_pages::~cpu_pages() {
-    if (is_initialized()) {
-        live_cpus[cpu_id].store(false, std::memory_order_relaxed);
+// Marks this shard as dead when the thread exits, so that cross-cpu frees
+// targeting it are discarded instead of being queued on a freelist nobody will
+// drain again.
+//
+// This is a separate thread_local rather than a cpu_pages destructor, because a
+// thread_local with a non-trivial destructor requires a TLS initialization
+// guard on every access, which we cannot afford on the allocator fast path.
+// This one is only ever touched by cpu_pages::initialize().
+struct mark_shard_dead_on_thread_exit {
+    ~mark_shard_dead_on_thread_exit() {
+        if (cpu_mem.is_initialized()) {
+            live_cpus[cpu_mem.cpu_id].store(false, std::memory_order_relaxed);
+        }
     }
-}
+};
+
+static thread_local mark_shard_dead_on_thread_exit mark_shard_dead;
 
 bool cpu_pages::is_initialized() const {
     return bool(nr_pages);
@@ -1293,7 +1335,15 @@ bool cpu_pages::initialize() {
     }
     pages[nr_pages].free = false;
     free_span_unaligned(reserved, nr_pages - reserved);
+    // Now that we can allocate, bring up the members which are not
+    // constant-initialized.
+    reclaim_hook.construct();
+    reclaimers.construct();
+    alloc_sites.construct();
     live_cpus[cpu_id].store(true, std::memory_order_relaxed);
+    // Merely referencing the object arranges for its destructor, which clears
+    // the live_cpus flag again, to run when this thread exits.
+    (void)&mark_shard_dead;
     return true;
 }
 
@@ -1387,7 +1437,7 @@ reclaiming_result cpu_pages::run_reclaimers(reclaimer_scope scope, size_t n_page
     while (nr_free_pages < target) {
         bool made_progress = false;
         alloc_stats::increment_local(alloc_stats::types::reclaims);
-        for (auto&& r : reclaimers) {
+        for (auto&& r : *reclaimers) {
             if (r->scope() >= scope) {
                 made_progress |= r->do_reclaim((target - nr_free_pages) * page_size) == reclaiming_result::reclaimed_something;
             }
@@ -1402,7 +1452,7 @@ reclaiming_result cpu_pages::run_reclaimers(reclaimer_scope scope, size_t n_page
 
 void cpu_pages::schedule_reclaim() {
     current_min_free_pages = 0;
-    reclaim_hook([this] {
+    (*reclaim_hook)([this] {
         if (nr_free_pages < min_free_pages) {
             try {
                 run_reclaimers(reclaimer_scope::async, min_free_pages - nr_free_pages);
@@ -1424,7 +1474,7 @@ memory::memory_layout cpu_pages::memory_layout() {
 }
 
 void cpu_pages::set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
-    reclaim_hook = hook;
+    *reclaim_hook = hook;
     current_min_free_pages = min_free_pages;
 }
 
@@ -1580,24 +1630,20 @@ size_t object_size(void* ptr) {
     return cpu_pages::all_cpus[object_cpu_id(ptr)]->object_size(ptr);
 }
 
-static thread_local cpu_pages* cpu_mem_ptr = nullptr;
-
 // Mark as cold so that GCC8+ can move to .text.unlikely.
 [[gnu::cold]]
 static void init_cpu_mem() {
-    cpu_mem_ptr = &cpu_mem;
     cpu_mem.initialize();
 }
 
 [[gnu::always_inline]]
 static inline cpu_pages& get_cpu_mem()
 {
-    // cpu_pages has a non-trivial constructor which means that the compiler
-    // must make sure the instance local to the current thread has been
-    // constructed before each access. So instead we access cpu_mem_ptr
-    // which has been initialized by calls to init_cpu_mem() before it is
-    // accessed.
-    return *cpu_mem_ptr;
+    // cpu_mem is constant-initialized (and trivially destructible), so the
+    // compiler needs no TLS initialization guard here: the access compiles down
+    // to a plain thread-pointer-relative address computation. The instance must
+    // have been initialize()d by init_cpu_mem() before it is used, though.
+    return cpu_mem;
 }
 
 #ifdef SEASTAR_DEBUG_ALLOCATIONS
@@ -1668,7 +1714,7 @@ void *allocate_slowpath(size_t size) {
         // in constructors before original_malloc_func ctor is called
         // Note on #2137: Moved to here, because there is lots of code
         // that implicitly relies on the static init fiasco below to have occurred, and thus
-        // cpu_mem_ptr being available and inited. This is not great.
+        // cpu_mem being inited. This is not great.
         init_cpu_mem();
 
         // #2137 - static init fiasco for fallback functions.
@@ -1807,10 +1853,10 @@ void shrink(void* obj, size_t new_size) {
 void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
     // in general, we are using Seastar allocator here. but the Seastar application
     // can still configure smp_opts.memory_allocator with memory_allocator::standard.
-    // in that case, the memory::configure() is not called, hence cpu_mem_ptr is not
-    // set.
-    if (cpu_mem_ptr) {
-        cpu_mem_ptr->set_reclaim_hook(hook);
+    // in that case, the memory::configure() is not called, hence cpu_mem is not
+    // initialized.
+    if (cpu_mem.is_initialized()) {
+        cpu_mem.set_reclaim_hook(hook);
     }
 }
 
@@ -1823,11 +1869,11 @@ reclaimer::reclaimer(std::function<reclaiming_result ()> reclaim, reclaimer_scop
 reclaimer::reclaimer(std::function<reclaiming_result (request)> reclaim, reclaimer_scope scope)
     : _reclaim(std::move(reclaim))
     , _scope(scope) {
-    get_cpu_mem().reclaimers.push_back(this);
+    get_cpu_mem().reclaimers->push_back(this);
 }
 
 reclaimer::~reclaimer() {
-    auto& r = get_cpu_mem().reclaimers;
+    auto& r = *get_cpu_mem().reclaimers;
     r.erase(std::find(r.begin(), r.end(), this));
 }
 
@@ -2248,13 +2294,15 @@ static bool try_trigger_error_injector() {
 
 std::vector<allocation_site> sampled_memory_profile() {
     disable_backtrace_temporarily dbt;
-    std::vector<allocation_site> ret(get_cpu_mem().asu.alloc_sites.begin(), get_cpu_mem().asu.alloc_sites.end());
+    auto& alloc_sites = *get_cpu_mem().alloc_sites;
+    std::vector<allocation_site> ret(alloc_sites.begin(), alloc_sites.end());
     return ret;
 }
 
 size_t sampled_memory_profile(allocation_site* output, size_t size) {
-    auto to_copy = std::min(size, get_cpu_mem().asu.alloc_sites.size());
-    std::copy_n(get_cpu_mem().asu.alloc_sites.begin(), to_copy, output);
+    auto& alloc_sites = *get_cpu_mem().alloc_sites;
+    auto to_copy = std::min(size, alloc_sites.size());
+    std::copy_n(alloc_sites.begin(), to_copy, output);
     return to_copy;
 }
 
