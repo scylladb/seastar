@@ -2631,6 +2631,12 @@ void reactor::register_metrics() {
             sm::make_counter("polls", _polls, sm::description("Number of times pollers were executed")),
             sm::make_gauge("timers_pending", std::bind(&decltype(_timers)::size, &_timers), sm::description("Number of tasks in the timer-pending queue")),
             sm::make_gauge("utilization", [this] { return (1-_load)  * 100; }, sm::description("CPU utilization")),
+            // The value is 1 so that the cpu label can be applied to a host
+            // metric by joining it with this one using multiplication and
+            // "group_left" on (instance, cpu).
+            sm::make_gauge("location", [] { return 1; },
+                    sm::description("The host cpu this shard's reactor is pinned to, in the cpu label."),
+                    { sm::label_instance("cpu", smp::pinned_cpu_id()) }),
             sm::make_counter("cpu_busy_ms", [this] () -> int64_t { return total_busy_time() / 1ms; },
                     sm::description("Total cpu busy time in milliseconds")),
             sm::make_counter("sleep_time_ms_total", [this] () -> int64_t { return _total_sleep / 1ms; },
@@ -4162,6 +4168,7 @@ void smp::pin(unsigned cpu_id) {
         return;
     }
     pin_this_thread(cpu_id);
+    _pinned_cpu_id = cpu_id;
 }
 
 void smp::arrive_at_event_loop_end() {
