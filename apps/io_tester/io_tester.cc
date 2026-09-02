@@ -502,13 +502,25 @@ protected:
     timer<> _queue_length_timer;
     accumulator_type _disk_queue_lengths;
 
-    future<size_t> on_io_completed(future<size_t> f) {
-        if (!_is_dev_null) {
-            return f;
+    future<size_t> on_io_completed(uint64_t pos, future<size_t> f) {
+        if (_is_dev_null) {
+            // /dev/null completes every request with 0 bytes, report the
+            // request size instead to keep the throughput stats meaningful.
+            return f.then([this] (auto size_f) {
+                return make_ready_future<size_t>(this->req_size());
+            });
         }
 
-        return f.then([this] (auto size_f) {
-            return make_ready_future<size_t>(this->req_size());
+        return f.then([this, pos] (size_t size) {
+            if (size != req_size()) {
+                // Every request is aligned and within the file, so the kernel
+                // either completes it in full or fails it. A partial transfer
+                // means the numbers this job reports are not the workload it
+                // was configured to run.
+                throw std::runtime_error(format("{}: short I/O at offset {}: requested {} bytes, completed {}",
+                        name(), pos, req_size(), size));
+            }
+            return make_ready_future<size_t>(size);
         });
     }
 
@@ -523,7 +535,7 @@ protected:
         } else {
             pos = _next_seq_pos;
             _next_seq_pos += req_size();
-            if (_next_seq_pos >= _config.file_size) {
+            if (_next_seq_pos + req_size() > _config.file_size) {
                 _overflows++;
                 if (req_type() != request_type::append) {
                     _next_seq_pos = 0;
@@ -533,10 +545,18 @@ protected:
         return pos + _offset;
     }
 
+    // Index i denotes the request-size-aligned offset i * request_size, so the
+    // largest index that still leaves a whole request inside the file is one
+    // below the number of requests the file holds.
+    static uint64_t max_pos_index(const job_config& cfg) {
+        uint64_t requests = cfg.file_size / cfg.shard_info.request_size;
+        return requests > 0 ? requests - 1 : 0;
+    }
+
 public:
     io_class_data(job_config cfg)
             : class_data(std::move(cfg))
-            , _pos_distribution(0,  _config.file_size / _config.shard_info.request_size)
+            , _pos_distribution(0, max_pos_index(_config))
             , _alignment(_config.shard_info.request_size >= 4096 ? 4096 : 512)
             , _queue_length_timer([this] { update_queue_length(); })
             , _disk_queue_lengths(extended_p_square_probabilities = quantiles_short)
@@ -702,8 +722,9 @@ public:
     }
 
     future<size_t> issue_request(io_intent* intent) override {
-        auto f = _file.dma_read(this->get_pos(), _buf.get(), this->req_size(), intent);
-        return on_io_completed(std::move(f));
+        auto pos = this->get_pos();
+        auto f = _file.dma_read(pos, _buf.get(), this->req_size(), intent);
+        return on_io_completed(pos, std::move(f));
     }
 };
 
@@ -716,8 +737,9 @@ public:
     }
 
     future<size_t> issue_request(io_intent* intent) override {
-        auto f = _file.dma_write(this->get_pos(), _buf.get(), this->req_size(), intent);
-        return on_io_completed(std::move(f));
+        auto pos = this->get_pos();
+        auto f = _file.dma_write(pos, _buf.get(), this->req_size(), intent);
+        return on_io_completed(pos, std::move(f));
     }
 };
 
@@ -768,7 +790,7 @@ public:
         auto pos = this->get_pos();
         std::vector<iovec> iovs = _iovecs;
         auto f = _file.dma_write(pos, std::move(iovs), intent);
-        return on_io_completed(std::move(f));
+        return on_io_completed(pos, std::move(f));
     }
 };
 
@@ -786,7 +808,7 @@ public:
         auto pos = this->get_pos();
         std::vector<iovec> iovs = _iovecs;
         auto f = _file.dma_read(pos, std::move(iovs), intent);
-        return on_io_completed(std::move(f));
+        return on_io_completed(pos, std::move(f));
     }
 };
 
