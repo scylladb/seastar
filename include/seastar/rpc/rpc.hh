@@ -119,6 +119,10 @@ struct client_options {
     sstring isolation_cookie;
     sstring metrics_domain = "default";
     bool send_handler_duration = true;
+    /// Coalesce already-queued outgoing messages into one compressed frame.
+    /// Needs compression and peer support (negotiated). False behaves like
+    /// an older peer that doesn't know about frame batching.
+    bool batch_outgoing_frames = true;
 };
 
 /// @}
@@ -159,6 +163,8 @@ struct server_options {
     // Returning false will refuse the incoming connection.
     // Returning true will allow the mechanism to proceed.
     std::function<bool(const socket_address&)> filter_connection = {};
+    /// \see client_options::batch_outgoing_frames
+    bool batch_outgoing_frames = true;
 };
 
 /// @}
@@ -181,6 +187,10 @@ enum class protocol_features : uint32_t {
     STREAM_PARENT = 3,
     ISOLATION = 4,
     HANDLER_DURATION = 5,
+    // Advertises that this endpoint's receive loop can demultiplex several
+    // frames out of one decompressed blob. A sender may only batch outgoing
+    // frames to a peer that has advertised this.
+    BATCH_FRAMES = 6,
 };
 
 // internal representation of feature data
@@ -261,6 +271,9 @@ protected:
         snd_buf buf;
         promise<> done;
         cancellable* pcancel = nullptr;
+        // Set when already sent as part of an earlier entry's batch (see
+        // send_entry_with_batching()); its own turn then just resolves `done`.
+        bool already_sent = false;
         outgoing_entry(snd_buf b) : buf(std::move(b)) {}
 
         outgoing_entry(outgoing_entry&&) = delete;
@@ -290,6 +303,17 @@ protected:
     bool _propagate_timeout = false;
     bool _timeout_negotiated = false;
     bool _handler_duration_negotiated = false;
+    // Set once both ends have advertised protocol_features::BATCH_FRAMES.
+    bool _batch_frames_negotiated = false;
+    // Hard cap on a coalesced blob's size; a lone oversized message still
+    // goes out alone. 128KiB matches rpc::snd_buf::chunk_size and ScyllaDB's
+    // production compressor's own chunk size (message/advanced_rpc_compressor).
+    static constexpr size_t max_batched_bytes = 128 * 1024;
+    static constexpr size_t max_batched_messages = 32;
+    // Kept alive across calls to parse every frame a batching peer packed
+    // into one blob before reading a new one off the wire.
+    std::optional<input_stream<char>> _batched_frames_in;
+    size_t _batched_frames_remaining = 0;
     // stream related fields
     bool _is_stream = false;
     connection_id _id = invalid_connection_id;
@@ -312,7 +336,14 @@ protected:
     snd_buf compress(snd_buf buf);
     future<> send_buffer(snd_buf buf);
     future<> send(snd_buf buf, std::optional<rpc_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr);
+    // Patches d's timeout header and returns its framed payload, or
+    // std::nullopt if d already expired (nothing should be sent for it).
+    std::optional<snd_buf> prepare_outgoing_entry(outgoing_entry& d) noexcept;
     future<> send_entry(outgoing_entry& d) noexcept;
+    // Sends d, opportunistically coalescing it with further already-queued
+    // entries into one compressed blob when batching is negotiated; falls
+    // back to send_entry() otherwise.
+    future<> send_entry_with_batching(outgoing_entry& d) noexcept;
     future<> stop_send_loop(std::exception_ptr ex);
     future<std::optional<rcv_buf>>  read_stream_frame_compressed(input_stream<char>& in);
     bool stream_check_twoway_closed() const noexcept {
@@ -603,7 +634,7 @@ public:
     void wait_timed_out(id_type id);
     future<> stop() noexcept;
     void abort_all_streams();
-    void deregister_this_stream();
+    xshard_connection_ptr deregister_this_stream();
     socket_address peer_address() const override {
         return _server_addr;
     }
