@@ -1,8 +1,8 @@
 # Specifying the I/O properties of a system
 
 The I/O properties of a system can be specified as a YAML string, by
-using the option --io-properties, or as a YAML file with the option
---io-properties-file.
+using the `--io-properties` option, or as a YAML file with the
+`--io-properties-file` option.
 
 The expected format starts with a map of sections at the top level.
 Currently only `disks` is supported.
@@ -11,7 +11,7 @@ Currently only `disks` is supported.
 
 Inside the `disks` section, the user can specify a list of mount points.
 
-For each mount point, 4 properties have to be specified (none are
+For each mount point, four properties have to be specified (none are
 optional):
 
 * `read_iops`: read IOPS speed of the device
@@ -20,13 +20,13 @@ optional):
 * `write_bandwidth`: write bandwidth speed of the device
 
 
-Additionally the following optional properties can be added:
+Additionally, the following optional properties can be added:
 
 * `read_saturation_length`: read buffer length to saturate the device throughput
 * `write_saturation_length`: write buffer length to saturate the device throughput
 * `physical_block_size`: override for the physical block size of the device (in bytes).
   This is used as the write alignment to avoid hardware-level read-modify-write operations.
-  Some devices mis-report their physical block size, so this override can be used to
+  Some devices misreport their physical block size, so this override can be used to
   specify the correct value
 
 Those quantities can be specified in raw form, or followed with a
@@ -44,9 +44,9 @@ disks:
     write_saturation_length: 64k
 ```
 
-Optionally, instead of the "mountpoint" there can be the "mountpoints" (plural)
-entry in the list element being a list itself and listing more than one path. As
-a result all the listed mountpoints will share the corresponding internal IO queue.
+Instead of `mountpoint`, a list element can contain a `mountpoints` list with more
+than one path. As a result, all the listed mount points share the corresponding
+internal I/O queue.
 
 Example:
 
@@ -59,7 +59,7 @@ disks:
     ...
 ```
 
-An example when this configuration is applicable can be an LVM set of volumes
-from one disk each being mounted at its own path. In that case, different mount
-points would have different (virtual) block devices, yet, they will share the
-same physical disk and thus need to run over one shared IO queue.
+This configuration is useful, for example, for a set of LVM volumes from one disk,
+each mounted at its own path. In that case, different mount points have different
+virtual block devices but share the same physical disk, so they need to use one
+shared I/O queue.

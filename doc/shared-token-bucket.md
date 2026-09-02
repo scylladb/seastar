@@ -3,15 +3,15 @@
 ## Intro
 
 The classical token bucket has two parameters -- rate and limit. The rate
-is the amount of tokens that are put into bucket per some period of time
-(say -- second), the limit is the maximum amount of tokens that can be
+is the number of tokens put into the bucket per unit of time
+(for example, per second); the limit is the maximum number of tokens that can be
 accumulated in the bucket. The process of regeneration of tokens this way
 is called "replenishing" below. When a request needs to be served it should
 try to get a certain amount of tokens from the bucket.
 
-The shared token bucket implements the above model for seastar sharded
+The shared token bucket implements the above model for Seastar's sharded
 architecture. The implementation doesn't use locks and is built on atomic
-arithmetics.
+arithmetic operations.
 
 ## Theory
 
@@ -37,7 +37,7 @@ tokens into the bucket the head rover is advanced.
           ^       .---> ^
           tail          head
 
-It's possible that after grab the tail would overrun the head and will occur
+After a grab, the tail may overrun the head and end up
 in front of it. This would mean that there's not enough tokens in the bucket
 and that some amount of tokens were claimed from it.
 
@@ -49,16 +49,16 @@ and that some amount of tokens were claimed from it.
 
 To check if the tokens were grabbed the caller needs to check if the head is
 (still) in front of the tail. This approach adds the ability for the consumers
-to line up in the queue when they all try to grab tokens from a contented
+to line up in the queue when they all try to grab tokens from a contended
 bucket. The "ticket lock" model works the same way.
 
 ### Capped release
 
-The implementation additionally support so called "capped release". This is
-when tokens are not replenished from nowhere, but leak into the main bucket
-from another bucket into which the caller should explicitly put them. This mode
-can be useful in cases when the token bucket guards the entrance into some
-location that can temporarily (or constantly, but in that case it would denote
+The implementation additionally supports a "capped release." In this mode,
+tokens are not created during replenishment. Instead, they move into the main
+bucket from another bucket that the caller must explicitly refill. This mode
+can be useful when the token bucket guards entry into a location
+that can temporarily (or constantly, which would indicate
 a bucket misconfiguration) slow down and stop handling tokens at the given
 rate. To prevent token bucket from over-subscribing the guardee at those times,
 the second bucket can be refilled with the completions coming from the latter.
@@ -75,20 +75,20 @@ the second bucket (it's called releasing below) means advancing the ceil.
 To work with the token bucket there are 4 calls:
 
  * `grab(N)` -- grabs a certain amount of tokens from the bucket and returns
-   back the resulting "tail" rover value. The value is useless per-se and is
+   the resulting "tail" rover value. The value is useless per se and is
    only needed to call the deficiency() method
 
  * `replenish(time)` -- tries to replenish tokens into the bucket. The amount
    of replenished tokens is how many had accumulated since last replenish
    till the `time` parameter
 
- * `release(N)` -- releases the given number of token making them available
+ * `release(N)` -- releases the given number of tokens, making them available
    for replenishment. Only works if capped release is turned on by the
    template parameter, otherwise asserts
 
  * `deficiency(tail)` -- returns back the number of tokens that were claimed
    from the bucket but that are not yet there. Non-zero number means that the
-   bucket is contented and the request dispatching should be delayed
+   bucket is contended and request dispatch should be delayed
 
 ### Example
 

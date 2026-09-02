@@ -1,13 +1,12 @@
 # WebSocket protocol implementation
 
-Seastar includes an experimental implementation of a WebSocket server.
-Refs:
-https://datatracker.ietf.org/doc/html/rfc6455
-https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_servers
+Seastar includes an experimental implementation of a WebSocket server. See
+[RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455) and MDN's guide to
+[writing WebSocket servers](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_servers).
 
 ## Handlers
 
-A WebSocket server needs a user-defined handler in order to be functiomal. WebSocket specification defines a concept of subprotocols, and Seastar WebSocket server allows registering a single handler per subprotocol.
+A WebSocket server needs a user-defined handler to be functional. The WebSocket specification defines subprotocols, and the Seastar WebSocket server allows one handler to be registered per subprotocol.
 
 Each subprotocol has a unique name and is expected to be sent by the connecting client during handshake,
 by sending a `Sec-Websocket-Protocol` header with the chosen value.
@@ -38,8 +37,6 @@ Note: the developers should assume that the input stream provides decoded and un
 
 Registered WebSocket handlers can throw arbitrary exceptions during their operation. Currently, exceptions that aren't explicitly handled within the handler will cause the established WebSocket connection to be terminated, and a proper error message will be logged.
 
-## Secure WebSocket (wss://)
+## Secure WebSocket (`wss://`)
 
-Implementation of Secure WebSocket standard, based on HTTPS is currently work in advanced progress. Once reviewed and merged, this section will contain documentation for it.
-Ref: https://github.com/scylladb/seastar/pull/1044
-
+The WebSocket server does not currently support secure WebSocket connections (`wss://`).

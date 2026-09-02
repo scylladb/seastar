@@ -9,14 +9,14 @@ Seastar
 Introduction
 ------------
 
-SeaStar is an event-driven framework allowing you to write non-blocking,
+Seastar is an event-driven framework that allows you to write non-blocking,
 asynchronous code in a relatively straightforward manner (once understood).
-It is based on [futures](http://en.wikipedia.org/wiki/Futures_and_promises).
+It is based on [futures](https://en.wikipedia.org/wiki/Futures_and_promises).
 
 Building Seastar
 --------------------
 
-For more details and alternative work-flows, read [HACKING.md](./HACKING.md).
+For more details and alternative workflows, read [HACKING.md](./HACKING.md).
 
 Assuming that you would like to use system packages (RPMs or DEBs) for Seastar's dependencies, first install them:
 
@@ -24,19 +24,19 @@ Assuming that you would like to use system packages (RPMs or DEBs) for Seastar's
 $ sudo ./install-dependencies.sh
 ```
 
-then configure (in "release" mode):
+Then configure (in "release" mode):
 
 ```
 $ ./configure.py --mode=release
 ```
-then compile:
+Then compile:
 
 ```
 $ ninja -C build/release
 ```
 
-In case there are compilation issues, especially like ```g++: internal compiler error: Killed (program cc1plus)```
-try giving more memory to gcc, either by limiting the amount of threads ( -j1 ) and/or allowing at least 4g ram to your
+If compilation fails with an error such as `g++: internal compiler error: Killed (program cc1plus)`,
+try giving GCC more memory. You can limit the number of parallel jobs with `-j1` and/or allocate at least 4 GiB of RAM to your
 machine.
 
 If you're missing a dependency of Seastar, then it is possible to have the configuration process fetch a version of the dependency locally for development.
@@ -53,8 +53,8 @@ $ ./configure.py --mode=dev --cook fmt
 Build modes
 ----------------------------------------------------------------------------
 
-The configure.py script is a wrapper around cmake. The --mode argument
-maps to CMAKE_BUILD_TYPE, and supports the following modes
+The `configure.py` script is a wrapper around CMake. The `--mode` argument
+maps to `CMAKE_BUILD_TYPE` and supports the following modes:
 
 |          | CMake mode          | Debug info | Optimi&shy;zations | Sanitizers   | Allocator | Checks   | Use for                                |
 | -------- | ------------------- | ---------- | ------------------ |------------- | --------- | -------- | -------------------------------------- |
@@ -63,10 +63,9 @@ maps to CMAKE_BUILD_TYPE, and supports the following modes
 | dev      | `Dev` (Custom)      | No         | `-O1`              | None         | Seastar   | Asserts  | build and test cycle                   |
 | sanitize | `Sanitize` (Custom) | Yes        | `-Os`              | ASAN, UBSAN  | System    | All      | second level of tests, track down bugs |
 
-Note that seastar is more sensitive to allocators and optimizations than
-usual. A quick rule of the thumb of the relative performances is that
-release is 2 times faster than dev, 150 times faster than sanitize and
-300 times faster than debug.
+Note that Seastar is more sensitive to allocators and optimizations than
+usual. As a rough rule of thumb, `release` is twice as fast as `dev`, 150
+times as fast as `sanitize`, and 300 times as fast as `debug`.
 
 Using Seastar from its build directory (without installation)
 ----------------------------------------------------------------------------
@@ -105,12 +104,12 @@ $ cd $my_app_dir/build
 $ cmake -DCMAKE_PREFIX_PATH="$seastar_dir/build/release;$seastar_dir/build/release/_cooking/installed" -DCMAKE_MODULE_PATH=$seastar_dir/cmake $my_app_dir
 ```
 
-The `CMAKE_PREFIX_PATH` values ensure that CMake can locate Seastar and its compiled submodules. The `CMAKE_MODULE_PATH` value ensures that CMake can uses Seastar's CMake scripts for locating its dependencies.
+The `CMAKE_PREFIX_PATH` values ensure that CMake can locate Seastar and its compiled submodules. The `CMAKE_MODULE_PATH` value ensures that CMake can use Seastar's CMake scripts to locate its dependencies.
 
 Using an installed Seastar
 --------------------------------
 
-You can also consume Seastar after it has been installed to the file-system.
+You can also consume Seastar after it has been installed to the filesystem.
 
 **Important:**
 
@@ -122,13 +121,13 @@ First, configure the installation path:
 $ ./configure.py --mode=release --prefix=/usr/local
 ```
 
-then run the `install` target:
+Then run the `install` target:
 
 ```
 $ ninja -C build/release install
 ```
 
-then consume it from `pkg-config`:
+Then consume it from `pkg-config`:
 
 ```
 $ g++ my_app.cc $(pkg-config --libs --cflags --static seastar) -o my_app
@@ -144,64 +143,64 @@ $ cmake ..
 
 There are also instructions for building on any host that supports [Docker](doc/building-docker.md).
 
-Use of the [DPDK](http://dpdk.org) is [optional](doc/building-dpdk.md).
+Use of [DPDK](https://www.dpdk.org/) is [optional](doc/building-dpdk.md).
 
 #### <a id="cxx-standard"></a>Seastar's C++ standard: C++23 or C++26
 
-Seastar supports both C++23, and C++26. The build defaults to the latest
+Seastar supports both C++23 and C++26. The build defaults to the latest
 standard supported by your compiler, but can be explicitly selected with
 the `--c++-standard` configure option, e.g., `--c++-standard=23`,
-or if using CMake directly, by setting on the `CMAKE_CXX_STANDARD` CMake
+or, if using CMake directly, by setting the `CMAKE_CXX_STANDARD` CMake
 variable.
 
-See the [compatibity statement](doc/compatibility.md) for more information.
+See the [compatibility statement](doc/compatibility.md) for more information.
 
 Getting started
 ---------------
 
 There is a [mini tutorial](doc/mini-tutorial.md) and a [more comprehensive one](doc/tutorial.md).
 
-The documentation is available on the [web](http://docs.seastar.io/master/index.html).
+The documentation is available on the [web](https://docs.seastar.io/master/index.html).
 
 
 Resources
 ---------
 
-* Seasatar Development Mailing List: Discuss challenges, propose improvements with
-  sending code contributions (patches), and get help from experienced developers.
-  Subscribe or browse archives: [here](https://groups.google.com/forum/#!forum/seastar-dev)
+* Seastar Development Mailing List: Discuss challenges, propose improvements, send
+  code contributions (patches), and get help from experienced developers.
+  Subscribe or browse archives: [here](https://groups.google.com/g/seastar-dev)
   (or email seastar-dev@googlegroups.com).
 * GitHub Discussions: For more casual conversations and quick questions, consider
-  using the Seastar project's [discussions on Github](https://github.com/scylladb/seastar/discussions).
+  using the Seastar project's [discussions on GitHub](https://github.com/scylladb/seastar/discussions).
 * Issue Tracker: File bug reports on the project's [issue tracker](https://github.com/scylladb/seastar/issues).
 
-Learn more about Seastar on the main [project website](http://seastar.io).
+Learn more about Seastar on the main [project website](https://seastar.io/).
 
 The Native TCP/IP Stack
 -----------------------
 
 Seastar comes with its own [userspace TCP/IP stack](doc/native-stack.md) for better performance.
 
-Recommended hardware configuration for SeaStar
+Recommended hardware configuration for Seastar
 ----------------------------------------------
 
-* CPUs - As much as you need. SeaStar is highly friendly for multi-core and NUMA
-* NICs - As fast as possible, we recommend 10G or 40G cards. It's possible to use
-       1G too but you may be limited by their capacity.
-       In addition, the more hardware queue per cpu the better for SeaStar.
+* CPUs - As many as you need. Seastar is well suited to multicore and NUMA systems.
+* NICs - As fast as possible; we recommend 10G or 40G cards. It is possible to use
+       1G cards too, but you may be limited by their capacity.
+       In addition, the more hardware queues per CPU, the better for Seastar.
        Otherwise we have to emulate that in software.
-* Disks - Fast SSDs with high number of IOPS.
-* Client machines - Usually a single client machine can't load our servers.
-       Both memaslap (memcached) and WRK (httpd) cannot over load their matching
-       server counter parts. We recommend running the client on different machine
-       than the servers and use several of them.
+* Disks - Fast SSDs with a high number of IOPS.
+* Client machines - Usually a single client machine cannot fully load our servers.
+       Both memaslap (memcached) and wrk (httpd) may be unable to overload their matching
+       server counterparts. We recommend running clients on machines other than the servers
+       and using several of them.
 
 Projects using Seastar
 ----------------------------------------------
 
-* [cpv-cql-driver](https://github.com/cpv-project/cpv-cql-driver): C++ driver for Cassandra/Scylla based on seastar framework
-* [cpv-framework](https://github.com/cpv-project/cpv-framework): A web framework written in c++ based on seastar framework
-* [redpanda](https://vectorized.io/): A Kafka replacement for mission critical systems
+* [cpv-cql-driver](https://github.com/cpv-project/cpv-cql-driver): C++ driver for Cassandra/Scylla based on the Seastar framework
+* [cpv-framework](https://github.com/cpv-project/cpv-framework): A web framework written in C++ based on the Seastar framework
+* [Redpanda](https://www.redpanda.com/): A Kafka-compatible streaming data platform for mission-critical systems
 * [Scylla](https://github.com/scylladb/scylla): A fast and reliable NoSQL data store compatible with Cassandra and DynamoDB
 * [smf](https://github.com/smfrpc/smf): The fastest RPC in the West
 * [Ceph - Crimson](https://github.com/ceph/ceph): Next-generation OSD (Object Storage Daemon) implementation based on the Seastar framework

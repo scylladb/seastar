@@ -1,7 +1,7 @@
-# IO Tracing
+# I/O Tracing
 
-Seastar includes optional LTTng-UST tracepoints in the IO scheduler that
-allow low-overhead recording of IO request lifecycle events.  The
+Seastar includes optional LTTng-UST tracepoints in the I/O scheduler that
+allow low-overhead recording of I/O request lifecycle events. The
 tracepoints must be explicitly enabled at build time via
 `-DSeastar_LTTNG=ON`, but have near-zero cost (~3 ns per tracepoint) when
 tracing is not active.
@@ -39,14 +39,14 @@ All tracepoints belong to the `seastar_io` provider.
 
 | Tracepoint            | Description                                  | Key Fields                              |
 |-----------------------|----------------------------------------------|-----------------------------------------|
-| `io_queue_queued`     | Request enqueued into the IO fair queue       | dev_id, req_id, direction, pclass, offset, length |
-| `io_queue_dispatched` | Request dispatched to the IO backend          | dev_id, req_id                          |
+| `io_queue_queued`     | Request enqueued into the I/O fair queue      | dev_id, req_id, direction, pclass, offset, length |
+| `io_queue_dispatched` | Request dispatched to the I/O backend         | dev_id, req_id                          |
 | `io_queue_completed`  | Request completed successfully                | dev_id, req_id                          |
 | `io_queue_cancelled`  | Request cancelled before dispatch             | dev_id, req_id                          |
 
 ### Field Descriptions
 
-- **dev_id** — IO queue device identifier (corresponds to a mountpoint)
+- **dev_id** — I/O queue device identifier (corresponds to a mount point)
 - **req_id** — Unique request identifier (pointer value), stable across
   queued → dispatched → completed lifecycle
 - **direction** — `0` = write, `1` = read
@@ -62,7 +62,7 @@ All tracepoints belong to the `seastar_io` provider.
 # Create a tracing session
 lttng create io-session --output=/tmp/io-trace
 
-# Enable all seastar IO tracepoints
+# Enable all Seastar I/O tracepoints
 lttng enable-event -u 'seastar_io:*'
 
 # Start recording
@@ -133,7 +133,7 @@ The tracepoints are also exposed as SDT probes:
 # List available probes
 perf list sdt | grep seastar_io
 
-# Record all IO events
+# Record all I/O events
 perf record -e 'sdt_seastar_io:*' ./your_app
 
 # View results
@@ -143,11 +143,11 @@ perf script
 ### Using bpftrace (live analysis / filtering)
 
 ```bash
-# Count IO requests per second
+# Count I/O requests per second
 bpftrace -e 'usdt:./your_app:seastar_io:io_queue_queued { @ops = count(); }
              interval:s:1 { print(@ops); clear(@ops); }'
 
-# Histogram of IO request sizes
+# Histogram of I/O request sizes
 bpftrace -e 'usdt:./your_app:seastar_io:io_queue_queued {
     @sizes = hist(arg6);
 }'
@@ -251,7 +251,7 @@ Example `babeltrace2` output (same format as `lttng view`):
 [17:33:21.521960435] (+0.000081394) host seastar_io:io_queue_completed: { cpu_id = 0 }, { dev_id = 0, req_id = 0x601000175C80 }
 ```
 
-### Computing IO Latencies
+### Computing I/O Latencies
 
 Since LTTng records precise timestamps for each event, latencies are
 computed by matching `req_id` values:
@@ -262,7 +262,7 @@ computed by matching `req_id` values:
 
 ### With Trace Compass (GUI)
 
-[Trace Compass](https://www.eclipse.org/tracecompass/) can open CTF
+[Trace Compass](https://eclipse.dev/tracecompass/) can open CTF
 traces produced by LTTng and provides timeline visualization, statistics,
 and custom analysis views.
 
@@ -271,7 +271,7 @@ and custom analysis views.
 - **When not tracing**: ~3 ns per tracepoint (single branch, predicted not-taken)
 - **When actively recording**: ~100–300 ns per event (userspace ring buffer
   write, no kernel transition)
-- At 100K IOPS with 3 events per IO: ~30–90 ms of CPU per second (<1% of one core)
+- At 100K IOPS with 3 events per I/O: ~30–90 ms of CPU per second (<1% of one core)
 
 ## Building Without LTTng
 
