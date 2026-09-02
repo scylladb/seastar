@@ -334,6 +334,12 @@ constexpr size_t max_stream_buffers_memory = 100 * 1024;
 /// \addtogroup rpc
 /// @{
 
+/// \brief The sending end of an rpc stream.
+///
+/// close() must be called, and its future waited for, before the last
+/// reference to a sink goes away, even if the stream has failed.  The
+/// stream's connection is shut down once the \ref source on this connection
+/// has been read to eof or error as well.
 // send data Out...
 template<typename... Out>
 class sink {
@@ -375,6 +381,12 @@ public:
     connection_id get_id() const;
 };
 
+/// \brief The receiving end of an rpc stream.
+///
+/// There is deliberately no close().  A source is released by reading it until
+/// it yields an unengaged optional (end of stream) or throws, and there is no
+/// other way to do it.  An application that no longer wants the data should
+/// say so at the application level and then drain what is still in flight.
 // receive data In...
 template<typename... In>
 class source {

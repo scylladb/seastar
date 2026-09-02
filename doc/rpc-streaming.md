@@ -46,8 +46,9 @@ To receive:
 ### Creating a stream
 
 To open an RPC stream, an RPC client must already exist. The stream
-will be associated with the client and will be aborted if the client is closed
-before streaming is. Given RPC client `rc`, and a `serializer` class that models the Serializer concept (as explained in the rpc::protocol class), one creates `rpc::sink` as follows
+will be associated with the client, and closing the client aborts any stream
+still open on it. Aborting a stream this way is not a substitute for closing
+it, see [Closing a stream](#closing-a-stream) below. Given RPC client `rc`, and a `serializer` class that models the Serializer concept (as explained in the rpc::protocol class), one creates `rpc::sink` as follows
 (again assuming `seastar::async` context):
 
 ```cpp
@@ -99,6 +100,22 @@ Client code will be:
    rpc::source<sstring> source = rpc_call(rc, aux_data, sink).get();
    // use sink and source here
 ```
+
+### Closing a stream
+
+Both halves of a stream must be closed by the application:
+
+* **Close the sink** with `rpc::sink::close()` and wait for the returned
+  future. Dropping an unclosed sink is an error.
+* **Read the source until eof or error.** `rpc::source` deliberately has no
+  `close()`: reading it until it yields an unengaged optional (eof) or throws
+  is what closes it. If you no longer want the data, tell the peer at the
+  application level and then drain what is still in flight.
+
+The stream's connection is shut down only once both halves are closed.
+
+This applies on error too. The calls may fail, and the failures are expected,
+but they still have to be made.
 
 ## Implementation notes
 
