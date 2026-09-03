@@ -90,6 +90,11 @@ struct request {
     /// owned by a "connection" object, which is held alive while processing
     /// a request.
     const std::vector<tls::subject_alt_name>* tls_san = nullptr;
+    /// Tag of the listener that accepted the connection this request arrived
+    /// on, as passed to httpd::http_server::listen(). httpd::no_listener_tag
+    /// when the listener was created without a tag, or when the request was not
+    /// received by an http_server (e.g. client-side requests).
+    httpd::listener_tag listener_tag = httpd::no_listener_tag;
     http::body_writer_type body_writer; // for client
 
     using query_parameters_type = std::unordered_map<sstring, std::vector<sstring>, seastar::internal::string_view_hash, std::equal_to<>>;
@@ -120,6 +125,16 @@ public:
      */
     const socket_address & get_server_address() const {
         return _server_address;
+    }
+
+    /**
+     * Get the tag of the listener that accepted the connection this request
+     * arrived on, as passed to \ref httpd::http_server::listen().
+     * @return the listener tag, or \ref httpd::no_listener_tag if no tag was
+     * passed to listen() or the request was not received by an http_server
+     */
+    httpd::listener_tag get_listener_tag() const {
+        return listener_tag;
     }
 
     /**
