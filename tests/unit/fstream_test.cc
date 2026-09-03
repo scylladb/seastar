@@ -45,87 +45,64 @@
 using namespace seastar;
 namespace fs = std::filesystem;
 
-struct writer {
-    output_stream<char> out;
-    static future<shared_ptr<writer>> make(file f) {
-        return make_file_output_stream(std::move(f)).then([] (output_stream<char>&& os) {
-            return make_shared<writer>(writer{std::move(os)});
-        });
-    }
-};
-
-struct reader {
-    input_stream<char> in;
-    reader(file f) : in(make_file_input_stream(std::move(f))) {}
-    reader(file f, file_input_stream_options options) : in(make_file_input_stream(std::move(f), std::move(options))) {}
-};
-
 SEASTAR_TEST_CASE(test_fstream) {
-    return tmp_dir::do_with([] (tmp_dir& t) {
+    return tmp_dir::do_with([] (tmp_dir& t) -> future<> {
         auto filename = (t.get_path() / "testfile.tmp").native();
-        return open_file_dma(filename,
-                open_flags::rw | open_flags::create | open_flags::truncate).then([filename] (file f) {
-            return writer::make(std::move(f)).then([filename] (shared_ptr<writer> w) {
-                auto buf = static_cast<char*>(::malloc(4096));
-                memset(buf, 0, 4096);
-                buf[0] = '[';
-                buf[1] = 'A';
-                buf[4095] = ']';
-                return w->out.write(buf, 4096).then([buf, w] {
-                    ::free(buf);
-                    return make_ready_future<>();
-                }).then([w] {
-                    auto buf = static_cast<char*>(::malloc(8192));
-                    memset(buf, 0, 8192);
-                    buf[0] = '[';
-                    buf[1] = 'B';
-                    buf[8191] = ']';
-                    return w->out.write(buf, 8192).then([buf, w] {
-                        ::free(buf);
-                        return w->out.close().then([w] {});
-                    });
-                }).then([filename] {
-                    return open_file_dma(filename, open_flags::ro);
-                }).then([] (file f) {
-                    /*  file content after running the above:
-                     * 00000000  5b 41 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |[A..............|
-                     * 00000010  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |................|
-                     * *
-                     * 00000ff0  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 5d  |...............]|
-                     * 00001000  5b 42 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |[B..............|
-                     * 00001010  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |................|
-                     * *
-                     * 00002ff0  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 5d  |...............]|
-                     * 00003000
-                     */
-                    auto r = make_shared<reader>(std::move(f));
-                    return r->in.read_exactly(4096 + 8192).then([r] (temporary_buffer<char> buf) {
-                        auto p = buf.get();
-                        BOOST_REQUIRE(p[0] == '[' && p[1] == 'A' && p[4095] == ']');
-                        BOOST_REQUIRE(p[4096] == '[' && p[4096 + 1] == 'B' && p[4096 + 8191] == ']');
-                        return make_ready_future<>();
-                    }).then([r] {
-                        return r->in.close();
-                    }).finally([r] {});
-                });
-            });
-        });
+
+        auto wf = co_await open_file_dma(filename, open_flags::rw | open_flags::create | open_flags::truncate);
+        auto out = co_await make_file_output_stream(std::move(wf));
+
+        {
+            auto buf = std::make_unique<char[]>(4096);
+            buf[0] = '[';
+            buf[1] = 'A';
+            buf[4095] = ']';
+            co_await out.write(buf.get(), 4096);
+        }
+
+        {
+            auto buf = std::make_unique<char[]>(8192);
+            buf[0] = '[';
+            buf[1] = 'B';
+            buf[8191] = ']';
+            co_await out.write(buf.get(), 8192);
+        }
+        co_await out.close();
+
+        /*  file content after running the above:
+         * 00000000  5b 41 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |[A..............|
+         * 00000010  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |................|
+         * *
+         * 00000ff0  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 5d  |...............]|
+         * 00001000  5b 42 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |[B..............|
+         * 00001010  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |................|
+         * *
+         * 00002ff0  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 5d  |...............]|
+         * 00003000
+         */
+        auto rf = co_await open_file_dma(filename, open_flags::ro);
+        auto in = make_file_input_stream(std::move(rf));
+        auto buf = co_await in.read_exactly(4096 + 8192);
+        auto p = buf.get();
+        BOOST_REQUIRE(p[0] == '[' && p[1] == 'A' && p[4095] == ']');
+        BOOST_REQUIRE(p[4096] == '[' && p[4096 + 1] == 'B' && p[4096 + 8191] == ']');
+        co_await in.close();
     });
 }
 
 SEASTAR_TEST_CASE(test_consume_skip_bytes) {
-    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+    return tmp_dir::do_with([] (tmp_dir& t) -> future<> {
         auto filename = (t.get_path() / "testfile.tmp").native();
-        auto f = open_file_dma(filename,
-                               open_flags::rw | open_flags::create | open_flags::truncate).get();
-        auto w = writer::make(std::move(f)).get();
-        auto write_block = [w] (char c, size_t size) {
+        auto wf = co_await open_file_dma(filename,
+                               open_flags::rw | open_flags::create | open_flags::truncate);
+        auto out = co_await make_file_output_stream(std::move(wf));
+        auto write_block = [&out] (char c, size_t size) -> future<> {
             std::vector<char> vec(size, c);
-            w->out.write(&vec.front(), vec.size()).get();
+            co_await out.write(&vec.front(), vec.size());
         };
-        write_block('a', 8192);
-        write_block('b', 8192);
-        w->out.close().get();
+        co_await write_block('a', 8192);
+        co_await write_block('b', 8192);
+        co_await out.close();
         /*  file content after running the above:
          * 00000000  61 61 61 61 61 61 61 61  61 61 61 61 61 61 61 61  |aaaaaaaaaaaaaaaa|
          * *
@@ -133,9 +110,8 @@ SEASTAR_TEST_CASE(test_consume_skip_bytes) {
          * *
          * 00004000
          */
-        f = open_file_dma(filename, open_flags::ro).get();
-        auto r = make_lw_shared<reader>(std::move(f), file_input_stream_options{512});
-        auto close_r_in = deferred_close(r->in);
+        auto rf = co_await open_file_dma(filename, open_flags::ro);
+        auto in = make_file_input_stream(std::move(rf), file_input_stream_options{512});
         struct consumer {
             uint64_t _count = 0;
             using consumption_result_type = typename input_stream<char>::consumption_result_type;
@@ -178,92 +154,76 @@ SEASTAR_TEST_CASE(test_consume_skip_bytes) {
                 }
             }
         };
-        r->in.consume(consumer{}).get();
+        co_await in.consume(consumer{}).finally([&in] {
+            return in.close();
+        });
     });
 }
 
 SEASTAR_TEST_CASE(test_fstream_unaligned) {
-  return tmp_dir::do_with([] (tmp_dir& t) {
-    auto filename = (t.get_path() / "testfile.tmp").native();
-    return open_file_dma(filename,
-            open_flags::rw | open_flags::create | open_flags::truncate).then([filename] (file f) {
-        return writer::make(std::move(f)).then([filename] (shared_ptr<writer> w) {
-            auto buf = static_cast<char*>(::malloc(40));
-            memset(buf, 0, 40);
+    return tmp_dir::do_with([] (tmp_dir& t) -> future<> {
+        auto filename = (t.get_path() / "testfile.tmp").native();
+
+        auto wf = co_await open_file_dma(filename, open_flags::rw | open_flags::create | open_flags::truncate);
+        auto out = co_await make_file_output_stream(std::move(wf));
+
+        {
+            auto buf = std::make_unique<char[]>(40);
             buf[0] = '[';
             buf[1] = 'A';
             buf[39] = ']';
-            return w->out.write(buf, 40).then([buf, w] {
-                ::free(buf);
-                return w->out.close().then([w] {});
-            }).then([filename] {
-                return open_file_dma(filename, open_flags::ro);
-            }).then([] (file f) {
-                return do_with(std::move(f), [] (file& f) {
-                    return f.size().then([] (size_t size) {
-                        // assert that file was indeed truncated to the amount of bytes written.
-                        BOOST_REQUIRE(size == 40);
-                        return make_ready_future<>();
-                    });
-                });
-            }).then([filename] {
-                return open_file_dma(filename, open_flags::ro);
-            }).then([] (file f) {
-                auto r = make_shared<reader>(std::move(f));
-                return r->in.read_exactly(40).then([r] (temporary_buffer<char> buf) {
-                    auto p = buf.get();
-                    BOOST_REQUIRE(p[0] == '[' && p[1] == 'A' && p[39] == ']');
-                    return make_ready_future<>();
-                }).then([r] {
-                    return r->in.close();
-                }).finally([r] {});
-            });
-        });
+            co_await out.write(buf.get(), 40);
+        }
+        co_await out.close();
+
+        {
+            // assert that file was indeed truncated to the amount of bytes written.
+            auto sf = co_await open_file_dma(filename, open_flags::ro);
+            BOOST_REQUIRE_EQUAL(co_await sf.size(), 40u);
+        }
+
+        auto rf = co_await open_file_dma(filename, open_flags::ro);
+        auto in = make_file_input_stream(std::move(rf));
+        auto buf = co_await in.read_exactly(40);
+        auto p = buf.get();
+        BOOST_REQUIRE(p[0] == '[' && p[1] == 'A' && p[39] == ']');
+        co_await in.close();
     });
-  });
 }
 
-future<> test_consume_until_end(uint64_t size) {
-  return tmp_dir::do_with([size] (tmp_dir& t) {
+static future<> consume_tmpdir_file(tmp_dir& t, uint64_t size) {
     auto filename = (t.get_path() / "testfile.tmp").native();
-    return open_file_dma(filename,
-            open_flags::rw | open_flags::create | open_flags::truncate).then([size] (file f) {
-          return make_file_output_stream(f).then([size] (output_stream<char>&& os) {
-            return do_with(std::move(os), [size] (output_stream<char>& out) {
-                std::vector<char> buf(size);
-                std::iota(buf.begin(), buf.end(), 0);
-                return out.write(buf.data(), buf.size()).then([&out] {
-                   return out.flush();
-                });
-          });
-            }).then([f] {
-                return f.size();
-            }).then([size, f] (size_t real_size) {
-                BOOST_REQUIRE_EQUAL(size, real_size);
-            }).then([size, f] {
-                auto consumer = [offset = uint64_t(0), size] (temporary_buffer<char> buf) mutable -> future<consumption_result<char>> {
-                    if (!buf) {
-                        return make_ready_future<consumption_result<char>>(stop_consuming<char>{temporary_buffer<char>()});
-                    }
-                    BOOST_REQUIRE(offset + buf.size() <= size);
-                    std::vector<char> expected(buf.size());
-                    std::iota(expected.begin(), expected.end(), offset);
-                    offset += buf.size();
-                    BOOST_REQUIRE(std::equal(buf.begin(), buf.end(), expected.begin()));
-                    return make_ready_future<consumption_result<char>>(continue_consuming{});
-                };
-                return do_with(make_file_input_stream(f), std::move(consumer), [] (input_stream<char>& in, auto& consumer) {
-                    return in.consume(consumer).then([&in] {
-                        return in.close();
-                    });
-                });
-            }).finally([f] () mutable {
-                return f.close();
-            });
+
+    auto f = co_await open_file_dma(filename, open_flags::rw | open_flags::create | open_flags::truncate);
+    auto out = co_await make_file_output_stream(f);
+    std::vector<char> buf(size);
+    std::iota(buf.begin(), buf.end(), 0);
+    co_await out.write(buf.data(), buf.size());
+    co_await out.flush();
+    BOOST_REQUIRE_EQUAL(co_await f.size(), size);
+
+    auto in = make_file_input_stream(f);
+    uint64_t offset = 0;
+    co_await in.consume([&offset, size] (temporary_buffer<char> buf) -> future<consumption_result<char>> {
+        if (!buf) {
+            return make_ready_future<consumption_result<char>>(stop_consuming<char>{temporary_buffer<char>()});
+        }
+        BOOST_REQUIRE(offset + buf.size() <= size);
+        std::vector<char> expected(buf.size());
+        std::iota(expected.begin(), expected.end(), offset);
+        offset += buf.size();
+        BOOST_REQUIRE(std::equal(buf.begin(), buf.end(), expected.begin()));
+        return make_ready_future<consumption_result<char>>(continue_consuming{});
     });
-  });
+    co_await in.close();
+    co_await f.close();
 }
 
+static future<> test_consume_until_end(uint64_t size) {
+    return tmp_dir::do_with([size] (tmp_dir& t) {
+        return consume_tmpdir_file(t, size);
+    });
+}
 
 SEASTAR_TEST_CASE(test_consume_aligned_file) {
     return test_consume_until_end(4096);
