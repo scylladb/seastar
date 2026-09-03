@@ -393,3 +393,51 @@ SEASTAR_THREAD_TEST_CASE(test_memory_data_sink) {
     do_test_memory_data_sink<std::list>();
     do_test_memory_data_sink<std::deque>();
 }
+
+#ifdef SEASTAR_DATA_SINK_PUT_DEBUG
+
+// Hands out a future the test controls, so a caller that drops it leaves the put
+// in flight for as long as the sink lives.
+class pending_put_sink final : public data_sink_impl {
+    promise<>& _pending;
+public:
+    explicit pending_put_sink(promise<>& pending) noexcept : _pending(pending) { }
+
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        return _pending.get_future();
+    }
+
+    future<> close() override { return make_ready_future<>(); }
+    size_t buffer_size() const noexcept override { return 4096; }
+};
+
+class throwing_put_sink final : public data_sink_impl {
+public:
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        throw std::runtime_error("put failed");
+    }
+
+    future<> close() override { return make_ready_future<>(); }
+    size_t buffer_size() const noexcept override { return 4096; }
+};
+
+// The abandoned put the assert catches aborts the process, so it has no test case
+// here; what these two cover is the other half, that draining a put and failing to
+// issue one both leave the sink destructible.
+
+// A put that throws unwinds the guard, which clears the flag again.
+SEASTAR_THREAD_TEST_CASE(test_throwing_put_leaves_sink_destructible) {
+    data_sink sink(std::make_unique<throwing_put_sink>());
+    auto f = sink.put(temporary_buffer<char>(8));
+    BOOST_REQUIRE_THROW(f.get(), std::runtime_error);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_drained_put_leaves_sink_destructible) {
+    promise<> pending;
+    data_sink sink(std::make_unique<pending_put_sink>(pending));
+    auto f = sink.put(temporary_buffer<char>(8));
+    pending.set_value();
+    f.get();
+}
+
+#endif

@@ -34,3 +34,11 @@ namespace seastar::internal {
                                            __PRETTY_FUNCTION__);      \
         }                                                             \
     } while (0)
+
+/// Like SEASTAR_ASSERT(), but only active in SEASTAR_DEBUG builds. For checks
+/// whose cost is only worth paying while debugging.
+#ifdef SEASTAR_DEBUG
+#define SEASTAR_DEBUG_ASSERT(x) SEASTAR_ASSERT(x)
+#else
+#define SEASTAR_DEBUG_ASSERT(x) do { } while (0)
+#endif
