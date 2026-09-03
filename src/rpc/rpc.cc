@@ -347,6 +347,14 @@ void connection::abort() {
     if (!_error) {
         _error = true;
         _connected->fd.shutdown_input();
+        if (is_stream()) {
+            // A stream connection's loop may be parked waiting for the
+            // application to consume what it has already received, and
+            // shutting the input down does not wake it up.  Break the
+            // backpressure too, otherwise the loop never ends.
+            _stream_queue.abort(std::make_exception_ptr(stream_closed()));
+            _stream_sem.broken(stream_closed());
+        }
     }
 }
 
@@ -356,7 +364,7 @@ future<> connection::stop() noexcept {
     } catch (...) {
         log_exception(*this, log_level::error, "fail to shutdown connection while stopping", std::current_exception());
     }
-    return _stopped.get_future();
+    return get_stopped_future();
 }
 
 template<typename Connection>
@@ -827,7 +835,7 @@ future<> client::stop() noexcept {
     } catch(...) {
         log_exception(*this, log_level::error, "fail to shutdown connection while stopping", std::current_exception());
     }
-    return _stopped.get_future();
+    return get_stopped_future();
 }
 
 void client::abort_all_streams() {
@@ -1056,6 +1064,13 @@ future<> client::loop(client_options ops, const socket_address& addr, const sock
     } else {
         abort_all_streams();
     }
+    // The _streams map and the application's sink and source handles may all
+    // have released the stream connections aborted above while their loops are
+    // still winding down.  This client owns them until then, so wait for them
+    // here, before anything can drop the last reference to a connection that is
+    // still running.  This is also what makes client::stop() wait for them: it
+    // waits for _stopped, which is only set below.
+    co_await _streams_gate.close();
     if (_compressor) {
         co_await _compressor->close();
     }
