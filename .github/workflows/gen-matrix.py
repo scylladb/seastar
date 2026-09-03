@@ -131,6 +131,22 @@ SPECIAL_ITEMS: list[dict[str, Any]] = [
         "mode": "fuzz",
         "test-args": "-- -R 'Seastar.fuzz.'",
     },
+    {
+        "compiler": "clang++-22",
+        "standard": 23,
+        "arch": "x86",
+        "mode": "debug",
+        "options": "--tls-mode=both",
+        "info": "dual-tls, ",
+    },
+    {
+        "compiler": "clang++-22",
+        "standard": 23,
+        "arch": "x86",
+        "mode": "debug",
+        "options": "--tls-mode=openssl",
+        "info": "openssl-tls, ",
+    },
 ]
 
 def _build_include(items: list[dict[str, Any]]) -> CommentedSeq:
