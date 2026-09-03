@@ -302,6 +302,9 @@ protected:
     // the future holds if sink is already closed
     // if it is not ready it means the sink is been closed
     future<bool> _sink_closed_future = make_ready_future<bool>(false);
+    // Set by stream_close() before it closes the write buffer.  From then on
+    // send() refuses new frames, see stream_close().
+    bool _stream_closing = false;
 
     void set_negotiated() noexcept;
 

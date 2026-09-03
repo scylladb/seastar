@@ -1844,6 +1844,196 @@ SEASTAR_THREAD_TEST_CASE(test_compressor_empty_frames) {
     }).get();
 }
 
+// Regression test for a stream connection being destroyed with a batch flush
+// pending on its write buffer, seen in the field as
+//
+//   seastar::output_stream<char>::~output_stream(): Assertion `!_in_batch && "Was this stream properly closed?"' failed.
+//
+// connection::stream_close() closes the connection's write buffer while _error
+// is still false; only the stop() it runs afterwards sets it.  Until then
+// connection::send() still accepts frames, and the one caller that is not
+// guarded by sink_closed() is the compressor's send_empty_frame hook, which is
+// `[this] { return send({}); }`.  A frame sent in that window is written into
+// the already closed output_stream and registered for a batch flush that
+// nothing waits for: stream_close() has moved on, and stop_send_loop() skips
+// write_buf.close() because _sink_closed_future already says the sink side
+// was closed.  Once the loop is over the application legitimately drops its
+// handles, and the connection is destroyed with the flush still pending.
+//
+// The window is held open deterministically here: the stream connection's
+// socket is wrapped so that its data_sink::close() blocks until the test
+// releases it, and any put() arriving after close() was entered is recorded.
+// While close() is blocked, the test invokes the stream compressor's
+// send_empty_frame hook, which a compressor may call at any time.
+namespace {
+
+struct test_sink_state {
+    bool close_entered = false;
+    bool put_after_close = false;
+    condition_variable close_entered_cv;
+    shared_promise<> release_close;
+};
+
+class test_data_sink_impl : public data_sink_impl {
+    data_sink _inner;
+    test_sink_state& _st;
+public:
+    test_data_sink_impl(data_sink inner, test_sink_state& st) : _inner(std::move(inner)), _st(st) {}
+    temporary_buffer<char> allocate_buffer(size_t size) override { return _inner.allocate_buffer(size); }
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        if (_st.close_entered) {
+            _st.put_after_close = true;
+        }
+        return _inner.put(bufs);
+    }
+    future<> flush() override { return _inner.flush(); }
+    future<> close() override {
+        _st.close_entered = true;
+        _st.close_entered_cv.signal();
+        return _st.release_close.get_shared_future().then([this] { return _inner.close(); });
+    }
+    size_t buffer_size() const noexcept override { return 8192; }
+    bool can_batch_flushes() const noexcept override { return _inner.can_batch_flushes(); }
+    void on_batch_flush_error() noexcept override { _inner.on_batch_flush_error(); }
+};
+
+class test_connected_socket_impl : public net::connected_socket_impl {
+    connected_socket _inner;
+    test_sink_state& _st;
+public:
+    test_connected_socket_impl(connected_socket inner, test_sink_state& st) : _inner(std::move(inner)), _st(st) {}
+    data_source source() override { return std::move(_inner.input()).detach(); }
+    data_sink sink() override { return data_sink(std::make_unique<test_data_sink_impl>(std::move(_inner.output()).detach(), _st)); }
+    void shutdown_input() override { _inner.shutdown_input(); }
+    void shutdown_output() override { _inner.shutdown_output(); }
+    void set_nodelay(bool nodelay) override { _inner.set_nodelay(nodelay); }
+    bool get_nodelay() const override { return _inner.get_nodelay(); }
+    void set_keepalive(bool keepalive) override { _inner.set_keepalive(keepalive); }
+    bool get_keepalive() const override { return _inner.get_keepalive(); }
+    void set_keepalive_parameters(const net::keepalive_params& p) override { _inner.set_keepalive_parameters(p); }
+    net::keepalive_params get_keepalive_parameters() const override { return _inner.get_keepalive_parameters(); }
+    void set_sockopt(int level, int optname, const void* data, size_t len) override { _inner.set_sockopt(level, optname, data, len); }
+    int get_sockopt(int level, int optname, void* data, size_t len) const override { return _inner.get_sockopt(level, optname, data, len); }
+    socket_address local_address() const noexcept override { return _inner.local_address(); }
+    socket_address remote_address() const noexcept override { return _inner.remote_address(); }
+    future<> wait_input_shutdown() override { return _inner.wait_input_shutdown(); }
+};
+
+class test_socket_impl : public net::socket_impl {
+    seastar::socket _inner;
+    test_sink_state& _st;
+public:
+    test_socket_impl(seastar::socket inner, test_sink_state& st) : _inner(std::move(inner)), _st(st) {}
+    future<connected_socket> connect(socket_address sa, socket_address local, transport proto) override {
+        return _inner.connect(sa, local, proto).then([this] (connected_socket cs) {
+            return connected_socket(std::make_unique<test_connected_socket_impl>(std::move(cs), _st));
+        });
+    }
+    void set_reuseaddr(bool) override {}
+    bool get_reuseaddr() const override { return false; }
+    void shutdown() override { _inner.shutdown(); }
+};
+
+// A pass-through compressor whose only purpose is to hand the test the
+// send_empty_frame hook that rpc gives every negotiated compressor.
+struct hook_capturing_compressor_factory : rpc::compressor::factory {
+    static inline const sstring name = "HOOK";
+    std::vector<std::function<future<>()>> hooks;
+
+    struct compressor : rpc::compressor {
+        rpc::lz4_fragmented_compressor _delegate;
+        rpc::snd_buf compress(size_t head_space, rpc::snd_buf data) override {
+            return _delegate.compress(head_space, data.size ? std::move(data) : rpc::snd_buf(temporary_buffer<char>()));
+        }
+        rpc::rcv_buf decompress(rpc::rcv_buf data) override { return _delegate.decompress(std::move(data)); }
+        sstring name() const override { return hook_capturing_compressor_factory::name; }
+    };
+
+    const sstring& supported() const override { return name; }
+    std::unique_ptr<rpc::compressor> negotiate(sstring feature, bool is_server, std::function<future<>()> send_empty_frame) const override {
+        if (feature != name) {
+            return nullptr;
+        }
+        const_cast<hook_capturing_compressor_factory*>(this)->hooks.push_back(std::move(send_empty_frame));
+        return std::make_unique<compressor>();
+    }
+    std::unique_ptr<rpc::compressor> negotiate(sstring feature, bool is_server) const override { abort(); }
+};
+
+} // anonymous namespace
+
+SEASTAR_THREAD_TEST_CASE(test_stream_send_after_stream_close) {
+    hook_capturing_compressor_factory server_factory;
+    hook_capturing_compressor_factory client_factory;
+    rpc::server_options so;
+    so.streaming_domain = rpc::streaming_domain_type(1);
+    so.compressor_factory = &server_factory;
+    rpc::client_options co;
+    co.compressor_factory = &client_factory;
+    rpc_test_config cfg;
+    cfg.server_options = so;
+
+    rpc_test_env<>::do_with_thread(cfg, co, [&] (rpc_test_env<>& env, test_rpc_proto::client& c) {
+        test_sink_state st;
+        future<> server_done = make_ready_future<>();
+        // The peer sends one message and closes its sink right away, so the
+        // client's source reaches eof while the client's sink is still open.
+        // That makes the client's later sink.close() the call that closes the
+        // second half of the stream and runs stream_close().
+        env.register_handler(1, [&] (int, rpc::source<int> source) {
+            auto sink = source.make_sink<serializer, sstring>();
+            server_done = seastar::async([sink, source] () mutable {
+                sink("seastar").get();
+                sink.close().get();
+                while (source().get()) {
+                }
+            });
+            return sink;
+        }).get();
+        auto call = env.proto().make_client<rpc::source<sstring> (int, rpc::sink<int>)>(1);
+
+        auto stream_socket = seastar::socket(std::make_unique<test_socket_impl>(env.make_socket(), st));
+        auto sink = c.make_stream_sink<serializer, int>(std::move(stream_socket)).get();
+        auto source = call(c, 1, sink).get();
+        // Two client-side negotiations by now: the parent connection's and
+        // the stream connection's.  The stream's hook is the one that matters.
+        BOOST_REQUIRE_EQUAL(client_factory.hooks.size(), 2u);
+        auto& stream_send_empty_frame = client_factory.hooks.back();
+
+        sink(1).get();
+        while (source().get()) {
+        }
+
+        // Close the sink.  This sends the eof marker, marks the sink half
+        // closed, and since the source half already is, runs stream_close(),
+        // which closes the write buffer.  The test sink parks that close.
+        auto sink_closed = sink.close();
+        st.close_entered_cv.wait([&] { return st.close_entered; }).get();
+
+        // The window: the write buffer is closed, _error is not yet set.  A
+        // compressor asking for an empty frame now must be refused; if it is
+        // accepted, its frame lands in the closed output_stream.
+        try {
+            stream_send_empty_frame().get();
+        } catch (const rpc::closed_error&) {
+            // The connection refused the frame: what we want.
+        }
+        // Let the batch flush poller run on whatever was written.
+        for (int i = 0; i < 10; i++) {
+            yield().get();
+        }
+
+        st.release_close.set_value();
+        sink_closed.get();
+        server_done.get();
+
+        BOOST_REQUIRE_MESSAGE(!st.put_after_close, "a frame was written to the stream's output after it was closed");
+        // Dropping sink and source now destroys the connection.  Without the
+        // fix, and with the above write still in flight, this is where
+        // ~output_stream() asserts on the pending batch flush.
+    }).get();
+}
+
 SEASTAR_TEST_CASE(test_timeout_cancel) {
     rpc::client_options co;
     co.send_timeout_data = true;
