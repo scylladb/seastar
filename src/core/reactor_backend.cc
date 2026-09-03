@@ -831,13 +831,12 @@ reactor_backend_aio::make_pollable_fd_state(file_desc fd, pollable_fd::speculati
     return pollable_fd_state_ptr(new aio_pollable_fd_state(std::move(fd), std::move(speculate)));
 }
 
-reactor_backend_epoll::reactor_backend_epoll(reactor& r)
-        : reactor_backend(uses_blocking_io::no, supports_aio_fdatasync::yes)
+reactor_backend_epoll_base::reactor_backend_epoll_base(reactor& r, supports_aio_fdatasync aio_fdatasync)
+        : reactor_backend(uses_blocking_io::no, aio_fdatasync)
         , _r(r)
         , _steady_clock_timer_reactor_thread(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK|TFD_CLOEXEC))
         , _steady_clock_timer_timer_thread(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK|TFD_CLOEXEC))
-        , _epollfd(file_desc::epoll_create(EPOLL_CLOEXEC))
-        , _storage_context(_r) {
+        , _epollfd(file_desc::epoll_create(EPOLL_CLOEXEC)) {
     ::epoll_event event;
     event.events = EPOLLIN;
     event.data.ptr = nullptr;
@@ -850,7 +849,7 @@ reactor_backend_epoll::reactor_backend_epoll(reactor& r)
 }
 
 void
-reactor_backend_epoll::task_quota_timer_thread_fn() {
+reactor_backend_epoll_base::task_quota_timer_thread_fn() {
     auto thread_name = seastar::format("timer-{}", _r._id);
     pthread_setname_np(pthread_self(), thread_name.c_str());
 
@@ -901,14 +900,10 @@ reactor_backend_epoll::task_quota_timer_thread_fn() {
     }
 }
 
-reactor_backend_epoll::~reactor_backend_epoll() = default;
+reactor_backend_epoll_base::~reactor_backend_epoll_base() = default;
 
-std::string_view reactor_backend_epoll::get_backend_name() const {
-    return "epoll";
-}
-
-void reactor_backend_epoll::start_tick() {
-    _task_quota_timer_thread = std::thread(&reactor_backend_epoll::task_quota_timer_thread_fn, this);
+void reactor_backend_epoll_base::start_tick() {
+    _task_quota_timer_thread = std::thread(&reactor_backend_epoll_base::task_quota_timer_thread_fn, this);
 
     ::sched_param sp;
     sp.sched_priority = 1;
@@ -918,19 +913,19 @@ void reactor_backend_epoll::start_tick() {
     }
 }
 
-void reactor_backend_epoll::stop_tick() {
+void reactor_backend_epoll_base::stop_tick() {
     _dying.store(true, std::memory_order_relaxed);
     _r._task_quota_timer.timerfd_settime(0, seastar::posix::to_relative_itimerspec(1ns, 1ms)); // Make the timer fire soon
     _task_quota_timer_thread.join();
 }
 
-void reactor_backend_epoll::arm_highres_timer(const ::itimerspec& its) {
+void reactor_backend_epoll_base::arm_highres_timer(const ::itimerspec& its) {
     _steady_clock_timer_deadline = its;
     _steady_clock_timer_timer_thread.timerfd_settime(TFD_TIMER_ABSTIME, its);
 }
 
 void
-reactor_backend_epoll::switch_steady_clock_timers(file_desc& from, file_desc& to) {
+reactor_backend_epoll_base::switch_steady_clock_timers(file_desc& from, file_desc& to) {
     auto& deadline = _steady_clock_timer_deadline;
     if (deadline.it_value.tv_sec == 0 && deadline.it_value.tv_nsec == 0) {
         return;
@@ -940,14 +935,14 @@ reactor_backend_epoll::switch_steady_clock_timers(file_desc& from, file_desc& to
     from.timerfd_settime(TFD_TIMER_ABSTIME, {});
 }
 
-void reactor_backend_epoll::maybe_switch_steady_clock_timers(int timeout, file_desc& from, file_desc& to) {
+void reactor_backend_epoll_base::maybe_switch_steady_clock_timers(int timeout, file_desc& from, file_desc& to) {
     if (timeout != 0) {
         switch_steady_clock_timers(from, to);
     }
 }
 
 bool
-reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigmask) {
+reactor_backend_epoll_base::wait_and_process(int timeout, const sigset_t* active_sigmask) {
     // If we plan to sleep, disable the timer thread steady clock timer (since it won't
     // wake us up from sleep, and timer thread wakeup will just waste CPU time) and enable
     // reactor thread steady clock timer.
@@ -1049,7 +1044,7 @@ public:
     }
 };
 
-bool reactor_backend_epoll::reap_kernel_completions() {
+bool reactor_backend_epoll_base::reap_kernel_completions() {
     // epoll does not have a separate submission stage, and just
     // calls epoll_ctl everytime it needs, so this method and
     // kernel_submit_work are essentially the same. Ordering also
@@ -1058,14 +1053,18 @@ bool reactor_backend_epoll::reap_kernel_completions() {
     // reactor register two pollers for completions and one for submission,
     // since completion is cheaper for other backends like aio. This avoids
     // calling epoll_wait twice.
-    //
-    // We will only reap the io completions
-    return _storage_context.reap_completions();
+    return false;
 }
 
-bool reactor_backend_epoll::kernel_submit_work() {
+bool reactor_backend_epoll::reap_kernel_completions() {
+    auto r = reactor_backend_epoll_base::reap_kernel_completions();
+    // Do not short-circuit.
+    r |= _storage_context.reap_completions();
+    return r;
+}
+
+bool reactor_backend_epoll_base::kernel_submit_work() {
     bool result = false;
-    _storage_context.submit_work();
     if (_need_epoll_events) {
         result |= wait_and_process(0, nullptr);
     }
@@ -1075,7 +1074,59 @@ bool reactor_backend_epoll::kernel_submit_work() {
     return result;
 }
 
-bool reactor_backend_epoll::complete_hrtimer() {
+bool reactor_backend_epoll::kernel_submit_work() {
+    _storage_context.submit_work();
+    return reactor_backend_epoll_base::kernel_submit_work();
+}
+
+std::string_view reactor_backend_epoll_pure::get_backend_name() const {
+    return "pure-epoll";
+}
+
+bool reactor_backend_epoll_pure::kernel_submit_work() {
+    auto r = _r._io_sink.drain([this] (const internal::io_request& req, io_completion* completion) {
+        memory::scoped_critical_alloc_section _;
+        using o = internal::io_request::operation;
+        // The returned future will be used to satisfy the promise in io_completion,
+        // (via complete_with) so we can ignore the future here.
+        // errno is thread-local, so it has to be captured on the syscall thread;
+        // io_completion::complete_with() expects a negative errno, not -1.
+        (void)_r._thread_pool->submit<syscall_result<ssize_t>>(internal::thread_pool_submit_reason::file_operation, [req]() mutable {
+            switch (req.opcode()) {
+            case o::read: {
+                auto& req_read = req.as<o::read>();
+                return wrap_syscall(::pread(req_read.fd, req_read.addr, req_read.size, req_read.pos));
+            }
+            case o::readv: {
+                auto& req_readv = req.as<o::readv>();
+                return wrap_syscall(::preadv(req_readv.fd, req_readv.iovec, req_readv.iov_len, req_readv.pos));
+            }
+            case o::write: {
+                auto& req_write = req.as<o::write>();
+                return wrap_syscall(::pwrite(req_write.fd, req_write.addr, req_write.size, req_write.pos));
+            }
+            case o::writev: {
+                auto& req_writev = req.as<o::writev>();
+                return wrap_syscall(::pwritev(req_writev.fd, req_writev.iovec, req_writev.iov_len, req_writev.pos));
+            }
+            case o::fdatasync: {
+                auto& req_fdatasync = req.as<o::fdatasync>();
+                return wrap_syscall(ssize_t(::fdatasync(req_fdatasync.fd)));
+            }
+            default:
+                ::abort();
+            }
+        }).then([completion] (syscall_result<ssize_t> res) {
+            completion->complete_with(res.failed() ? -res.error : res.result);
+        });
+        return true;
+    });
+
+    r |= reactor_backend_epoll_base::kernel_submit_work();
+    return r;
+}
+
+bool reactor_backend_epoll_base::complete_hrtimer() {
     // This can be set from either the task quota timer thread, or
     // wait_and_process(), above.
     if (_highres_timer_pending.load(std::memory_order_relaxed)) {
@@ -1086,16 +1137,20 @@ bool reactor_backend_epoll::complete_hrtimer() {
     return false;
 }
 
-bool reactor_backend_epoll::kernel_events_can_sleep() const {
-    return _storage_context.can_sleep();
+bool reactor_backend_epoll_base::kernel_events_can_sleep() const {
+    return true;
 }
 
-void reactor_backend_epoll::wait_and_process_events(const sigset_t* active_sigmask) {
+bool reactor_backend_epoll::kernel_events_can_sleep() const {
+    return reactor_backend_epoll_base::kernel_events_can_sleep() && _storage_context.can_sleep();
+}
+
+void reactor_backend_epoll_base::wait_and_process_events(const sigset_t* active_sigmask) {
     wait_and_process(-1 , active_sigmask);
     complete_hrtimer();
 }
 
-void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, int events, int event) {
+void reactor_backend_epoll_base::complete_epoll_event(pollable_fd_state& pfd, int events, int event) {
     if (pfd.events_requested & events & event) {
         pfd.events_requested &= ~event;
         pfd.events_known &= ~event;
@@ -1104,7 +1159,7 @@ void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, int eve
     }
 }
 
-void reactor_backend_epoll::signal_received(int signo, siginfo_t* siginfo, void* ignore) {
+void reactor_backend_epoll_base::signal_received(int signo, siginfo_t* siginfo, void* ignore) {
     if (engine_is_ready()) {
         _r._signals.action(signo, siginfo, ignore);
     } else {
@@ -1112,7 +1167,7 @@ void reactor_backend_epoll::signal_received(int signo, siginfo_t* siginfo, void*
     }
 }
 
-future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd, int event) {
+future<> reactor_backend_epoll_base::get_epoll_future(pollable_fd_state& pfd, int event) {
     if (pfd.events_known & event) {
         pfd.events_known &= ~event;
         return make_ready_future();
@@ -1134,23 +1189,23 @@ future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd, int eve
     return fd->get_completion_future(event);
 }
 
-future<> reactor_backend_epoll::readable(pollable_fd_state& fd) {
+future<> reactor_backend_epoll_base::readable(pollable_fd_state& fd) {
     return get_epoll_future(fd, EPOLLIN);
 }
 
-future<> reactor_backend_epoll::writeable(pollable_fd_state& fd) {
+future<> reactor_backend_epoll_base::writeable(pollable_fd_state& fd) {
     return get_epoll_future(fd, EPOLLOUT);
 }
 
-future<> reactor_backend_epoll::readable_or_writeable(pollable_fd_state& fd) {
+future<> reactor_backend_epoll_base::readable_or_writeable(pollable_fd_state& fd) {
     return get_epoll_future(fd, EPOLLIN | EPOLLOUT);
 }
 
-future<> reactor_backend_epoll::poll_rdhup(pollable_fd_state& fd) {
+future<> reactor_backend_epoll_base::poll_rdhup(pollable_fd_state& fd) {
     return get_epoll_future(fd, POLLRDHUP);
 }
 
-void reactor_backend_epoll::forget(pollable_fd_state& fd) noexcept {
+void reactor_backend_epoll_base::forget(pollable_fd_state& fd) noexcept {
     if (fd.events_epoll) {
         ::epoll_ctl(_epollfd.get(), EPOLL_CTL_DEL, fd.fd.get(), nullptr);
     }
@@ -1159,69 +1214,80 @@ void reactor_backend_epoll::forget(pollable_fd_state& fd) noexcept {
 }
 
 future<std::tuple<pollable_fd, socket_address>>
-reactor_backend_epoll::accept(pollable_fd_state& listenfd) {
+reactor_backend_epoll_base::accept(pollable_fd_state& listenfd) {
     return _r.do_accept(listenfd);
 }
 
-future<> reactor_backend_epoll::connect(pollable_fd_state& fd, socket_address& sa) {
+future<> reactor_backend_epoll_base::connect(pollable_fd_state& fd, socket_address& sa) {
     return _r.do_connect(fd, sa);
 }
 
 future<size_t>
-reactor_backend_epoll::read(pollable_fd_state& fd, void* buffer, size_t len) {
+reactor_backend_epoll_base::read(pollable_fd_state& fd, void* buffer, size_t len) {
     return _r.do_read(fd, buffer, len);
 }
 
 future<size_t>
-reactor_backend_epoll::recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) {
+reactor_backend_epoll_base::recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) {
     return _r.do_recvmsg(fd, iov);
 }
 
 future<temporary_buffer<char>>
-reactor_backend_epoll::read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
+reactor_backend_epoll_base::read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
     return _r.do_read_some(fd, ba);
 }
 
 #if SEASTAR_API_LEVEL < 9
 future<size_t>
-reactor_backend_epoll::send(pollable_fd_state& fd, const void* buffer, size_t len) {
+reactor_backend_epoll_base::send(pollable_fd_state& fd, const void* buffer, size_t len) {
     return _r.do_send(fd, buffer, len);
 }
 #endif
 
 future<size_t>
-reactor_backend_epoll::sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) {
+reactor_backend_epoll_base::sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) {
     return _r.do_sendmsg(fd, iovs, len);
 }
 
 future<size_t>
-reactor_backend_epoll::writev(pollable_fd_state& fd, std::span<iovec> iovs) {
+reactor_backend_epoll_base::writev(pollable_fd_state& fd, std::span<iovec> iovs) {
     return _r.do_writev(fd, iovs);
 }
 
 future<temporary_buffer<char>>
-reactor_backend_epoll::recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
+reactor_backend_epoll_base::recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
     return _r.do_recv_some(fd, ba);
 }
 
 void
-reactor_backend_epoll::request_preemption() {
+reactor_backend_epoll_base::request_preemption() {
     _r._preemption_monitor.head.store(1, std::memory_order_relaxed);
 }
 
-void reactor_backend_epoll::start_handling_signal() {
+void reactor_backend_epoll_base::start_handling_signal() {
     // The epoll backend uses signals for the high resolution timer. That is used for thread_scheduling_group, so we
     // request preemption so when we receive a signal.
     request_preemption();
 }
 
 pollable_fd_state_ptr
-reactor_backend_epoll::make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) {
+reactor_backend_epoll_base::make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) {
     return pollable_fd_state_ptr(new epoll_pollable_fd_state(std::move(fd), std::move(speculate)));
 }
 
-void reactor_backend_epoll::reset_preemption_monitor() {
+void reactor_backend_epoll_base::reset_preemption_monitor() {
     _r._preemption_monitor.head.store(0, std::memory_order_relaxed);
+}
+
+reactor_backend_epoll::reactor_backend_epoll(reactor& r)
+        : reactor_backend_epoll_base(r, supports_aio_fdatasync::yes)
+        , _storage_context(r) {
+}
+
+reactor_backend_epoll::~reactor_backend_epoll() = default;
+
+std::string_view reactor_backend_epoll::get_backend_name() const {
+    return "epoll";
 }
 
 #ifdef SEASTAR_HAVE_URING
@@ -2550,6 +2616,7 @@ public:
 #endif
 
 static bool detect_aio_poll() {
+  try {
     auto fd = file_desc::eventfd(0, 0);
     aio_context_t ioc{};
     setup_aio_context(1, &ioc);
@@ -2571,6 +2638,10 @@ static bool detect_aio_poll() {
     // https://github.com/moby/moby/issues/38894.
     r = io_pgetevents(ioc, 1, 1, ev, nullptr, nullptr, true);
     return r == 1;
+  } catch (...) {
+    // ENOSYS
+    return false;
+  }
 }
 
 class noop_reactor_backend_configurator : public reactor_backend_configurator {
@@ -2638,6 +2709,8 @@ std::unique_ptr<reactor_backend> reactor_backend_selector::create(reactor& r) {
         return std::make_unique<reactor_backend_aio>(r);
     } else if (_name == "epoll") {
         return std::make_unique<reactor_backend_epoll>(r);
+    } else if (_name == "pure-epoll") {
+        return std::make_unique<reactor_backend_epoll_pure>(r);
     }
     throw std::logic_error("bad reactor backend");
 }
@@ -2660,6 +2733,7 @@ std::vector<reactor_backend_selector> reactor_backend_selector::available() {
         ret.push_back(reactor_backend_selector("linux-aio"));
     }
     ret.push_back(reactor_backend_selector("epoll"));
+    ret.push_back(reactor_backend_selector("pure-epoll"));
     return ret;
 }
 
