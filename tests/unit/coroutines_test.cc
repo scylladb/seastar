@@ -954,6 +954,174 @@ SEASTAR_TEST_CASE(test_try_future) {
     co_await run_try_future_test<false>(return_ex_int, std::nullopt);
 }
 
+enum class try_error { boom, kaboom };
+
+// Underlying function returning a future<expected<int, try_error>> which may
+// resolve with a value, with an unexpected, or as an exceptional future. When
+// ready is false it suspends first, so the awaiter sees a not-yet-available
+// future (set_coroutine path); when true it resolves synchronously, exercising
+// the fast path where await_ready() unwraps a ready future.
+static future<std::expected<int, try_error>> try_expected_source(std::optional<try_error> err, bool throw_, bool ready) {
+    if (!ready) {
+        co_await sleep(1ms);
+    }
+    if (throw_) {
+        throw test_exception{};
+    }
+    if (err) {
+        co_return std::unexpected(*err);
+    }
+    co_return 128;
+}
+
+// Underlying function returning a future<expected<void, try_error>>.
+static future<std::expected<void, try_error>> try_expected_void_source(std::optional<try_error> err, bool throw_, bool ready) {
+    if (!ready) {
+        co_await sleep(1ms);
+    }
+    if (throw_) {
+        throw test_exception{};
+    }
+    if (err) {
+        co_return std::unexpected(*err);
+    }
+    co_return std::expected<void, try_error>{};
+}
+
+#ifdef SEASTAR_TRY_FUTURE_EXPECTED
+
+// Coroutine using try_future on a future<std::expected>, with the std::expected
+// special-casing enabled (SEASTAR_TRY_FUTURE_EXPECTED). Note the return type
+// wraps a different value type (sstring) than the awaited future (int/void), to
+// make sure the unexpected is correctly rebound to the coroutine's return type.
+// The co_await unwraps the value; an unexpected exits the coroutine before the
+// code past the co_await runs.
+template <bool CheckPreempt>
+static future<std::expected<sstring, try_error>> try_expected_consumer(std::optional<try_error> err, bool throw_, bool ready, bool& run_past) {
+    int value;
+    if constexpr (CheckPreempt) {
+        value = co_await coroutine::try_future(try_expected_source(err, throw_, ready));
+    } else {
+        value = co_await coroutine::try_future_without_preemption_check(try_expected_source(err, throw_, ready));
+    }
+    // Only reached if the source resolved with a value.
+    run_past = true;
+    co_return seastar::to_sstring(value);
+}
+
+template <bool CheckPreempt>
+static future<std::expected<sstring, try_error>> try_expected_void_consumer(std::optional<try_error> err, bool throw_, bool ready, bool& run_past) {
+    if constexpr (CheckPreempt) {
+        co_await coroutine::try_future(try_expected_void_source(err, throw_, ready));
+    } else {
+        co_await coroutine::try_future_without_preemption_check(try_expected_void_source(err, throw_, ready));
+    }
+    run_past = true;
+    co_return sstring("done");
+}
+
+// With the special-casing enabled, an unexpected exits the coroutine without
+// resuming it, so the code past the co_await does not run.
+static constexpr bool run_past_on_unexpected = false;
+
+#else // !SEASTAR_TRY_FUTURE_EXPECTED
+
+// Coroutine using try_future on a future<std::expected> with the std::expected
+// special-casing disabled: try_future is deprecated for this usage and hands the
+// whole std::expected out as the result of the co_await (only a failed future
+// exits the coroutine), so an unexpected is forwarded manually here. The
+// deprecation warning is expected; suppress it for these call sites.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+
+template <bool CheckPreempt>
+static future<std::expected<sstring, try_error>> try_expected_consumer(std::optional<try_error> err, bool throw_, bool ready, bool& run_past) {
+    std::expected<int, try_error> value;
+    if constexpr (CheckPreempt) {
+        value = co_await coroutine::try_future(try_expected_source(err, throw_, ready));
+    } else {
+        value = co_await coroutine::try_future_without_preemption_check(try_expected_source(err, throw_, ready));
+    }
+    // Reached for both a value and an unexpected (only a failed future skips this).
+    run_past = true;
+    if (!value.has_value()) {
+        co_return std::unexpected(value.error());
+    }
+    co_return seastar::to_sstring(*value);
+}
+
+template <bool CheckPreempt>
+static future<std::expected<sstring, try_error>> try_expected_void_consumer(std::optional<try_error> err, bool throw_, bool ready, bool& run_past) {
+    std::expected<void, try_error> value;
+    if constexpr (CheckPreempt) {
+        value = co_await coroutine::try_future(try_expected_void_source(err, throw_, ready));
+    } else {
+        value = co_await coroutine::try_future_without_preemption_check(try_expected_void_source(err, throw_, ready));
+    }
+    run_past = true;
+    if (!value.has_value()) {
+        co_return std::unexpected(value.error());
+    }
+    co_return sstring("done");
+}
+
+#pragma GCC diagnostic pop
+
+// Without the special-casing, an unexpected does not exit the coroutine; it is
+// resumed and runs the code past the co_await, forwarding the unexpected itself.
+static constexpr bool run_past_on_unexpected = true;
+
+#endif // SEASTAR_TRY_FUTURE_EXPECTED
+
+template <typename Consumer>
+static future<> run_try_expected_future_test(Consumer consumer, sstring expected_value, bool ready) {
+    // Success: the wrapped value is returned and the code past the co_await runs.
+    {
+        bool run_past = false;
+        auto res = co_await consumer(std::nullopt, false, ready, run_past);
+        BOOST_REQUIRE(res.has_value());
+        BOOST_REQUIRE_EQUAL(res.value(), expected_value);
+        BOOST_REQUIRE(run_past);
+    }
+
+    // Unexpected: the error ends up in the coroutine's returned expected either
+    // way. Whether the code past the co_await runs depends on whether the
+    // std::expected special-casing is enabled (see run_past_on_unexpected).
+    {
+        bool run_past = false;
+        auto res = co_await consumer(try_error::kaboom, false, ready, run_past);
+        BOOST_REQUIRE(!res.has_value());
+        BOOST_REQUIRE(res.error() == try_error::kaboom);
+        BOOST_REQUIRE_EQUAL(run_past, run_past_on_unexpected);
+    }
+
+    // Exceptional future: the exception is propagated to the waiter directly and
+    // the code past the co_await is skipped, regardless of the special-casing.
+    {
+        bool run_past = false;
+        bool caught = false;
+        try {
+            [[maybe_unused]] auto res = co_await consumer(std::nullopt, true, ready, run_past);
+        } catch (test_exception&) {
+            caught = true;
+        }
+        BOOST_REQUIRE(caught);
+        BOOST_REQUIRE(!run_past);
+    }
+}
+
+SEASTAR_TEST_CASE(test_try_expected_future) {
+    // Exercise both the ready (fast path, unwrap in await_ready) and not-ready
+    // (set_coroutine path) cases.
+    for (bool ready : {false, true}) {
+        co_await run_try_expected_future_test(try_expected_consumer<true>, sstring("128"), ready);
+        co_await run_try_expected_future_test(try_expected_consumer<false>, sstring("128"), ready);
+
+        co_await run_try_expected_future_test(try_expected_void_consumer<true>, sstring("done"), ready);
+        co_await run_try_expected_future_test(try_expected_void_consumer<false>, sstring("done"), ready);
+    }
+}
+
 #if SEASTAR_API_LEVEL < 10
 future<int> co_return_tup_int_rv() {
     co_return std::tuple(42);
