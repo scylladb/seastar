@@ -36,6 +36,7 @@
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/random.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/core/with_timeout.hh>
 #include <seastar/util/closeable.hh>
 #include <seastar/core/abort_source.hh>
 #include <seastar/core/sleep.hh>
@@ -731,6 +732,90 @@ SEASTAR_THREAD_TEST_CASE(load_balancing_connection_distribution_spread_test) {
     BOOST_REQUIRE_LE(max_accepted, 1.5 * churn_per_shard);
     stop_server.stop_now();
     BOOST_REQUIRE_EQUAL(hosted_total(listen_addr), 0);
+}
+
+// Check the accept() contract of a reuseport listener: a connection that
+// arrives before accept() is served by it; abort_accept() fails the pending
+// accept() and every later one with ECONNABORTED, and the snapshots then
+// mark the shard as one that takes no connections; destruction without
+// abort_accept() fails the pending accept() and refuses new connections,
+// instead of leaving the armed kernel accept serving the endpoint.
+SEASTAR_THREAD_TEST_CASE(reuseport_listener_lifecycle_test) {
+    if (!engine().posix_reuseport_available()) {
+        BOOST_TEST_MESSAGE("SO_REUSEPORT is not available, skipping");
+        return;
+    }
+    const auto listen_addr = random_loopback(11004);
+    const auto lo = listen_options{ .reuse_address = true };
+    auto aborted = [] (const std::system_error& e) {
+        return e.code() == std::error_code(ECONNABORTED, std::system_category());
+    };
+    {
+        server_socket ss = seastar::listen(listen_addr, lo);
+        auto cs = connect(listen_addr).get();
+        auto ar = ss.accept().get();
+        BOOST_REQUIRE_EQUAL(ar.remote_address.port(), cs.local_address().port());
+        ss.abort_accept();
+    }
+    {
+        server_socket ss = seastar::listen(listen_addr, lo);
+        auto ep = net::conntrack::endpoint(int(transport::TCP), listen_addr);
+        BOOST_REQUIRE_NE(net::conntrack::collect_hosted(ep).get()[this_shard_id()], net::conntrack::not_listening);
+        auto af = ss.accept();
+        ss.abort_accept();
+        BOOST_REQUIRE_EXCEPTION(af.get(), std::system_error, aborted);
+        BOOST_REQUIRE_EXCEPTION(ss.accept().get(), std::system_error, aborted);
+        BOOST_REQUIRE_EQUAL(net::conntrack::collect_hosted(ep).get()[this_shard_id()], net::conntrack::not_listening);
+    }
+    {
+        std::optional<server_socket> ss = seastar::listen(listen_addr, lo);
+        // A full accept first, so the listener has armed its kernel accept.
+        auto af = ss->accept();
+        auto cs = connect(listen_addr).get();
+        auto ar = af.get();
+        auto af2 = ss->accept();
+        ss.reset();
+        BOOST_REQUIRE_EXCEPTION(af2.get(), std::system_error, aborted);
+        BOOST_REQUIRE_THROW(connect(listen_addr).get(), std::system_error);
+    }
+}
+
+// Check that a server that listens on one shard only, with the default
+// balancing, receives every connection: no connection may go to a shard
+// without a listener, where it would be closed.
+SEASTAR_THREAD_TEST_CASE(single_shard_listener_test) {
+    const auto listen_addr = random_loopback(11006);
+    server_socket ss = seastar::listen(listen_addr, listen_options{ .reuse_address = true });
+    for (int i = 0; i < 20; ++i) {
+        auto af = ss.accept();
+        auto cs = connect(listen_addr).get();
+        with_timeout(lowres_clock::now() + std::chrono::seconds(5), std::move(af)).get();
+    }
+    ss.abort_accept();
+}
+
+// Check that ephemeral-port (port 0) listens keep the classic single-listener
+// semantics: two such listens on one shard must succeed and bind two distinct
+// ports. The reuseport path must not engage for port 0 - each shard would
+// bind a different port, so the kernel could not spread connections anyway.
+SEASTAR_THREAD_TEST_CASE(ephemeral_port_listen_test) {
+    auto lo = listen_options{ .reuse_address = true };
+    server_socket ss1 = seastar::listen(ipv4_addr("127.0.0.1", 0), lo);
+    server_socket ss2 = seastar::listen(ipv4_addr("127.0.0.1", 0), lo);
+    auto a1 = ss1.local_address();
+    auto a2 = ss2.local_address();
+    BOOST_REQUIRE_NE(a1.port(), 0);
+    BOOST_REQUIRE_NE(a2.port(), 0);
+    BOOST_REQUIRE_NE(a1.port(), a2.port());
+    // And the sockets accept connections. The listener exists on this shard
+    // only, so this relies on the single-listener balancer resolving the
+    // all-idle tie to shard 0, the shard the test runs on. The test cannot pin
+    // the listener: a fixed-cpu listen would not reach the port-0 path.
+    auto af = ss1.accept();
+    auto cs = connect(a1).get();
+    auto ar = af.get();
+    ss1.abort_accept();
+    ss2.abort_accept();
 }
 
 SEASTAR_THREAD_TEST_CASE(inet_local_remote_address_sanity) {
