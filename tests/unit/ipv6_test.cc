@@ -125,4 +125,3 @@ SEASTAR_TEST_CASE(ipv6_equal_test) {
 
     return make_ready_future();
 }
-

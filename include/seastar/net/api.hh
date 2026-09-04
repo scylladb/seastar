@@ -162,6 +162,15 @@ public:
 
 using udp_channel = datagram_channel;
 
+/// Options controlling how a bound datagram channel is created.
+struct datagram_channel_options {
+    /// Allow other datagram channels to bind the same local IP endpoint.
+    ///
+    /// This option maps to SO_REUSEPORT on the POSIX network stack. Network
+    /// stacks that do not support port reuse reject the option.
+    bool reuse_port = false;
+};
+
 class network_interface_impl;
 
 } /* namespace net */
@@ -518,6 +527,17 @@ public:
      * return by value.
      */
     virtual std::vector<network_interface> network_interfaces();
+
+    /**
+     * Creates a bound datagram channel with implementation-specific options.
+     *
+     * The default implementation preserves compatibility with network stacks
+     * that only implement make_bound_datagram_channel(local), and rejects
+     * options they cannot honor.
+     */
+    virtual net::datagram_channel make_bound_datagram_channel_with_options(
+            const socket_address& local,
+            net::datagram_channel_options opts);
 };
 
 struct network_stack_entry {

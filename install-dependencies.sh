@@ -40,6 +40,8 @@ debian_packages=(
     libgnutls28-dev
     libhwloc-dev
     liblz4-dev
+    libngtcp2-crypto-gnutls-dev
+    libngtcp2-dev
     libnuma-dev
     libpciaccess-dev
     libprotobuf-dev
@@ -123,6 +125,8 @@ fedora_packages=(
     libasan
     libatomic
     libubsan
+    ngtcp2-crypto-gnutls-devel
+    ngtcp2-devel
     ninja-build
     ragel
     valgrind-devel
@@ -158,6 +162,8 @@ centos9_packages=(
     gcc-toolset-13-libasan-devel
     gcc-toolset-13-libatomic-devel
     gcc-toolset-13-libubsan-devel
+    ngtcp2-crypto-gnutls-devel
+    ngtcp2-devel
     ninja-build
     ragel
 )
@@ -178,6 +184,7 @@ arch_packages=(
     glibc
     gnutls
     hwloc
+    libngtcp2
     libpciaccess
     libtool
     liburing
