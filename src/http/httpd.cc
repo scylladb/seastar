@@ -149,6 +149,7 @@ future<> connection::read() {
 static input_stream<char> make_content_stream(http::request* req, input_stream<char>& buf) {
     // Create an input stream based on the requests body encoding or lack thereof
     if (seastar::internal::case_insensitive_cmp()(req->get_header("Transfer-Encoding"), "chunked")) {
+        req->content_length = 0;
         return input_stream<char>(data_source(std::make_unique<internal::chunked_source_impl>(buf, req->chunk_extensions, req->trailing_headers)));
     } else {
         return input_stream<char>(data_source(std::make_unique<internal::content_length_source_impl>(buf, req->content_length)));
@@ -216,6 +217,11 @@ future<> connection::read_one() {
                 req->_version = "1.1";
             }
             generate_error_reply_and_close(std::move(req), http::reply::status_type::bad_request, "Can't parse the request");
+            return make_ready_future<>();
+        }
+
+        if (req->_headers.contains("Transfer-Encoding") && req->_headers.contains("Content-Length")) {
+            generate_error_reply_and_close(std::move(req), http::reply::status_type::bad_request, "Conflicting Transfer-Encoding and Content-Length headers");
             return make_ready_future<>();
         }
 

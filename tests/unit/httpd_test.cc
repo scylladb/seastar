@@ -1859,6 +1859,27 @@ SEASTAR_TEST_CASE(test_bad_chunk_length) {
     }, {"400 Bad Request", "Can't parse chunk size and extensions"}, true, new echo_stream_handler());
 }
 
+SEASTAR_TEST_CASE(test_conflicting_transfer_encoding_and_content_length) {
+    return check_http_reply({
+        "POST /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\nContent-Length: 1\r\n\r\n",
+        "5\r\nhello\r\n",
+        "0\r\n\r\n"
+    }, {"400 Bad Request", "Connection: close", "Conflicting Transfer-Encoding and Content-Length headers"}, false, new echo_string_handler()).then([] {
+        return check_http_reply({
+            "POST /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\nContent-Length: 1\r\n\r\n",
+            "5\r\nhello\r\n",
+            "0\r\n\r\n"
+        }, {"400 Bad Request", "Connection: close", "Conflicting Transfer-Encoding and Content-Length headers"}, true, new echo_stream_handler());
+    }).then([] {
+        // Also test case-insensitivity of header names
+        return check_http_reply({
+            "POST /test HTTP/1.1\r\nHost: test\r\ntransfer-encoding: chunked\r\ncontent-length: 1\r\n\r\n",
+            "5\r\nhello\r\n",
+            "0\r\n\r\n"
+        }, {"400 Bad Request", "Connection: close", "Conflicting Transfer-Encoding and Content-Length headers"}, false, new echo_string_handler());
+    });
+}
+
 SEASTAR_TEST_CASE(test_close_response) {
     return check_http_reply({
         "GET /test HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n"
