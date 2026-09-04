@@ -978,6 +978,17 @@ client::client(const logger& l, void* s, client_options ops, socket socket, cons
 }
 
 future<> client::loop(client_options ops, const socket_address& addr, const socket_address& local) {
+    // _streams[id] (see make_stream_sink()) can be a stream child's last
+    // reference; abort_all_streams()/deregister_this_stream() erase it and
+    // can free `this` while this coroutine is still suspended and will
+    // resume to touch it again. Self-keepalive for the whole coroutine
+    // avoids that, dropped only after _stopped.set_value(). Only stream
+    // children need this; is_stream() isn't set yet here, so check
+    // _options.stream_parent instead.
+    shared_ptr<client> self_keepalive;
+    if (ops.stream_parent) {
+        self_keepalive = shared_from_this();
+    }
     std::exception_ptr ep;
     try {
         connected_socket fd = co_await _socket.connect(addr, local);
@@ -1125,11 +1136,16 @@ server::connection::negotiate(feature_map requested) {
                 _is_stream = true;
                 // remove stream connection from rpc connection list
                 get_server()._conns.erase(get_connection_id());
-                f = f.then([this, c = shared_from_this()] () mutable {
-                    return smp::submit_to(_parent_id.shard(), [this, c = make_foreign(static_pointer_cast<rpc::connection>(c))] () mutable {
-                        auto sit = _servers.find(*get_server()._options.streaming_domain);
+                // Read while still on this connection's own shard: get_server()
+                // dereferences a remote server object that must not be touched
+                // from _parent_id.shard() below (it can belong to a different,
+                // independently-lifetimed shard).
+                auto streaming_domain = *get_server()._options.streaming_domain;
+                f = f.then([this, c = shared_from_this(), streaming_domain] () mutable {
+                    return smp::submit_to(_parent_id.shard(), [this, c = make_foreign(static_pointer_cast<rpc::connection>(c)), streaming_domain] () mutable {
+                        auto sit = _servers.find(streaming_domain);
                         if (sit == _servers.end()) {
-                            throw std::logic_error(format("Shard {:d} does not have server with streaming domain {}", this_shard_id(), *get_server()._options.streaming_domain).c_str());
+                            throw std::logic_error(format("Shard {:d} does not have server with streaming domain {}", this_shard_id(), streaming_domain).c_str());
                         }
                         auto s = sit->second;
                         auto it = s->_conns.find(_parent_id);
@@ -1306,11 +1322,15 @@ server::connection::connection(server& s, connected_socket&& fd, socket_address&
 }
 
 future<> server::connection::deregister_this_stream() {
+    // Read while still on this connection's own shard (see negotiate()'s
+    // STREAM_PARENT case for the same reasoning): get_server() dereferences a
+    // remote server object that must not be touched from _parent_id.shard().
     if (!get_server()._options.streaming_domain) {
         return make_ready_future<>();
     }
-    return smp::submit_to(_parent_id.shard(), [this] () mutable {
-        auto sit = server::_servers.find(*get_server()._options.streaming_domain);
+    auto streaming_domain = *get_server()._options.streaming_domain;
+    return smp::submit_to(_parent_id.shard(), [this, streaming_domain] () mutable {
+        auto sit = server::_servers.find(streaming_domain);
         if (sit != server::_servers.end()) {
             auto s = sit->second;
             auto it = s->_conns.find(_parent_id);

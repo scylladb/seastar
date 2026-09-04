@@ -497,7 +497,9 @@ public:
 
 } // namespace internal
 
-class client : public rpc::connection, public weakly_referencable<client> {
+// Stream children are shared_ptr-managed (see make_stream_sink()); this lets
+// loop() self-keepalive for that case -- see loop().
+class client : public rpc::connection, public weakly_referencable<client>, public enable_shared_from_this<client> {
     socket _socket;
     id_type _message_id = 1;
     struct reply_handler_base {
