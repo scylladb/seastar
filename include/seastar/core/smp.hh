@@ -327,6 +327,7 @@ class smp : public std::enable_shared_from_this<smp> {
     static thread_local smp_message_queue**_qs;
     static thread_local std::thread::id _tmain;
     static inline thread_local smp* _this_smp = nullptr;
+    static inline thread_local int _pinned_cpu_id = -1;
     bool _using_dpdk = false;
     std::vector<unsigned> _shard_to_numa_node_mapping;
 
@@ -517,6 +518,10 @@ public:
     }
     static smp& this_smp() noexcept {
         return *_this_smp;
+    }
+    /// The host cpu this shard's thread is pinned to, or -1 if it is not pinned.
+    static int pinned_cpu_id() noexcept {
+        return _pinned_cpu_id;
     }
 private:
     void start_all_queues();
