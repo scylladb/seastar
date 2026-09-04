@@ -52,6 +52,10 @@ def get_command_line_parser():
     parser.add_argument('-a', '--addr2line', default='llvm-addr2line',
                         help='The path or name of the addr2line command, which should behave as and '
                             'accept the same options as binutils addr2line or llvm-addr2line (the default).')
+    parser.add_argument('--use-debuginfod', action='store_true', default=False,
+                        help='Let the symbolizer download missing debug info via'
+                             ' DEBUGINFOD_URLS. Disabled by default: a lookup that'
+                             ' stalls hangs the resolver.')
     parser.add_argument('file', nargs='?',
                         type=argparse.FileType('r'),
                         default=sys.stdin,
@@ -412,7 +416,8 @@ def main():
     if args.executable:
         resolver = addr2line.BacktraceResolver(executable=args.executable,
                                                concise=not args.full_function_names,
-                                               cmd_path=args.addr2line)
+                                               cmd_path=args.addr2line,
+                                               use_debuginfod=args.use_debuginfod)
     if args.format == 'graph':
         render = Graph(resolver)
     else:

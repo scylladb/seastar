@@ -20,6 +20,7 @@
 
 import bisect
 import collections
+import os
 import re
 import sys
 import subprocess
@@ -66,6 +67,7 @@ class Addr2Line:
         binary: str,
         concise: bool = False,
         cmd_path: str = "llvm-addr2line",
+        use_debuginfod: bool = False,
     ):
         self._parent = parent
         self._binary = binary
@@ -78,6 +80,10 @@ class Addr2Line:
         if s.find('ELF') >= 0 and s.find('debug_info', len(self._binary)) < 0:
             print('{}'.format(s))
 
+        env = dict(os.environ)
+        if not use_debuginfod:
+            env.pop('DEBUGINFOD_URLS', None)
+
         args = [cmd_path, f"-{'C' if not concise else ''}fpia", "-e", self._binary]
         self._parent.debug(f"Addr2line invoking: {' '.join(args)}")
         self._input_proc = subprocess.Popen(
@@ -85,6 +91,7 @@ class Addr2Line:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             universal_newlines=True,
+            env=env,
         )
         if concise:
             self._output_proc = subprocess.Popen(
@@ -356,6 +363,7 @@ class BacktraceResolver:
         cmd_path: str = 'addr2line',
         debug: bool = False,
         timing: bool = False,
+        use_debuginfod: bool = False,
     ):
         self._debug = debug
         self._timing = timing
@@ -375,6 +383,7 @@ class BacktraceResolver:
         self._verbose = verbose
         self._concise = concise
         self._cmd_path = cmd_path
+        self._use_debuginfod = use_debuginfod
         self._known_modules: dict[str, Union[Addr2Line, KernelResolver]] = {}
         self._get_resolver_for_module(
             self._executable
@@ -403,7 +412,13 @@ class BacktraceResolver:
             if module == KERNEL_MODULE:
                 resolver = KernelResolver(self, kallsyms=self._kallsyms)
             else:
-                resolver = Addr2Line(self, module, self._concise, self._cmd_path)
+                resolver = Addr2Line(
+                    self,
+                    module,
+                    self._concise,
+                    self._cmd_path,
+                    use_debuginfod=self._use_debuginfod,
+                )
             self.debug(f'Adding resolver {resolver} for module: {module}')
             self._known_modules[module] = resolver
         return self._known_modules[module]
