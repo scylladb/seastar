@@ -292,28 +292,40 @@ public:
     metrics::metric_groups metric_groups;
 };
 
-class io_desc_read_write final : public io_completion {
+// One allocation for the whole request lifetime (was two). Owned by no smart
+// pointer -- kept alive via intrusive links (_fq_entry, _intent) until
+// dispatch(). cancel() must not delete `this` (still linked/in use by the
+// caller), so it only sets `_cancelled`. dispatch() then deletes `this`
+// directly if cancelled, else hands off to the sink, whose
+// complete()/set_exception() delete it later -- exactly one path ever does.
+class io_desc_read_write final : public io_completion, private internal::io_request {
     io_queue& _ioq;
     io_queue::priority_class_data& _pclass;
     io_queue::clock_type::time_point _ts;
     const stream_id _stream;
     const io_direction_and_length _dnl;
-    const fair_queue_entry::capacity_t _fq_capacity;
     promise<size_t> _pr;
     iovec_keeper _iovs;
     uint64_t _dispatched_polls;
+    fair_queue_entry _fq_entry;
+    internal::cancellable_queue::link _intent;
+    bool _cancelled = false;
 
 public:
-    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_entry::capacity_t cap, iovec_keeper iovs)
-        : _ioq(ioq)
+    io_desc_read_write(internal::io_request req, io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_entry::capacity_t cap, iovec_keeper iovs)
+        : io_request(std::move(req))
+        , _ioq(ioq)
         , _pclass(pc)
         , _ts(io_queue::clock_type::now())
         , _stream(stream)
         , _dnl(dnl)
-        , _fq_capacity(cap)
         , _iovs(std::move(iovs))
+        , _fq_entry(cap)
     {
+        SEASTAR_IO_TRACE(io_queue_queued, fd(), this, dnl.rw_idx(), pc.fq_class(), offset(), dnl.length());
     }
+
+    io_desc_read_write(io_desc_read_write&&) = delete;
 
     virtual void set_exception(std::exception_ptr eptr) noexcept override {
         _pclass.on_error();
@@ -332,84 +344,52 @@ public:
         delete this;
     }
 
+    // Resolves the future right away, but keeps `this` alive: it is
+    // still referenced from the fair_queue (and possibly still being
+    // walked by the caller, see the class comment above). It is
+    // reclaimed later from dispatch().
     void cancel() noexcept {
         SEASTAR_IO_TRACE(io_queue_cancelled, this);
+        _ioq.cancel_request(*this);
+        _cancelled = true;
         _pclass.on_cancel();
         _pr.set_exception(std::make_exception_ptr(default_io_exception_factory::cancelled()));
-        delete this;
     }
 
     void dispatch() noexcept {
-        SEASTAR_IO_TRACE(io_queue_dispatched, this);
-        auto now = io_queue::clock_type::now();
-        _pclass.on_dispatch(_dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
-        _ts = now;
-        _dispatched_polls = engine().polls();
-    }
-
-    future<size_t> get_future() {
-        return _pr.get_future();
-    }
-
-    fair_queue_entry::capacity_t capacity() const noexcept { return _fq_capacity; }
-    stream_id stream() const noexcept { return _stream; }
-    uint64_t polls() const noexcept { return _dispatched_polls; }
-};
-
-class queued_io_request : private internal::io_request {
-    io_queue& _ioq;
-    const stream_id _stream;
-    fair_queue_entry _fq_entry;
-    internal::cancellable_queue::link _intent;
-    std::unique_ptr<io_desc_read_write> _desc;
-
-    bool is_cancelled() const noexcept { return !_desc; }
-
-public:
-    queued_io_request(internal::io_request req, io_queue& q, fair_queue_entry::capacity_t cap, io_queue::priority_class_data& pc, io_direction_and_length dnl, iovec_keeper iovs)
-        : io_request(std::move(req))
-        , _ioq(q)
-        , _stream(_ioq.request_stream(dnl))
-        , _fq_entry(cap)
-        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, cap, std::move(iovs)))
-    {
-        SEASTAR_IO_TRACE(io_queue_queued, fd(), _desc.get(), dnl.rw_idx(), pc.fq_class(), offset(), dnl.length());
-    }
-
-    queued_io_request(queued_io_request&&) = delete;
-
-    void dispatch() noexcept {
-        if (is_cancelled()) {
+        if (_cancelled) {
             _ioq.complete_cancelled_request(*this);
             delete this;
             return;
         }
 
         _intent.maybe_dequeue();
-        _desc->dispatch();
-        _ioq.submit_request(_desc.release(), std::move(*this));
-        delete this;
-    }
-
-    void cancel() noexcept {
-        _ioq.cancel_request(*this);
-        _desc.release()->cancel();
+        SEASTAR_IO_TRACE(io_queue_dispatched, this);
+        auto now = io_queue::clock_type::now();
+        _pclass.on_dispatch(_dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
+        _ts = now;
+        _dispatched_polls = engine().polls();
+        _ioq.submit_request(this, std::move(*this));
     }
 
     void set_intent(internal::cancellable_queue& cq) noexcept {
         _intent.enqueue(cq);
     }
 
-    future<size_t> get_future() noexcept { return _desc->get_future(); }
-    fair_queue_entry& queue_entry() noexcept { return _fq_entry; }
-    stream_id stream() const noexcept { return _stream; }
-
-    static queued_io_request& from_fq_entry(fair_queue_entry& ent) noexcept {
-        return *boost::intrusive::get_parent_from_member(&ent, &queued_io_request::_fq_entry);
+    future<size_t> get_future() {
+        return _pr.get_future();
     }
 
-    static queued_io_request& from_cq_link(internal::cancellable_queue::link& link) noexcept {
-        return *boost::intrusive::get_parent_from_member(&link, &queued_io_request::_intent);
+    fair_queue_entry& queue_entry() noexcept { return _fq_entry; }
+    stream_id stream() const noexcept { return _stream; }
+    uint64_t polls() const noexcept { return _dispatched_polls; }
+
+    static io_desc_read_write& from_fq_entry(fair_queue_entry& ent) noexcept {
+        return *boost::intrusive::get_parent_from_member(&ent, &io_desc_read_write::_fq_entry);
+    }
+
+    static io_desc_read_write& from_cq_link(internal::cancellable_queue::link& link) noexcept {
+        return *boost::intrusive::get_parent_from_member(&link, &io_desc_read_write::_intent);
     }
 };
 
@@ -439,7 +419,7 @@ cancellable_queue& cancellable_queue::operator=(cancellable_queue&& o) noexcept 
 
 cancellable_queue::~cancellable_queue() {
     while (_first != nullptr) {
-        queued_io_request::from_cq_link(*_first).cancel();
+        io_desc_read_write::from_cq_link(*_first).cancel();
         pop_front();
     }
 }
@@ -1016,15 +996,17 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc);
         auto cap = request_capacity(dnl);
-        auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, cap, pclass, std::move(dnl), std::move(iovs));
-        auto fut = queued_req->get_future();
+        auto stream = request_stream(dnl);
+        // unique_ptr only until registered below (throws are possible there).
+        auto desc = std::make_unique<io_desc_read_write>(std::move(req), *this, pclass, stream, dnl, cap, std::move(iovs));
+        auto fut = desc->get_future();
         if (intent != nullptr) {
             auto& cq = intent->find_or_create_cancellable_queue(_id, pc.id());
-            queued_req->set_intent(cq);
+            desc->set_intent(cq);
         }
 
-        _streams[queued_req->stream()].fq.queue(pclass.fq_class(), queued_req->queue_entry());
-        queued_req.release();
+        _streams[stream].fq.queue(pclass.fq_class(), desc->queue_entry());
+        desc.release();
         pclass.on_queue();
         _queued_requests++;
         return fut;
@@ -1152,7 +1134,7 @@ void io_queue::poll_io_queue() {
             }
 
             st.fq.pop_front();
-            queued_io_request::from_fq_entry(*ent).dispatch();
+            io_desc_read_write::from_fq_entry(*ent).dispatch();
         }
 
         SEASTAR_ASSERT(available.ready_tokens == 0);
@@ -1179,12 +1161,12 @@ void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req
     _sink.submit(desc, std::move(req));
 }
 
-void io_queue::cancel_request(queued_io_request& req) noexcept {
+void io_queue::cancel_request(io_desc_read_write& req) noexcept {
     _queued_requests--;
     _streams[req.stream()].fq.notify_request_cancelled(req.queue_entry());
 }
 
-void io_queue::complete_cancelled_request(queued_io_request& req) noexcept {
+void io_queue::complete_cancelled_request(io_desc_read_write& req) noexcept {
 }
 
 io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {
