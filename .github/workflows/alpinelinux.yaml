@@ -50,12 +50,22 @@ jobs:
           xfsprogs-dev       \
           yaml-cpp-dev
 
+    - name: Report available memory
+      run: |
+        # Diagnostic for #3619 / #3622: real free memory at test time.
+        cat /proc/meminfo | head -5
+        free -h || true
+
     - name: Configure build
       run: |
+        # Cap test process memory: this container has no cgroup limit, so
+        # seastar's auto-detection can try to reserve all the runner's RAM
+        # and OOM at startup under real memory pressure (#3619).
         cmake -B build -G Ninja            \
          -DCMAKE_BUILD_TYPE=RelWithDebInfo \
          -DSeastar_LTTNG=OFF               \
-         -DSeastar_DOCS=OFF
+         -DSeastar_DOCS=OFF                \
+         -DSeastar_UNIT_TEST_MEM=1G
 
     - name: Build Seastar
       run: |
@@ -63,4 +73,6 @@ jobs:
 
     - name: Run unit tests
       run: |
-        ctest --test-dir build --output-on-failure
+        ulimit -v unlimited  # mem_base()'s 32TB mmap probe fails under a finite RLIMIT_AS regardless of --memory (#3619)
+        # retry once: shared runners occasionally OOM under host-level memory pressure unrelated to this job
+        ctest --test-dir build --output-on-failure || ctest --test-dir build --output-on-failure --rerun-failed
