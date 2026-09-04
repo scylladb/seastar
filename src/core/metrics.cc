@@ -33,6 +33,8 @@
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/relabel_config.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/smp.hh>
+#include <seastar/util/log.hh>
 
 namespace seastar {
 extern seastar::logger seastar_logger;
@@ -424,6 +426,49 @@ void impl::remove_registration(const metric_id& id) {
     }
 }
 
+void impl::add_labels(const std::set<sstring>& labels) {
+    _labels.insert(labels.begin(), labels.end());
+}
+
+void add_labels(const std::set<sstring>& labels) {
+    get_local_impl()->add_labels(labels);
+}
+
+void impl::register_labels(const labels_type& labels) {
+    // Collecting only the unknown names keeps the common case, where the metric
+    // brings no new label, free of allocations.
+    std::set<sstring> new_labels;
+    for (const auto& [name, _] : labels) {
+        if (!_labels.contains(name)) {
+            new_labels.insert(name);
+        }
+    }
+    if (new_labels.empty()) {
+        return;
+    }
+    add_labels(new_labels);
+    if (!_propagate_new_labels) {
+        return;
+    }
+    // The lambda has to reach the free function, not the member of the same
+    // name, so it captures no this and calls the former explicitly qualified.
+    (void)smp::invoke_on_others([new_labels = std::move(new_labels)] {
+        metrics::impl::add_labels(new_labels);
+    }).handle_exception([] (std::exception_ptr ex) {
+        seastar_logger.warn("Metrics: failed to propagate label names to the other shards: {}", seastar::formattable(ex));
+    });
+}
+
+future<> impl::propagate_labels() {
+    // A metric registered before the metrics are exported is only known to the
+    // shard that registered it. Share the full set once, and keep the other
+    // shards up to date from now on.
+    _propagate_new_labels = true;
+    return smp::invoke_on_others([labels = _labels] {
+        metrics::impl::add_labels(labels);
+    });
+}
+
 void unregister_metric(const metric_id & id) {
     get_local_impl()->remove_registration(id);
 }
@@ -525,9 +570,6 @@ register_ref impl::add_registration(const metric_id& id, const metric_type& type
             throw std::runtime_error("registering metrics " + name + " registered with different type.");
         }
         metric[rm->info().id.internalized_labels()] = rm;
-        for (auto&& i : rm->info().id.labels()) {
-            _labels.insert(i.first);
-        }
     } else {
         _value_map[name].info().type = type.base_type;
         _value_map[name].info().d = d;
@@ -537,6 +579,8 @@ register_ref impl::add_registration(const metric_id& id, const metric_type& type
         impl::update_aggregate(_value_map[name].info());
         _value_map[name][rm->info().id.internalized_labels()] = rm;
     }
+
+    register_labels(rm->info().id.labels());
     dirty();
 
     return rm;
@@ -583,6 +627,14 @@ future<metric_relabeling_result> impl::set_relabel_configs(const std::vector<rel
             }
 
             family.second[ilb] = rm;
+        }
+    }
+
+    for (const auto& family : _value_map) {
+        for (const auto& metric : family.second) {
+            if (metric.second) {
+                register_labels(metric.second->info().id.labels());
+            }
         }
     }
     return make_ready_future<metric_relabeling_result>(conflicts);

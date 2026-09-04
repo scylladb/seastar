@@ -446,6 +446,7 @@ class impl {
     value_map _value_map;
     config _config;
     bool _dirty = true;
+    bool _propagate_new_labels = false;
     shared_ptr<metric_metadata> _metadata;
     std::set<sstring> _labels;
     std::vector<std::deque<metric_function>> _current_metrics;
@@ -462,6 +463,18 @@ public:
     }
 
     register_ref add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels);
+    /*!
+     * \brief add label names to the set of labels known to this shard
+     */
+    void add_labels(const std::set<sstring>& labels);
+
+    /*!
+     * \brief share the label names known to this shard with the other shards
+     *
+     * Also enables propagating label names added from now on, as they are
+     * registered.
+     */
+    future<> propagate_labels();
     internalized_labels_ref internalize_labels(labels_type labels);
     void remove_registration(const metric_id& id);
     future<> stop() {
@@ -502,6 +515,7 @@ public:
     void update_aggregate(metric_family_info& mf) const noexcept;
 
 private:
+    void register_labels(const labels_type& labels);
     void gc_internalized_labels();
     bool apply_relabeling(const relabel_config& rc, metric_info& info);
 };
@@ -512,6 +526,11 @@ using values_reference = shared_ptr<values_copy>;
 foreign_ptr<values_reference> get_values();
 
 shared_ptr<impl> get_local_impl();
+
+/*!
+ * \brief add label names to the set of labels known to the current shard
+ */
+void add_labels(const std::set<sstring>& labels);
 
 void unregister_metric(const metric_id & id);
 

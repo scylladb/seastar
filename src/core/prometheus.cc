@@ -1056,9 +1056,9 @@ class metrics_handler : public httpd::handler_base  {
      */
     std::function<bool(const mi::labels_type&)> make_filter(const http::request& req) {
         std::unordered_map<sstring, std::regex> matcher;
-        auto labels = mi::get_local_impl()->get_labels();
+        const auto& local_labels = mi::get_local_impl()->get_labels();
         for (auto&& qp : req.get_query_params()) {
-            if (labels.find(qp.first) != labels.end()) {
+            if (local_labels.find(qp.first) != local_labels.end()) {
                 matcher.emplace(qp.first, std::regex(qp.second.back().c_str()));
             }
         }
@@ -1129,15 +1129,29 @@ std::function<bool(const mi::labels_type&)> metrics_handler::_true_function = []
     return true;
 };
 
-future<> add_prometheus_routes(httpd::http_server& server, config ctx) {
+static void add_metrics_route(httpd::http_server& server, const config& ctx) {
     server._routes.put(httpd::GET, "/metrics", new metrics_handler(ctx));
-    return make_ready_future<>();
+}
+
+// A metric registered before the exporter was set up is only known to the shard
+// that registered it, while a request can be served by any shard. Make every
+// shard aware of all the label names, so that the label filter of a request is
+// built the same way everywhere.
+static future<> propagate_metric_labels() {
+    return smp::invoke_on_all([] {
+        return mi::get_local_impl()->propagate_labels();
+    });
+}
+
+future<> add_prometheus_routes(httpd::http_server& server, config ctx) {
+    add_metrics_route(server, ctx);
+    return propagate_metric_labels();
 }
 
 future<> add_prometheus_routes(sharded<httpd::http_server>& server, config ctx) {
-    return server.invoke_on_all([ctx](httpd::http_server& s) {
-        return add_prometheus_routes(s, ctx);
-    });
+    return server.invoke_on_all([ctx] (httpd::http_server& s) {
+        add_metrics_route(s, ctx);
+    }).then(propagate_metric_labels);
 }
 
 future<> start(httpd::http_server_control& http_server, config ctx) {
