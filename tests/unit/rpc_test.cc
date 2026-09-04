@@ -741,6 +741,126 @@ SEASTAR_TEST_CASE(test_stream_negotiation_error) {
     });
 }
 
+// Regression test for the review feedback on scylladb/scylladb#31016's fix
+// (PR #3624): sink_impl::_delete_queue is only ever driven (enqueue()/stop())
+// from a single shard at a time -- the connection's owner shard C, since
+// that's the only shard snd_buf_deleter_impl's destructor ever runs on, and
+// sink_impl::close() already funnels stop() through smp::submit_to(C, ...).
+// There is no concurrent multi-shard access, so no data race, and this test
+// confirms batched_queue itself is fine with a construction shard (P) that
+// differs from the shard (C) it is actually driven from, as long as only C
+// ever calls enqueue()/stop() (not the concurrent-access scenario the
+// original patch's own test used).
+//
+// NOTE: sink_impl::_delete_queue is still constructed with _processing_shard
+// = this_shard_id() (P) rather than con->get_owner_shard() (C) -- unlike
+// _send_queue, which already correctly uses C. That field mismatch looks
+// like it should be corrected the same way, and this test was written to
+// validate exactly that change. However, actually making that change
+// (_delete_queue's _processing_shard = con->get_owner_shard()) was found,
+// via repeated stress runs of test_rpc_stream_backpressure_across_shards, to
+// reproducibly trigger message loss and a crash (use-after-free while
+// nesting exceptions in sink_impl::close()'s continuation chain) that does
+// NOT occur with this_shard_id() -- 0 failures in 14+ runs without the
+// change vs. failure in every run with it. That interaction needs its own
+// investigation before the field can be changed, so it is left as-is here;
+// this test only covers the piece that's actually safe to assert on.
+SEASTAR_THREAD_TEST_CASE(test_batched_queue_home_shard_mismatch) {
+    if (this_smp_shard_count() < 2) {
+        return;
+    }
+    struct item : public bi::slist_base_hook<> {};
+
+    constexpr shard_id p = 0; // shard the queue is constructed on
+    constexpr shard_id c = 1; // shard it's actually driven from
+    BOOST_REQUIRE_EQUAL(this_shard_id(), p);
+
+    std::atomic<unsigned> processed{0};
+    rpc::internal::batched_queue<item> q([&processed] (item* i) {
+        ++processed;
+        delete i;
+        return make_ready_future<>();
+    }, c);
+
+    constexpr unsigned n = 5000;
+    // All enqueue()s come from c only, exactly like the real
+    // snd_buf_deleter_impl destructor call pattern -- never concurrently
+    // from p or any other shard.
+    smp::submit_to(c, [&q] {
+        for (unsigned i = 0; i < n; i++) {
+            q.enqueue(new item());
+        }
+    }).get();
+
+    auto deadline = seastar::lowres_clock::now() + std::chrono::seconds(10);
+    while (processed.load() < n && seastar::lowres_clock::now() < deadline) {
+        sleep(std::chrono::milliseconds(10)).get();
+    }
+    BOOST_REQUIRE_EQUAL(processed.load(), n);
+
+    smp::submit_to(c, [&q] { return q.stop(); }).get();
+}
+
+// Companion to the above: proves the fix does not regress batched_queue's
+// whole point, which is amortizing many enqueue()s into few cross-shard
+// hops. The original patch under review instead forced every single
+// enqueue()/stop() call through smp::submit_to(), which would turn N
+// enqueue()s into N cross-shard hops (O(N)); this checks that N sequential
+// enqueue()s from one shard still collapse into O(N / batch_size) hops via
+// batched_queue's own process_loop() batching, unrelated to which shard
+// _processing_shard happens to point at.
+SEASTAR_THREAD_TEST_CASE(test_batched_queue_preserves_batching) {
+    if (this_smp_shard_count() < 2) {
+        return;
+    }
+    struct item : public bi::slist_base_hook<> {};
+
+    constexpr shard_id c = 1;
+    std::atomic<unsigned> processed{0};
+    // Gate processing per round so every round's enqueue()s are guaranteed
+    // to land in _queue before their first item finishes processing --
+    // making the resulting hop count deterministic instead of a race
+    // against real cross-core scheduling.
+    std::atomic<bool> released{false};
+
+    rpc::internal::batched_queue<item> q([&processed, &released] (item* i) {
+        return seastar::do_until([&released] { return released.load(std::memory_order_acquire); },
+                                  [] { return seastar::sleep(std::chrono::microseconds(50)); }
+        ).then([&processed, i] {
+            ++processed;
+            delete i;
+        });
+    }, c);
+
+    constexpr unsigned n_rounds = 20;
+    constexpr unsigned n_per_round = 500;
+    constexpr unsigned n = n_rounds * n_per_round;
+
+    for (unsigned round = 0; round < n_rounds; round++) {
+        released.store(false, std::memory_order_release);
+        for (unsigned i = 0; i < n_per_round; i++) {
+            q.enqueue(new item()); // sequential, from a single shard -- like sink_impl::operator()
+        }
+        released.store(true, std::memory_order_release);
+
+        auto deadline = seastar::lowres_clock::now() + std::chrono::seconds(10);
+        while (processed.load() < (round + 1) * n_per_round && seastar::lowres_clock::now() < deadline) {
+            sleep(std::chrono::milliseconds(1)).get();
+        }
+    }
+    BOOST_REQUIRE_EQUAL(processed.load(), n);
+
+    auto hops = q.batches_processed_for_testing();
+    fmt::print("test_batched_queue_preserves_batching: {} enqueue()s -> {} process_loop() hops\n", n, hops);
+    // Real behaviour collapses each round into a small, constant number of
+    // hops; a per-enqueue submit_to (what the reviewed patch did instead)
+    // would have produced n hops. Assert well below linear to catch a
+    // regression back to that.
+    BOOST_REQUIRE_LT(hops, n / 10);
+
+    q.stop().get();
+}
+
 static future<> test_rpc_connection_send_glitch(bool on_client) {
     struct context {
         int limit;

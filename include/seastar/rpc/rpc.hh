@@ -413,6 +413,10 @@ class batched_queue {
     list_type _queue;
     list_type _cur_batch;
     future<> _process_fut = make_ready_future();
+    // Number of process_loop() drain iterations (i.e. smp::submit_to() hops
+    // to _processing_shard) done so far. Only used by tests to verify that
+    // batching amortizes N enqueue()s into far fewer hops.
+    uint64_t _batches_for_testing = 0;
 
 public:
     batched_queue(std::function<future<>(T*)> process_func, shard_id processing_shard)
@@ -435,9 +439,15 @@ public:
         }
     }
 
+    // Test-only observability: see _batches_for_testing above.
+    uint64_t batches_processed_for_testing() const noexcept {
+        return _batches_for_testing;
+    }
+
     future<> process_loop() {
         return seastar::do_until([this] { return _queue.empty(); }, [this] {
             _cur_batch = std::exchange(_queue, list_type());
+            _batches_for_testing++;
             return smp::submit_to(_processing_shard, [this] {
                 return seastar::do_until([this] { return _cur_batch.empty(); }, [this] {
                     auto* buf = &_cur_batch.front();
