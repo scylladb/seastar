@@ -456,6 +456,16 @@ There are three operational modes:
     )
 
     cmdline_parser.add_argument(
+        '--use-debuginfod',
+        action='store_true',
+        default=False,
+        help='Let the symbolizer download missing debug info via DEBUGINFOD_URLS.'
+        ' Disabled by default: a lookup that stalls takes the resolver down with'
+        ' it, because the dummy address that terminates each frame is resolved the'
+        ' same way and so never replies.',
+    )
+
+    cmdline_parser.add_argument(
         '-v',
         '--verbose',
         action='store_true',
@@ -513,6 +523,7 @@ There are three operational modes:
         cmd_path=args.addr2line,
         debug=args.debug,
         timing=args.timing,
+        use_debuginfod=args.use_debuginfod,
     ) as resolve:
         resolve_start = resolve.timing_now()
         for line in lines:
