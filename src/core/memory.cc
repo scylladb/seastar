@@ -440,6 +440,7 @@ public:
     // cpu_pages, can be constant-initialized.
     explicit constexpr small_pool(unsigned object_size, bool is_sampled) noexcept;
     inline void* allocate();
+    inline void* try_allocate();
     void deallocate(void* object);
     unsigned object_size() const { return _object_size; }
     /// See _sampled_pool
@@ -1508,6 +1509,19 @@ small_pool::allocate() {
     return __builtin_expect((bool)_free, true) ? pop_free() : add_more_objects();
 }
 
+/**
+ * Like allocate(), but never refills the free list: if it is empty, return
+ * nullptr and let the caller deal with it.
+ *
+ * Since the free list of a thread which never allocated from the seastar
+ * allocator is empty, this can be called on any thread, even one whose
+ * cpu_pages was not initialized yet.
+ */
+void*
+small_pool::try_allocate() {
+    return __builtin_expect((bool)_free, true) ? pop_free() : nullptr;
+}
+
 void
 small_pool::deallocate(void* object) {
     auto o = reinterpret_cast<free_object*>(object);
@@ -1665,6 +1679,26 @@ void* allocate_from_sampled_small_pool(size_t size) {
 
 #endif
 
+/// Allocate from the small pool serving \c size, without refilling its free
+/// list. Returns nullptr if the free list is empty, in which case the caller
+/// has to fall back to the slow path.
+///
+/// This is the fast path of allocate() and allocate_aligned(); as it doesn't
+/// touch anything but the small pool free list, it is safe to call on a thread
+/// which isn't a reactor thread (it will simply fail, since such a thread's
+/// free lists are empty).
+template<alignment_t alignment>
+[[gnu::always_inline]]
+inline void* try_allocate_from_small_pool(size_t size) {
+    if constexpr (alignment == alignment_t::aligned) {
+        size = 1 << log2ceil(size);
+    }
+    auto idx = small_pool::size_to_idx(size);
+    auto& pool = cpu_mem.small_pools[idx];
+    dassert(size <= pool.object_size());
+    return pool.try_allocate();
+}
+
 template<alignment_t alignment>
 void* allocate_from_small_pool(size_t size)
 {
@@ -1732,8 +1766,9 @@ void *allocate_slowpath(size_t size) {
             }
         }
     }
-    // On the fast path we've already called maybe_sample, except in the case
-    // of !is_reactor_thread (we don't sample such alloctions).
+    // On the fast path we've already called maybe_sample (foreign threads
+    // never sample, as their sampler is disabled, so calling it there is
+    // harmless).
     bool should_sample = cpu_mem.definitely_sample(size);
     void* ptr;
     if (size <= max_small_allocation) {
@@ -1760,32 +1795,46 @@ void *allocate_slowpath(size_t size) {
 [[gnu::always_inline]]
 inline void* allocate(size_t size) {
     size = std::max(size, sizeof(free_object));
-    if (__builtin_expect(is_reactor_thread && !cpu_mem.maybe_sample(size) && size <= max_small_allocation, true)) {
-        auto ptr = allocate_from_small_pool<alignment_t::unaligned>(size);
-        return finish_allocation(ptr, size);
+    if (__builtin_expect(!cpu_mem.maybe_sample(size) && size <= max_small_allocation, true)) {
+        // Note we don't check is_reactor_thread here: a thread which doesn't
+        // use the seastar allocator has empty small pool free lists, so the
+        // allocation fails and we fall into the slow path, which sorts out
+        // where the memory should come from. This keeps the fast path free of
+        // an extra thread-local load and branch.
+        if (auto ptr = try_allocate_from_small_pool<alignment_t::unaligned>(size)) {
+            return finish_allocation(ptr, size);
+        }
     }
 
     return allocate_slowpath(size);
 }
 
-void* allocate_aligned(size_t align, size_t size) {
+// Adjust the size of an aligned allocation to something our small pools can
+// serve: they only hand out objects of at least sizeof(free_object) bytes, and
+// only guarantee alignment for power-of-two sizes.
+[[gnu::always_inline]]
+static inline size_t adjust_aligned_allocation_size(size_t align, size_t size) {
+    if (size <= sizeof(free_object)) {
+        size = std::max(sizeof(free_object), align);
+    }
+    return size;
+}
+
+void* allocate_aligned_slowpath(size_t align, size_t size) {
     if (!is_reactor_thread) {
         if (original_aligned_alloc_func) {
             alloc_stats::increment(alloc_stats::types::foreign_mallocs);
             return original_aligned_alloc_func(align, size);
         }
-        // original_realloc_func might be null for allocations before main
-        // in constructors before original_realloc_func ctor is called
+        // original_aligned_alloc_func might be null for allocations before main
+        // in constructors before original_aligned_alloc_func ctor is called
         init_cpu_mem();
     }
-    if (size <= sizeof(free_object)) {
-        size = std::max(sizeof(free_object), align);
-    }
-#ifdef SEASTAR_HEAPPROF
-    bool should_sample = cpu_mem.maybe_sample(size) && cpu_mem.definitely_sample(size);
-#else
-    bool should_sample = false;
-#endif
+    size = adjust_aligned_allocation_size(align, size);
+    // On the fast path we've already called maybe_sample (foreign threads
+    // never sample, as their sampler is disabled, so calling it there is
+    // harmless).
+    bool should_sample = cpu_mem.definitely_sample(size);
     void* ptr;
     if (size <= max_small_allocation && align <= page_size) {
         // Our small allocator only guarantees alignment for power-of-two
@@ -1802,6 +1851,25 @@ void* allocate_aligned(size_t align, size_t size) {
         ptr = allocate_large_aligned(align, size, should_sample);
     }
     return finish_allocation(ptr, size);
+}
+
+/// The main entry point for aligned allocation.
+///
+/// Like allocate(), the fast path is inlined into all of its callers, and
+/// shares the non-inlined allocate_aligned_slowpath() fallback.
+[[gnu::always_inline]]
+inline void* allocate_aligned(size_t align, size_t size) {
+    auto adjusted_size = adjust_aligned_allocation_size(align, size);
+    if (__builtin_expect(!cpu_mem.maybe_sample(adjusted_size)
+                && adjusted_size <= max_small_allocation && align <= page_size, true)) {
+        // See the note in allocate() about why is_reactor_thread isn't checked
+        // here.
+        if (auto ptr = try_allocate_from_small_pool<alignment_t::aligned>(adjusted_size)) {
+            return finish_allocation(ptr, adjusted_size);
+        }
+    }
+
+    return allocate_aligned_slowpath(align, size);
 }
 
 
