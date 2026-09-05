@@ -21,20 +21,21 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#   "allpairspy",
+#   "covertable",
 #   "ruamel.yaml",
 # ]
 # ///
 """
 Generate the regular_test include: matrix for tests.yaml.
 
-Uses all-pairs (pairwise) coverage over compiler x standard x mode x
-arch for the regular builds, plus an explicit list of special-purpose
-jobs (dpdk, cxx-modules, fuzz). All-pairs guarantees that every pair
-of parameter values is exercised by at least one job, with far fewer
-combinations than the full cartesian product. Excluded pairs (see
-EXCLUDED_PAIRS) drop out of regular coverage. The file is round-tripped
-through ruamel.yaml, replacing only the strategy matrix include list;
+Uses pairwise coverage over compiler x standard x mode x arch for the
+regular builds, plus an explicit list of special-purpose jobs (dpdk,
+cxx-modules, fuzz). Pairwise guarantees that every pair of parameter
+values is exercised by at least one job, with far fewer combinations
+than the full cartesian product. Pairs which cannot appear at all (see
+CONSTRAINTS) are the exception, and _validate_pairwise() enforces the
+guarantee over every other pair. The file is round-tripped through
+ruamel.yaml, replacing only the strategy matrix include list;
 everything else in tests.yaml is left untouched.
 
 Usage:
@@ -42,10 +43,11 @@ Usage:
     git diff .github/workflows/tests.yaml
 """
 
+import itertools
 import pathlib
 from typing import Any
 
-from allpairspy import AllPairs
+from covertable import make
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
@@ -58,33 +60,76 @@ TESTS_YAML = HERE / "tests.yaml"
 # last two major releases of each toolchain per compatibility.md.
 CLANG_VERSIONS: list[int] = [21, 22]
 GCC_VERSIONS:   list[int] = [15, 16]
-COMPILERS: list[str] = (
-    [f"clang++-{v}" for v in CLANG_VERSIONS]
-    + [f"g++-{v}"   for v in GCC_VERSIONS]
-)
+CLANG_COMPILERS: list[str] = [f"clang++-{v}" for v in CLANG_VERSIONS]
+GCC_COMPILERS:   list[str] = [f"g++-{v}"     for v in GCC_VERSIONS]
+COMPILERS: list[str] = CLANG_COMPILERS + GCC_COMPILERS
 STANDARDS: list[int] = [23, 26]
 MODES: list[str] = ["debug", "release", "sanitize"]
 ARCHS: list[str] = ["x86", "arm"]
 
-# Compiler+mode combinations to skip in the regular all-pairs matrix.
-# gcc 15+ miscompiles structured bindings inside loops in coroutines
-# (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=124584), breaking g++
-# debug (LSan: pollable_fd_state leak via cross-shard accept) and g++
+# The parameters the regular jobs are drawn from, by matrix key.
+PARAMETERS: dict[str, list[Any]] = {
+    "compiler": COMPILERS,
+    "standard": STANDARDS,
+    "mode": MODES,
+    "arch": ARCHS,
+}
+
+# Modes gcc cannot build: gcc 15+ miscompiles structured bindings inside loops
+# in coroutines (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=124584), breaking
+# g++ debug (LSan: pollable_fd_state leak via cross-shard accept) and g++
 # sanitize (UBSan abort on poisoned rcv_buf in rpc loops). Tracked in
 # scylladb/seastar#3431.
-EXCLUDED_PAIRS: list[tuple[str, str]] = [
-    (f"g++-{v}", m) for v in GCC_VERSIONS for m in ("debug", "sanitize")
+GCC_BROKEN_MODES: list[str] = ["debug", "sanitize"]
+
+# No gcc combined with those modes, given to the generator as a constraint so it
+# treats the combination as unreachable while working out which rows it needs,
+# rather than us dropping rows it has already committed to.
+CONSTRAINTS: list[dict[str, Any]] = [
+    {
+        "operator": "or",
+        "conditions": [
+            {
+                "operator": "not",
+                "condition": {"operator": "in", "left": "compiler", "values": GCC_COMPILERS},
+            },
+            {
+                "operator": "not",
+                "condition": {"operator": "in", "left": "mode", "values": GCC_BROKEN_MODES},
+            },
+        ],
+    }
 ]
 
 
-def _keep_row(row: list[Any]) -> bool:
-    """allpairspy filter_func: drop rows hitting an EXCLUDED_PAIRS entry.
+def _is_excluded(key_a: str, value_a: Any, key_b: str, value_b: Any) -> bool:
+    """Is this pair of parameter values one CONSTRAINTS rules out?"""
+    if {key_a, key_b} != {"compiler", "mode"}:
+        return False
+    compiler, mode = (value_a, value_b) if key_a == "compiler" else (value_b, value_a)
+    return compiler in GCC_COMPILERS and mode in GCC_BROKEN_MODES
 
-    Called with progressively longer prefixes during pair generation, so
-    the check only fires once both compiler (row[0]) and mode (row[2])
-    are present in the partial row.
+
+def _validate_pairwise(rows: list[dict[str, Any]]) -> None:
+    """Fail unless every pair of parameter values which may appear does.
+
+    Only the generated rows are checked. The special-purpose jobs cover
+    combinations of their own, but leaning on them would be wrong: the
+    cxx-modules job runs no tests at all, so a pair it is the only carrier
+    of is not exercised by anything.
     """
-    return not (len(row) >= 3 and (row[0], row[2]) in EXCLUDED_PAIRS)
+    absent = [
+        f"{key_a}={value_a} with {key_b}={value_b}"
+        for key_a, key_b in itertools.combinations(PARAMETERS, 2)
+        for value_a, value_b in itertools.product(PARAMETERS[key_a], PARAMETERS[key_b])
+        if not _is_excluded(key_a, value_a, key_b, value_b)
+        and not any(row[key_a] == value_a and row[key_b] == value_b for row in rows)
+    ]
+    if absent:
+        raise SystemExit(
+            "pairwise coverage is incomplete, "
+            f"{len(absent)} pair(s) appear in no job:\n  " + "\n  ".join(absent)
+        )
 
 # Key path to the strategy matrix map inside tests.yaml; we replace its
 # "include" list. The "# AUTOGENERATED" comment is preserved automatically
@@ -148,13 +193,14 @@ def _build_include(items: list[dict[str, Any]]) -> CommentedSeq:
 
 
 def generate() -> list[dict[str, Any]]:
+    # The rows come back keyed by parameter name in an order of the generator's
+    # choosing, so rebuild each one in PARAMETERS order to keep the generated
+    # YAML stable.
     regular: list[dict[str, Any]] = [
-        {"compiler": c, "standard": s, "mode": m, "arch": a}
-        for c, s, m, a in AllPairs(
-            [COMPILERS, STANDARDS, MODES, ARCHS],
-            filter_func=_keep_row,
-        )
+        {key: row[key] for key in PARAMETERS}
+        for row in make(PARAMETERS, strength=2, constraints=CONSTRAINTS)
     ]
+    _validate_pairwise(regular)
     return regular + SPECIAL_ITEMS
 
 
