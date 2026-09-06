@@ -23,6 +23,8 @@
 
 #include <seastar/core/metrics.hh>
 #include <seastar/core/prometheus.hh>
+#include <seastar/core/sharded.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/http/client.hh>
 #include <seastar/http/common.hh>
 #include <seastar/http/request.hh>
@@ -175,4 +177,76 @@ SEASTAR_TEST_CASE(test_prometheus_multiple_name_filters) {
         client.get();
         server.stop().get();
     });
+}
+
+namespace {
+// Incremented only when shard 1's sentinel metric is actually evaluated.
+thread_local unsigned shard1_sentinel_evals = 0;
+}
+
+// A filtered scrape of a local_shard_only() family skips the other shards yet
+// stays correct; an unfiltered one still collects everything.
+SEASTAR_TEST_CASE(test_prometheus_local_shard_only_filtered) {
+    metrics::metric_groups test_metrics;
+    test_metrics.add_group("test", {
+        metrics::make_gauge("hinted_metric", [] { return 42; }, metrics::description{"hinted metric"})(metrics::local_shard_only::yes),
+        metrics::make_gauge("plain_metric", [] { return 7; }, metrics::description{"plain metric"}),
+    });
+
+    // Unhinted family on shard 1: its eval count tells if shard 1 was visited.
+    foreign_ptr<std::unique_ptr<metrics::metric_groups>> sentinel;
+    if (smp::count > 1) {
+        sentinel = co_await smp::submit_to(1, [] {
+            auto mg = std::make_unique<metrics::metric_groups>();
+            mg->add_group("sentinel", {
+                metrics::make_gauge("sentinel_metric", [] { return ++shard1_sentinel_evals; }, metrics::description{"sentinel"}),
+            });
+            return make_foreign(std::move(mg));
+        });
+    }
+
+    co_await seastar::async([] {
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+
+        prometheus::config ctx;
+        add_prometheus_routes(server, ctx).get();
+
+        future<> client = seastar::async([&lcf] {
+            // Filtered: only the hinted family, shard fanout restricted.
+            auto filtered = get_metrics_body(lcf, "/metrics?__name__=test_hinted_metric");
+            BOOST_REQUIRE_MESSAGE(std::ranges::search(filtered, "seastar_test_hinted_metric{shard=\"0\"} 42.000000"sv),
+                fmt::format("should contain hinted_metric with correct value\nResponse: {}\n", filtered));
+            BOOST_REQUIRE_MESSAGE(!std::ranges::search(filtered, "seastar_test_plain_metric"sv),
+                fmt::format("should NOT contain plain_metric\nResponse: {}\n", filtered));
+
+            if (smp::count > 1) {
+                auto evals_after_filtered = smp::submit_to(1, [] { return shard1_sentinel_evals; }).get();
+                BOOST_REQUIRE_MESSAGE(evals_after_filtered == 0,
+                    fmt::format("filtered scrape should not have visited shard 1, but sentinel was evaluated {} times\nResponse: {}\n",
+                        evals_after_filtered, filtered));
+            }
+
+            // Unfiltered: full fanout, both families present.
+            auto unfiltered = get_metrics_body(lcf, "/metrics");
+            BOOST_REQUIRE_MESSAGE(std::ranges::search(unfiltered, "seastar_test_hinted_metric{shard=\"0\"} 42.000000"sv),
+                fmt::format("should contain hinted_metric\nResponse: {}\n", unfiltered));
+            BOOST_REQUIRE_MESSAGE(std::ranges::search(unfiltered, "seastar_test_plain_metric{shard=\"0\"} 7.000000"sv),
+                fmt::format("should contain plain_metric\nResponse: {}\n", unfiltered));
+
+            if (smp::count > 1) {
+                auto evals_after_unfiltered = smp::submit_to(1, [] { return shard1_sentinel_evals; }).get();
+                BOOST_REQUIRE_MESSAGE(evals_after_unfiltered > 0,
+                    fmt::format("unfiltered scrape should have visited shard 1 and evaluated the sentinel\nResponse: {}\n", unfiltered));
+            }
+        });
+
+        server.do_accepts(0).get();
+
+        client.get();
+        server.stop().get();
+    });
+
+    // foreign_ptr destroys the metric_groups back on shard 1.
 }
