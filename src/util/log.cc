@@ -354,12 +354,27 @@ class syslog_socket {
     // a missing or unresponsive system logger doesn't cost us a socket() and
     // a connect() per log message.
     static constexpr auto reconnect_interval = std::chrono::seconds(1);
+    // How long to hold off sending after the send buffer was found full, so
+    // that an overloaded system logger doesn't cost us a sendmsg() per log
+    // message.
+    static constexpr auto overload_holdoff = std::chrono::milliseconds(10);
     using clock = std::chrono::steady_clock;
+
+    // Result of a single attempt to hand a datagram to the system logger.
+    enum class send_result {
+        sent,
+        would_block,   // send buffer full: the system logger isn't keeping up
+        disconnected,  // the socket is unusable and has to be re-established
+    };
 
     int _fd = -1;
     clock::time_point _next_connect_attempt = clock::time_point::min();
     // Cached at connect() time; a fork() gives the child a fresh socket anyway.
     pid_t _pid = 0;
+    // Number of messages dropped since the send buffer was last found full.
+    uint64_t _skipped = 0;
+    // While _skipped is non-zero, the time at which sending is retried.
+    clock::time_point _retry_time = clock::time_point::min();
 public:
     syslog_socket() = default;
     syslog_socket(const syslog_socket&) = delete;
@@ -383,6 +398,17 @@ private:
     void disconnect() noexcept;
     // Formats the RFC 3164 header (priority, timestamp and tag) of a message.
     internal::log_buf::inserter_iterator print_header(internal::log_buf::inserter_iterator it, int priority) const;
+    // Makes a single attempt to send a message over an established socket.
+    send_result send_one(int priority, std::string_view msg) noexcept;
+    // Tells the system logger how many messages were lost while it was
+    // overloaded.
+    send_result send_overload_notice() noexcept;
+    // Drops a dead socket and immediately tries to establish a new one.
+    void reconnect() noexcept {
+        disconnect();
+        _next_connect_attempt = clock::time_point::min();
+        connect();
+    }
 };
 
 void syslog_socket::disconnect() noexcept {
@@ -439,10 +465,7 @@ syslog_socket::print_header(internal::log_buf::inserter_iterator it, int priorit
     return fmt::format_to(it, "{}[{}]:", program_invocation_short_name, _pid);
 }
 
-bool syslog_socket::send(int priority, std::string_view msg) noexcept {
-    if (_fd < 0 && !connect()) {
-        return false;
-    }
+syslog_socket::send_result syslog_socket::send_one(int priority, std::string_view msg) noexcept {
     // Big enough for the priority, the timestamp and any sane program name.
     std::array<char, 256> header_buf;
     internal::log_buf header(header_buf.data(), header_buf.size());
@@ -461,20 +484,69 @@ bool syslog_socket::send(int priority, std::string_view msg) noexcept {
         case EINTR:
             continue;
         case EAGAIN:
-            // The system logger is not keeping up.  Dropping the message is
-            // still better than stalling the reactor waiting for it.
-            return true;
+            return send_result::would_block;
         default:
-            // The system logger went away (restarted, most likely).  Try to
-            // reconnect once, and fall back to syslog() if that fails too.
-            disconnect();
-            _next_connect_attempt = clock::time_point::min();
-            if (!connect()) {
-                return false;
-            }
+            // The system logger went away (restarted, most likely).
+            return send_result::disconnected;
         }
     }
-    return true;
+    return send_result::sent;
+}
+
+syslog_socket::send_result syslog_socket::send_overload_notice() noexcept {
+    std::array<char, 128> static_buf;
+    internal::log_buf buf(static_buf.data(), static_buf.size());
+    fmt::format_to(buf.back_insert_begin(),
+            " [shard {}] syslog - WARN: {} messages skipped due to syslog overload",
+            this_shard_id(), _skipped);
+    return send_one(LOG_USER | LOG_WARNING, buf.view());
+}
+
+bool syslog_socket::send(int priority, std::string_view msg) noexcept {
+    // Two rounds at most: one to discover that the socket died, and one to
+    // send over its replacement.
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        if (_fd < 0 && !connect()) {
+            return false;
+        }
+        if (_skipped) {
+            if (clock::now() < _retry_time) {
+                // The system logger was overloaded very recently; assume it
+                // still is, rather than pay for a sendmsg() that will fail.
+                ++_skipped;
+                return true;
+            }
+            // Conditions may have improved. Account for the gap first, so
+            // that the notice precedes the messages that follow it.
+            switch (send_overload_notice()) {
+            case send_result::sent:
+                _skipped = 0;
+                break;
+            case send_result::would_block:
+                _retry_time = clock::now() + overload_holdoff;
+                ++_skipped;
+                return true;
+            case send_result::disconnected:
+                reconnect();
+                continue;
+            }
+        }
+        switch (send_one(priority, msg)) {
+        case send_result::sent:
+            return true;
+        case send_result::would_block:
+            // Dropping the message is still better than stalling the reactor
+            // until the system logger catches up.
+            _retry_time = clock::now() + overload_holdoff;
+            ++_skipped;
+            return true;
+        case send_result::disconnected:
+            reconnect();
+            continue;
+        }
+    }
+    // Couldn't re-establish the socket; let the caller fall back to syslog().
+    return false;
 }
 
 } // anonymous namespace
