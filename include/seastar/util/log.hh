@@ -446,9 +446,10 @@ public:
 
     /// Also output to syslog. default is false
     ///
-    /// NOTE: syslog() can block, which will stall the reactor thread.
-    ///       this should be rare (will have to fill the pipe buffer
-    ///       before syslogd can clear it) but can happen.
+    /// NOTE: reactor threads log to the system logger over a private,
+    ///       non-blocking socket, so logging never stalls them; messages
+    ///       are dropped if the system logger cannot keep up. Other threads
+    ///       use syslog(), which can block.
     static void set_syslog_enabled(bool enabled) noexcept;
 
     /// Set the width of shard id field in log messages

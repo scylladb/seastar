@@ -42,6 +42,11 @@
 #include <cxxabi.h>
 #include <syslog.h>
 #include <unistd.h>
+#include <paths.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <cerrno>
+#include <cstring>
 
 
 #include <seastar/util/log.hh>
@@ -322,6 +327,158 @@ logger::rate_limit::rate_limit(std::chrono::milliseconds interval)
     : _interval(interval), _next(clock::now())
 { }
 
+
+namespace {
+
+// A private connection to the system logger (/dev/log).
+//
+// libc's syslog() serializes all calls on a global lock, and shares a single
+// socket among all threads; on a large machine that lock, and the shared
+// socket's send buffer, become a contention point that can stall a reactor
+// thread for a long time.  Instead, every shard keeps its own socket, so
+// shards never wait for each other.
+//
+// The datagram we generate follows the traditional BSD syslog format
+// (RFC 3164), which is what libc's syslog() emits and what every system
+// logger understands:
+//
+//     <PRI>MMM dd hh:mm:ss tag[pid]: message
+//
+class syslog_socket {
+#ifdef _PATH_LOG
+    static constexpr const char* socket_path = _PATH_LOG;
+#else
+    static constexpr const char* socket_path = "/dev/log";
+#endif
+    // Retry interval after a failed attempt to connect to /dev/log, so that
+    // a missing or unresponsive system logger doesn't cost us a socket() and
+    // a connect() per log message.
+    static constexpr auto reconnect_interval = std::chrono::seconds(1);
+    using clock = std::chrono::steady_clock;
+
+    int _fd = -1;
+    clock::time_point _next_connect_attempt = clock::time_point::min();
+    // Cached at connect() time; a fork() gives the child a fresh socket anyway.
+    pid_t _pid = 0;
+public:
+    syslog_socket() = default;
+    syslog_socket(const syslog_socket&) = delete;
+    ~syslog_socket() {
+        disconnect();
+    }
+    /// Sends a log message to the system logger.
+    ///
+    /// \param priority the syslog priority (facility | level) of the message
+    /// \param msg the message body, without a trailing newline
+    /// \return true if the message was handed over to the system logger, false
+    ///         if the caller should fall back to libc's syslog()
+    bool send(int priority, std::string_view msg) noexcept;
+    /// Returns this shard's socket.
+    static syslog_socket& local() noexcept {
+        static thread_local syslog_socket sock;
+        return sock;
+    }
+private:
+    bool connect() noexcept;
+    void disconnect() noexcept;
+    // Formats the RFC 3164 header (priority, timestamp and tag) of a message.
+    internal::log_buf::inserter_iterator print_header(internal::log_buf::inserter_iterator it, int priority) const;
+};
+
+void syslog_socket::disconnect() noexcept {
+    if (_fd >= 0) {
+        ::close(_fd);
+        _fd = -1;
+    }
+}
+
+bool syslog_socket::connect() noexcept {
+    auto now = clock::now();
+    if (now < _next_connect_attempt) {
+        return false;
+    }
+    _next_connect_attempt = now + reconnect_interval;
+    // SOCK_NONBLOCK: a full send buffer must never stall the reactor; we'd
+    // rather drop the message (see the buffer-full handling in send()).
+    int fd = ::socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    if (fd < 0) {
+        return false;
+    }
+    sockaddr_un addr = {};
+    addr.sun_family = AF_UNIX;
+    std::strcpy(addr.sun_path, socket_path);
+    // A datagram socket has no handshake to perform, so this only records the
+    // peer address and completes right away; SOCK_NONBLOCK notwithstanding,
+    // there is no EINPROGRESS to wait for.
+    if (::connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0) {
+        ::close(fd);
+        return false;
+    }
+    _fd = fd;
+    _pid = ::getpid();
+    return true;
+}
+
+internal::log_buf::inserter_iterator
+syslog_socket::print_header(internal::log_buf::inserter_iterator it, int priority) const {
+    static const char* const month_names[] = {
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    };
+    auto t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm tm_local;
+    // RFC 3164 wants a local time, space-padded day-of-month, and no year.
+    if (localtime_r(&t, &tm_local)) {
+        it = fmt::format_to(it, "<{}>{} {:2d} {:02d}:{:02d}:{:02d} ",
+                priority, month_names[tm_local.tm_mon], tm_local.tm_mday,
+                tm_local.tm_hour, tm_local.tm_min, tm_local.tm_sec);
+    } else {
+        // The timestamp is optional; the system logger will supply its own.
+        it = fmt::format_to(it, "<{}>", priority);
+    }
+    return fmt::format_to(it, "{}[{}]:", program_invocation_short_name, _pid);
+}
+
+bool syslog_socket::send(int priority, std::string_view msg) noexcept {
+    if (_fd < 0 && !connect()) {
+        return false;
+    }
+    // Big enough for the priority, the timestamp and any sane program name.
+    std::array<char, 256> header_buf;
+    internal::log_buf header(header_buf.data(), header_buf.size());
+    print_header(header.back_insert_begin(), priority);
+    // The header and the message are sent as one datagram, without copying
+    // the (potentially large) message.
+    iovec iov[2] = {
+        { const_cast<char*>(header.data()), header.size() },
+        { const_cast<char*>(msg.data()), msg.size() },
+    };
+    msghdr mh = {};
+    mh.msg_iov = iov;
+    mh.msg_iovlen = 2;
+    while (::sendmsg(_fd, &mh, MSG_NOSIGNAL) < 0) {
+        switch (errno) {
+        case EINTR:
+            continue;
+        case EAGAIN:
+            // The system logger is not keeping up.  Dropping the message is
+            // still better than stalling the reactor waiting for it.
+            return true;
+        default:
+            // The system logger went away (restarted, most likely).  Try to
+            // reconnect once, and fall back to syslog() if that fails too.
+            disconnect();
+            _next_connect_attempt = clock::time_point::min();
+            if (!connect()) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+} // anonymous namespace
+
 void
 logger::do_log(log_level level, log_writer& writer) {
     bool is_ostream_enabled = _ostream.load(std::memory_order_relaxed);
@@ -355,7 +512,6 @@ logger::do_log(log_level level, log_writer& writer) {
         internal::log_buf buf(static_log_buf.data(), static_log_buf.size());
         auto it = buf.back_insert_begin();
         it = print_once(it);
-        *it = '\0';
         static internal::array_map<int, 20> level_map = {
                 { int(log_level::debug), LOG_DEBUG },
                 { int(log_level::info), LOG_INFO },
@@ -363,13 +519,18 @@ logger::do_log(log_level level, log_writer& writer) {
                 { int(log_level::warn), LOG_WARNING },
                 { int(log_level::error), LOG_ERR },
         };
-        // NOTE: syslog() can block, which will stall the reactor thread.
-        //       this should be rare (will have to fill the pipe buffer
-        //       before syslogd can clear it) but can happen.  If it does,
-        //       we'll have to implement some internal buffering (which
-        //       still means the problem can happen, just less frequently).
-        // syslog() interprets % characters, so send msg as a parameter
-        syslog(level_map[int(level)], "%s", buf.data());
+        int priority = LOG_USER | level_map[int(level)];
+        // Reactor threads use a private socket, so that they neither contend
+        // on syslog()'s global lock, nor stall on a send buffer filled by
+        // another shard.  Other threads are few and are not latency sensitive,
+        // so they can use syslog(); it is also the fallback for the case where
+        // the system logger cannot be reached directly.
+        if (!local_engine || !syslog_socket::local().send(priority, buf.view())) {
+            // syslog() wants a null-terminated string, and interprets %
+            // characters, so the message is passed as a parameter.
+            *it = '\0';
+            syslog(priority, "%s", buf.data());
+        }
     }
 }
 
