@@ -1985,7 +1985,14 @@ SEASTAR_THREAD_TEST_CASE(test_stream_send_after_stream_close) {
             server_done = seastar::async([sink, source] () mutable {
                 sink("seastar").get();
                 sink.close().get();
-                while (source().get()) {
+                try {
+                    while (source().get()) {
+                    }
+                } catch (const rpc::stream_closed&) {
+                    // Closing the second half of a stream stops its
+                    // connection, and a stream connection that stops aborts
+                    // its receive queue, so this drain can be cut short by the
+                    // client's teardown rather than reach eof.
                 }
             });
             return sink;
