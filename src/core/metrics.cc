@@ -312,6 +312,11 @@ metric_definition_impl& metric_definition_impl::operator ()(skip_when_empty skip
     return *this;
 }
 
+metric_definition_impl& metric_definition_impl::operator ()(local_shard_only only) noexcept {
+    _local_shard_only = only;
+    return *this;
+}
+
 metric_definition_impl& metric_definition_impl::set_type(const sstring& type_name) {
     type.type_name = type_name;
     return *this;
@@ -326,6 +331,11 @@ metric_definition_impl& metric_definition_impl::aggregate(const std::vector<labe
 
 metric_definition_impl& metric_definition_impl::set_skip_when_empty(bool skip) noexcept {
     _skip_when_empty = skip_when_empty(skip);
+    return *this;
+}
+
+metric_definition_impl& metric_definition_impl::set_local_shard_only(bool only) noexcept {
+    _local_shard_only = local_shard_only(only);
     return *this;
 }
 

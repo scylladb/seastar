@@ -109,6 +109,8 @@ using metric_type_def = sstring; /*!< Used to hold an inherit type (like bytes)*
 using metric_name_type = sstring; /*!<  The metric name'*/
 using instance_id_type = sstring; /*!<  typically used for the shard id*/
 using skip_when_empty = bool_class<class skip_when_empty_tag>;
+/*!< Hint: this metric family is only ever registered on the shard(s) that called add_group for it. */
+using local_shard_only = bool_class<class local_shard_only_tag>;
 
 /*!
  * \brief Human-readable description of a metric/group.
@@ -407,13 +409,21 @@ struct metric_definition_impl {
     description d;
     bool enabled = true;
     skip_when_empty _skip_when_empty = skip_when_empty::no;
+    local_shard_only _local_shard_only = local_shard_only::no;
     std::vector<std::string> aggregate_labels;
     labels_type labels;
     metric_definition_impl& operator ()(bool enabled);
     metric_definition_impl& operator ()(const label_instance& label);
     metric_definition_impl& operator ()(skip_when_empty skip) noexcept;
+    metric_definition_impl& operator ()(local_shard_only only) noexcept;
     metric_definition_impl& aggregate(const std::vector<label>& labels) noexcept;
     metric_definition_impl& set_skip_when_empty(bool skip=true) noexcept;
+    /*!
+     * \brief Hint that this metric family is only ever registered on the
+     * shard(s) that called add_group for it (not automatically discovered).
+     * Lets a __name__-filtered scrape skip shards known to never host it.
+     */
+    metric_definition_impl& set_local_shard_only(bool only=true) noexcept;
     metric_definition_impl& set_type(const sstring& type_name);
     metric_definition_impl(
         metric_name_type name,
