@@ -22,12 +22,14 @@
 #pragma once
 
 #include <seastar/core/metrics.hh>
+#include <seastar/core/shard_id.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sharded.hh>
 #include <boost/functional/hash.hpp>
 
 #include <deque>
 #include <set>
+#include <vector>
 
 /*!
  * \file metrics_api.hh
@@ -194,6 +196,7 @@ struct metric_info {
     internalized_labels_ref original_labels;
     bool enabled;
     skip_when_empty should_skip_when_empty;
+    local_shard_only is_local_shard_only;
 };
 
 class internalized_holder {
@@ -236,7 +239,8 @@ class registered_metric final {
     metric_info _info;
     metric_function _f;
 public:
-    registered_metric(metric_id id, metric_function f, bool enabled=true, skip_when_empty skip=skip_when_empty::no);
+    registered_metric(metric_id id, metric_function f, bool enabled=true, skip_when_empty skip=skip_when_empty::no,
+            local_shard_only local_only=local_shard_only::no);
     metric_value operator()() const {
         return _f();
     }
@@ -461,7 +465,8 @@ public:
         return _value_map;
     }
 
-    register_ref add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels);
+    register_ref add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels,
+            local_shard_only local_only=local_shard_only::no);
     internalized_labels_ref internalize_labels(labels_type labels);
     void remove_registration(const metric_id& id);
     future<> stop() {
@@ -514,6 +519,11 @@ foreign_ptr<values_reference> get_values();
 shared_ptr<impl> get_local_impl();
 
 void unregister_metric(const metric_id & id);
+
+/*! \brief Shards that registered this family with the local_shard_only() hint.
+ *  Empty if none did; a family hinted on one shard but unhinted on another is
+ *  not detected, and loses the unhinted series from a filtered scrape. */
+std::vector<shard_id> local_shard_only_family_shards(const sstring& family_name);
 
 /*!
  * \brief initialize metric group
