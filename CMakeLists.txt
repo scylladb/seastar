@@ -793,6 +793,7 @@ add_library (seastar
   src/net/stack.cc
   src/net/tcp.cc
   src/net/tls-impl.cc
+  src/net/tls-session-base.cc
   src/net/udp.cc
   src/net/unix_address.cc
   src/net/virtio.cc
