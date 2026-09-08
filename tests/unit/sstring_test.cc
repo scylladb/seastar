@@ -325,3 +325,78 @@ BOOST_AUTO_TEST_CASE(test_fmt) {
     std::ignore = fmt::format("{}", strings);
 }
 
+
+// A std::allocator lookalike, only to check that operator+ accepts a
+// std::basic_string with an allocator other than the default one.
+template <typename T>
+struct tracking_allocator : std::allocator<T> {
+    using std::allocator<T>::allocator;
+    template <typename U> struct rebind { using other = tracking_allocator<U>; };
+};
+
+BOOST_AUTO_TEST_CASE(test_concat_with_std_string) {
+    sstring a = "ab";
+    const sstring ca = "ab";
+    std::string b = "cd";
+    const std::string cb = "cd";
+
+    // Every combination of lvalue/const lvalue/rvalue on either side has to
+    // resolve. Since C++26 std::basic_string has operator+ overloads taking a
+    // string_view-convertible operand, and those are reachable from
+    // basic_sstring, so they can tie with basic_sstring's own operator+ unless
+    // sstring provides better matches.
+    BOOST_REQUIRE_EQUAL(a + b, sstring("abcd"));
+    BOOST_REQUIRE_EQUAL(ca + cb, sstring("abcd"));
+    BOOST_REQUIRE_EQUAL(a + std::string("cd"), sstring("abcd"));
+    BOOST_REQUIRE_EQUAL(sstring("ab") + b, sstring("abcd"));
+    BOOST_REQUIRE_EQUAL(sstring("ab") + std::string("cd"), sstring("abcd"));
+
+    BOOST_REQUIRE_EQUAL(b + a, sstring("cdab"));
+    BOOST_REQUIRE_EQUAL(cb + ca, sstring("cdab"));
+    BOOST_REQUIRE_EQUAL(std::string("cd") + a, sstring("cdab"));
+    BOOST_REQUIRE_EQUAL(b + sstring("ab"), sstring("cdab"));
+    BOOST_REQUIRE_EQUAL(std::string("cd") + sstring("ab"), sstring("cdab"));
+
+    // The most common shape in practice.
+    BOOST_REQUIRE_EQUAL(sstring("n=") + std::to_string(7), sstring("n=7"));
+    BOOST_REQUIRE_EQUAL(a + ":" + std::to_string(7), sstring("ab:7"));
+
+    // The result is an sstring, not a std::string, whichever side it is on.
+    static_assert(std::is_same_v<decltype(a + b), sstring>);
+    static_assert(std::is_same_v<decltype(b + a), sstring>);
+    static_assert(std::is_same_v<decltype(std::string("cd") + a), sstring>);
+
+    // Concatenating two sstrings, or a literal and an sstring, is unaffected.
+    static_assert(std::is_same_v<decltype(a + a), sstring>);
+    BOOST_REQUIRE_EQUAL(a + a, sstring("abab"));
+    BOOST_REQUIRE_EQUAL("x" + a, sstring("xab"));
+
+    // Embedded NULs are not treated as terminators.
+    std::string nul("a\0b", 3);
+    BOOST_REQUIRE_EQUAL((sstring("z") + nul).size(), 4u);
+    BOOST_REQUIRE_EQUAL((nul + sstring("z")).size(), 4u);
+
+    // An empty operand on either side.
+    BOOST_REQUIRE_EQUAL(a + std::string(), sstring("ab"));
+    BOOST_REQUIRE_EQUAL(std::string() + a, sstring("ab"));
+    BOOST_REQUIRE_EQUAL(sstring() + b, sstring("cd"));
+
+    // A long result, so that the sstring is externally allocated.
+    std::string long_b(1000, 'y');
+    BOOST_REQUIRE_EQUAL((a + long_b).size(), 1002u);
+    BOOST_REQUIRE_EQUAL((long_b + a).size(), 1002u);
+    BOOST_REQUIRE_EQUAL(a + long_b, sstring("ab") + sstring(long_b));
+
+    // A non-default char_type and a non-NUL-terminated sstring.
+    using schar_sstring = basic_sstring<signed char, uint32_t, 15, false>;
+    schar_sstring s(reinterpret_cast<const signed char*>("ab"), 2);
+    std::basic_string<signed char> t(reinterpret_cast<const signed char*>("cd"), 2);
+    BOOST_REQUIRE_EQUAL((s + t).size(), 4u);
+    BOOST_REQUIRE_EQUAL((t + s).size(), 4u);
+    static_assert(std::is_same_v<decltype(s + t), schar_sstring>);
+
+    // A std::basic_string with a non-default allocator is still accepted.
+    std::basic_string<char, std::char_traits<char>, tracking_allocator<char>> alloc_b = "cd";
+    BOOST_REQUIRE_EQUAL(a + alloc_b, sstring("abcd"));
+    BOOST_REQUIRE_EQUAL(alloc_b + a, sstring("cdab"));
+}

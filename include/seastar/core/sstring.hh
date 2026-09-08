@@ -705,6 +705,52 @@ string_type uninitialized_string(size_t size) {
     }
 }
 
+namespace internal {
+template <class T> struct is_std_basic_string : std::false_type {};
+template <typename char_type, typename traits, typename Alloc>
+struct is_std_basic_string<std::basic_string<char_type, traits, Alloc>> : std::true_type {};
+
+template <typename T, typename char_type>
+concept std_basic_string_of = is_std_basic_string<std::remove_cvref_t<T>>::value
+        && std::same_as<typename std::remove_cvref_t<T>::value_type, char_type>;
+}
+
+// Concatenation with std::basic_string needs explicit overloads. Without them
+// the expression is ambiguous since C++26: std::basic_string gained
+//     operator+(type_identity_t<basic_string_view>, const basic_string&)
+//     operator+(type_identity_t<basic_string_view>, basic_string&&)
+// and the two mirrored forms (P2591R5). Those are reachable via basic_sstring's
+// conversion to basic_string_view, and they tie with basic_sstring::operator+,
+// which is reachable via basic_sstring's constructor from basic_string.
+//
+// The std::basic_string operand is taken by forwarding reference so that these
+// bind it exactly as well as the standard overloads do, including the rvalue
+// ones; the basic_sstring operand then needs no conversion at all, which makes
+// these strictly better matches.
+template <typename char_type, typename size_type, size_type Max, bool NulTerminate, typename String>
+requires internal::std_basic_string_of<String, char_type>
+inline
+basic_sstring<char_type, size_type, Max, NulTerminate>
+operator+(const basic_sstring<char_type, size_type, Max, NulTerminate>& x, String&& y) {
+    using sstring_type = basic_sstring<char_type, size_type, Max, NulTerminate>;
+    sstring_type ret(typename sstring_type::initialized_later(), x.size() + y.size());
+    auto p = std::copy(x.begin(), x.end(), ret.begin());
+    std::copy(y.begin(), y.end(), p);
+    return ret;
+}
+
+template <typename char_type, typename size_type, size_type Max, bool NulTerminate, typename String>
+requires internal::std_basic_string_of<String, char_type>
+inline
+basic_sstring<char_type, size_type, Max, NulTerminate>
+operator+(String&& x, const basic_sstring<char_type, size_type, Max, NulTerminate>& y) {
+    using sstring_type = basic_sstring<char_type, size_type, Max, NulTerminate>;
+    sstring_type ret(typename sstring_type::initialized_later(), x.size() + y.size());
+    auto p = std::copy(x.begin(), x.end(), ret.begin());
+    std::copy(y.begin(), y.end(), p);
+    return ret;
+}
+
 template <typename char_type, typename size_type, size_type Max, size_type N, bool NulTerminate>
 inline
 basic_sstring<char_type, size_type, Max, NulTerminate>
