@@ -54,18 +54,17 @@ struct label_key {
     }
 
     void construct(const metrics::impl::labels_type& labels, const label_list& aggr_labels) {
-        key.clear();
-        for (auto& [lkey, lvalue] : labels) {
-            std::string_view key_view = lkey;
-            if (!internal::is_aggregated(aggr_labels, key_view)) {
-                key += key_view;
-                key += '\n';
-                key += lvalue.value();
-                key += '\n';
-            }
-        }
+        auto k = metrics::impl::build_aggregation_key(labels, aggr_labels);
+        key.assign(k.data(), k.size());
+        hash = std::hash<std::string_view>{}(std::string_view(key));
+    }
 
-        hash = std::hash<std::string>{}(key);
+    // Fast path: adopt a key/hash that was already computed once, e.g. by
+    // metrics::impl::metric_series_metadata when metadata was last rebuilt, instead of
+    // re-filtering labels and rebuilding the key string on every scrape.
+    void assign(std::string_view precomputed_key, size_t precomputed_hash) {
+        key.assign(precomputed_key);
+        hash = precomputed_hash;
     }
 
     bool operator==(const label_key& o) const noexcept {
@@ -114,10 +113,25 @@ public:
     using label_list_type = std::vector<std::string>;
     using map_type = std::unordered_map<label_key, labels_value>;
     const label_list_type& _labels_to_aggregate_by;
+    // identifies this scrape's aggregate_labels config, to detect a per-series cache
+    // built under a different (e.g. other shard's, mid-reconfiguration) config.
+    size_t _labels_to_aggregate_by_hash;
     label_key scratch_key;
     map_type _values;
+
+    labels_type build_aggregated_labels(const labels_type& input_labels) const {
+        labels_type labels;
+        for (auto& l : input_labels) {
+            if (!internal::is_aggregated(_labels_to_aggregate_by, l.first)) {
+                labels.insert(l);
+            }
+        }
+        return labels;
+    }
 public:
-    metric_aggregate_by_labels(const label_list_type& labels) : _labels_to_aggregate_by(labels) {
+    metric_aggregate_by_labels(const label_list_type& labels)
+        : _labels_to_aggregate_by(labels)
+        , _labels_to_aggregate_by_hash(metrics::impl::hash_aggregate_labels(labels)) {
     }
     /*!
      * \brief add a metric
@@ -132,13 +146,35 @@ public:
         scratch_key.construct(input_labels, _labels_to_aggregate_by);
         auto i = _values.find(scratch_key);
         if (i == _values.end()) {
-            labels_type labels;
-            for (auto& l : input_labels) {
-                if (!internal::is_aggregated(_labels_to_aggregate_by, l.first)) {
-                    labels.insert(l);
-                }
-            }
-            _values.emplace(scratch_key, labels_value{std::move(labels), m});
+            _values.emplace(scratch_key, labels_value{build_aggregated_labels(input_labels), m});
+        } else {
+            i->second.m += m;
+        }
+    }
+
+    /*!
+     * \brief add a metric using a precomputed aggregation key
+     *
+     * Same as add() above, but uses the aggregation key already cached on value_info (see
+     * metrics::impl::metric_series_metadata) instead of rebuilding it from the full label
+     * set on every call. The post-aggregation label set is only ever needed once per unique
+     * output group, so it's built here on a cache miss rather than cached per input series.
+     * This is the path used by the prometheus scrape handlers; the label-based add() above
+     * is kept for direct testing of this class and any other caller.
+     */
+    void add(const seastar::metrics::impl::metric_value& m, const seastar::metrics::impl::metric_series_metadata& value_info) noexcept {
+        if (value_info.has_aggregation_cache() && value_info.aggregation_key_config_hash() == _labels_to_aggregate_by_hash) [[likely]] {
+            scratch_key.assign(value_info.aggregation_key(), value_info.aggregation_key_hash());
+        } else {
+            // Rare: either this shard's metadata hasn't picked up an aggregate_labels
+            // change yet (no cache), or it rebuilt under a different config than the
+            // one driving this scrape (stale cache, cross-shard reconfiguration race).
+            // Recompute instead of trusting a cache that isn't there or doesn't match.
+            scratch_key.construct(value_info.labels(), _labels_to_aggregate_by);
+        }
+        auto i = _values.find(scratch_key);
+        if (i == _values.end()) {
+            _values.emplace(scratch_key, labels_value{build_aggregated_labels(value_info.labels()), m});
         } else {
             i->second.m += m;
         }
