@@ -98,6 +98,43 @@ macro (seastar_find_dependencies)
       "(found ${fmt_VERSION}). Re-run configure.py with --cook fmt "
       "to build a newer fmt locally.")
   endif ()
+  if (Seastar_IMPORT_FMT)
+    # `import fmt;` needs the module itself, which is a target of its own --
+    # separate from the library Seastar links for its own textual includes --
+    # and which fmt only defines when built with FMT_MODULE (see
+    # cooking_recipe.cmake).  Say so here rather than let the build trip over
+    # an `import fmt;` with nothing to import.
+    if (NOT TARGET fmt::fmt-module)
+      message (FATAL_ERROR
+        "Seastar_IMPORT_FMT requires an fmt built with FMT_MODULE, which is what "
+        "provides the fmt::fmt-module target. The fmt found in ${fmt_DIR} does not "
+        "have it. Re-run configure.py with --cook fmt to build a suitable fmt "
+        "locally.")
+    endif ()
+    # fmt ships the module as source: whoever consumes it compiles the interface
+    # unit themselves, so both of the following have to be arranged here --
+    # where consumers of the installed package come through too -- and not in
+    # Seastar's own CMakeLists.txt.
+    #
+    # FMT_ATTACH_TO_GLOBAL_MODULE detaches fmt's declarations from module `fmt`,
+    # leaving them traditionally mangled and identical to what a textual
+    # <fmt/...> include produces. Seastar needs that: its own sources include
+    # fmt textually either way, and its ABI is not fmt-free -- logger's
+    # failed_to_log() takes an fmt::string_view, and the formatters for
+    # log_level, backtraces and exception_ptr are defined out of line in the
+    # library -- so an importing translation unit would otherwise reference
+    # module-attached names that libseastar does not define. fmt documents the
+    # macro for exactly this, mixing importing and including TUs in one program.
+    #
+    # And fmt exports the module as demanding no more than C++20, which CMake
+    # takes literally and compiles the interface unit with -std=c++20; any
+    # translation unit on a later standard then refuses the resulting BMI. Ask
+    # for the standard actually in use.
+    set_property (TARGET fmt::fmt-module APPEND PROPERTY
+      IMPORTED_CXX_MODULES_COMPILE_DEFINITIONS FMT_ATTACH_TO_GLOBAL_MODULE)
+    set_property (TARGET fmt::fmt-module APPEND PROPERTY
+      IMPORTED_CXX_MODULES_COMPILE_FEATURES cxx_std_${CMAKE_CXX_STANDARD})
+  endif ()
   seastar_find_dep (lz4 1.7.3 REQUIRED)
   seastar_find_dep (GnuTLS 3.7.4)
   seastar_find_dep (OpenSSL 3.0)

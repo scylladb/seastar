@@ -24,7 +24,7 @@
 #include <atomic>
 #include <memory>
 
-#include <fmt/format.h>
+#include <seastar/core/internal/fmt.hh>
 
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/future.hh>

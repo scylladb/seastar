@@ -314,13 +314,32 @@ cooking_ingredient (dpdk
     INSTALL_COMMAND
       ${Ninja_EXECUTABLE} -C <BINARY_DIR> install)
 
+# Seastar_IMPORT_FMT needs fmt's fmt-module target, which fmt only defines when
+# built with FMT_MODULE, and which it in turn only offers for a module-capable
+# C++ standard.  Cooking does not forward CMAKE_CXX_STANDARD to ingredients, so
+# hand it over explicitly; without it fmt sees no standard at all and quietly
+# builds headers only.
+set (fmt_module_cmake_args)
+if (Seastar_IMPORT_FMT)
+  set (fmt_module_cmake_args
+    -DCMAKE_CXX_STANDARD=${CMAKE_CXX_STANDARD}
+    -DFMT_MODULE=ON)
+endif ()
+
+# An unreleased fmt: 12.2.0 does not export basic_ostream_formatter,
+# ostream_formatter or streamed() from its module, so a consumer built with
+# Seastar_IMPORT_FMT cannot name them, and Seastar's public headers do
+# (fmt::ostream_formatter, in a dozen formatter specializations). Fixed
+# upstream in fmtlib/fmt#4861. Pinned by commit, hash and all; switch to the
+# named release once one carrying the fix is out.
 cooking_ingredient (fmt
   EXTERNAL_PROJECT_ARGS
-    URL https://github.com/fmtlib/fmt/releases/download/12.2.0/fmt-12.2.0.zip
-    URL_HASH SHA256=a2f4a8d51178f954e4c339007f77edd76ba0cb2e36f87a48e5a5403d9be5878f
+    URL https://github.com/fmtlib/fmt/archive/8dc5d3f69f15417d13c60a4a21f7298ed24db41c.tar.gz
+    URL_HASH SHA256=1681c5f1b5b9a4e354a62fb8dba3509f38cb49321c7eabac7ab5dd98160bfb37
   CMAKE_ARGS
     -DFMT_DOC=OFF
-    -DFMT_TEST=OFF)
+    -DFMT_TEST=OFF
+    ${fmt_module_cmake_args})
 
 cooking_ingredient (liburing
   EXTERNAL_PROJECT_ARGS

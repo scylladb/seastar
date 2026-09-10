@@ -12,7 +12,7 @@
 #include <seastar/util/assert.hh>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/algorithm/string.hpp>
-#include <fmt/ostream.h>
+#include <seastar/core/internal/fmt.hh>
 
 template <> struct fmt::formatter<seastar::rpc::streaming_domain_type> : fmt::ostream_formatter {};
 

@@ -21,13 +21,14 @@
 
 #pragma once
 
+#include <cmath>
 #include <concepts>
 #include <functional>
 #include <limits>
 #include <map>
 #include <type_traits>
 #include <variant>
-#include <fmt/format.h>
+#include <seastar/core/internal/fmt.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/metrics_types.hh>
@@ -335,7 +336,7 @@ public:
     uint64_t ui() const {
         auto d = std::get<double>(u);
         if (d >= 0 && d <= double(std::numeric_limits<long>::max())) {
-            return lround(d);
+            return std::lround(d);
         } else {
             // double value is out of range or NaN or Inf
             ulong_conversion_error(d);
@@ -346,7 +347,7 @@ public:
     int64_t i() const {
         auto d = std::get<double>(u);
         if (d >= double(std::numeric_limits<long>::min()) && d <= double(std::numeric_limits<long>::max())) {
-            return lround(d);
+            return std::lround(d);
         } else {
             // double value is out of range or NaN or Inf
             ulong_conversion_error(d);

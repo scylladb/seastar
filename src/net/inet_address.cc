@@ -24,7 +24,7 @@
 #include <ostream>
 #include <arpa/inet.h>
 #include <boost/functional/hash.hpp>
-#include <fmt/ostream.h>
+#include <seastar/core/internal/fmt.hh>
 
 #include <seastar/net/inet_address.hh>
 #include <seastar/net/socket_defs.hh>

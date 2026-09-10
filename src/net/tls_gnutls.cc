@@ -36,8 +36,7 @@
 #include <gnutls/gnutls.h>
 #include <gnutls/x509.h>
 
-#include <fmt/core.h>
-#include <fmt/ostream.h>
+#include <seastar/core/internal/fmt.hh>
 
 #include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>

@@ -124,6 +124,25 @@ SPECIAL_ITEMS: list[dict[str, Any]] = [
         "enable-ccache": False,
         "info": "modules, ",
     },
+    # Seastar_IMPORT_FMT only changes how a *consumer* sees Seastar's headers:
+    # Seastar's own sources include fmt textually either way, so the library
+    # this job builds is the same one the regular release jobs build, and
+    # running the test suite over it again would tell us nothing. What is new
+    # is what gets compiled with `import fmt;`: demos/hello_import_fmt, which
+    # comes along with the demos in the default target, and the installed
+    # consumers test.yaml builds afterwards. Hence no tests, no apps, and no
+    # Test step. ccache is off for the same reason as the modules job: module
+    # interface units do not go through it well.
+    {
+        "compiler": "clang++-22",
+        "standard": 23,
+        "arch": "x86",
+        "mode": "release",
+        "enables": "--enable-import-fmt",
+        "options": "--without-tests --without-apps",
+        "enable-ccache": False,
+        "info": "fmt module, ",
+    },
     {
         "compiler": "clang++-22",
         "standard": 23,
