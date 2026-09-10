@@ -111,8 +111,8 @@ MATRIX_PATH = ("jobs", "regular_test", "strategy", "matrix")
 # These sit outside the all-pairs coverage, so each names its own backend. What
 # they are here to cover is a mode or a build option rather than a backend, so
 # they take linux-aio, which keeps a failure in one of them about the thing the
-# job exists to cover. (The cxx-modules job runs no tests at all, so its backend
-# is along for the ride.)
+# job exists to cover. (The cxx-modules and install-test jobs run no tests at
+# all, so their backend is along for the ride.)
 SPECIAL_ITEMS: list[dict[str, Any]] = [
     # The dev job doubles as our heap profiling coverage: nothing else in
     # the matrix defines SEASTAR_HEAPPROF, so the sampled-memory-profile
@@ -145,6 +145,23 @@ SPECIAL_ITEMS: list[dict[str, Any]] = [
         "enables": "--enable-cxx-modules",
         "enable-ccache": False,
         "info": "modules, ",
+    },
+    # Seastar's installed package -- SeastarConfig.cmake and seastar.pc -- is
+    # not exercised by anything in the build tree, so this job installs it and
+    # builds an application against each channel (tests/consumer). release
+    # because that is where BUILD_SHARED_LIBS is off, and a static libseastar
+    # is the demanding case: its private dependencies have to be named, since
+    # the consumer links them rather than the library carrying them. No tests
+    # or apps -- the library is the same one the regular jobs test.
+    {
+        "compiler": "g++-16",
+        "standard": 23,
+        "arch": "x86",
+        "mode": "release",
+        "reactor-backend": "linux-aio",
+        "options": "--without-tests --without-apps",
+        "install-test": True,
+        "info": "install, ",
     },
     {
         "compiler": "clang++-22",
