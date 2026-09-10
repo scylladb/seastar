@@ -27,6 +27,27 @@ else
     exit 1
 fi
 
+# seastar doesn't directly depend on these packages. They are
+# needed because we want to link seastar statically and pkg-config
+# has no way of saying "static seastar, but dynamic transitive
+# dependencies". They provide the various .so -> .so.ver symbolic
+# links.
+#
+# The two lists differ because each distribution's gnutls and hwloc
+# name their own private requirements.
+debian_transitive=(
+    libudev-dev
+    libunistring-dev
+    libzstd-dev
+)
+
+redhat_transitive=(
+    libidn2-devel
+    libtool-ltdl-devel
+    libunistring-devel
+    trousers-devel
+)
+
 debian_packages=(
     cmake
     diffutils
@@ -65,18 +86,7 @@ debian_packages=(
     babeltrace2
     valgrind
     xfslibs-dev
-)
-
-# seastar doesn't directly depend on these packages. They are
-# needed because we want to link seastar statically and pkg-config
-# has no way of saying "static seastar, but dynamic transitive
-# dependencies". They provide the various .so -> .so.ver symbolic
-# links.
-transitive=(
-    libidn2-devel
-    libtool-ltdl-devel
-    libunistring-devel
-    trousers-devel
+    "${debian_transitive[@]}"
 )
 
 redhat_packages=(
@@ -112,7 +122,7 @@ redhat_packages=(
     valgrind-devel
     xfsprogs-devel
     yaml-cpp-devel
-    "${transitive[@]}"
+    "${redhat_transitive[@]}"
 )
 
 fedora_packages=(
@@ -240,6 +250,13 @@ opensuse_packages=(
 
 case "$ID" in
     ubuntu|debian|pop|sparky)
+        # Another transitive dependency of gnutls, but one it links
+        # statically, and only on the releases whose gnutls uses it at
+        # all -- so ask for it only where it exists rather than fail
+        # the whole install on the ones where it does not.
+        if apt-cache show libjitterentropy3-dev > /dev/null 2>&1; then
+            debian_packages+=(libjitterentropy3-dev)
+        fi
         apt-get install -y "${debian_packages[@]}"
     ;;
     fedora)
