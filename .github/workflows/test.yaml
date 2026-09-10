@@ -98,6 +98,31 @@ jobs:
         if: ${{ contains(inputs.enables, 'cxx-modules') }}
         run: cmake --build build/${{ inputs.mode }} --target hello_cxx_module
 
+      # Seastar_IMPORT_FMT publishes its definitions and flags to installed
+      # consumers only -- deliberately, so that Seastar's own targets keep
+      # including fmt textually -- so nothing in the build tree above compiles
+      # the way an application does. Install it and build one, over each
+      # channel. See tests/consumer/CMakeLists.txt.
+      - name: Build installed consumers
+        if: ${{ contains(inputs.enables, 'import-fmt') }}
+        run: |
+          # No --prefix here: the paths inside seastar.pc and the installed
+          # CMake package are fixed at configure time, so install where
+          # configure.py said (/usr/local) or they point somewhere else.
+          cmake --install build/${{ inputs.mode }}
+          # Seastar's CMake package re-finds fmt on the consumer's behalf, and
+          # the fmt module comes from there, but a cooked fmt is installed
+          # under the build directory rather than system-wide.
+          PKG_CONFIG_PATH="$(dirname "$(find /usr/local -name seastar.pc)")" \
+            cmake -G Ninja -S tests/consumer -B build/consumer \
+              -DCMAKE_CXX_COMPILER=${{ inputs.compiler }} \
+              -DCMAKE_CXX_STANDARD=${{ inputs.standard }} \
+              -DCMAKE_PREFIX_PATH="$PWD/build/${{ inputs.mode }}/_cooking/installed"
+          cmake --build build/consumer
+
+      # The import-fmt job builds no tests: the library it produces is the same
+      # one the regular jobs build, since Seastar_IMPORT_FMT only changes what
+      # a consumer's translation units do. See gen-matrix.py.
       - name: Test
-        if: ${{ ! contains(inputs.enables, 'cxx-modules') }}
+        if: ${{ ! contains(inputs.enables, 'cxx-modules') && ! contains(inputs.enables, 'import-fmt') }}
         run: ./test.py --mode=${{ inputs.mode }} ${{ inputs.test-args }}
