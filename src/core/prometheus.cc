@@ -171,13 +171,8 @@ public:
     }
 
     void append_slowpath(std::string_view sv) {
-        // This is taken very infrequently, as we (a) size the buffer generously
-        // to start and (b) keep using the same buffer for the entire request
-        // but flush it every metric, so so once it grows larger (if it needs
-        // to) that space can be reused by subsequent metrics, so the total number
-        // of appends is effectively capped per request.
-        // Therefore, we just do the simplest thing here which is to append char
-        // by char (which internally handles the resize).
+        // Rare: buffer is generously sized and reused/flushed periodically.
+        // Simplest thing here is to append char by char (handles resize).
         for (auto c : sv) {
             append(c);
         }
@@ -921,6 +916,9 @@ future<> write_context::write_text_representation() {
             if (!args.family_filter(metric_family.name())) {
                 continue;
             }
+            // seastar::sstring has no spare capacity (every append/+= reallocates
+            // exactly-sized), so reusing a buffer across families bought nothing
+            // and cost extra alloc/free pairs; a single chained expression is cheaper.
             auto name = ctx.prefix + "_" + metric_family.name();
             bool found = false;
             metric_aggregate_by_labels aggregated_values(metric_family.metadata().aggregate_labels);

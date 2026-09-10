@@ -110,7 +110,8 @@ struct prometheus_test_fixture {
 
     static constexpr size_t name_length = 10;
 
-    static seastar::future<> run_metrics_test(test_config test_conf, prometheus::config config, std::string_view expected) {
+    // Registers test_conf's metrics and scrapes them, returning the raw text output.
+    static seastar::future<sstring> capture_output(test_config test_conf, prometheus::config config) {
 
         co_await smp::invoke_on_all([] {
             remove_existing_metrics();
@@ -189,9 +190,47 @@ struct prometheus_test_fixture {
             },
             std::move(out));
 
-        BOOST_REQUIRE_MESSAGE(expected == ss.str(),
+        co_return sstring(ss.str());
+    }
+
+    static seastar::future<> run_metrics_test(test_config test_conf, prometheus::config config, std::string_view expected) {
+        auto actual = co_await capture_output(test_conf, config);
+
+        BOOST_REQUIRE_MESSAGE(expected == actual,
             fmt::format("actual output doesn't match expected\nexpected output:\n{}\nactual output:\n{}",
-            expected, ss.str()));
+            expected, actual));
+    }
+
+    // Registers a single counter whose value function returns UINT64_MAX, scrapes it,
+    // and returns the raw text output.
+    static seastar::future<sstring> capture_overflowing_counter_output() {
+        co_await smp::invoke_on_all([] {
+            remove_existing_metrics();
+        });
+
+        sm::metric_groups test_metrics;
+        std::vector<sm::metric_definition> defs;
+        // Deliberately out of long range, to exercise the range_error ->
+        // "NaN" fallback in write_value_as_string() for COUNTER values.
+        defs.emplace_back(sm::make_counter("metric", sm::description("overflowing counter"),
+            [] { return std::numeric_limits<uint64_t>::max(); }));
+        test_metrics.add_group("group-1", defs);
+
+        using access = prometheus::details::test_access;
+
+        std::stringstream ss;
+        output_stream<char> out{data_sink{std::make_unique<testing::memory_data_sink_impl>(ss, 10)}};
+        co_await access{}.write_body({},
+            sp::details::write_body_args{
+                .filter = always_true,
+                .family_filter = [](std::string_view) { return true; },
+                .use_protobuf_format = false,
+                .show_help = false,
+                .enable_aggregation = false
+            },
+            std::move(out));
+
+        co_return sstring(ss.str());
     }
 };
 
@@ -848,6 +887,17 @@ SEASTAR_TEST_CASE(test_family_filter_mixed_prefixed_and_unprefixed) {
         R"(# HELP seastar_group_1_metric_2 metric description)" "\n"
         R"(# TYPE seastar_group_1_metric_2 counter)" "\n"
         R"(seastar_group_1_metric_2{label-0="label-0-2",shard="0"} 123)" "\n"
+    );
+}
+
+SEASTAR_TEST_CASE(test_value_format_range_error_yields_nan) {
+    // A COUNTER's value is stored as a double but rendered via metric_value::i(),
+    // which throws std::range_error when the double is out of long's range.
+    // write_value_as_string() catches exactly that and falls back to "NaN".
+    auto actual = co_await prometheus_test_fixture::capture_overflowing_counter_output();
+    BOOST_REQUIRE_EQUAL(actual,
+        R"(# TYPE seastar_group_1_metric counter)" "\n"
+        R"(seastar_group_1_metric{shard="0"} NaN)" "\n"
     );
 }
 
