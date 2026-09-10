@@ -33,7 +33,10 @@ dpdk_libs=$<JOIN:@dpdk_LIBRARIES@, >
 seastar_cflags=${seastar_include_flags} $<JOIN:$<TARGET_PROPERTY:seastar,INTERFACE_COMPILE_OPTIONS>, > -D$<JOIN:$<TARGET_PROPERTY:seastar,INTERFACE_COMPILE_DEFINITIONS>, -D>
 # Extra flags for consumers that opt into `import fmt;` (Seastar_IMPORT_FMT).
 # Kept out of the seastar target's INTERFACE so Seastar's own targets are not
-# affected; only external (pkg-config) consumers see these.
+# affected; only external consumers see these. Compiling fmt's module interface
+# unit is left to the consumer's own build -- that much pkg-config cannot
+# express -- but no extra library comes with it: FMT_ATTACH_TO_GLOBAL_MODULE
+# leaves the module's symbols the ordinary ones, already in ${fmt_libs}.
 seastar_import_fmt_cflags=@Seastar_PC_IMPORT_FMT_CFLAGS@
 seastar_libs=${libdir}/$<TARGET_FILE_NAME:seastar> @Seastar_SPLIT_DWARF_FLAG@ $<JOIN:@Seastar_Sanitizers_OPTIONS@, >
 

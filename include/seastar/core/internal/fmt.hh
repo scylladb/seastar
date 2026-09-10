@@ -31,6 +31,14 @@
 // with a textual <fmt/*.h> in the same TU is a redefinition error -- which is
 // exactly why every Seastar fmt include is funnelled through here.
 //
+// The fmt module has to be one built with FMT_ATTACH_TO_GLOBAL_MODULE, so that
+// its declarations stay traditionally mangled and interchangeable with what a
+// textual include yields.  Seastar's own sources include fmt textually either
+// way, and its ABI mentions fmt types, so a translation unit importing a
+// module-attached fmt could not link against the library.  The build arranges
+// this (see cmake/SeastarDependencies.cmake); it is worth knowing about when
+// compiling fmt's module interface unit by hand.
+//
 // It also defines SEASTAR_FMT_VERSION, which the version-dependent parts of
 // Seastar's public headers key off instead of fmt's own FMT_VERSION.  The
 // build may define it (as an integer, MMmmpp, like FMT_VERSION) for setups
