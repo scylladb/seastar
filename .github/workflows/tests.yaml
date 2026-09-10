@@ -34,6 +34,7 @@ jobs:
           - {compiler: clang++-22, standard: 23, arch: x86, mode: dev, options: --heap-profiling, info: 'heapprof, '}
           - {compiler: clang++-22, standard: 23, arch: x86, mode: release, enables: --enable-dpdk, options: --cook dpdk --dpdk-machine corei7-avx, info: 'dpdk, '}
           - {compiler: clang++-22, standard: 23, arch: x86, mode: debug, enables: --enable-cxx-modules, enable-ccache: false, info: 'modules, '}
+          - {compiler: g++-16, standard: 23, arch: x86, mode: release, options: --without-tests --without-apps, install-test: true, info: 'install, '}
           - {compiler: clang++-22, standard: 23, arch: x86, mode: fuzz, test-args: -- -R 'Seastar.fuzz.'}
     with:
       compiler: ${{ matrix.compiler }}
@@ -44,3 +45,4 @@ jobs:
       options: ${{ matrix.options }}
       enable-ccache: ${{ !contains(matrix['enable-ccache'], 'false') }}
       test-args: ${{ matrix['test-args'] }}
+      install-test: ${{ matrix['install-test'] || false }}

@@ -43,6 +43,11 @@ on:
         type: string
         default: ''
         required: false
+      install-test:
+        description: 'install Seastar and build the consumers in tests/consumer'
+        type: boolean
+        default: false
+        required: false
 
 jobs:
   test:
@@ -98,6 +103,29 @@ jobs:
         if: ${{ contains(inputs.enables, 'cxx-modules') }}
         run: cmake --build build/${{ inputs.mode }} --target hello_cxx_module
 
+      # Neither of Seastar's published channels is reachable from its own build
+      # tree, so install it and build an application against each. See
+      # tests/consumer/CMakeLists.txt.
+      - name: Build installed consumers
+        if: ${{ inputs.install-test }}
+        run: |
+          # No --prefix here: the paths inside seastar.pc and the installed
+          # CMake package are fixed at configure time, so install where
+          # configure.py said (/usr/local) or they point somewhere else.
+          cmake --install build/${{ inputs.mode }}
+          # A cooked dependency is installed under the build directory rather
+          # than system-wide, and Seastar's CMake package re-finds those on the
+          # consumer's behalf.
+          PKG_CONFIG_PATH="$(dirname "$(find /usr/local -name seastar.pc)")" \
+            cmake -G Ninja -S tests/consumer -B build/consumer \
+              -DCMAKE_CXX_COMPILER=${{ inputs.compiler }} \
+              -DCMAKE_CXX_STANDARD=${{ inputs.standard }} \
+              -DCMAKE_PREFIX_PATH="$PWD/build/${{ inputs.mode }}/_cooking/installed"
+          cmake --build build/consumer
+
+      # The install-test job builds no tests: what it is there to exercise is
+      # the installed package, and the library it installs is the one the
+      # regular jobs already test.
       - name: Test
-        if: ${{ ! contains(inputs.enables, 'cxx-modules') }}
+        if: ${{ ! contains(inputs.enables, 'cxx-modules') && ! inputs.install-test }}
         run: ./test.py --mode=${{ inputs.mode }} ${{ inputs.test-args }}
