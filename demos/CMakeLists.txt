@@ -126,6 +126,32 @@ seastar_add_demo (tutorial_examples
 seastar_add_demo (http_client
   SOURCES http_client_demo.cc)
 
+if (Seastar_IMPORT_FMT)
+  # Compile coverage for the `import fmt;` side of
+  # <seastar/core/internal/fmt.hh>. Everything else in the build tree keeps
+  # including fmt textually -- see the Seastar_IMPORT_FMT block in the top-level
+  # CMakeLists.txt -- so this target opts in by hand, the same two pieces an
+  # external consumer puts together: the flag, and fmt's module target.
+  add_executable (hello_import_fmt)
+  target_sources (hello_import_fmt
+    PRIVATE
+      hello-import-fmt.cc)
+  target_compile_definitions (hello_import_fmt
+    PRIVATE
+      SEASTAR_IMPORT_FMT)
+  target_link_libraries (hello_import_fmt
+    PRIVATE
+      seastar
+      fmt::fmt-module)
+  # Seastar's cmake_minimum_required predates CMP0155, so C++ sources are not
+  # scanned for imports by default and `import fmt;` would have nothing to
+  # resolve against. Asked for per-target rather than project-wide: this is the
+  # only target in the tree that imports fmt.
+  set_target_properties (hello_import_fmt
+    PROPERTIES
+      CXX_SCAN_FOR_MODULES ON)
+endif ()
+
 if (Seastar_MODULE)
   add_executable (hello_cxx_module)
   target_sources (hello_cxx_module
