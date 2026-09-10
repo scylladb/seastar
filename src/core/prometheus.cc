@@ -390,39 +390,15 @@ static inline void write_label(buf_t& s, std::string_view key, std::string_view 
     s << "\",";
 };
 
-struct no_label {};
-
-template <typename Extra = no_label>
-static void write_name_and_labels(buf_t& buf, std::string_view name, auto suffix, const labels_type& labels, const config& ctx, Extra extra = {}) {
-
-    // extra label can be injected in by the caller, unfortunately prometheus
-    // requires labels to be sorted by name, so we have to jump through some
-    // hoops to do that.
-    constexpr bool has_extra = !std::is_same_v<Extra, no_label>;
-
+static void write_name_and_labels(buf_t& buf, std::string_view name, auto suffix, const labels_type& labels, const config& ctx) {
     buf << name << suffix << "{";
     if (ctx.label) [[unlikely]] {
         write_label(buf, ctx.label->key(), ctx.label->value());
     }
 
-    bool wrote_extra = false;
-
     for (auto& l : labels) {
-        std::string_view label_name = l.first;
-        if constexpr (has_extra) {
-            if (!wrote_extra && extra.name < label_name) {
-                write_label(buf, extra.name, extra.value);
-                wrote_extra = true;
-            }
-        }
         if (!is_internal(l.first)) [[likely]] {
-            write_label(buf, label_name, l.second.value());
-        }
-    }
-
-    if constexpr (has_extra) {
-        if (!wrote_extra) {
-            write_label(buf, extra.name, extra.value);
+            write_label(buf, l.first, l.second.value());
         }
     }
 
@@ -820,50 +796,100 @@ metric_family_range get_range(const metrics_families_per_shard& mf, const sstrin
 }
 
 
-template <typename Extra = no_label>
-static inline void write_series(buf_t& buf, std::string_view name, const labels_type& labels, const config& ctx, auto v, std::string_view suffix, Extra e = {}) {
-    write_name_and_labels(buf, name, suffix, labels, ctx, e);
+// Labels are identical across every bucket/quantile line of one histogram, so render
+// the shared "key=\"value\"," body once and remember where the le=/quantile= splice goes.
+struct label_body {
+    // 500-byte inline capacity keeps typical label sets on the stack, avoiding
+    // a heap allocation per histogram/summary metric call.
+    fmt::memory_buffer text;
+    size_t insert_pos;
+};
+
+static label_body render_label_body(const labels_type& labels, const config& ctx, std::string_view extra_name) {
+    fmt::memory_buffer body;
+    if (ctx.label) [[unlikely]] {
+        fmt::format_to(std::back_inserter(body), FMT_COMPILE("{}=\"{}\","), ctx.label->key(), ctx.label->value());
+    }
+
+    size_t insert_pos = body.size();
+    bool found_pos = false;
+    for (auto& l : labels) {
+        std::string_view label_name = l.first;
+        // Strict '<': a real label named exactly like extra_name is kept and
+        // written normally below; the synthetic label splices in right after it.
+        if (!found_pos && extra_name < label_name) {
+            insert_pos = body.size();
+            found_pos = true;
+        }
+        if (!is_internal(l.first)) [[likely]] {
+            fmt::format_to(std::back_inserter(body), FMT_COMPILE("{}=\"{}\","), label_name, l.second.value());
+        }
+    }
+    if (!found_pos) {
+        insert_pos = body.size();
+    }
+    return {std::move(body), insert_pos};
+}
+
+static inline void write_bucket_value(buf_t& buf, auto v) {
     static constexpr auto format = std::is_floating_point_v<decltype(v)> ? "{:g}\n" : "{}\n";
     fmt::format_to(buf.back_insert_begin(), FMT_COMPILE(format), v);
-};
+}
 
+// formats a bucket upper bound into a reused buffer, avoiding a per-bucket allocation
+static inline std::string_view format_bucket_bound(fmt::memory_buffer& bound, double upper_bound) {
+    bound.clear();
+    fmt::format_to(std::back_inserter(bound), FMT_COMPILE("{:f}"), upper_bound);
+    return std::string_view(bound.data(), bound.size());
+}
 
-struct extra_label {
-    std::string_view name, value;
-};
+static void write_series(buf_t& buf, std::string_view name, std::string_view suffix, const label_body& body, auto v,
+        std::string_view extra_name = {}, std::string_view extra_value = {}) {
+    buf << name << suffix << "{";
+    std::string_view text(body.text.data(), body.text.size());
+    if (!extra_name.empty()) {
+        buf << text.substr(0, body.insert_pos);
+        write_label(buf, extra_name, extra_value);
+        buf << text.substr(body.insert_pos);
+    } else {
+        buf << text;
+    }
+    if (buf.back() == ',') {
+        buf.pop_back();
+    }
+    buf.append("} ");
+    write_bucket_value(buf, v);
+}
 
 void write_histogram(buf_t& buf, const config& ctx, std::string_view name, const seastar::metrics::histogram& h, const labels_type& labels) noexcept {
+    auto body = render_label_body(labels, ctx, "le");
 
-    auto write_one = [&] (auto v, std::string_view suffix) {
-        write_series(buf, name, labels, ctx, v, suffix);
-    };
+    write_series(buf, name, "_sum", body, h.sample_sum);
+    write_series(buf, name, "_count", body, h.sample_count);
 
-    write_one(h.sample_sum, "_sum");
-    write_one(h.sample_count, "_count");
-
-    for (auto  i : h.buckets) {
-        write_series(buf, name, labels, ctx, i.count, "_bucket",
-            extra_label{"le", fmt::format(FMT_COMPILE("{:f}"), i.upper_bound)} );
+    fmt::memory_buffer bound;
+    for (auto i : h.buckets) {
+        write_series(buf, name, "_bucket", body, i.count, "le", format_bucket_bound(bound, i.upper_bound));
     }
-    write_series(buf, name, labels, ctx, h.sample_count, "_bucket", extra_label{"le", "+Inf"} );
+    write_series(buf, name, "_bucket", body, h.sample_count, "le", "+Inf");
 }
 
 void write_summary(buf_t& buf, const config& ctx, std::string_view name, const seastar::metrics::histogram& h, const labels_type& labels) noexcept {
-
-    auto write_one = [&] (auto v, std::string_view suffix) {
-        write_series(buf, name, labels, ctx, v, suffix);
-    };
+    if (!h.sample_sum && !h.sample_count && h.buckets.empty()) {
+        return;
+    }
+    auto body = render_label_body(labels, ctx, "quantile");
 
     if (h.sample_sum) {
-        write_one(h.sample_sum, "_sum");
+        write_series(buf, name, "_sum", body, h.sample_sum);
     }
     if (h.sample_count) {
-        write_one(h.sample_count, "_count");
+        write_series(buf, name, "_count", body, h.sample_count);
     }
 
-    for (auto  i : h.buckets) {
-        write_series(buf, name, labels, ctx, i.count, "",
-            extra_label{"quantile", fmt::format(FMT_COMPILE("{:f}"), i.upper_bound)} );
+    fmt::memory_buffer bound;
+    for (auto i : h.buckets) {
+        write_series(buf, name, "", body, i.count, "quantile", format_bucket_bound(bound, i.upper_bound));
     }
 }
 
