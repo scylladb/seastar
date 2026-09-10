@@ -157,6 +157,12 @@ cmake_dependent_option (Seastar_MODULE
 
 option (Seastar_IMPORT_FMT
   "Seastar and its consumers pull in fmt via `import fmt;` instead of textual includes" OFF)
+if (Seastar_IMPORT_FMT AND CMAKE_VERSION VERSION_LESS 3.28)
+  # 3.28 is where CMake learned to consume an imported C++ module file set,
+  # which is how fmt ships its module.
+  message (FATAL_ERROR
+    "Seastar_IMPORT_FMT requires CMake 3.28 or later, found ${CMAKE_VERSION}.")
+endif ()
 
 set (CMAKE_C_FLAGS_SANITIZE
   "-Os -g"
@@ -1053,15 +1059,16 @@ if (Seastar_LOGGER_COMPILE_TIME_FMT)
 endif ()
 
 if (Seastar_IMPORT_FMT)
-  # Tell *external* consumers (through pkg-config) to pull fmt in as a module
-  # via the funnel (include/seastar/core/internal/fmt.hh).
+  # Tell *external* consumers to pull fmt in as a module via the funnel
+  # (include/seastar/core/internal/fmt.hh), through both channels they may
+  # arrive by: pkg-config, and the installed CMake package.
   #
-  # SEASTAR_IMPORT_FMT is deliberately NOT put on the seastar target's
-  # INTERFACE: that would also reach Seastar's own targets that link seastar
-  # (seastar_testing, the apps, the tests) and the seastar module's global module
-  # fragment, none of which have an fmt module available -- they must keep
-  # including fmt textually.  The pkg-config channel is only seen by genuinely
-  # external consumers.
+  # SEASTAR_IMPORT_FMT is deliberately confined to the *install* interface:
+  # on the plain INTERFACE it would also reach Seastar's own targets that link
+  # seastar from the build tree (seastar_testing, the apps, the tests) and the
+  # seastar module's global module fragment, none of which have an fmt module
+  # available -- they must keep including fmt textually.  Only genuinely
+  # external consumers see either channel.
   #
   # fmt's macros are not exported by the module, so SEASTAR_FMT_VERSION -- which
   # the version-dependent parts of our public headers key off, and which the
@@ -1078,9 +1085,29 @@ if (Seastar_IMPORT_FMT)
   math (EXPR _fmt_version_int
     "${_fmt_version_major} * 10000 + ${_fmt_version_minor} * 100 + ${_fmt_version_patch}")
   target_compile_definitions (seastar
-    PUBLIC SEASTAR_FMT_VERSION=${_fmt_version_int})
+    PUBLIC
+      SEASTAR_FMT_VERSION=${_fmt_version_int}
+      $<INSTALL_INTERFACE:SEASTAR_IMPORT_FMT>)
+  # FMT_ATTACH_TO_GLOBAL_MODULE goes along for pkg-config consumers, who have
+  # no target properties to carry it: it belongs to the compilation of fmt's
+  # module interface unit, which such a consumer does with its own flags, and
+  # is inert everywhere else.  See cmake/SeastarDependencies.cmake for why the
+  # mode depends on it.
   set (Seastar_PC_IMPORT_FMT_CFLAGS
-    "-DSEASTAR_IMPORT_FMT -DSEASTAR_FMT_VERSION=${_fmt_version_int}")
+    "-DSEASTAR_IMPORT_FMT -DSEASTAR_FMT_VERSION=${_fmt_version_int} -DFMT_ATTACH_TO_GLOBAL_MODULE")
+
+  # An importing consumer also needs the module itself, not just the flag
+  # saying to import it, and that is the one thing Seastar cannot hand over:
+  # CMake resolves `import fmt;` only against the module-providing targets a
+  # target links *directly*, so putting fmt::fmt-module on Seastar's interface
+  # would not reach the consumer's own translation units.  Each such target has
+  # to name it itself, alongside Seastar:
+  #
+  #   target_link_libraries (app PRIVATE Seastar::seastar fmt::fmt-module)
+  #
+  # find_package (Seastar) defines fmt::fmt-module for them, with the
+  # properties an importing build needs (cmake/SeastarDependencies.cmake).
+  # demos/hello_import_fmt is the in-tree example.
 endif ()
 
 target_compile_definitions (seastar

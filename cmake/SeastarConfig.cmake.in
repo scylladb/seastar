@@ -57,6 +57,8 @@ set (Seastar_DPDK @Seastar_DPDK@)
 set (Seastar_IO_URING @Seastar_IO_URING@)
 set (Seastar_HWLOC @Seastar_HWLOC@)
 set (Seastar_LTTNG @Seastar_LTTNG@)
+set (Seastar_IMPORT_FMT @Seastar_IMPORT_FMT@)
+set (Seastar_FMT_VERSION @fmt_VERSION@)
 seastar_find_dependencies ()
 
 if (NOT TARGET Seastar::seastar)
