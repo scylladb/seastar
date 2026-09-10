@@ -172,13 +172,8 @@ public:
     }
 
     void append_slowpath(std::string_view sv) {
-        // This is taken very infrequently, as we (a) size the buffer generously
-        // to start and (b) keep using the same buffer for the entire request
-        // but flush it every metric, so so once it grows larger (if it needs
-        // to) that space can be reused by subsequent metrics, so the total number
-        // of appends is effectively capped per request.
-        // Therefore, we just do the simplest thing here which is to append char
-        // by char (which internally handles the resize).
+        // Rare: buffer is generously sized and reused/flushed periodically.
+        // Simplest thing here is to append char by char (handles resize).
         for (auto c : sv) {
             append(c);
         }
@@ -867,16 +862,18 @@ void write_summary(buf_t& buf, const config& ctx, std::string_view name, const s
     }
 }
 
-void write_value_as_string(buf_t& s, const mi::metric_value& value) noexcept {
+// series_start marks where the current series' output begins in `s`, since `s`
+// may already hold batched output from earlier series.
+void write_value_as_string(buf_t& s, const mi::metric_value& value, size_t series_start) {
     try {
         fmt::format_to(s.back_insert_begin(), FMT_COMPILE("{}\n"), value);
     } catch (const std::range_error& e) {
-        seastar_logger.debug("prometheus: write_value_as_string: {}: {}", s.str(), e.what());
+        seastar_logger.debug("prometheus: write_value_as_string: {}: {}", s.str().substr(series_start), e.what());
         s << "NaN\n";
     } catch (...) {
         auto ex = std::current_exception();
         // print this error as it's ignored later on by `connection::start_response`
-        seastar_logger.error("prometheus: write_value_as_string: {}: {}", s.str(), seastar::formattable(ex));
+        seastar_logger.error("prometheus: write_value_as_string: {}: {}", s.str().substr(series_start), seastar::formattable(ex));
         std::rethrow_exception(std::move(ex));
     }
 }
@@ -917,17 +914,43 @@ struct write_context {
 
 future<> write_context::write_text_representation() {
     return seastar::async([this] {
+        // Flush once this much has accumulated, so a huge family can't grow
+        // `s` unboundedly (it doubles and never shrinks on its own).
+        static constexpr size_t flush_threshold = 8192;
         buf_t s;
+        auto flush_if_needed = [this, &s] (bool force = false) {
+            if (s.size() > 0 && (force || s.size() >= flush_threshold)) {
+                out.write(s.data(), s.size()).get();
+                s.clear();
+            }
+        };
+        // On a formatting exception, write out everything buffered before the
+        // failing series (dropping just its partial bytes) so batching doesn't
+        // lose already-rendered series ahead of it.
+        auto flush_prefix_and_clear = [this, &s] (size_t up_to) {
+            if (up_to > 0) {
+                out.write(s.data(), up_to).get();
+            }
+            s.clear();
+        };
         for (metric_family& metric_family : m) {
             if (!args.family_filter(metric_family.name())) {
                 continue;
             }
+            // seastar::sstring has no spare capacity (every append/+= reallocates
+            // exactly-sized), so reusing a buffer across families bought nothing
+            // and cost extra alloc/free pairs; a single chained expression is cheaper.
             auto name = ctx.prefix + "_" + metric_family.name();
             bool found = false;
             metric_aggregate_by_labels aggregated_values(metric_family.metadata().aggregate_labels);
             bool should_aggregate = args.enable_aggregation && !metric_family.metadata().aggregate_labels.empty();
+            // Note: intentionally not capturing flush_if_needed/flush_prefix_and_clear
+            // here (inline the out.write() calls instead). foreach_metric type-erases
+            // this lambda into a std::function, constructed fresh per family; every
+            // extra capture grows it past libstdc++'s small-object buffer, forcing a
+            // heap alloc/free per family. That, combined with the sstring reallocation
+            // above, was the bulk of the measured perf regression at high family counts.
             metric_family.foreach_metric([this, &s, &found, &name, &metric_family, &aggregated_values, should_aggregate](const mi::metric_value& value, const mi::metric_series_metadata& value_info) mutable {
-                s.clear();
                 if ((value_info.should_skip_when_empty() && value.is_empty()) || !args.filter(value_info.labels())) {
                     return;
                 }
@@ -938,6 +961,7 @@ future<> write_context::write_text_representation() {
                     s << "# TYPE " << name << " " << to_string(metric_family.metadata().type) << "\n";
                     found = true;
                 }
+                auto series_start = s.size();
                 if (should_aggregate) {
                     aggregated_values.add(value, value_info.labels());
                 } else if (value.type() == mi::data_type::SUMMARY) {
@@ -946,14 +970,25 @@ future<> write_context::write_text_representation() {
                     write_histogram(s, ctx, name, value.get_histogram(), value_info.labels());
                 } else {
                     write_name_and_labels(s, name, "", value_info.labels(), ctx);
-                    write_value_as_string(s, value);
+                    try {
+                        write_value_as_string(s, value, series_start);
+                    } catch (...) {
+                        if (series_start > 0) {
+                            out.write(s.data(), series_start).get();
+                        }
+                        s.clear();
+                        throw;
+                    }
                 }
-                out.write(s.data(), s.size()).get();
+                if (s.size() >= flush_threshold) {
+                    out.write(s.data(), s.size()).get();
+                    s.clear();
+                }
                 thread::maybe_yield();
             });
             if (!aggregated_values.empty()) {
                 for (auto&& h : aggregated_values.get_values()) {
-                    s.clear();
+                    auto series_start = s.size();
                     // Labels are already filtered (aggregated labels removed)
                     auto& labels = h.second.labels;
                     auto& value = h.second.m;
@@ -961,12 +996,18 @@ future<> write_context::write_text_representation() {
                         write_histogram(s, ctx, name, value.get_histogram(), labels);
                     } else {
                         write_name_and_labels(s, name, "", labels, ctx);
-                        write_value_as_string(s, value);
+                        try {
+                            write_value_as_string(s, value, series_start);
+                        } catch (...) {
+                            flush_prefix_and_clear(series_start);
+                            throw;
+                        }
                     }
-                    out.write(s.data(), s.size()).get();
+                    flush_if_needed();
                     thread::maybe_yield();
                 }
             }
+            flush_if_needed(true);
         }
     });
 }
