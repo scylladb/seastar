@@ -255,13 +255,16 @@ static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::labels_type & 
     mt->mutable_label()->Reserve(id.size() + 1);
     if (ctx.label) {
         auto label = mt->add_label();
-        label->set_name(std::string(ctx.label->key()));
-        label->set_value(std::string(ctx.label->value()));
+        const auto& key = ctx.label->key();
+        const auto& val = ctx.label->value();
+        label->mutable_name()->assign(key.data(), key.size());
+        label->mutable_value()->assign(val.data(), val.size());
     }
     for (auto && [name, value] : id) {
         auto label = mt->add_label();
-        label->set_name(std::string(name));
-        label->set_value(std::string(value.value()));
+        label->mutable_name()->assign(name.data(), name.size());
+        const auto& val = value.value();
+        label->mutable_value()->assign(val.data(), val.size());
     }
     return mt;
 }
@@ -970,18 +973,24 @@ future<> write_context::write_text_representation() {
 }
 
 future<> write_context::write_protobuf_representation() {
-    return do_for_each(m, [this](metric_family& metric_family) mutable {
+    // do_for_each is sequential and write_context is per-request, so the
+    // buffer and message can be reused across families.
+    std::string s;
+    pm::MetricFamily mtf;
+    co_await do_for_each(m, [this, &s, &mtf](metric_family& metric_family) mutable {
         if (!args.family_filter(metric_family.name())) {
             return make_ready_future<>();
         }
-        std::string s;
+        s.clear();
         google::protobuf::io::StringOutputStream os(&s);
         metric_aggregate_by_labels aggregated_values(metric_family.metadata().aggregate_labels);
         bool should_aggregate = args.enable_aggregation && !metric_family.metadata().aggregate_labels.empty();
         auto& name = metric_family.name();
-        pm::MetricFamily mtf;
+        mtf.Clear();
         bool empty_metric = true;
-        mtf.set_name(fmt::format("{}_{}", ctx.prefix, name));
+        mtf.mutable_name()->assign(ctx.prefix.data(), ctx.prefix.size());
+        mtf.mutable_name()->append("_");
+        mtf.mutable_name()->append(name.data(), name.size());
         mtf.mutable_metric()->Reserve(metric_family.size());
         metric_family.foreach_metric([this, &mtf, &aggregated_values, &empty_metric, should_aggregate](const auto& value, const auto& value_info) {
             if ((value_info.should_skip_when_empty() && value.is_empty()) || !args.filter(value_info.labels())) {
