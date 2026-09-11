@@ -142,14 +142,14 @@ future<> demo_make_file_output_stream() {
 
         // and write it to `meta_filename`
         fmt::print("  writing \"{}\" into {}\n", data_filename, meta_filename);
-        output_stream<char> o = make_output_stream(meta_filename).get();
-        write_to_stream_and_close(o, wbuf).get();
+        output_stream<char> meta_out = make_output_stream(meta_filename).get();
+        write_to_stream_and_close(meta_out, wbuf).get();
 
         // now write some random data into data_filename
         fmt::print("  writing random data into {}\n", data_filename);
         std::generate(wbuf.get_write(), wbuf.get_write() + aligned_size, [&dist, &rnd] { return dist(rnd); });
-        o = make_output_stream(data_filename).get();
-        write_to_stream_and_close(o, wbuf).get();
+        output_stream<char> data_out = make_output_stream(data_filename).get();
+        write_to_stream_and_close(data_out, wbuf).get();
 
         // verify the data via meta_filename
         fmt::print("  verifying data...\n");
