@@ -21,6 +21,7 @@
 
 
 #include <chrono>
+#include <concepts>
 #include <cstdint>
 #include <mutex>
 #include <utility>
@@ -53,6 +54,23 @@ using namespace std::chrono_literals;
 using io_direction_and_length = internal::io_direction_and_length;
 static constexpr auto io_direction_read = io_direction_and_length::read_idx;
 static constexpr auto io_direction_write = io_direction_and_length::write_idx;
+
+// Returns the object sitting in slot \p id of \p slots, calling \p create to
+// make one if that slot is still empty. The vector grows as needed and the
+// slots skipped on the way stay empty -- ids are sparse, as priority classes
+// and groups get created and destroyed in arbitrary order.
+template <typename T, std::invocable Creator>
+requires std::same_as<std::invoke_result_t<Creator>, std::unique_ptr<T>>
+static T& find_or_create(std::vector<std::unique_ptr<T>>& slots, size_t id, Creator&& create) {
+    if (id >= slots.size()) {
+        slots.resize(id + 1);
+    }
+    auto& slot = slots[id];
+    if (!slot) {
+        slot = create();
+    }
+    return *slot;
+}
 
 struct default_io_exception_factory {
     static auto cancelled() {
@@ -128,9 +146,26 @@ struct io_group::priority_class_data {
     }
 };
 
+// Shard-local mirror of a scheduling supergroup, the way priority_class_data
+// is one of a scheduling group. Classes that belong to a supergroup point at
+// the respective entry of the io_queue::_priority_groups vector.
+struct io_queue::priority_class_group_data {
+    const scheduling_supergroup _ssg;
+
+    explicit priority_class_group_data(scheduling_supergroup ssg) noexcept
+        : _ssg(ssg)
+    {
+        SEASTAR_ASSERT(!_ssg.is_root());
+    }
+
+    // The group as the fair_queue names it. Groups are only ever made for
+    // non-root supergroups, so the index is always there
+    unsigned fq_group() const noexcept { return _ssg.index(); }
+};
+
 class io_queue::priority_class_data {
     io_queue& _queue;
-    const internal::priority_class _pc;
+    const scheduling_group _sg;
     uint32_t _shares;
     struct {
         size_t bytes = 0;
@@ -153,20 +188,22 @@ class io_queue::priority_class_data {
         io_group::priority_class_data::token_bucket_t& _tb;
         uint64_t _replenish_head;
         priority_class_data& _pc;
-        std::optional<unsigned> _group;
+        // The group this throttler works on behalf of, nullptr if it throttles
+        // the class itself
+        priority_class_group_data* _pcg;
         timer<lowres_clock> _replenish;
 
         void throttle() noexcept {
-            if (_group) {
-                _pc._queue.throttle_priority_class_group(*_group);
+            if (_pcg != nullptr) {
+                _pc._queue.throttle_priority_class_group(*_pcg);
             } else {
                 _pc._queue.throttle_priority_class(_pc);
             }
         }
 
         void unthrottle() noexcept {
-            if (_group) {
-                _pc._queue.unthrottle_priority_class_group(*_group);
+            if (_pcg != nullptr) {
+                _pc._queue.unthrottle_priority_class_group(*_pcg);
             } else {
                 _pc._queue.unthrottle_priority_class(_pc);
             }
@@ -183,10 +220,10 @@ class io_queue::priority_class_data {
         }
 
     public:
-        bandwidth_throttler(io_group::priority_class_data& pg, priority_class_data& pc, std::optional<unsigned> g) noexcept
+        bandwidth_throttler(io_group::priority_class_data& pg, priority_class_data& pc, priority_class_group_data* pcg) noexcept
                 : _tb(pg.tb)
                 , _pc(pc)
-                , _group(g)
+                , _pcg(pcg)
                 , _replenish([this] { try_to_replenish(); })
         {}
 
@@ -208,9 +245,9 @@ public:
         _shares = std::max(shares, 1u);
     }
 
-    priority_class_data(internal::priority_class pc, uint32_t shares, io_queue& q, io_group::priority_class_data& pg, std::optional<unsigned> group_index)
+    priority_class_data(scheduling_group sg, uint32_t shares, io_queue& q, io_group::priority_class_data& pg, priority_class_group_data* pcg)
         : _queue(q)
-        , _pc(pc)
+        , _sg(sg)
         , _shares(shares)
         , _nr_queued(0)
         , _nr_executing(0)
@@ -219,9 +256,11 @@ public:
         , _total_execution_time(0)
         , _starvation_time(0)
     {
-        _bw.emplace_back(pg, *this, std::nullopt);
+        // The per-class throttler is not tied to any group, so it throttles
+        // the class itself -- hence the nullptr here
+        _bw.emplace_back(pg, *this, nullptr);
         if (pg.parent != nullptr) {
-            _bw.emplace_back(*pg.parent, *this, group_index);
+            _bw.emplace_back(*pg.parent, *this, pcg);
         }
     }
     priority_class_data(const priority_class_data&) = delete;
@@ -286,7 +325,7 @@ public:
         _nr_executing.checkpoint();
     }
 
-    fair_queue::class_id fq_class() const noexcept { return _pc.id(); }
+    fair_queue::class_id fq_class() const noexcept { return internal::scheduling_group_index(_sg); }
 
     std::vector<seastar::metrics::impl::metric_definition_impl> metrics();
     metrics::metric_groups metric_groups;
@@ -414,9 +453,6 @@ public:
 };
 
 namespace internal {
-
-priority_class::priority_class(const scheduling_group& sg) noexcept : _id(internal::scheduling_group_index(sg))
-{ }
 
 cancellable_queue::cancellable_queue(cancellable_queue&& o) noexcept
         : _first(std::exchange(o._first, nullptr))
@@ -870,13 +906,17 @@ void io_queue::register_stats(sstring name, priority_class_data& pc) {
     pc.metric_groups = std::exchange(new_metrics, {});
 }
 
-io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority_class pc) {
-    auto id = pc.id();
-    if (id >= _priority_classes.size()) {
-        _priority_classes.resize(id + 1);
-    }
-    if (!_priority_classes[id]) {
-        auto sg = internal::scheduling_group_from_index(id);
+io_queue::priority_class_group_data& io_queue::find_or_create_class_group(scheduling_supergroup ssg) {
+    return find_or_create(_priority_groups, ssg.index(), [this, ssg] {
+        for (auto&& s : _streams) {
+            s.fq.ensure_priority_group(ssg.index(), ssg.get_shares());
+        }
+        return std::make_unique<priority_class_group_data>(ssg);
+    });
+}
+
+io_queue::priority_class_data& io_queue::find_or_create_class(scheduling_group sg) {
+    return find_or_create(_priority_classes, internal::scheduling_group_index(sg), [this, sg] {
         auto ssg = internal::scheduling_supergroup_for(sg);
 
         // A note on naming:
@@ -894,72 +934,51 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by shard)
 
-        std::optional<unsigned> group_index;
+        priority_class_group_data* pcg = nullptr;
         if (!ssg.is_root()) {
-            group_index = ssg.index();
-            for (auto&& s : _streams) {
-                s.fq.ensure_priority_group(*group_index, ssg.get_shares());
-            }
+            pcg = &find_or_create_class_group(ssg);
         }
 
-        auto& pg = _group->find_or_create_class(pc, group_index);
+        auto& pg = _group->find_or_create_class(sg, ssg);
 
         auto shares = sg.get_shares();
-        auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg, group_index);
+        auto pc_data = std::make_unique<priority_class_data>(sg, shares, *this, pg, pcg);
         for (auto&& s : _streams) {
-            s.fq.register_priority_class(pc_data->fq_class(), shares, group_index);
+            s.fq.register_priority_class(pc_data->fq_class(), shares,
+                    pcg != nullptr ? std::optional(pcg->fq_group()) : std::nullopt);
         }
         register_stats(sg.name(), *pc_data);
 
-        _priority_classes[id] = std::move(pc_data);
-    }
-    return *_priority_classes[id];
+        return pc_data;
+    });
 }
 
-io_group::priority_class_group_data& io_group::find_or_create_class_group(unsigned group_index) {
+io_group::priority_class_group_data& io_group::find_or_create_class_group(scheduling_supergroup ssg) {
     std::lock_guard _(_lock);
-    return find_or_create_class_group_locked(group_index);
+    return find_or_create_class_group_locked(ssg);
 }
 
-io_group::priority_class_group_data& io_group::find_or_create_class_group_locked(unsigned id) {
-    if (id >= _priority_groups.size()) {
-        _priority_groups.resize(id + 1);
-    }
-    if (!_priority_groups[id]) {
-        auto pg = std::make_unique<priority_class_group_data>(nullptr);
-        _priority_groups[id] = std::move(pg);
-    }
-    return *_priority_groups[id];
+io_group::priority_class_group_data& io_group::find_or_create_class_group_locked(scheduling_supergroup ssg) {
+    return find_or_create(_priority_groups, ssg.index(), [] {
+        return std::make_unique<priority_class_group_data>(nullptr);
+    });
 }
 
-io_group::priority_class_data& io_group::find_or_create_class(internal::priority_class pc) {
-    auto sg = internal::scheduling_group_from_index(pc.id());
-    auto ssg = internal::scheduling_supergroup_for(sg);
-    std::optional<unsigned> group_index;
-    if (!ssg.is_root()) {
-        group_index = ssg.index();
-    }
-    return find_or_create_class(pc, group_index);
+io_group::priority_class_data& io_group::find_or_create_class(scheduling_group sg) {
+    return find_or_create_class(sg, internal::scheduling_supergroup_for(sg));
 }
 
-io_group::priority_class_data& io_group::find_or_create_class(internal::priority_class pc, std::optional<unsigned> group_index) {
+io_group::priority_class_data& io_group::find_or_create_class(scheduling_group sg, scheduling_supergroup ssg) {
     std::lock_guard _(_lock);
 
     priority_class_group_data* parent = nullptr;
-    if (group_index.has_value()) {
-        parent = &find_or_create_class_group_locked(*group_index);
+    if (!ssg.is_root()) {
+        parent = &find_or_create_class_group_locked(ssg);
     }
 
-    auto id = pc.id();
-    if (id >= _priority_classes.size()) {
-        _priority_classes.resize(id + 1);
-    }
-    if (!_priority_classes[id]) {
-        auto pg = std::make_unique<priority_class_data>(parent);
-        _priority_classes[id] = std::move(pg);
-    }
-
-    return *_priority_classes[id];
+    return find_or_create(_priority_classes, internal::scheduling_group_index(sg), [parent] {
+        return std::make_unique<priority_class_data>(parent);
+    });
 }
 
 stream_id io_queue::request_stream(io_direction_and_length dnl) const noexcept {
@@ -1010,16 +1029,16 @@ std::chrono::duration<double> io_queue::get_io_latency_goal() const noexcept {
     return _group->io_latency_goal();
 }
 
-future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
-    return futurize_invoke([pc = std::move(pc), dnl = std::move(dnl), req = std::move(req), this, intent, iovs = std::move(iovs)] () mutable {
+future<size_t> io_queue::queue_one_request(scheduling_group sg, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+    return futurize_invoke([sg, dnl = std::move(dnl), req = std::move(req), this, intent, iovs = std::move(iovs)] () mutable {
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
-        auto& pclass = find_or_create_class(pc);
+        auto& pclass = find_or_create_class(sg);
         auto cap = request_capacity(dnl);
         auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, cap, pclass, std::move(dnl), std::move(iovs));
         auto fut = queued_req->get_future();
         if (intent != nullptr) {
-            auto& cq = intent->find_or_create_cancellable_queue(_id, pc.id());
+            auto& cq = intent->find_or_create_cancellable_queue(_id, internal::scheduling_group_index(sg));
             queued_req->set_intent(cq);
         }
 
@@ -1031,11 +1050,11 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
     });
 }
 
-future<size_t> io_queue::queue_request(internal::priority_class pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+future<size_t> io_queue::queue_request(scheduling_group sg, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
     size_t max_length = _group->_max_request_length[dnl.rw_idx()];
 
     if (__builtin_expect(dnl.length() <= max_length, true)) {
-        return queue_one_request(std::move(pc), dnl, std::move(req), intent, std::move(iovs));
+        return queue_one_request(sg, dnl, std::move(req), intent, std::move(iovs));
     }
 
     std::vector<internal::io_request::part> parts;
@@ -1045,7 +1064,7 @@ future<size_t> io_queue::queue_request(internal::priority_class pc, io_direction
         parts = req.split(max_length);
         p = make_lw_shared<std::vector<future<size_t>>>();
         p->reserve(parts.size());
-        find_or_create_class(pc).on_split(dnl);
+        find_or_create_class(sg).on_split(dnl);
         reactor::io_stats::local().aio_outsizes++;
     } catch (...) {
         return current_exception_as_future<size_t>();
@@ -1054,7 +1073,7 @@ future<size_t> io_queue::queue_request(internal::priority_class pc, io_direction
     // No exceptions from now on. If queue_one_request fails it will resolve
     // into exceptional future which will be picked up by when_all() below
     for (auto&& part : parts) {
-        auto f = queue_one_request(pc, io_direction_and_length(dnl.rw_idx(), part.size), std::move(part.req), intent, std::move(part.iovecs));
+        auto f = queue_one_request(sg, io_direction_and_length(dnl.rw_idx(), part.size), std::move(part.req), intent, std::move(part.iovecs));
         p->push_back(std::move(f));
     }
 
@@ -1091,19 +1110,17 @@ future<size_t> io_queue::queue_request(internal::priority_class pc, io_direction
 }
 
 future<size_t> io_queue::submit_io_read(size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
-    internal::priority_class pc = internal::priority_class(current_scheduling_group());
     auto& io_stats = reactor::io_stats::local();
     ++io_stats.aio_reads;
     io_stats.aio_read_bytes += len;
-    return queue_request(std::move(pc), io_direction_and_length(io_direction_read, len), std::move(req), intent, std::move(iovs));
+    return queue_request(current_scheduling_group(), io_direction_and_length(io_direction_read, len), std::move(req), intent, std::move(iovs));
 }
 
 future<size_t> io_queue::submit_io_write(size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
-    internal::priority_class pc = internal::priority_class(current_scheduling_group());
     auto& io_stats = reactor::io_stats::local();
     ++io_stats.aio_writes;
     io_stats.aio_write_bytes += len;
-    return queue_request(std::move(pc), io_direction_and_length(io_direction_write, len), std::move(req), intent, std::move(iovs));
+    return queue_request(current_scheduling_group(), io_direction_and_length(io_direction_write, len), std::move(req), intent, std::move(iovs));
 }
 
 // This function is called by the shard on every poll.
@@ -1201,8 +1218,8 @@ io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {
 }
 
 void
-io_queue::update_shares_for_class(internal::priority_class pc, size_t new_shares) {
-    auto& pclass = find_or_create_class(pc);
+io_queue::update_shares_for_class(scheduling_group sg, size_t new_shares) {
+    auto& pclass = find_or_create_class(sg);
     pclass.update_shares(new_shares);
     for (auto&& s : _streams) {
         s.fq.update_shares_for_class(pclass.fq_class(), new_shares);
@@ -1210,38 +1227,38 @@ io_queue::update_shares_for_class(internal::priority_class pc, size_t new_shares
 }
 
 
-void io_queue::update_shares_for_class_group(unsigned index, size_t new_shares) {
+void io_queue::update_shares_for_class_group(scheduling_supergroup ssg, size_t new_shares) {
     for (auto&& s : _streams) {
-        s.fq.ensure_priority_group(index, new_shares);
+        s.fq.ensure_priority_group(ssg.index(), new_shares);
     }
 }
 
-future<> io_queue::update_bandwidth_for_class(internal::priority_class pc, uint64_t new_bandwidth) {
-    return futurize_invoke([this, pc, new_bandwidth] {
+future<> io_queue::update_bandwidth_for_class(scheduling_group sg, uint64_t new_bandwidth) {
+    return futurize_invoke([this, sg, new_bandwidth] {
         if (_group->_allocated_on == this_shard_id()) {
-            auto& pclass = _group->find_or_create_class(pc);
+            auto& pclass = _group->find_or_create_class(sg);
             pclass.update_bandwidth(new_bandwidth);
-            io_log.debug("Updated {} class bandwidth to {}MB/s", pc.id(), new_bandwidth >> 20);
+            io_log.debug("Updated {} class bandwidth to {}MB/s", internal::scheduling_group_index(sg), new_bandwidth >> 20);
         }
     });
 }
 
-future<> io_queue::update_bandwidth_for_class_group(unsigned group_index, uint64_t new_bandwidth) {
-    return futurize_invoke([this, group_index, new_bandwidth] {
+future<> io_queue::update_bandwidth_for_class_group(scheduling_supergroup ssg, uint64_t new_bandwidth) {
+    return futurize_invoke([this, ssg, new_bandwidth] {
         if (_group->_allocated_on == this_shard_id()) {
-            auto& pclass = _group->find_or_create_class_group(group_index);
+            auto& pclass = _group->find_or_create_class_group(ssg);
             pclass.update_bandwidth(new_bandwidth);
-            io_log.debug("Updated {} class group bandwidth to {}MB/s", group_index, new_bandwidth >> 20);
+            io_log.debug("Updated {} class group bandwidth to {}MB/s", ssg.index(), new_bandwidth >> 20);
         }
     });
 }
 
 void
-io_queue::rename_priority_class(internal::priority_class pc, sstring new_name) {
-    if (_priority_classes.size() > pc.id() &&
-            _priority_classes[pc.id()]) {
+io_queue::rename_priority_class(scheduling_group sg, sstring new_name) {
+    auto id = internal::scheduling_group_index(sg);
+    if (_priority_classes.size() > id && _priority_classes[id]) {
         try {
-            register_stats(new_name, *_priority_classes[pc.id()]);
+            register_stats(new_name, *_priority_classes[id]);
         } catch (metrics::double_registration &e) {
             // we need to ignore this exception, since it can happen that
             // a class that was already created with the new name will be
@@ -1251,9 +1268,10 @@ io_queue::rename_priority_class(internal::priority_class pc, sstring new_name) {
     }
 }
 
-void io_queue::destroy_priority_class(internal::priority_class pc) noexcept {
-    if (_priority_classes.size() > pc.id() && _priority_classes[pc.id()]) {
-        auto& pc_ptr = _priority_classes[pc.id()];
+void io_queue::destroy_priority_class(scheduling_group sg) noexcept {
+    auto id = internal::scheduling_group_index(sg);
+    if (_priority_classes.size() > id && _priority_classes[id]) {
+        auto& pc_ptr = _priority_classes[id];
         for (auto&& s : _streams) {
             s.fq.unregister_priority_class(pc_ptr->fq_class());
         }
@@ -1273,15 +1291,15 @@ void io_queue::unthrottle_priority_class(const priority_class_data& pc) noexcept
     }
 }
 
-void io_queue::throttle_priority_class_group(unsigned group) noexcept {
+void io_queue::throttle_priority_class_group(const priority_class_group_data& pcg) noexcept {
     for (auto&& s : _streams) {
-        s.fq.unplug_class_group(group);
+        s.fq.unplug_class_group(pcg.fq_group());
     }
 }
 
-void io_queue::unthrottle_priority_class_group(unsigned group) noexcept {
+void io_queue::unthrottle_priority_class_group(const priority_class_group_data& pcg) noexcept {
     for (auto&& s : _streams) {
-        s.fq.plug_class_group(group);
+        s.fq.plug_class_group(pcg.fq_group());
     }
 }
 

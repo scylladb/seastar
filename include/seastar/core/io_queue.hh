@@ -62,21 +62,14 @@ class io_group;
 using io_group_ptr = std::shared_ptr<io_group>;
 using iovec_keeper = std::vector<::iovec>;
 
-namespace internal {
-class priority_class {
-    unsigned _id;
-public:
-    explicit priority_class(const scheduling_group& sg) noexcept;
-    unsigned id() const noexcept { return _id; }
-};
-}
-
 class io_queue {
 public:
     class priority_class_data;
+    struct priority_class_group_data;
     using clock_type = std::chrono::steady_clock;
 
 private:
+    std::vector<std::unique_ptr<priority_class_group_data>> _priority_groups;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     io_group_ptr _group;
     const unsigned _id;
@@ -133,9 +126,10 @@ private:
     friend struct ::io_queue_for_tests;
     friend const io_throttler& internal::get_throttler(const io_queue& ioq, unsigned stream);
 
-    priority_class_data& find_or_create_class(internal::priority_class pc);
-    future<size_t> queue_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
-    future<size_t> queue_one_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
+    priority_class_data& find_or_create_class(scheduling_group sg);
+    priority_class_group_data& find_or_create_class_group(scheduling_supergroup ssg);
+    future<size_t> queue_request(scheduling_group sg, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
+    future<size_t> queue_one_request(scheduling_group sg, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
 
     // The fields below are going away, they are just here so we can implement deprecated
     // functions that used to be provided by the fair_queue and are going away (from both
@@ -217,16 +211,16 @@ public:
     sstring mountpoint() const;
     unsigned id() const noexcept { return _id; }
 
-    void update_shares_for_class(internal::priority_class pc, size_t new_shares);
-    void update_shares_for_class_group(unsigned index, size_t new_shares);
-    future<> update_bandwidth_for_class(internal::priority_class pc, uint64_t new_bandwidth);
-    future<> update_bandwidth_for_class_group(unsigned group_index, uint64_t new_bandwidth);
-    void rename_priority_class(internal::priority_class pc, sstring new_name);
-    void destroy_priority_class(internal::priority_class pc) noexcept;
+    void update_shares_for_class(scheduling_group sg, size_t new_shares);
+    void update_shares_for_class_group(scheduling_supergroup ssg, size_t new_shares);
+    future<> update_bandwidth_for_class(scheduling_group sg, uint64_t new_bandwidth);
+    future<> update_bandwidth_for_class_group(scheduling_supergroup ssg, uint64_t new_bandwidth);
+    void rename_priority_class(scheduling_group sg, sstring new_name);
+    void destroy_priority_class(scheduling_group sg) noexcept;
     void throttle_priority_class(const priority_class_data& pc) noexcept;
     void unthrottle_priority_class(const priority_class_data& pc) noexcept;
-    void throttle_priority_class_group(unsigned group) noexcept;
-    void unthrottle_priority_class_group(unsigned group) noexcept;
+    void throttle_priority_class_group(const priority_class_group_data& pcg) noexcept;
+    void unthrottle_priority_class_group(const priority_class_group_data& pcg) noexcept;
 
     struct request_limits {
         size_t max_read;
@@ -422,10 +416,10 @@ private:
     const shard_id _allocated_on;
 
     static io_throttler::config configure_throttler(const io_queue::config& qcfg) noexcept;
-    priority_class_data& find_or_create_class(internal::priority_class pc);
-    priority_class_data& find_or_create_class(internal::priority_class pc, std::optional<unsigned> group_index);
-    priority_class_group_data& find_or_create_class_group(unsigned group_index);
-    priority_class_group_data& find_or_create_class_group_locked(unsigned group_index);
+    priority_class_data& find_or_create_class(scheduling_group sg);
+    priority_class_data& find_or_create_class(scheduling_group sg, scheduling_supergroup ssg);
+    priority_class_group_data& find_or_create_class_group(scheduling_supergroup ssg);
+    priority_class_group_data& find_or_create_class_group_locked(scheduling_supergroup ssg);
 
     inline size_t max_request_length(int dnl_idx) const noexcept {
         return _max_request_length[dnl_idx];
