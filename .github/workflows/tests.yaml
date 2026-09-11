@@ -35,6 +35,8 @@ jobs:
           - {compiler: clang++-22, standard: 23, arch: x86, mode: release, enables: --enable-dpdk, options: --cook dpdk --dpdk-machine corei7-avx, info: 'dpdk, '}
           - {compiler: clang++-22, standard: 23, arch: x86, mode: debug, enables: --enable-cxx-modules, enable-ccache: false, info: 'modules, '}
           - {compiler: clang++-22, standard: 23, arch: x86, mode: fuzz, test-args: -- -R 'Seastar.fuzz.'}
+          - {compiler: clang++-22, standard: 23, arch: x86, mode: debug, options: --tls-mode=both, info: 'dual-tls, '}
+          - {compiler: clang++-22, standard: 23, arch: x86, mode: debug, options: --tls-mode=openssl, info: 'openssl-tls, '}
     with:
       compiler: ${{ matrix.compiler }}
       standard: ${{ matrix.standard }}
