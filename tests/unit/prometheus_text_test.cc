@@ -193,6 +193,25 @@ struct prometheus_test_fixture {
             fmt::format("actual output doesn't match expected\nexpected output:\n{}\nactual output:\n{}",
             expected, ss.str()));
     }
+
+    // Like run_metrics_test, but doesn't (re)register any metrics: lets a caller scrape
+    // multiple times against whatever is currently registered, to exercise cache
+    // invalidation across registration changes between scrapes.
+    static future<sstring> scrape_aggregated() {
+        std::stringstream ss;
+        output_stream<char> out{data_sink{std::make_unique<testing::memory_data_sink_impl>(ss, 10)}};
+        using access = prometheus::details::test_access;
+        co_await access{}.write_body({},
+            sp::details::write_body_args{
+                .filter = always_true,
+                .family_filter = [](std::string_view) { return true; },
+                .use_protobuf_format = false,
+                .show_help = false,
+                .enable_aggregation = true
+            },
+            std::move(out));
+        co_return sstring(ss.str());
+    }
 };
 
 SEASTAR_TEST_CASE(test_basic_counter) {
@@ -676,6 +695,106 @@ SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_same_metric_added_twice) {
     BOOST_REQUIRE_EQUAL(it->second.m.d(), 250);
 
     return make_ready_future<>();
+}
+
+// metric_aggregate_by_labels::add(value, value_info) builds the post-aggregation label set
+// lazily on its cache-miss path (first series seen for a given aggregation key) and just
+// sums on a cache-hit (a later series sharing that key). Exercise both: two series share
+// "extra=a" (miss then hit into one group) and a third has "extra=b" (a second, independent
+// miss) so a bug that mixes up the hit and miss paths - e.g. a hit rebuilding/overwriting
+// labels from the wrong series, or a miss reusing a stale key from another group - would
+// show up as wrong labels or a wrong sum on one of the two groups.
+SEASTAR_TEST_CASE(test_aggregation_cache_hit_and_miss) {
+    co_await smp::invoke_on_all([] {
+        remove_existing_metrics();
+    });
+
+    sm::metric_groups test_metrics;
+    sm::label extra("extra");
+    // "sub" only exists to give the two "extra=a" series distinct pre-aggregation identities
+    // (a single-shard test can't register two series with otherwise-identical labels); it's
+    // aggregated away too, so both still collapse into one "extra=a" output group.
+    sm::label sub("sub");
+
+    auto impl_a1 = sm::make_counter("metric", sm::description("d"), {extra("a"), sub("x")}, [] { return 1; });
+    impl_a1.aggregate({sm::shard_label, sub});
+    auto impl_a2 = sm::make_counter("metric", sm::description("d"), {extra("a"), sub("y")}, [] { return 2; });
+    impl_a2.aggregate({sm::shard_label, sub});
+    auto impl_b = sm::make_counter("metric", sm::description("d"), {extra("b"), sub("x")}, [] { return 5; });
+    impl_b.aggregate({sm::shard_label, sub});
+    test_metrics.add_group("group", {impl_a1, impl_a2, impl_b});
+
+    auto result = co_await prometheus_test_fixture::scrape_aggregated();
+    BOOST_REQUIRE_MESSAGE(result.find(R"(seastar_group_metric{extra="a"} 3)") != sstring::npos, result);
+    BOOST_REQUIRE_MESSAGE(result.find(R"(seastar_group_metric{extra="b"} 5)") != sstring::npos, result);
+}
+
+// The per-series aggregation key (see metric_series_metadata::aggregation_key()) is cached
+// when metadata is rebuilt, not on every scrape. These tests prove the cache is correctly
+// regenerated when the registration set changes: a metric is added or removed after an
+// initial scrape, and a following scrape reflects the new set.
+SEASTAR_TEST_CASE(test_aggregation_cache_invalidated_on_new_registration) {
+    co_await smp::invoke_on_all([] {
+        remove_existing_metrics();
+    });
+
+    sm::metric_groups test_metrics;
+    sm::label extra("extra");
+
+    auto impl_a = sm::make_counter("metric", sm::description("d"), {extra("a")}, [] { return 1; });
+    impl_a.aggregate({sm::shard_label});
+    test_metrics.add_group("group", {impl_a});
+
+    auto first = co_await prometheus_test_fixture::scrape_aggregated();
+    BOOST_REQUIRE_MESSAGE(first.find(R"(seastar_group_metric{extra="a"} 1)") != sstring::npos, first);
+    BOOST_REQUIRE_MESSAGE(first.find("extra=\"b\"") == sstring::npos, first);
+
+    // Register a second series in the same (aggregated) family after the cache for the
+    // first scrape was already built; a stale cache would keep reporting only "a".
+    auto impl_b = sm::make_counter("metric", sm::description("d"), {extra("b")}, [] { return 2; });
+    impl_b.aggregate({sm::shard_label});
+    test_metrics.add_group("group", {impl_b});
+
+    auto second = co_await prometheus_test_fixture::scrape_aggregated();
+    BOOST_REQUIRE_MESSAGE(second.find(R"(seastar_group_metric{extra="a"} 1)") != sstring::npos, second);
+    BOOST_REQUIRE_MESSAGE(second.find(R"(seastar_group_metric{extra="b"} 2)") != sstring::npos, second);
+
+    // Unregistering everything should also invalidate the cache: a following scrape must
+    // not keep reporting the now-removed series.
+    test_metrics.clear();
+    auto third = co_await prometheus_test_fixture::scrape_aggregated();
+    BOOST_REQUIRE_MESSAGE(third.find("seastar_group_metric") == sstring::npos, third);
+}
+
+// metric_family_iterator (src/core/prometheus.cc) picks a single shard's family metadata
+// as the scrape-wide aggregate_labels config, while series metadata (and its per-series
+// aggregation key cache) comes from every shard independently. During a cross-shard
+// aggregate_labels reconfiguration, two shards can both have has_aggregation_cache() ==
+// true but built from DIFFERENT configs. metric_aggregate_by_labels::add() must detect
+// that mismatch (via aggregation_key_config_hash()) and recompute rather than trust a
+// stale cached key. A genuine multi-shard race isn't reproducible in this single-process
+// test binary, so this exercises the comparison directly: a value_info whose cache was
+// built under an old config must not be trusted by an aggregator using a new one.
+BOOST_AUTO_TEST_CASE(test_aggregation_cache_stale_config_not_trusted) {
+    mi::labels_type labels{{"extra", mi::labels_type::mapped_type("a")}, {"shard", mi::labels_type::mapped_type("0")}};
+    auto labels_ref = make_lw_shared<const mi::labels_type>(labels);
+    mi::metric_id id("group", "metric", labels_ref);
+
+    // Cache built as if this shard's family metadata still had the OLD config ({"shard"}).
+    mi::metric_series_metadata stale(id, sm::skip_when_empty::no, {"shard"});
+    BOOST_REQUIRE(stale.has_aggregation_cache());
+
+    // The scrape driving this add() call aggregates by "extra" instead.
+    labels_list_type current_config{"extra"};
+    sp::metric_aggregate_by_labels aggregator(current_config);
+    aggregator.add(mi::metric_value{}, stale);
+
+    // Had the stale "shard"-config cache been trusted, "shard" would still be present in
+    // the output labels and "extra" would not have been aggregated away.
+    BOOST_REQUIRE_EQUAL(aggregator.get_values().size(), 1u);
+    auto& out_labels = aggregator.get_values().begin()->second.labels;
+    BOOST_REQUIRE(out_labels.find("extra") == out_labels.end());
+    BOOST_REQUIRE(out_labels.find("shard") != out_labels.end());
 }
 
 // Tests for family_filter functionality

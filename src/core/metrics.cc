@@ -479,7 +479,7 @@ void impl::update_metrics_if_needed() {
             _current_metrics[i].clear();
             for (auto&& m : mf.second) {
                 if (m.second && m.second->is_enabled()) {
-                    metrics.emplace_back(m.second->info().id, m.second->info().should_skip_when_empty);
+                    metrics.emplace_back(m.second->info().id, m.second->info().should_skip_when_empty, mf.second.info().aggregate_labels);
                     _current_metrics[i].emplace_back(m.second->get_function());
                 }
             }
@@ -598,22 +598,9 @@ void impl::set_metric_family_configs(const std::vector<metric_family_config>& fa
         }
     }
 
-    if (!_metadata) {
-        // The metadata structure may not have been built yet,
-        // or it may rebuild right now, in this case just return
-        // and it will be updated the next time, setting the dirty to true
-        // is just in case we are somehow in the middle of rebuilding the
-        // metadata.
-        dirty();
-        return;
-    }
-    for (auto& mf_metadata: *_metadata) {
-        for  (const auto& fc : family_config) {
-            if (fc.name == mf_metadata.mf.name || fc.regex_name.match(mf_metadata.mf.name)) {
-                mf_metadata.mf.aggregate_labels = fc.aggregate_labels;
-            }
-        }
-    }
+    // Per-series metadata caches an aggregation key derived from aggregate_labels;
+    // force a rebuild so it doesn't go stale.
+    dirty();
 }
 }
 

@@ -939,7 +939,7 @@ future<> write_context::write_text_representation() {
                     found = true;
                 }
                 if (should_aggregate) {
-                    aggregated_values.add(value, value_info.labels());
+                    aggregated_values.add(value, value_info);
                 } else if (value.type() == mi::data_type::SUMMARY) {
                     write_summary(s, ctx, name, value.get_histogram(), value_info.labels());
                 } else if (value.type() == mi::data_type::HISTOGRAM) {
@@ -990,7 +990,7 @@ future<> write_context::write_protobuf_representation() {
                 return;
             }
             if (should_aggregate) {
-                aggregated_values.add(value, value_info.labels());
+                aggregated_values.add(value, value_info);
             } else {
                 fill_metric(mtf, value, value_info.labels(), ctx);
                 empty_metric = false;
