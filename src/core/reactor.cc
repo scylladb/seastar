@@ -4506,7 +4506,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     std::vector<reactor*> reactors(_shard_count);
     if (smp_opts.memory) {
 #ifdef SEASTAR_DEFAULT_ALLOCATOR
-        seastar_logger.warn("Seastar compiled with default allocator, --memory option won't take effect");
+        seastar_logger.warn("Seastar compiled with default allocator, --memory will not limit allocation");
 #endif
         rc.total_memory = parse_memory_size(smp_opts.memory.get_value());
 #ifdef SEASTAR_HAVE_DPDK

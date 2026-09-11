@@ -2818,10 +2818,20 @@ reclaimer::~reclaimer() {
 void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
 }
 
+// Shard's share of --memory, reported by stats(); the default allocator doesn't manage it.
+static thread_local size_t s_configured_memory = size_t(1) << 30;
+
 internal::numa_layout
 configure(std::vector<resource::memory> m, bool mbind,
         bool transparent_hugepages,
         std::optional<std::string> hugepages_path) {
+    size_t total = 0;
+    for (auto&& x : m) {
+        total += x.bytes;
+    }
+    if (total) {
+        s_configured_memory = total;
+    }
     return {};
 }
 
@@ -2829,7 +2839,8 @@ void configure_minimal()
 {}
 
 statistics stats() {
-    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0, 0, 0, 0, 0, 0};
+    // Nothing is accounted: free == total.
+    return statistics{0, 0, 0, s_configured_memory, s_configured_memory, 0, 0, 0, 0, 0, 0, 0};
 }
 
 size_t free_memory() {
