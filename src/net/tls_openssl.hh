@@ -50,6 +50,10 @@ shared_ptr<session_impl> make_session(
     const tls_options& options);
 
 /// Return the OpenSSL error category.
+///
+/// This is not the category TLS errors are reported in (that is the
+/// backend-neutral tls::error_category()); it only formats messages for raw
+/// OpenSSL error values that have no backend-neutral translation.
 const std::error_category& error_category();
 
 /// Generate a session ticket key using OpenSSL.
@@ -63,8 +67,5 @@ std::unique_ptr<dh_params_impl> make_dh_params(dh_params::level);
 
 /// Create OpenSSL DH parameters from raw data.
 std::unique_ptr<dh_params_impl> make_dh_params(const blob&, x509_crt_format);
-
-/// Initialize TLS error codes with OpenSSL values.
-void init_error_codes();
 
 } // namespace seastar::tls::openssl
