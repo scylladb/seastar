@@ -118,14 +118,9 @@ future<> demo_with_file_close_on_failure() {
         sstring meta_filename = (t.get_path() / "meta_file").native();
         sstring data_filename = (t.get_path() / "data_file").native();
 
-        // with_file_close_on_failure will close the opened file only if
-        // `make_file_output_stream` returns an error. Otherwise, in the error-free path,
-        // the opened file is moved to `file_output_stream` that in-turn closes it
-        // when the stream is closed.
-        auto make_output_stream = [] (std::string_view filename) {
-            return with_file_close_on_failure(open_file_dma(filename, open_flags::rw | open_flags::create), [] (file f) {
-                return make_file_output_stream(std::move(f), aligned_size);
-            });
+        auto make_output_stream = [] (std::string_view filename) -> future<output_stream<char>> {
+            file f = co_await open_file_dma(filename, open_flags::rw | open_flags::create);
+            co_return co_await make_file_output_stream(std::move(f), aligned_size);
         };
 
         // writes the buffer one byte at a time, to demonstrate output stream
