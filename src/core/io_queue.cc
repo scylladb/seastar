@@ -146,6 +146,23 @@ struct io_group::priority_class_data {
     }
 };
 
+// Shard-local mirror of a scheduling supergroup, the way priority_class_data
+// is one of a scheduling group. Classes that belong to a supergroup point at
+// the respective entry of the io_queue::_priority_groups vector.
+struct io_queue::priority_class_group_data {
+    const scheduling_supergroup _ssg;
+
+    explicit priority_class_group_data(scheduling_supergroup ssg) noexcept
+        : _ssg(ssg)
+    {
+        SEASTAR_ASSERT(!_ssg.is_root());
+    }
+
+    // The group as the fair_queue names it. Groups are only ever made for
+    // non-root supergroups, so the index is always there
+    unsigned fq_group() const noexcept { return _ssg.index(); }
+};
+
 class io_queue::priority_class_data {
     io_queue& _queue;
     const scheduling_group _sg;
@@ -171,20 +188,22 @@ class io_queue::priority_class_data {
         io_group::priority_class_data::token_bucket_t& _tb;
         uint64_t _replenish_head;
         priority_class_data& _pc;
-        scheduling_supergroup _ssg;
+        // The group this throttler works on behalf of, nullptr if it throttles
+        // the class itself
+        priority_class_group_data* _pcg;
         timer<lowres_clock> _replenish;
 
         void throttle() noexcept {
-            if (!_ssg.is_root()) {
-                _pc._queue.throttle_priority_class_group(_ssg);
+            if (_pcg != nullptr) {
+                _pc._queue.throttle_priority_class_group(*_pcg);
             } else {
                 _pc._queue.throttle_priority_class(_pc);
             }
         }
 
         void unthrottle() noexcept {
-            if (!_ssg.is_root()) {
-                _pc._queue.unthrottle_priority_class_group(_ssg);
+            if (_pcg != nullptr) {
+                _pc._queue.unthrottle_priority_class_group(*_pcg);
             } else {
                 _pc._queue.unthrottle_priority_class(_pc);
             }
@@ -201,10 +220,10 @@ class io_queue::priority_class_data {
         }
 
     public:
-        bandwidth_throttler(io_group::priority_class_data& pg, priority_class_data& pc, scheduling_supergroup ssg) noexcept
+        bandwidth_throttler(io_group::priority_class_data& pg, priority_class_data& pc, priority_class_group_data* pcg) noexcept
                 : _tb(pg.tb)
                 , _pc(pc)
-                , _ssg(ssg)
+                , _pcg(pcg)
                 , _replenish([this] { try_to_replenish(); })
         {}
 
@@ -226,7 +245,7 @@ public:
         _shares = std::max(shares, 1u);
     }
 
-    priority_class_data(scheduling_group sg, uint32_t shares, io_queue& q, io_group::priority_class_data& pg, scheduling_supergroup ssg)
+    priority_class_data(scheduling_group sg, uint32_t shares, io_queue& q, io_group::priority_class_data& pg, priority_class_group_data* pcg)
         : _queue(q)
         , _sg(sg)
         , _shares(shares)
@@ -237,11 +256,11 @@ public:
         , _total_execution_time(0)
         , _starvation_time(0)
     {
-        // The per-class throttler is not tied to any supergroup, so it throttles
-        // the class itself -- hence the root supergroup here
-        _bw.emplace_back(pg, *this, scheduling_supergroup());
+        // The per-class throttler is not tied to any group, so it throttles
+        // the class itself -- hence the nullptr here
+        _bw.emplace_back(pg, *this, nullptr);
         if (pg.parent != nullptr) {
-            _bw.emplace_back(*pg.parent, *this, ssg);
+            _bw.emplace_back(*pg.parent, *this, pcg);
         }
     }
     priority_class_data(const priority_class_data&) = delete;
@@ -887,6 +906,15 @@ void io_queue::register_stats(sstring name, priority_class_data& pc) {
     pc.metric_groups = std::exchange(new_metrics, {});
 }
 
+io_queue::priority_class_group_data& io_queue::find_or_create_class_group(scheduling_supergroup ssg) {
+    return find_or_create(_priority_groups, ssg.index(), [this, ssg] {
+        for (auto&& s : _streams) {
+            s.fq.ensure_priority_group(ssg.index(), ssg.get_shares());
+        }
+        return std::make_unique<priority_class_group_data>(ssg);
+    });
+}
+
 io_queue::priority_class_data& io_queue::find_or_create_class(scheduling_group sg) {
     return find_or_create(_priority_classes, internal::scheduling_group_index(sg), [this, sg] {
         auto ssg = internal::scheduling_supergroup_for(sg);
@@ -906,20 +934,17 @@ io_queue::priority_class_data& io_queue::find_or_create_class(scheduling_group s
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by shard)
 
-        // fair_queue addresses both classes and groups by raw index, with an
-        // empty index standing for "no group", so convert here
+        priority_class_group_data* pcg = nullptr;
         std::optional<unsigned> group_index;
         if (!ssg.is_root()) {
-            group_index = ssg.index();
-            for (auto&& s : _streams) {
-                s.fq.ensure_priority_group(ssg.index(), ssg.get_shares());
-            }
+            pcg = &find_or_create_class_group(ssg);
+            group_index = pcg->fq_group();
         }
 
         auto& pg = _group->find_or_create_class(sg, ssg);
 
         auto shares = sg.get_shares();
-        auto pc_data = std::make_unique<priority_class_data>(sg, shares, *this, pg, ssg);
+        auto pc_data = std::make_unique<priority_class_data>(sg, shares, *this, pg, pcg);
         for (auto&& s : _streams) {
             s.fq.register_priority_class(pc_data->fq_class(), shares, group_index);
         }
@@ -1267,15 +1292,15 @@ void io_queue::unthrottle_priority_class(const priority_class_data& pc) noexcept
     }
 }
 
-void io_queue::throttle_priority_class_group(scheduling_supergroup ssg) noexcept {
+void io_queue::throttle_priority_class_group(const priority_class_group_data& pcg) noexcept {
     for (auto&& s : _streams) {
-        s.fq.unplug_class_group(ssg.index());
+        s.fq.unplug_class_group(pcg.fq_group());
     }
 }
 
-void io_queue::unthrottle_priority_class_group(scheduling_supergroup ssg) noexcept {
+void io_queue::unthrottle_priority_class_group(const priority_class_group_data& pcg) noexcept {
     for (auto&& s : _streams) {
-        s.fq.plug_class_group(ssg.index());
+        s.fq.plug_class_group(pcg.fq_group());
     }
 }
 
