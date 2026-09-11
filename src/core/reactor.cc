@@ -3509,7 +3509,7 @@ int reactor::do_run() {
     // To prevent ordering issues from rising, destroy the I/O queue explicitly at this point.
     // This is needed because the reactor is destroyed from the thread_local destructors. If
     // the I/O queue happens to use any other infrastructure that is also kept this way (for
-    // instance, collectd), we will not have any way to guarantee who is destroyed first.
+    // instance, prometheus), we will not have any way to guarantee who is destroyed first.
     _io_queues.clear();
     return _return;
 }

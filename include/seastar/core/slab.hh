@@ -288,7 +288,7 @@ private:
         &slab_page_desc::_lru_link>> _slab_page_desc_lru;
     uint64_t _max_object_size;
     uint64_t _available_slab_pages;
-    struct collectd_stats {
+    struct stats {
         uint64_t allocs;
         uint64_t frees;
     } _stats;
