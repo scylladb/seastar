@@ -65,9 +65,11 @@ using iovec_keeper = std::vector<::iovec>;
 class io_queue {
 public:
     class priority_class_data;
+    struct priority_class_group_data;
     using clock_type = std::chrono::steady_clock;
 
 private:
+    std::vector<std::unique_ptr<priority_class_group_data>> _priority_groups;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     io_group_ptr _group;
     const unsigned _id;
@@ -125,6 +127,7 @@ private:
     friend const io_throttler& internal::get_throttler(const io_queue& ioq, unsigned stream);
 
     priority_class_data& find_or_create_class(scheduling_group sg);
+    priority_class_group_data& find_or_create_class_group(scheduling_supergroup ssg);
     future<size_t> queue_request(scheduling_group sg, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
     future<size_t> queue_one_request(scheduling_group sg, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
 
@@ -216,8 +219,8 @@ public:
     void destroy_priority_class(scheduling_group sg) noexcept;
     void throttle_priority_class(const priority_class_data& pc) noexcept;
     void unthrottle_priority_class(const priority_class_data& pc) noexcept;
-    void throttle_priority_class_group(scheduling_supergroup ssg) noexcept;
-    void unthrottle_priority_class_group(scheduling_supergroup ssg) noexcept;
+    void throttle_priority_class_group(const priority_class_group_data& pcg) noexcept;
+    void unthrottle_priority_class_group(const priority_class_group_data& pcg) noexcept;
 
     struct request_limits {
         size_t max_read;
