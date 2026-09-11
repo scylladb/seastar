@@ -21,6 +21,7 @@
 
 
 #include <chrono>
+#include <concepts>
 #include <cstdint>
 #include <mutex>
 #include <utility>
@@ -53,6 +54,23 @@ using namespace std::chrono_literals;
 using io_direction_and_length = internal::io_direction_and_length;
 static constexpr auto io_direction_read = io_direction_and_length::read_idx;
 static constexpr auto io_direction_write = io_direction_and_length::write_idx;
+
+// Returns the object sitting in slot \p id of \p slots, calling \p create to
+// make one if that slot is still empty. The vector grows as needed and the
+// slots skipped on the way stay empty -- ids are sparse, as priority classes
+// and groups get created and destroyed in arbitrary order.
+template <typename T, std::invocable Creator>
+requires std::same_as<std::invoke_result_t<Creator>, std::unique_ptr<T>>
+static T& find_or_create(std::vector<std::unique_ptr<T>>& slots, size_t id, Creator&& create) {
+    if (id >= slots.size()) {
+        slots.resize(id + 1);
+    }
+    auto& slot = slots[id];
+    if (!slot) {
+        slot = create();
+    }
+    return *slot;
+}
 
 struct default_io_exception_factory {
     static auto cancelled() {
@@ -871,12 +889,8 @@ void io_queue::register_stats(sstring name, priority_class_data& pc) {
 }
 
 io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority_class pc) {
-    auto id = pc.id();
-    if (id >= _priority_classes.size()) {
-        _priority_classes.resize(id + 1);
-    }
-    if (!_priority_classes[id]) {
-        auto sg = internal::scheduling_group_from_index(id);
+    return find_or_create(_priority_classes, pc.id(), [this, pc] {
+        auto sg = internal::scheduling_group_from_index(pc.id());
         auto ssg = internal::scheduling_supergroup_for(sg);
 
         // A note on naming:
@@ -911,9 +925,8 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
         }
         register_stats(sg.name(), *pc_data);
 
-        _priority_classes[id] = std::move(pc_data);
-    }
-    return *_priority_classes[id];
+        return pc_data;
+    });
 }
 
 io_group::priority_class_group_data& io_group::find_or_create_class_group(unsigned group_index) {
@@ -922,14 +935,9 @@ io_group::priority_class_group_data& io_group::find_or_create_class_group(unsign
 }
 
 io_group::priority_class_group_data& io_group::find_or_create_class_group_locked(unsigned id) {
-    if (id >= _priority_groups.size()) {
-        _priority_groups.resize(id + 1);
-    }
-    if (!_priority_groups[id]) {
-        auto pg = std::make_unique<priority_class_group_data>(nullptr);
-        _priority_groups[id] = std::move(pg);
-    }
-    return *_priority_groups[id];
+    return find_or_create(_priority_groups, id, [] {
+        return std::make_unique<priority_class_group_data>(nullptr);
+    });
 }
 
 io_group::priority_class_data& io_group::find_or_create_class(internal::priority_class pc) {
@@ -950,16 +958,9 @@ io_group::priority_class_data& io_group::find_or_create_class(internal::priority
         parent = &find_or_create_class_group_locked(*group_index);
     }
 
-    auto id = pc.id();
-    if (id >= _priority_classes.size()) {
-        _priority_classes.resize(id + 1);
-    }
-    if (!_priority_classes[id]) {
-        auto pg = std::make_unique<priority_class_data>(parent);
-        _priority_classes[id] = std::move(pg);
-    }
-
-    return *_priority_classes[id];
+    return find_or_create(_priority_classes, pc.id(), [parent] {
+        return std::make_unique<priority_class_data>(parent);
+    });
 }
 
 stream_id io_queue::request_stream(io_direction_and_length dnl) const noexcept {
