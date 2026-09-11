@@ -67,6 +67,9 @@ seastar_add_test (fstream
 seastar_add_test (fair_queue
   SOURCES fair_queue_perf.cc)
 
+seastar_add_test (io_queue
+  SOURCES io_queue_perf.cc)
+
 seastar_add_test (shared_token_bucket
   SOURCES shared_token_bucket.cc)
 
