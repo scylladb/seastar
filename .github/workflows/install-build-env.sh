@@ -100,6 +100,12 @@ if [[ "$COMPILER" == clang++-* && "$clang_ver" -ge 20 || "$STANDARD" -ge 26 ]] ;
     cook_args=(--cook fmt)
 fi
 
+# Deprecation diagnostics are errors in CI only. The flags land in
+# Seastar_CXX_FLAGS, which is appended after the -Wno-error demotions
+# in CMakeLists.txt, so the -Werror here wins. GCC's -Wdeprecated
+# does not include -Wdeprecated-declarations, hence both.
+deprecation_errors='-Werror=deprecated -Werror=deprecated-declarations'
+
 group "configure.py"
 # Both TLS backends are requested explicitly rather than left to cmake's
 # auto-detection, so that a TLS development package going missing from the
@@ -116,6 +122,7 @@ group "configure.py"
     --mode "$MODE"              \
     --enable-gnutls             \
     --enable-openssl            \
+    --cflags "$deprecation_errors" \
     "${cook_args[@]}"           \
     "${ccache_opt[@]}"          \
     $OPTIONS                    \
