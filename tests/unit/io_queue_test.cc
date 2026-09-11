@@ -100,8 +100,8 @@ struct io_queue_for_tests {
         }
     }
 
-    future<size_t> queue_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
-        return queue.queue_request(pc, dnl, std::move(req), intent, std::move(iovs));
+    future<size_t> queue_request(scheduling_group sg, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+        return queue.queue_request(sg, dnl, std::move(req), intent, std::move(iovs));
     }
 
     size_t max_request_length(int dnl_idx) const noexcept {
@@ -112,21 +112,22 @@ struct io_queue_for_tests {
         return io_group::request_length_limit;
     }
 
-    void find_or_create_class(internal::priority_class pc) {
-        queue.find_or_create_class(pc);
+    void find_or_create_class(scheduling_group sg) {
+        queue.find_or_create_class(sg);
     }
 
     fair_queue& get_fair_queue() {
         return queue._streams[0].fq;
     }
 
-    bool is_class_registered(internal::priority_class pc) const noexcept {
-        return queue._priority_classes.size() > pc.id() && (queue._priority_classes[pc.id()] != nullptr);
+    bool is_class_registered(scheduling_group sg) const noexcept {
+        auto id = internal::scheduling_group_index(sg);
+        return queue._priority_classes.size() > id && (queue._priority_classes[id] != nullptr);
     }
 };
 
-internal::priority_class get_default_pc() {
-    return internal::priority_class(current_scheduling_group());
+scheduling_group get_default_pc() {
+    return current_scheduling_group();
 }
 
 SEASTAR_THREAD_TEST_CASE(test_basic_flow) {
@@ -274,8 +275,6 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
     });
 
     io_queue_for_tests tio;
-    auto pc0 = internal::priority_class(sg0);
-    auto pc1 = internal::priority_class(sg1);
 
     size_t idx = 0;
     int val = 100;
@@ -285,9 +284,9 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
     std::vector<future<>> finished;
     std::vector<future<>> cancelled;
 
-    auto queue_legacy_request = [&] (io_queue_for_tests& q, internal::priority_class pc) {
+    auto queue_legacy_request = [&] (io_queue_for_tests& q, scheduling_group sg) {
         auto buf = std::make_unique<int>(val);
-        auto f = q.queue_request(pc, internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(idx, buf.get()), nullptr, {})
+        auto f = q.queue_request(sg, internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(idx, buf.get()), nullptr, {})
             .then([&file, idx, val, buf = std::move(buf)] (size_t len) {
                 BOOST_REQUIRE(file.data[idx] == val);
                 return make_ready_future<>();
@@ -297,9 +296,9 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
         val++;
     };
 
-    auto queue_live_request = [&] (io_queue_for_tests& q, internal::priority_class pc) {
+    auto queue_live_request = [&] (io_queue_for_tests& q, scheduling_group sg) {
         auto buf = std::make_unique<int>(val);
-        auto f = q.queue_request(pc, internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(idx, buf.get()), &live, {})
+        auto f = q.queue_request(sg, internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(idx, buf.get()), &live, {})
             .then([&file, idx, val, buf = std::move(buf)] (size_t len) {
                 BOOST_REQUIRE(file.data[idx] == val);
                 return make_ready_future<>();
@@ -309,9 +308,9 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
         val++;
     };
 
-    auto queue_dead_request = [&] (io_queue_for_tests& q, internal::priority_class pc) {
+    auto queue_dead_request = [&] (io_queue_for_tests& q, scheduling_group sg) {
         auto buf = std::make_unique<int>(val);
-        auto f = q.queue_request(pc, internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(idx, buf.get()), &dead, {})
+        auto f = q.queue_request(sg, internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(idx, buf.get()), &dead, {})
             .then_wrapped([buf = std::move(buf)] (auto&& f) {
                 try {
                     f.get();
@@ -335,13 +334,13 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
         int pc = dice(reng) % 2;
         if (dice(reng) < 3) {
             fmt::print("queue live req to pc {}\n", pc);
-            queue_live_request(tio, pc == 0 ? pc0 : pc1);
+            queue_live_request(tio, pc == 0 ? sg0 : sg1);
         } else if (dice(reng) < 5) {
             fmt::print("queue dead req to pc {}\n", pc);
-            queue_dead_request(tio, pc == 0 ? pc0 : pc1);
+            queue_dead_request(tio, pc == 0 ? sg0 : sg1);
         } else {
             fmt::print("queue legacy req to pc {}\n", pc);
-            queue_legacy_request(tio, pc == 0 ? pc0 : pc1);
+            queue_legacy_request(tio, pc == 0 ? sg0 : sg1);
         }
     }
 
@@ -629,8 +628,8 @@ public:
         return _fq._priority_groups[index]->_parent == &_fq._root;
     }
 
-    std::optional<unsigned> get_parent_index(internal::priority_class pc) {
-        auto& pe = reinterpret_cast<fair_queue::priority_entry&>(*_fq._priority_classes[pc.id()]);
+    std::optional<unsigned> get_parent_index(scheduling_group sg) {
+        auto& pe = reinterpret_cast<fair_queue::priority_entry&>(*_fq._priority_classes[internal::scheduling_group_index(sg)]);
         if (pe._parent == &_fq._root) {
             return {};
         }
@@ -661,9 +660,9 @@ SEASTAR_THREAD_TEST_CASE(test_nested_priority_classes_basic_linkage) {
         destroy_scheduling_group(sg2).get();
     });
 
-    tio.find_or_create_class(internal::priority_class(sg0));
-    tio.find_or_create_class(internal::priority_class(sg1));
-    tio.find_or_create_class(internal::priority_class(sg2));
+    tio.find_or_create_class(sg0);
+    tio.find_or_create_class(sg1);
+    tio.find_or_create_class(sg2);
 
     seastar::testing::fair_queue_test fq(tio.get_fair_queue());
 
@@ -674,18 +673,17 @@ SEASTAR_THREAD_TEST_CASE(test_nested_priority_classes_basic_linkage) {
     BOOST_CHECK(fq.is_root_group(0));
     BOOST_CHECK(fq.is_root_group(1));
 
-    BOOST_CHECK(!fq.get_parent_index(internal::priority_class(sg0)));
-    BOOST_CHECK(fq.get_parent_index(internal::priority_class(sg1)) == 0);
-    BOOST_CHECK(fq.get_parent_index(internal::priority_class(sg2)) == 1);
+    BOOST_CHECK(!fq.get_parent_index(sg0));
+    BOOST_CHECK(fq.get_parent_index(sg1) == 0);
+    BOOST_CHECK(fq.get_parent_index(sg2) == 1);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_destroy_priority_class_with_requests) {
     io_queue_for_tests tio;
 
     auto sg = create_scheduling_group("a", 100).get();
-    auto pc = internal::priority_class(sg);
 
-    auto fx = tio.queue_request(pc,
+    auto fx = tio.queue_request(sg,
         internal::io_direction_and_length(internal::io_direction_and_length::read_idx, 0),
         internal::io_request::make_write(0, 0, nullptr, 1, false),
         nullptr, {});
@@ -698,10 +696,10 @@ SEASTAR_THREAD_TEST_CASE(test_destroy_priority_class_with_requests) {
     });
     BOOST_REQUIRE_EQUAL(fx.get(), 1);
 
-    BOOST_REQUIRE(tio.is_class_registered(pc));
-    tio.queue.destroy_priority_class(internal::priority_class(sg));
+    BOOST_REQUIRE(tio.is_class_registered(sg));
+    tio.queue.destroy_priority_class(sg);
     destroy_scheduling_group(sg).get();
-    BOOST_REQUIRE(!tio.is_class_registered(pc));
+    BOOST_REQUIRE(!tio.is_class_registered(sg));
 }
 
 SEASTAR_THREAD_TEST_CASE(test_gauge_integrator_test) {
@@ -773,14 +771,14 @@ static constexpr size_t bw_slack = 128*1024;
 // the burst no longer dominates the comparison; min_window puts a floor on the
 // measured interval for those. The default preserves the historical behaviour of
 // returning on the first sample that meets the goal.
-static future<size_t> run_and_check_bandwidth(io_queue_for_tests& tio, internal::priority_class pc, size_t bandwidth_goal, unsigned parallelizm = 1, std::chrono::seconds min_window = std::chrono::seconds(1), size_t req_size = 128*1024) {
-    fmt::print("Run {} workload\n", pc.id());
+static future<size_t> run_and_check_bandwidth(io_queue_for_tests& tio, scheduling_group sg, size_t bandwidth_goal, unsigned parallelizm = 1, std::chrono::seconds min_window = std::chrono::seconds(1), size_t req_size = 128*1024) {
+    fmt::print("Run {} workload\n", internal::scheduling_group_index(sg));
     bool keep_going = true;
     uint64_t nr_requests = 0;
 
     auto submitter = parallel_for_each(std::views::iota(0u, parallelizm), [&] (auto i) {
         return do_until([&keep_going] { return !keep_going; }, [&] {
-            return tio.queue_request(pc,
+            return tio.queue_request(sg,
                 internal::io_direction_and_length(internal::io_direction_and_length::read_idx, req_size),
                 internal::io_request::make_write(0, 0, nullptr, req_size, false),
                 nullptr, {}).then([&nr_requests] (auto size) {
@@ -799,7 +797,7 @@ static future<size_t> run_and_check_bandwidth(io_queue_for_tests& tio, internal:
         co_await seastar::sleep(std::chrono::seconds(1));
         auto now = std::chrono::steady_clock::now();
         real_bandwidth = (nr_requests * req_size) / std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
-        fmt::print("Measured for {} {} MB/s, goal {} MB/s\n", pc.id(), real_bandwidth >> 20, bandwidth_goal >> 20);
+        fmt::print("Measured for {} {} MB/s, goal {} MB/s\n", internal::scheduling_group_index(sg), real_bandwidth >> 20, bandwidth_goal >> 20);
         if ((real_bandwidth >= bandwidth_goal && now >= start + min_window) || now >= stop) {
             break;
         }
@@ -848,12 +846,11 @@ SEASTAR_THREAD_TEST_CASE(test_class_bandwidth_throttler) {
     const size_t bandwidth = 100*1024*1024;
 
     auto sg = create_scheduling_group("a", 100).get();
-    auto pc = internal::priority_class(sg);
-    tio.queue.update_bandwidth_for_class(pc, bandwidth).get();
+    tio.queue.update_bandwidth_for_class(sg, bandwidth).get();
 
     background_drain drain(tio);
 
-    auto bw = run_and_check_bandwidth(tio, pc, bandwidth * 0.9).get();
+    auto bw = run_and_check_bandwidth(tio, sg, bandwidth * 0.9).get();
     BOOST_REQUIRE_LE(bw, bandwidth * 1.15);
 
     drain.stop().get();
@@ -867,12 +864,11 @@ SEASTAR_THREAD_TEST_CASE(test_class_group_bandwidth_throttler) {
     const size_t bandwidth = 100*1024*1024;
     auto ssg = create_scheduling_supergroup(100).get();
     auto sg = create_scheduling_group("a", "a", 100, ssg).get();
-    auto pc = internal::priority_class(sg);
     tio.queue.update_bandwidth_for_class_group(ssg.index(), bandwidth).get();
 
     background_drain drain(tio);
 
-    auto bw = run_and_check_bandwidth(tio, pc, bandwidth * 0.9).get();
+    auto bw = run_and_check_bandwidth(tio, sg, bandwidth * 0.9).get();
     BOOST_REQUIRE_LE(bw, bandwidth + burst + bw_slack);
 
     drain.stop().get();
@@ -889,20 +885,18 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler) {
 
     auto ssg = create_scheduling_supergroup(100).get();
     auto sg0 = create_scheduling_group("a", "a", 100, ssg).get();
-    auto pc0 = internal::priority_class(sg0);
     auto sg1 = create_scheduling_group("b", "b", 100, ssg).get();
-    auto pc1 = internal::priority_class(sg1);
 
-    tio.queue.update_bandwidth_for_class(pc0, bandwidth).get();
-    tio.queue.update_bandwidth_for_class(pc1, bandwidth).get();
+    tio.queue.update_bandwidth_for_class(sg0, bandwidth).get();
+    tio.queue.update_bandwidth_for_class(sg1, bandwidth).get();
     tio.queue.update_bandwidth_for_class_group(ssg.index(), group_bandwidth).get();
 
     background_drain drain(tio);
 
     // Set goal to be 40% of the maximum, as both classes will hit
     // the group limit and won't reach their personal limits
-    auto f0 = run_and_check_bandwidth(tio, pc0, bandwidth * 0.4);
-    auto f1 = run_and_check_bandwidth(tio, pc1, bandwidth * 0.4);
+    auto f0 = run_and_check_bandwidth(tio, sg0, bandwidth * 0.4);
+    auto f1 = run_and_check_bandwidth(tio, sg1, bandwidth * 0.4);
 
     auto bw0 = f0.get();
     auto bw1 = f1.get();
@@ -928,19 +922,17 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_1_unlimited) {
 
     auto ssg = create_scheduling_supergroup(100).get();
     auto sg0 = create_scheduling_group("a", "a", 100, ssg).get();
-    auto pc0 = internal::priority_class(sg0);
     auto sg1 = create_scheduling_group("b", "b", 100, ssg).get();
-    auto pc1 = internal::priority_class(sg1);
 
-    tio.queue.update_bandwidth_for_class(pc0, bandwidth).get();
+    tio.queue.update_bandwidth_for_class(sg0, bandwidth).get();
     tio.queue.update_bandwidth_for_class_group(ssg.index(), group_bandwidth).get();
 
     background_drain drain(tio);
 
     // Set goal to be 40% of the maximum, as both classes will hit
     // the group limit and won't reach their personal limits
-    auto f0 = run_and_check_bandwidth(tio, pc0, bandwidth * 0.4);
-    auto f1 = run_and_check_bandwidth(tio, pc1, group_bandwidth * 0.4);
+    auto f0 = run_and_check_bandwidth(tio, sg0, bandwidth * 0.4);
+    auto f1 = run_and_check_bandwidth(tio, sg1, group_bandwidth * 0.4);
 
     auto bw0 = f0.get();
     auto bw1 = f1.get();
@@ -966,9 +958,7 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
 
     auto ssg = create_scheduling_supergroup(200).get();
     auto sg0 = create_scheduling_group("a", "a", 400, ssg).get();
-    auto pc0 = internal::priority_class(sg0);
     auto sg1 = create_scheduling_group("b", "b", 100, ssg).get();
-    auto pc1 = internal::priority_class(sg1);
 
     tio.queue.update_bandwidth_for_class_group(ssg.index(), bandwidth).get();
 
@@ -980,8 +970,8 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
     // in how it lands between the two classes moves the ratio further than the
     // check allows. Four seconds dilutes the burst term, and the quantisation of
     // the measurement itself, by 4x.
-    auto f0 = run_and_check_bandwidth(tio, pc0, bandwidth * 0.8 * 0.95, 4, std::chrono::seconds(4));
-    auto f1 = run_and_check_bandwidth(tio, pc1, bandwidth * 0.2 * 0.95, 4, std::chrono::seconds(4));
+    auto f0 = run_and_check_bandwidth(tio, sg0, bandwidth * 0.8 * 0.95, 4, std::chrono::seconds(4));
+    auto f1 = run_and_check_bandwidth(tio, sg1, bandwidth * 0.2 * 0.95, 4, std::chrono::seconds(4));
     auto bw0 = f0.get();
     auto bw1 = f1.get();
 

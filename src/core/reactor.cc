@@ -192,9 +192,9 @@ namespace seastar {
 seastar::logger seastar_logger("seastar");
 
 
-void reactor::update_shares_for_queues(internal::priority_class pc, uint32_t shares) {
+void reactor::update_shares_for_queues(scheduling_group sg, uint32_t shares) {
     for (auto&& q : _io_queues) {
-        q.second->update_shares_for_class(pc, shares);
+        q.second->update_shares_for_class(sg, shares);
     }
 }
 
@@ -204,10 +204,10 @@ void reactor::update_group_shares_for_queues(unsigned index, uint32_t shares) {
     }
 }
 
-future<> reactor::update_bandwidth_for_queues(internal::priority_class pc, uint64_t bandwidth) {
-    return smp::invoke_on_all([pc, bandwidth = bandwidth / _num_io_groups] {
-        return parallel_for_each(engine()._io_queues, [pc, bandwidth] (auto& queue) {
-            return queue.second->update_bandwidth_for_class(pc, bandwidth);
+future<> reactor::update_bandwidth_for_queues(scheduling_group sg, uint64_t bandwidth) {
+    return smp::invoke_on_all([sg, bandwidth = bandwidth / _num_io_groups] {
+        return parallel_for_each(engine()._io_queues, [sg, bandwidth] (auto& queue) {
+            return queue.second->update_bandwidth_for_class(sg, bandwidth);
         });
     });
 }
@@ -220,9 +220,9 @@ future<> reactor::update_bandwidth_for_queues(unsigned group_index, uint64_t ban
     });
 }
 
-void reactor::rename_queues(internal::priority_class pc, sstring new_name) {
+void reactor::rename_queues(scheduling_group sg, sstring new_name) {
     for (auto&& queue : _io_queues) {
-        queue.second->rename_priority_class(pc, new_name);
+        queue.second->rename_priority_class(sg, new_name);
     }
 }
 
@@ -5220,7 +5220,7 @@ reactor::destroy_scheduling_group(scheduling_group sg) noexcept {
         get_sg_data(sg).queue_is_initialized = false;
         _task_queues[sg._id].reset();
         for (auto&& queue : _io_queues) {
-            queue.second->destroy_priority_class(internal::priority_class(sg));
+            queue.second->destroy_priority_class(sg);
         }
     });
 
@@ -5289,11 +5289,11 @@ float scheduling_supergroup::get_shares() const noexcept {
 void
 scheduling_group::set_shares(float shares) noexcept {
     engine()._task_queues[_id]->set_shares(shares);
-    engine().update_shares_for_queues(internal::priority_class(*this), shares);
+    engine().update_shares_for_queues(*this, shares);
 }
 
 future<> scheduling_group::update_io_bandwidth(uint64_t bandwidth) const {
-    return engine().update_bandwidth_for_queues(internal::priority_class(*this), bandwidth);
+    return engine().update_bandwidth_for_queues(*this, bandwidth);
 }
 
 future<> scheduling_supergroup::update_io_bandwidth(uint64_t bandwidth) const {
@@ -5436,7 +5436,7 @@ rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_short
     return smp::invoke_on_all([sg, new_name, new_shortname] {
         engine()._task_queues[internal::scheduling_group_index(sg)]->rename(new_name, new_shortname);
         internal::execution_stage_manager::get().update_scheduling_group_name(sg);
-        engine().rename_queues(internal::priority_class(sg), new_name);
+        engine().rename_queues(sg, new_name);
         return engine().rename_scheduling_group_specific_data(sg);
     });
 }

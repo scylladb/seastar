@@ -120,7 +120,6 @@ namespace internal {
 class reactor_stall_sampler;
 class cpu_stall_detector;
 class buffer_allocator;
-class priority_class;
 class poller;
 
 size_t scheduling_group_count();
@@ -501,10 +500,10 @@ public:
     std::string_view get_backend_name() const;
 
 private:
-    future<> update_bandwidth_for_queues(internal::priority_class pc, uint64_t bandwidth);
+    future<> update_bandwidth_for_queues(scheduling_group sg, uint64_t bandwidth);
     future<> update_bandwidth_for_queues(unsigned group_index, uint64_t bandwidth);
-    void rename_queues(internal::priority_class pc, sstring new_name);
-    void update_shares_for_queues(internal::priority_class pc, uint32_t shares);
+    void rename_queues(scheduling_group sg, sstring new_name);
+    void update_shares_for_queues(scheduling_group sg, uint32_t shares);
     void update_group_shares_for_queues(unsigned, uint32_t shares);
 
 public:
