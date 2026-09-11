@@ -935,10 +935,8 @@ io_queue::priority_class_data& io_queue::find_or_create_class(scheduling_group s
         // the same I/O queue (by filtering by shard)
 
         priority_class_group_data* pcg = nullptr;
-        std::optional<unsigned> group_index;
         if (!ssg.is_root()) {
             pcg = &find_or_create_class_group(ssg);
-            group_index = pcg->fq_group();
         }
 
         auto& pg = _group->find_or_create_class(sg, ssg);
@@ -946,7 +944,8 @@ io_queue::priority_class_data& io_queue::find_or_create_class(scheduling_group s
         auto shares = sg.get_shares();
         auto pc_data = std::make_unique<priority_class_data>(sg, shares, *this, pg, pcg);
         for (auto&& s : _streams) {
-            s.fq.register_priority_class(pc_data->fq_class(), shares, group_index);
+            s.fq.register_priority_class(pc_data->fq_class(), shares,
+                    pcg != nullptr ? std::optional(pcg->fq_group()) : std::nullopt);
         }
         register_stats(sg.name(), *pc_data);
 
