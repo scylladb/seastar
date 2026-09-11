@@ -209,15 +209,15 @@ public:
     unsigned id() const noexcept { return _id; }
 
     void update_shares_for_class(scheduling_group sg, size_t new_shares);
-    void update_shares_for_class_group(unsigned index, size_t new_shares);
+    void update_shares_for_class_group(scheduling_supergroup ssg, size_t new_shares);
     future<> update_bandwidth_for_class(scheduling_group sg, uint64_t new_bandwidth);
-    future<> update_bandwidth_for_class_group(unsigned group_index, uint64_t new_bandwidth);
+    future<> update_bandwidth_for_class_group(scheduling_supergroup ssg, uint64_t new_bandwidth);
     void rename_priority_class(scheduling_group sg, sstring new_name);
     void destroy_priority_class(scheduling_group sg) noexcept;
     void throttle_priority_class(const priority_class_data& pc) noexcept;
     void unthrottle_priority_class(const priority_class_data& pc) noexcept;
-    void throttle_priority_class_group(unsigned group) noexcept;
-    void unthrottle_priority_class_group(unsigned group) noexcept;
+    void throttle_priority_class_group(scheduling_supergroup ssg) noexcept;
+    void unthrottle_priority_class_group(scheduling_supergroup ssg) noexcept;
 
     struct request_limits {
         size_t max_read;
@@ -414,9 +414,9 @@ private:
 
     static io_throttler::config configure_throttler(const io_queue::config& qcfg) noexcept;
     priority_class_data& find_or_create_class(scheduling_group sg);
-    priority_class_data& find_or_create_class(scheduling_group sg, std::optional<unsigned> group_index);
-    priority_class_group_data& find_or_create_class_group(unsigned group_index);
-    priority_class_group_data& find_or_create_class_group_locked(unsigned group_index);
+    priority_class_data& find_or_create_class(scheduling_group sg, scheduling_supergroup ssg);
+    priority_class_group_data& find_or_create_class_group(scheduling_supergroup ssg);
+    priority_class_group_data& find_or_create_class_group_locked(scheduling_supergroup ssg);
 
     inline size_t max_request_length(int dnl_idx) const noexcept {
         return _max_request_length[dnl_idx];

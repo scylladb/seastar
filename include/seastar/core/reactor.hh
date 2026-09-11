@@ -501,10 +501,10 @@ public:
 
 private:
     future<> update_bandwidth_for_queues(scheduling_group sg, uint64_t bandwidth);
-    future<> update_bandwidth_for_queues(unsigned group_index, uint64_t bandwidth);
+    future<> update_bandwidth_for_queues(scheduling_supergroup ssg, uint64_t bandwidth);
     void rename_queues(scheduling_group sg, sstring new_name);
     void update_shares_for_queues(scheduling_group sg, uint32_t shares);
-    void update_group_shares_for_queues(unsigned, uint32_t shares);
+    void update_group_shares_for_queues(scheduling_supergroup ssg, uint32_t shares);
 
 public:
     server_socket listen(socket_address sa, listen_options opts = {});

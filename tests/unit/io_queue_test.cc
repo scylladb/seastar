@@ -864,7 +864,7 @@ SEASTAR_THREAD_TEST_CASE(test_class_group_bandwidth_throttler) {
     const size_t bandwidth = 100*1024*1024;
     auto ssg = create_scheduling_supergroup(100).get();
     auto sg = create_scheduling_group("a", "a", 100, ssg).get();
-    tio.queue.update_bandwidth_for_class_group(ssg.index(), bandwidth).get();
+    tio.queue.update_bandwidth_for_class_group(ssg, bandwidth).get();
 
     background_drain drain(tio);
 
@@ -889,7 +889,7 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler) {
 
     tio.queue.update_bandwidth_for_class(sg0, bandwidth).get();
     tio.queue.update_bandwidth_for_class(sg1, bandwidth).get();
-    tio.queue.update_bandwidth_for_class_group(ssg.index(), group_bandwidth).get();
+    tio.queue.update_bandwidth_for_class_group(ssg, group_bandwidth).get();
 
     background_drain drain(tio);
 
@@ -925,7 +925,7 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_1_unlimited) {
     auto sg1 = create_scheduling_group("b", "b", 100, ssg).get();
 
     tio.queue.update_bandwidth_for_class(sg0, bandwidth).get();
-    tio.queue.update_bandwidth_for_class_group(ssg.index(), group_bandwidth).get();
+    tio.queue.update_bandwidth_for_class_group(ssg, group_bandwidth).get();
 
     background_drain drain(tio);
 
@@ -960,7 +960,7 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
     auto sg0 = create_scheduling_group("a", "a", 400, ssg).get();
     auto sg1 = create_scheduling_group("b", "b", 100, ssg).get();
 
-    tio.queue.update_bandwidth_for_class_group(ssg.index(), bandwidth).get();
+    tio.queue.update_bandwidth_for_class_group(ssg, bandwidth).get();
 
     background_drain drain(tio);
 

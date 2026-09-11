@@ -198,9 +198,9 @@ void reactor::update_shares_for_queues(scheduling_group sg, uint32_t shares) {
     }
 }
 
-void reactor::update_group_shares_for_queues(unsigned index, uint32_t shares) {
+void reactor::update_group_shares_for_queues(scheduling_supergroup ssg, uint32_t shares) {
     for (auto&& q : _io_queues) {
-        q.second->update_shares_for_class_group(index, shares);
+        q.second->update_shares_for_class_group(ssg, shares);
     }
 }
 
@@ -212,10 +212,10 @@ future<> reactor::update_bandwidth_for_queues(scheduling_group sg, uint64_t band
     });
 }
 
-future<> reactor::update_bandwidth_for_queues(unsigned group_index, uint64_t bandwidth) {
-    return smp::invoke_on_all([group_index, bandwidth = bandwidth / _num_io_groups] {
-        return parallel_for_each(engine()._io_queues, [group_index, bandwidth] (auto& queue) {
-            return queue.second->update_bandwidth_for_class_group(group_index, bandwidth);
+future<> reactor::update_bandwidth_for_queues(scheduling_supergroup ssg, uint64_t bandwidth) {
+    return smp::invoke_on_all([ssg, bandwidth = bandwidth / _num_io_groups] {
+        return parallel_for_each(engine()._io_queues, [ssg, bandwidth] (auto& queue) {
+            return queue.second->update_bandwidth_for_class_group(ssg, bandwidth);
         });
     });
 }
@@ -5298,13 +5298,13 @@ future<> scheduling_group::update_io_bandwidth(uint64_t bandwidth) const {
 
 future<> scheduling_supergroup::update_io_bandwidth(uint64_t bandwidth) const {
     SEASTAR_ASSERT(!is_root());
-    return engine().update_bandwidth_for_queues(index(), bandwidth);
+    return engine().update_bandwidth_for_queues(*this, bandwidth);
 }
 
 void scheduling_supergroup::set_shares(float shares) noexcept {
     if (!is_root()) {
         engine()._supergroups[index()]->set_shares(shares);
-        engine().update_group_shares_for_queues(index(), shares);
+        engine().update_group_shares_for_queues(*this, shares);
     }
 }
 
