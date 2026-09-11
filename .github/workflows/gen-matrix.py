@@ -124,6 +124,22 @@ SPECIAL_ITEMS: list[dict[str, Any]] = [
         "enable-ccache": False,
         "info": "modules, ",
     },
+    # Seastar's installed package -- SeastarConfig.cmake and seastar.pc -- is
+    # not exercised by anything in the build tree, so this job installs it and
+    # builds an application against each channel (tests/consumer). release
+    # because that is where BUILD_SHARED_LIBS is off, and a static libseastar
+    # is the demanding case: its private dependencies have to be named, since
+    # the consumer links them rather than the library carrying them. No tests
+    # or apps -- the library is the same one the regular jobs test.
+    {
+        "compiler": "g++-16",
+        "standard": 23,
+        "arch": "x86",
+        "mode": "release",
+        "options": "--without-tests --without-apps",
+        "install-test": True,
+        "info": "install, ",
+    },
     {
         "compiler": "clang++-22",
         "standard": 23,
