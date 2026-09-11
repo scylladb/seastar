@@ -204,6 +204,7 @@ future<> connection::read_one() {
 
         req->_server_address = this->_server_addr;
         req->_client_address = this->_client_addr;
+        req->listener_tag = _listener_tag;
 
         if (_tls) {
             req->protocol_name = "https";
@@ -417,30 +418,32 @@ void http_server::set_request_scheduling_group(scheduling_group sg) {
 }
 
 future<> http_server::listen(socket_address addr, listen_options lo,
-            server_credentials_ptr listener_credentials) {
+            server_credentials_ptr listener_credentials, listener_tag tag) {
     if (listener_credentials) {
         _listeners.push_back(seastar::tls::listen(listener_credentials, addr, lo));
     } else {
         _listeners.push_back(seastar::listen(addr, lo));
     }
+    _listener_tags.resize(_listeners.size(), no_listener_tag);
+    _listener_tags.back() = tag;
     return do_accepts(_listeners.size() - 1, listener_credentials != nullptr);
 }
 
-future<> http_server::listen(socket_address addr, listen_options lo) {
-    return listen(addr, lo, _credentials);
+future<> http_server::listen(socket_address addr, listen_options lo, listener_tag tag) {
+    return listen(addr, lo, _credentials, tag);
 }
 
 future<> http_server::listen(socket_address addr,
-            server_credentials_ptr listener_credentials) {
+            server_credentials_ptr listener_credentials, listener_tag tag) {
     listen_options lo;
     lo.reuse_address = true;
-    return listen(addr, lo, listener_credentials);
+    return listen(addr, lo, listener_credentials, tag);
 }
 
-future<> http_server::listen(socket_address addr) {
+future<> http_server::listen(socket_address addr, listener_tag tag) {
     listen_options lo;
     lo.reuse_address = true;
-    return listen(addr, lo);
+    return listen(addr, lo, tag);
 }
 future<> http_server::stop() {
     future<> tasks_done = _task_gate.close();
@@ -493,23 +496,26 @@ future<> http_server::do_accept_one(int which, bool tls) {
         ar.connection.set_keepalive(true);
         ar.connection.set_keepalive_parameters(_keepalive_params.value());
     }
+    // Listeners added directly to _listeners (e.g. via http_server_tester)
+    // have no matching tag entry; treat those as untagged.
+    auto tag = static_cast<size_t>(which) < _listener_tags.size() ? _listener_tags[which] : no_listener_tag;
     // The lambda passed to try_with_gate must not be a coroutine,
     // because try_with_gate invokes it but does not store it: a coroutine
     // lambda would be destroyed while its frame is still running.
     (void)try_with_gate(_task_gate,
             [this, conn_fd = std::move(ar.connection),
-             remote_address = std::move(ar.remote_address), tls]() mutable {
-        return do_process_connection(std::move(conn_fd), std::move(remote_address), tls);
+             remote_address = std::move(ar.remote_address), tls, tag]() mutable {
+        return do_process_connection(std::move(conn_fd), std::move(remote_address), tls, tag);
     }).handle_exception_type([] (const gate_closed_exception& e) {});
 }
 
 // Named member coroutine for per-connection processing, called from the
 // non-coroutine lambda in try_with_gate inside do_accept_one(). Parameters
 // are passed by value so they live safely in the coroutine frame.
-future<> http_server::do_process_connection(connected_socket conn_fd, socket_address remote_address, bool tls) {
+future<> http_server::do_process_connection(connected_socket conn_fd, socket_address remote_address, bool tls, listener_tag tag) {
     auto local_address = conn_fd.local_address();
     auto conn = std::make_unique<connection>(*this, std::move(conn_fd),
-            std::move(remote_address), std::move(local_address), tls);
+            std::move(remote_address), std::move(local_address), tls, tag);
     try {
         co_await conn->prepare();
     } catch (...) {
@@ -583,19 +589,19 @@ future<> http_server_control::set_routes(std::function<void(routes& r)> fun) {
 }
 
 future<> http_server_control::listen(socket_address addr) {
-    return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address)>(&http_server::listen, addr);
+    return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, listener_tag)>(&http_server::listen, addr, no_listener_tag);
 }
 
 future<> http_server_control::listen(socket_address addr, http_server::server_credentials_ptr credentials) {
-    return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, http_server::server_credentials_ptr)>(&http_server::listen, addr, credentials);
+    return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, http_server::server_credentials_ptr, listener_tag)>(&http_server::listen, addr, credentials, no_listener_tag);
 }
 
 future<> http_server_control::listen(socket_address addr, listen_options lo) {
-    return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, listen_options)>(&http_server::listen, addr, lo);
+    return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, listen_options, listener_tag)>(&http_server::listen, addr, lo, no_listener_tag);
 }
 
 future<> http_server_control::listen(socket_address addr, listen_options lo, http_server::server_credentials_ptr credentials) {
-    return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, listen_options, http_server::server_credentials_ptr)>(&http_server::listen, addr, lo, credentials);
+    return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, listen_options, http_server::server_credentials_ptr, listener_tag)>(&http_server::listen, addr, lo, credentials, no_listener_tag);
 }
 
 sharded<http_server>& http_server_control::server() {
