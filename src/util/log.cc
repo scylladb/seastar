@@ -42,6 +42,11 @@
 #include <cxxabi.h>
 #include <syslog.h>
 #include <unistd.h>
+#include <paths.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <cerrno>
+#include <cstring>
 
 
 #include <seastar/util/log.hh>
@@ -322,6 +327,230 @@ logger::rate_limit::rate_limit(std::chrono::milliseconds interval)
     : _interval(interval), _next(clock::now())
 { }
 
+
+namespace {
+
+// A private connection to the system logger (/dev/log).
+//
+// libc's syslog() serializes all calls on a global lock, and shares a single
+// socket among all threads; on a large machine that lock, and the shared
+// socket's send buffer, become a contention point that can stall a reactor
+// thread for a long time.  Instead, every shard keeps its own socket, so
+// shards never wait for each other.
+//
+// The datagram we generate follows the traditional BSD syslog format
+// (RFC 3164), which is what libc's syslog() emits and what every system
+// logger understands:
+//
+//     <PRI>MMM dd hh:mm:ss tag[pid]: message
+//
+class syslog_socket {
+#ifdef _PATH_LOG
+    static constexpr const char* socket_path = _PATH_LOG;
+#else
+    static constexpr const char* socket_path = "/dev/log";
+#endif
+    // Retry interval after a failed attempt to connect to /dev/log, so that
+    // a missing or unresponsive system logger doesn't cost us a socket() and
+    // a connect() per log message.
+    static constexpr auto reconnect_interval = std::chrono::seconds(1);
+    // How long to hold off sending after the send buffer was found full, so
+    // that an overloaded system logger doesn't cost us a sendmsg() per log
+    // message.
+    static constexpr auto overload_holdoff = std::chrono::milliseconds(10);
+    using clock = std::chrono::steady_clock;
+
+    // Result of a single attempt to hand a datagram to the system logger.
+    enum class send_result {
+        sent,
+        would_block,   // send buffer full: the system logger isn't keeping up
+        disconnected,  // the socket is unusable and has to be re-established
+    };
+
+    int _fd = -1;
+    clock::time_point _next_connect_attempt = clock::time_point::min();
+    // Cached at connect() time; a fork() gives the child a fresh socket anyway.
+    pid_t _pid = 0;
+    // Number of messages dropped since the send buffer was last found full.
+    uint64_t _skipped = 0;
+    // While _skipped is non-zero, the time at which sending is retried.
+    clock::time_point _retry_time = clock::time_point::min();
+public:
+    syslog_socket() = default;
+    syslog_socket(const syslog_socket&) = delete;
+    ~syslog_socket() {
+        disconnect();
+    }
+    /// Sends a log message to the system logger.
+    ///
+    /// \param priority the syslog priority (facility | level) of the message
+    /// \param msg the message body, without a trailing newline
+    /// \return true if the message was handed over to the system logger, false
+    ///         if the caller should fall back to libc's syslog()
+    bool send(int priority, std::string_view msg) noexcept;
+    /// Returns this shard's socket.
+    static syslog_socket& local() noexcept {
+        static thread_local syslog_socket sock;
+        return sock;
+    }
+private:
+    bool connect() noexcept;
+    void disconnect() noexcept;
+    // Formats the RFC 3164 header (priority, timestamp and tag) of a message.
+    internal::log_buf::inserter_iterator print_header(internal::log_buf::inserter_iterator it, int priority) const;
+    // Makes a single attempt to send a message over an established socket.
+    send_result send_one(int priority, std::string_view msg) noexcept;
+    // Tells the system logger how many messages were lost while it was
+    // overloaded.
+    send_result send_overload_notice() noexcept;
+    // Drops a dead socket and immediately tries to establish a new one.
+    void reconnect() noexcept {
+        disconnect();
+        _next_connect_attempt = clock::time_point::min();
+        connect();
+    }
+};
+
+void syslog_socket::disconnect() noexcept {
+    if (_fd >= 0) {
+        ::close(_fd);
+        _fd = -1;
+    }
+}
+
+bool syslog_socket::connect() noexcept {
+    auto now = clock::now();
+    if (now < _next_connect_attempt) {
+        return false;
+    }
+    _next_connect_attempt = now + reconnect_interval;
+    // SOCK_NONBLOCK: a full send buffer must never stall the reactor; we'd
+    // rather drop the message (see the buffer-full handling in send()).
+    int fd = ::socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    if (fd < 0) {
+        return false;
+    }
+    sockaddr_un addr = {};
+    addr.sun_family = AF_UNIX;
+    std::strcpy(addr.sun_path, socket_path);
+    // A datagram socket has no handshake to perform, so this only records the
+    // peer address and completes right away; SOCK_NONBLOCK notwithstanding,
+    // there is no EINPROGRESS to wait for.
+    if (::connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0) {
+        ::close(fd);
+        return false;
+    }
+    _fd = fd;
+    _pid = ::getpid();
+    return true;
+}
+
+internal::log_buf::inserter_iterator
+syslog_socket::print_header(internal::log_buf::inserter_iterator it, int priority) const {
+    static const char* const month_names[] = {
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    };
+    auto t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm tm_local;
+    // RFC 3164 wants a local time, space-padded day-of-month, and no year.
+    if (localtime_r(&t, &tm_local)) {
+        it = fmt::format_to(it, "<{}>{} {:2d} {:02d}:{:02d}:{:02d} ",
+                priority, month_names[tm_local.tm_mon], tm_local.tm_mday,
+                tm_local.tm_hour, tm_local.tm_min, tm_local.tm_sec);
+    } else {
+        // The timestamp is optional; the system logger will supply its own.
+        it = fmt::format_to(it, "<{}>", priority);
+    }
+    return fmt::format_to(it, "{}[{}]:", program_invocation_short_name, _pid);
+}
+
+syslog_socket::send_result syslog_socket::send_one(int priority, std::string_view msg) noexcept {
+    // Big enough for the priority, the timestamp and any sane program name.
+    std::array<char, 256> header_buf;
+    internal::log_buf header(header_buf.data(), header_buf.size());
+    print_header(header.back_insert_begin(), priority);
+    // The header and the message are sent as one datagram, without copying
+    // the (potentially large) message.
+    iovec iov[2] = {
+        { const_cast<char*>(header.data()), header.size() },
+        { const_cast<char*>(msg.data()), msg.size() },
+    };
+    msghdr mh = {};
+    mh.msg_iov = iov;
+    mh.msg_iovlen = 2;
+    while (::sendmsg(_fd, &mh, MSG_NOSIGNAL) < 0) {
+        switch (errno) {
+        case EINTR:
+            continue;
+        case EAGAIN:
+            return send_result::would_block;
+        default:
+            // The system logger went away (restarted, most likely).
+            return send_result::disconnected;
+        }
+    }
+    return send_result::sent;
+}
+
+syslog_socket::send_result syslog_socket::send_overload_notice() noexcept {
+    std::array<char, 128> static_buf;
+    internal::log_buf buf(static_buf.data(), static_buf.size());
+    fmt::format_to(buf.back_insert_begin(),
+            " [shard {}] syslog - WARN: {} messages skipped due to syslog overload",
+            this_shard_id(), _skipped);
+    return send_one(LOG_USER | LOG_WARNING, buf.view());
+}
+
+bool syslog_socket::send(int priority, std::string_view msg) noexcept {
+    // Two rounds at most: one to discover that the socket died, and one to
+    // send over its replacement.
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        if (_fd < 0 && !connect()) {
+            return false;
+        }
+        if (_skipped) {
+            if (clock::now() < _retry_time) {
+                // The system logger was overloaded very recently; assume it
+                // still is, rather than pay for a sendmsg() that will fail.
+                ++_skipped;
+                return true;
+            }
+            // Conditions may have improved. Account for the gap first, so
+            // that the notice precedes the messages that follow it.
+            switch (send_overload_notice()) {
+            case send_result::sent:
+                _skipped = 0;
+                break;
+            case send_result::would_block:
+                _retry_time = clock::now() + overload_holdoff;
+                ++_skipped;
+                return true;
+            case send_result::disconnected:
+                reconnect();
+                continue;
+            }
+        }
+        switch (send_one(priority, msg)) {
+        case send_result::sent:
+            return true;
+        case send_result::would_block:
+            // Dropping the message is still better than stalling the reactor
+            // until the system logger catches up.
+            _retry_time = clock::now() + overload_holdoff;
+            ++_skipped;
+            return true;
+        case send_result::disconnected:
+            reconnect();
+            continue;
+        }
+    }
+    // Couldn't re-establish the socket; let the caller fall back to syslog().
+    return false;
+}
+
+} // anonymous namespace
+
 void
 logger::do_log(log_level level, log_writer& writer) {
     bool is_ostream_enabled = _ostream.load(std::memory_order_relaxed);
@@ -355,7 +584,6 @@ logger::do_log(log_level level, log_writer& writer) {
         internal::log_buf buf(static_log_buf.data(), static_log_buf.size());
         auto it = buf.back_insert_begin();
         it = print_once(it);
-        *it = '\0';
         static internal::array_map<int, 20> level_map = {
                 { int(log_level::debug), LOG_DEBUG },
                 { int(log_level::info), LOG_INFO },
@@ -363,13 +591,18 @@ logger::do_log(log_level level, log_writer& writer) {
                 { int(log_level::warn), LOG_WARNING },
                 { int(log_level::error), LOG_ERR },
         };
-        // NOTE: syslog() can block, which will stall the reactor thread.
-        //       this should be rare (will have to fill the pipe buffer
-        //       before syslogd can clear it) but can happen.  If it does,
-        //       we'll have to implement some internal buffering (which
-        //       still means the problem can happen, just less frequently).
-        // syslog() interprets % characters, so send msg as a parameter
-        syslog(level_map[int(level)], "%s", buf.data());
+        int priority = LOG_USER | level_map[int(level)];
+        // Reactor threads use a private socket, so that they neither contend
+        // on syslog()'s global lock, nor stall on a send buffer filled by
+        // another shard.  Other threads are few and are not latency sensitive,
+        // so they can use syslog(); it is also the fallback for the case where
+        // the system logger cannot be reached directly.
+        if (!local_engine || !syslog_socket::local().send(priority, buf.view())) {
+            // syslog() wants a null-terminated string, and interprets %
+            // characters, so the message is passed as a parameter.
+            *it = '\0';
+            syslog(priority, "%s", buf.data());
+        }
     }
 }
 
