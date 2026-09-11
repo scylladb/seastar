@@ -70,8 +70,12 @@ struct aio_general_context {
     internal::linux_abi::iocb** last;
     internal::linux_abi::iocb** const end;
     void queue(internal::linux_abi::iocb* iocb);
-    // submit all queued iocbs and return their count.
+    // Submit queued iocbs until the queue is drained or io_submit() reports
+    // EAGAIN. Returns the number submitted; unsubmitted iocbs remain queued.
     size_t flush();
+    bool has_pending() const {
+        return last != iocbs.get();
+    }
 };
 
 class aio_storage_context {
