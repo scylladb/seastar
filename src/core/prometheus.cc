@@ -1053,16 +1053,46 @@ class metrics_handler : public httpd::handler_base  {
      * A filter function filter what metrics should be included.
      * It returns true if a metric should be included, or false otherwise.
      * The filters are created from the request query parameters.
+     *
+     * Metrics are aggregated from all shards (see get_map_value()), but a
+     * given metric's labels may only be registered on some shards. Since the
+     * request itself can be handled by any shard, a query param unknown to
+     * the local shard isn't necessarily unknown cluster-wide: fall back to
+     * checking the other shards, but only for params the local shard didn't
+     * recognize, so the common case stays a local, allocation-free lookup.
      */
-    std::function<bool(const mi::labels_type&)> make_filter(const http::request& req) {
+    static future<std::set<sstring>> get_labels_all_shards() {
+        auto labels = std::set<sstring>();
+        co_await parallel_for_each(std::views::iota(0u, this_smp_shard_count()), [&labels] (auto cpu) {
+            return smp::submit_to(cpu, [] {
+                return mi::get_local_impl()->get_labels();
+            }).then([&labels] (auto shard_labels) {
+                labels.merge(std::move(shard_labels));
+            });
+        });
+        co_return labels;
+    }
+
+    future<std::function<bool(const mi::labels_type&)>> make_filter(const http::request& req) {
         std::unordered_map<sstring, std::regex> matcher;
-        auto labels = mi::get_local_impl()->get_labels();
+        auto local_labels = mi::get_local_impl()->get_labels();
+        std::vector<std::pair<sstring, sstring>> unresolved;
         for (auto&& qp : req.get_query_params()) {
-            if (labels.find(qp.first) != labels.end()) {
+            if (local_labels.find(qp.first) != local_labels.end()) {
                 matcher.emplace(qp.first, std::regex(qp.second.back().c_str()));
+            } else {
+                unresolved.emplace_back(qp.first, qp.second.back());
             }
         }
-        return (matcher.empty()) ? _true_function : [matcher](const mi::labels_type& labels) {
+        if (!unresolved.empty()) {
+            auto all_labels = co_await get_labels_all_shards();
+            for (auto&& [name, value] : unresolved) {
+                if (all_labels.find(name) != all_labels.end()) {
+                    matcher.emplace(name, std::regex(value.c_str()));
+                }
+            }
+        }
+        co_return (matcher.empty()) ? _true_function : [matcher](const mi::labels_type& labels) {
             for (auto&& m : matcher) {
                 auto l = labels.find(m.first);
                 if (!std::regex_match((l == labels.end())? "" : l->second.value().c_str(), m.second)) {
@@ -1087,7 +1117,7 @@ public:
             }
         }
         write_body_args args{
-            .filter = make_filter(*req),
+            .filter = co_await make_filter(*req),
             .family_filter = details::make_family_filter(std::move(name_filters), _ctx.prefix),
             .use_protobuf_format = _ctx.allow_protobuf && is_accept_protobuf(req->get_header("Accept")),
             .show_help = req->get_query_param("__help__") != "false",
@@ -1096,7 +1126,7 @@ public:
         rep->write_body(args.use_protobuf_format ? "proto" : "txt", [this, args = std::move(args)](output_stream<char>&& s) {
             return write_body(std::move(args), std::move(s));
         });
-        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
+        co_return std::move(rep);
     }
 
 private:
