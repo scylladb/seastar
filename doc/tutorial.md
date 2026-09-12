@@ -1927,6 +1927,33 @@ TODO: list and explain more of these options.
 
 Every Seastar application also accepts the `-h` (or `--help`) option, which lists and explains all the available options --- the standard Seastar ones, and the user-defined ones as explained below.
 
+## Setting options outside the command line
+Options do not have to be passed as arguments. Seastar reads them from three places, in this order of precedence:
+
+1. the command line;
+2. the `SEASTAR_OPTIONS` environment variable;
+3. `~/.config/seastar/seastar.conf` and `~/.config/seastar/io.conf`.
+
+`SEASTAR_OPTIONS` holds options written exactly as they would be on the command line, and is split the way a shell would split it, so a value containing spaces can be quoted:
+
+```
+$ SEASTAR_OPTIONS='--reactor-backend epoll -c 2' ./my_app
+```
+
+It suits a setting which belongs to an environment rather than to a single invocation, such as running a whole test suite on a particular reactor backend without changing how each test is invoked. Unlike an argument list, it cannot supply positional options.
+
+The two configuration files use the `name = value` form, one option per line:
+
+```
+reactor-backend = epoll
+```
+
+The files are optional, and are only read when `HOME` is set. They accept Seastar's own options; `SEASTAR_OPTIONS` and the command line additionally accept the application's own options, as described below.
+
+The first place which sets an option wins it, so a command line argument overrides `SEASTAR_OPTIONS`, which overrides the files. An option set in more than one place is not an error and produces no warning: the lower-precedence value is simply ignored. Setting the same option twice in one place *is* an error, unless that option is one which may be repeated.
+
+An application can replace the file-reading step with `app_template::set_configuration_reader()`, for instance to read options from somewhere else entirely.
+
 ## User-defined command-line options
 Seastar parses the command line options (`argv[]`) when it is passed to `app_template::run()`, looking for its own standard options. Therefore, it is not recommended that the application tries to parse `argv[]` on its own because the application might not understand some of the standard Seastar options and not be able to correctly skip them.
 
