@@ -275,6 +275,9 @@ struct snd_buf : public boost::intrusive::slist_base_hook<> {
     std::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
     // Holds semaphore units to extend backpressure lifetime until snd_buf is destroyed.
     semaphore_units<> su;
+    // Additional units held when several snd_bufs (possibly from different
+    // stream semaphores) are folded into this one by concatenate_snd_bufs().
+    std::vector<semaphore_units<>> extra_su;
     using iterator = std::vector<temporary_buffer<char>>::iterator;
     snd_buf() {}
     snd_buf(snd_buf&&) noexcept;
