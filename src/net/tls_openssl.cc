@@ -595,8 +595,9 @@ public:
     tls::client_auth get_client_auth() const {
         return _client_auth;
     }
-    void set_session_resume_mode(tls::session_resume_mode m, std::span<const uint8_t> key = {}) override {
+    void set_session_resume_mode(tls::session_resume_mode m, std::span<const uint8_t> key = {}, unsigned num_tickets = 0) override {
         _session_resume_mode = m;
+        _num_session_tickets = num_tickets;
         if (m != tls::session_resume_mode::NONE) {
             _session_ticket_keys = {};
             if (key.empty()) {
@@ -614,6 +615,10 @@ public:
 
     const session_ticket_keys & get_session_ticket_keys() const {
         return _session_ticket_keys;
+    }
+
+    unsigned get_num_session_tickets() const {
+        return _num_session_tickets;
     }
 
     void set_dn_verification_callback(tls::dn_callback cb) override {
@@ -725,6 +730,7 @@ private:
 
     tls::client_auth _client_auth = tls::client_auth::NONE;
     tls::session_resume_mode _session_resume_mode = tls::session_resume_mode::NONE;
+    unsigned _num_session_tickets = 0; // 0 == OpenSSL default
     bool _enable_server_precedence = false;
     bool _enable_tls_renegotiation = false;
     bool _crl_check_flag_set = false;
@@ -1954,6 +1960,11 @@ private:
                     // By default, SSL contexts have server size cache enabled
                     if (1 != SSL_CTX_set_tlsext_ticket_key_evp_cb(ssl_ctx.get(), &session_ticket_cb)) {
                         throw make_openssl_error("Failed to set session ticket callback function");
+                    }
+                    if (auto n = _creds->get_num_session_tickets(); n != 0) {
+                        if (1 != SSL_CTX_set_num_tickets(ssl_ctx.get(), n)) {
+                            throw make_openssl_error("Failed to set number of session tickets");
+                        }
                     }
                     break;
             }
