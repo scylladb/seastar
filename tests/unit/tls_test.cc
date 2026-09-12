@@ -1677,12 +1677,12 @@ SEASTAR_THREAD_TEST_CASE(test_skip_wait_for_eof) {
     }
 }
 
-static void do_test_tls13_session_tickets(bool reset_server) {
+static void do_test_tls13_session_tickets(bool reset_server, unsigned num_tickets = 0) {
     tls::credentials_builder b;
 
     b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
     b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
-    b.set_session_resume_mode(tls::session_resume_mode::TLS13_SESSION_TICKET);
+    b.set_session_resume_mode(tls::session_resume_mode::TLS13_SESSION_TICKET, num_tickets);
     b.set_priority_string("SECURE128:+SECURE192:-VERS-TLS-ALL:+VERS-TLS1.3");
 
     auto creds = b.build_certificate_credentials();
@@ -1728,6 +1728,17 @@ static void do_test_tls13_session_tickets(bool reset_server) {
         // get ticket data
         sess_data = tls::get_session_resume_data(c).get();
         BOOST_REQUIRE(!sess_data.empty());
+
+        // verify the requested non-default ticket count was actually sent.
+        // Only gnutls sends extra tickets manually post-handshake; openssl
+        // configures the count via SSL_CTX_set_num_tickets and doesn't track it here.
+        auto tickets_sent = tls::get_session_tickets_sent(s.connection).get();
+        if (using_gnutls() && num_tickets != 0) {
+            BOOST_REQUIRE(tickets_sent);
+            BOOST_REQUIRE_EQUAL(*tickets_sent, num_tickets);
+        } else {
+            BOOST_REQUIRE(!tickets_sent);
+        }
 
         in.close().get();
         out.close().get();
@@ -1795,6 +1806,10 @@ SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
 
 SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets_retain_session_key) {
     do_test_tls13_session_tickets(true);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets_custom_count) {
+    do_test_tls13_session_tickets(false, 4);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets_invalidated_by_reload) {

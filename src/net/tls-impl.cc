@@ -306,12 +306,31 @@ void tls::server_credentials::set_session_resume_mode(session_resume_mode m) {
     _impl->set_session_resume_mode(m);
 }
 
+void tls::server_credentials::set_session_resume_mode(session_resume_mode m, unsigned num_tickets) {
+    _impl->set_session_resume_mode(m, {}, num_tickets);
+}
+
 void tls::server_credentials::set_alpn_protocols(const std::vector<sstring>& protocols) {
     _impl->set_alpn_protocols(protocols);
 }
 
+// Stored in _blobs (not a data member) to avoid an ABI-breaking layout
+// change to the public credentials_builder value type.
+static unsigned get_num_session_tickets(const std::multimap<std::string_view, std::any>& blobs) {
+    auto i = blobs.find(num_session_tickets_key);
+    return i == blobs.end() ? 0u : std::any_cast<unsigned>(i->second);
+}
+
 void tls::credentials_builder::set_session_resume_mode(session_resume_mode m) {
+    set_session_resume_mode(m, 0);
+}
+
+void tls::credentials_builder::set_session_resume_mode(session_resume_mode m, unsigned num_tickets) {
     _session_resume_mode = m;
+    _blobs.erase(num_session_tickets_key);
+    if (num_tickets != 0) {
+        _blobs.emplace(num_session_tickets_key, num_tickets);
+    }
     if (m != session_resume_mode::NONE) {
         _session_resume_key = internal::crypto::provider().get_tls_backend().generate_session_ticket_key();
     }
@@ -392,7 +411,7 @@ void tls::credentials_builder::apply_to(certificate_credentials& creds) const {
 
     creds._impl->set_client_auth(_client_auth);
     // Note: this causes server session key rotation on cert reload
-    creds._impl->set_session_resume_mode(_session_resume_mode, std::span{_session_resume_key.begin(), _session_resume_key.end()});
+    creds._impl->set_session_resume_mode(_session_resume_mode, std::span{_session_resume_key.begin(), _session_resume_key.end()}, get_num_session_tickets(_blobs));
 
     if (!_alpn_protocols.empty()) {
         creds._impl->set_alpn_protocols(_alpn_protocols);
@@ -559,7 +578,7 @@ public:
                 return;
             }
             try {
-                set_session_resume_mode(_session_resume_mode);
+                set_session_resume_mode(_session_resume_mode, get_num_session_tickets(_blobs));
                 if (_creds) {
                     _creds->rebuild(*this);
                 }
@@ -780,6 +799,10 @@ future<bool> tls::check_session_is_resumed(connected_socket& socket) {
 
 future<tls::session_data> tls::get_session_resume_data(connected_socket& socket) {
     return get_tls_socket(socket)->get_session_resume_data();
+}
+
+future<std::optional<unsigned>> tls::get_session_tickets_sent(connected_socket& socket) {
+    return get_tls_socket(socket)->get_session_tickets_sent();
 }
 
 future<std::optional<sstring>> tls::get_selected_alpn_protocol(connected_socket& socket) {

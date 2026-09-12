@@ -378,8 +378,9 @@ public:
     client_auth get_client_auth() const {
         return _client_auth;
     }
-    void set_session_resume_mode(session_resume_mode m, std::span<const uint8_t> key = {}) override {
+    void set_session_resume_mode(session_resume_mode m, std::span<const uint8_t> key = {}, unsigned num_tickets = 0) override {
         _session_resume_mode = m;
+        _num_session_tickets = num_tickets;
         // (re-)generate session key
         if (m != session_resume_mode::NONE) {
             _session_resume_key = {};
@@ -396,6 +397,9 @@ public:
     }
     const gnutls_datum_t* get_session_resume_key() const {
         return &_session_resume_key;
+    }
+    unsigned get_num_session_tickets() const {
+        return _num_session_tickets;
     }
     void set_priority_string(const sstring& prio) override {
         const char * err = prio.c_str();
@@ -444,6 +448,7 @@ private:
     std::unique_ptr<std::remove_pointer_t<gnutls_priority_t>, void(*)(gnutls_priority_t)> _priority;
     client_auth _client_auth = client_auth::NONE;
     session_resume_mode _session_resume_mode = session_resume_mode::NONE;
+    unsigned _num_session_tickets = 0; // 0 == gnutls default
     semaphore _system_trust_sem {1};
     dn_callback _dn_callback;
     bool _enable_certificate_verification = true;
@@ -478,9 +483,14 @@ public:
             : _type(t), _sock(std::move(sock)), _creds(static_pointer_cast<gnutls_provider_certificate_credentials_impl>(creds->_impl)),
                     _in(_sock->source()), _out(_sock->sink()),
                     _in_sem(1), _out_sem(1), _options(std::move(options)), _output_pending(
-                    make_ready_future<>()), _session([t] {
+                    make_ready_future<>()), _session([t, num_tickets = _num_session_tickets] {
                 gnutls_session_t session;
-                gtls_chk(gnutls_init(&session, GNUTLS_NONBLOCK|uint32_t(t)));
+                uint32_t flags = GNUTLS_NONBLOCK|uint32_t(t);
+                // Non-default ticket count must be sent manually post-handshake.
+                if (t == type::SERVER && num_tickets != 0) {
+                    flags |= GNUTLS_NO_AUTO_SEND_TICKET;
+                }
+                gtls_chk(gnutls_init(&session, flags));
                 return session;
             }(), &gnutls_deinit) {
         gtls_chk(gnutls_set_default_priority(*this));
@@ -501,7 +511,7 @@ public:
                     break;
             }
             // Maybe set up server session ticket support
-            switch (_creds->get_session_resume_mode()) {
+            switch (_resume_mode) {
                 case session_resume_mode::NONE:
                 default:
                     break;
@@ -568,10 +578,12 @@ public:
         return s;
     }
 
-    future<> send_alert(gnutls_alert_level_t level, gnutls_alert_description_t desc) {
-        return repeat([this, level, desc]() {
-            auto res = gnutls_alert_send(*this, level, desc);
-            switch(res) {
+    // Retries a gnutls send call until it succeeds or fails with a non-recoverable error.
+    template<typename SendOnce>
+    future<> retry_gnutls_send(SendOnce send_once) {
+        return repeat([this, send_once = std::move(send_once)] {
+            auto res = send_once();
+            switch (res) {
             case GNUTLS_E_SUCCESS:
                 return wait_for_output().then([] {
                     return make_ready_future<stop_iteration>(stop_iteration::yes);
@@ -586,6 +598,23 @@ public:
                     return make_ready_future<stop_iteration>(stop_iteration::yes);
                 });
             }
+        });
+    }
+    future<> send_session_tickets(unsigned num_tickets) {
+        // Best-effort: a failure here must not fail an otherwise successful,
+        // already-verified handshake, nor leave the session marked as broken.
+        return retry_gnutls_send([this, num_tickets] {
+            return gnutls_session_ticket_send(*this, num_tickets, 0);
+        }).then([this, num_tickets] {
+            _tickets_sent = num_tickets;
+        }).handle_exception([this](std::exception_ptr) {
+            _error = {};
+            return make_ready_future<>();
+        });
+    }
+    future<> send_alert(gnutls_alert_level_t level, gnutls_alert_description_t desc) {
+        return retry_gnutls_send([this, level, desc] {
+            return gnutls_alert_send(*this, level, desc);
         });
     }
 
@@ -640,6 +669,11 @@ public:
                 verify();
             }
             _connected = true;
+            if (_type == type::SERVER && _num_session_tickets != 0
+                    && _resume_mode == session_resume_mode::TLS13_SESSION_TICKET
+                    && gnutls_protocol_get_version(*this) == GNUTLS_TLS1_3) {
+                return send_session_tickets(_num_session_tickets);
+            }
             // make sure we reset output_pending
             return wait_for_output();
         } catch (...) {
@@ -1167,6 +1201,9 @@ public:
             return gnutls_session_is_resumed(*this) != 0;
         });
     }
+    std::optional<unsigned> get_session_tickets_sent() override {
+        return _tickets_sent;
+    }
     future<session_data> get_session_resume_data() override {
         return state_checked_access([this] {
             /**
@@ -1344,6 +1381,11 @@ private:
 
     std::unique_ptr<net::connected_socket_impl> _sock;
     shared_ptr<gnutls_provider_certificate_credentials_impl> _creds;
+    // Snapshotted at construction so a concurrent credentials_builder reload
+    // can't change these mid-session and disagree with the GNUTLS_NO_AUTO_SEND_TICKET
+    // flag decision already baked into the gnutls session at that point.
+    session_resume_mode _resume_mode = _creds->get_session_resume_mode();
+    unsigned _num_session_tickets = _creds->get_num_session_tickets();
     data_source _in;
     data_sink _out;
 
@@ -1355,6 +1397,8 @@ private:
     bool _shutdown = false;
     bool _connected = false;
     std::exception_ptr _error;
+    // Set when a non-default ticket count is sent manually post-handshake. Used by tests.
+    std::optional<unsigned> _tickets_sent;
 
     future<> _output_pending;
     buf_type _input;
