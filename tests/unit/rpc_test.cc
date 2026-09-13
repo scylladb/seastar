@@ -703,6 +703,115 @@ SEASTAR_TEST_CASE(test_stream_stop_server) {
     });
 }
 
+// Reproducer for https://github.com/scylladb/seastar/issues/3618: dropping
+// sink+source without draining to EOS leaves _streams[id] as the child's
+// last reference; abort_all_streams() then frees it while its own loop()
+// coroutine is still suspended. Crashes under ASan on unfixed code.
+SEASTAR_THREAD_TEST_CASE(test_stream_abort_all_streams_uaf) {
+    rpc::server_options so;
+    so.streaming_domain = rpc::streaming_domain_type(1);
+    rpc_test_config cfg;
+    cfg.server_options = so;
+    rpc_test_env<>::do_with_thread(cfg, [] (rpc_test_env<>& env) {
+        constexpr int msg_id = 1;
+        env.register_handler(msg_id, [] (int i, rpc::source<int> source) {
+            // Server plays no active role; still must close its sink
+            // (sink_impl's destructor requires it) before dropping it.
+            auto sink = source.make_sink<serializer, sstring>();
+            return sink.close().then([sink] { return sink; });
+        }).get();
+        auto call = env.proto().make_client<rpc::source<sstring> (int, rpc::sink<int>)>(msg_id);
+
+        test_rpc_proto::client cl(env.proto(), {}, env.make_socket(), ipv4_addr());
+        std::optional<rpc::sink<int>> sink = cl.make_stream_sink<serializer, int>(env.make_socket()).get();
+        {
+            // Get the source and drop it immediately without reading it.
+            auto source = call(cl, 1, *sink).get();
+        }
+        sink->close().get();
+        // Source is already gone, so this may drop the child's last ref.
+        sink.reset();
+        cl.stop().get();
+        // Let the (unrelated) server-side connection tear down too.
+        env.invoke_on_all([] (rpc_test_env<>::rpc_test_service& s) {
+            return s.server().shutdown();
+        }).get();
+    }).get();
+}
+
+// Companion to test_stream_abort_all_streams_uaf: the self-keepalive fix
+// must not turn into a leak on a normal, fully-drained stream lifecycle.
+SEASTAR_THREAD_TEST_CASE(test_stream_normal_lifecycle_no_leak) {
+    rpc::server_options so;
+    so.streaming_domain = rpc::streaming_domain_type(1);
+    rpc_test_config cfg;
+    cfg.server_options = so;
+    rpc_test_env<>::do_with_thread(cfg, [] (rpc_test_env<>& env) {
+        constexpr int msg_id = 1;
+        env.register_handler(msg_id, [] (int i, rpc::source<int> source) {
+            auto sink = source.make_sink<serializer, sstring>();
+            // Fire-and-forget: drain the client's ints to EOS, then reply
+            // and close our own end. The client below drains this to EOS
+            // too, so both directions are fully closed before cl.stop().
+            (void)seastar::async([sink, source] () mutable {
+                while (source().get()) { }
+                sink("done").get();
+                sink.close().get();
+            });
+            return sink;
+        }).get();
+        auto call = env.proto().make_client<rpc::source<sstring> (int, rpc::sink<int>)>(msg_id);
+
+        rpc::client_options opt;
+        opt.metrics_domain = "test_stream_normal_lifecycle_no_leak_dom";
+        test_rpc_proto::client cl(env.proto(), opt, env.make_socket(), ipv4_addr());
+        {
+            // sink/source are themselves reference-counted handles onto the
+            // stream child's connection; they must be dropped (this scope
+            // exit) before the child can be destroyed.
+            auto sink = cl.make_stream_sink<serializer, int>(env.make_socket()).get();
+            auto source = call(cl, 1, sink).get();
+            sink(1).get();
+            sink.close().get();
+            while (source().get()) { } // drain to EOS
+        }
+        cl.stop().get();
+        // Let the server-side connection tear down too.
+        env.invoke_on_all([] (rpc_test_env<>::rpc_test_service& s) {
+            return s.server().shutdown();
+        }).get();
+
+        // Stream children register under "<domain>_stream" (see
+        // make_stream_sink()); their "count" metric tracks live instances.
+        // Poll briefly since the child's own teardown (stop_send_loop(),
+        // compressor close) completes asynchronously on its own coroutine,
+        // not synchronously within cl.stop().
+        auto live_stream_children = [] (const std::string& domain) -> int {
+            const auto& values = seastar::metrics::impl::get_value_map();
+            const auto& mf = values.find("rpc_client_count");
+            if (mf == values.end()) {
+                return -1;
+            }
+            for (auto&& mi : mf->second) {
+                for (auto&& li : mi.first.labels()) {
+                    if (li.first == "domain" && li.second.value() == domain) {
+                        return mi.second->get_function()().i();
+                    }
+                }
+            }
+            return -1;
+        };
+        auto domain = opt.metrics_domain + "_stream";
+        auto deadline = seastar::lowres_clock::now() + std::chrono::seconds(5);
+        int live = live_stream_children(domain);
+        while (live != 0 && seastar::lowres_clock::now() < deadline) {
+            sleep(std::chrono::milliseconds(10)).get();
+            live = live_stream_children(domain);
+        }
+        BOOST_REQUIRE_EQUAL(live, 0);
+    }).get();
+}
+
 SEASTAR_TEST_CASE(test_stream_connection_error) {
     rpc::server_options so;
     so.streaming_domain = rpc::streaming_domain_type(1);
