@@ -30,6 +30,8 @@
 #include "core/prometheus-impl.hh"
 #include "memory-data-sink.hh"
 
+#include <algorithm>
+#include <regex>
 #include <sstream>
 #include <string_view>
 
@@ -72,6 +74,34 @@ using data_type = seastar::metrics::impl::data_type;
 
 static const sp::details::filter_t always_true = [](auto& mi){ return true; };
 
+// Forwards to `ss` like testing::memory_data_sink_impl, but also records, on
+// every put(), a caller-supplied progress counter. Used to prove a put() fired
+// mid-family (counter < total series) rather than only once, after the whole
+// family was buffered and every series already generated (counter == total).
+class progress_recording_data_sink_impl final : public data_sink_impl {
+    std::stringstream& _ss;
+    size_t _buffer_size;
+    const size_t& _progress;
+    std::vector<size_t>* _snapshots;
+public:
+    progress_recording_data_sink_impl(std::stringstream& ss, size_t buffer_size,
+            const size_t& progress, std::vector<size_t>* snapshots)
+        : _ss(ss), _buffer_size(buffer_size), _progress(progress), _snapshots(snapshots) {}
+
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        for (auto& buf : bufs) {
+            _ss.write(buf.get(), buf.size());
+        }
+        if (_snapshots) {
+            _snapshots->push_back(_progress);
+        }
+        return make_ready_future<>();
+    }
+    future<> flush() override { return make_ready_future<>(); }
+    future<> close() override { return make_ready_future<>(); }
+    size_t buffer_size() const noexcept override { return _buffer_size; }
+};
+
 enum class aggr_mode {
     NO_AGGR,
     AGGR_LABEL_0,
@@ -110,13 +140,22 @@ struct prometheus_test_fixture {
 
     static constexpr size_t name_length = 10;
 
-    static seastar::future<> run_metrics_test(test_config test_conf, prometheus::config config, std::string_view expected) {
+    // Registers test_conf's metrics and scrapes them, returning the raw text output.
+    // If put_progress_snapshots is non-null, it is filled with the value *progress_counter
+    // held at the time of each sink put() call (see progress_recording_data_sink_impl).
+    // progress_counter is normally advanced by test_conf.filter, which write_text_representation
+    // invokes once per series, in order, as it formats them - i.e. exactly when formatting happens,
+    // unlike the series' value-getters (already all invoked upfront, before formatting starts).
+    static seastar::future<sstring> capture_output(test_config test_conf, prometheus::config config,
+            std::vector<size_t>* put_progress_snapshots = nullptr, const size_t* progress_counter = nullptr) {
 
         co_await smp::invoke_on_all([] {
             remove_existing_metrics();
         });
 
         sm::metric_groups test_metrics;
+        size_t unused_progress = 0;
+        const size_t& progress = progress_counter ? *progress_counter : unused_progress;
 
         auto nth_label = [](size_t n) {
             return sm::label(fmt::format("label-{}", n));
@@ -176,7 +215,8 @@ struct prometheus_test_fixture {
         using access = prometheus::details::test_access;
 
         std::stringstream ss;
-        output_stream<char> out{data_sink{std::make_unique<testing::memory_data_sink_impl>(ss, 10)}};
+        output_stream<char> out{data_sink{std::make_unique<progress_recording_data_sink_impl>(
+            ss, 10, progress, put_progress_snapshots)}};
         auto filter = test_conf.filter.value_or(always_true);
         auto family_filter = test_conf.family_filter.value_or([](std::string_view) { return true; });
         co_await access{}.write_body(config,
@@ -189,9 +229,47 @@ struct prometheus_test_fixture {
             },
             std::move(out));
 
-        BOOST_REQUIRE_MESSAGE(expected == ss.str(),
+        co_return sstring(ss.str());
+    }
+
+    static seastar::future<> run_metrics_test(test_config test_conf, prometheus::config config, std::string_view expected) {
+        auto actual = co_await capture_output(test_conf, config);
+
+        BOOST_REQUIRE_MESSAGE(expected == actual,
             fmt::format("actual output doesn't match expected\nexpected output:\n{}\nactual output:\n{}",
-            expected, ss.str()));
+            expected, actual));
+    }
+
+    // Registers a single counter whose value function returns UINT64_MAX, scrapes it,
+    // and returns the raw text output.
+    static seastar::future<sstring> capture_overflowing_counter_output() {
+        co_await smp::invoke_on_all([] {
+            remove_existing_metrics();
+        });
+
+        sm::metric_groups test_metrics;
+        std::vector<sm::metric_definition> defs;
+        // Deliberately out of long range, to exercise the range_error ->
+        // "NaN" fallback in write_value_as_string() for COUNTER values.
+        defs.emplace_back(sm::make_counter("metric", sm::description("overflowing counter"),
+            [] { return std::numeric_limits<uint64_t>::max(); }));
+        test_metrics.add_group("group-1", defs);
+
+        using access = prometheus::details::test_access;
+
+        std::stringstream ss;
+        output_stream<char> out{data_sink{std::make_unique<testing::memory_data_sink_impl>(ss, 10)}};
+        co_await access{}.write_body({},
+            sp::details::write_body_args{
+                .filter = always_true,
+                .family_filter = [](std::string_view) { return true; },
+                .use_protobuf_format = false,
+                .show_help = false,
+                .enable_aggregation = false
+            },
+            std::move(out));
+
+        co_return sstring(ss.str());
     }
 };
 
@@ -833,6 +911,62 @@ SEASTAR_TEST_CASE(test_family_filter_prefix_match_with_prefix) {
     );
 }
 
+SEASTAR_TEST_CASE(test_large_family_triggers_mid_family_flush) {
+    // Enough series to exceed the 8KiB flush_threshold mid-family. Order is
+    // unspecified (std::map), so parse the output instead of comparing strings.
+    constexpr size_t series_count = 3000;
+    test_config cfg{data_type::COUNTER, series_count};
+    cfg.same_metric_name = true;
+
+    // args.filter() is invoked once per series, in formatting order, by
+    // write_text_representation itself - so counting its calls tracks progress
+    // through the actual write loop (unlike the series value-getters, which are
+    // all invoked upfront during metric collection, before any formatting starts).
+    size_t progress = 0;
+    cfg.filter = [&progress](const mi::labels_type&) { ++progress; return true; };
+
+    std::vector<size_t> put_progress_snapshots;
+    auto out = co_await prometheus_test_fixture::capture_output(cfg, {}, &put_progress_snapshots, &progress);
+    BOOST_REQUIRE_GT(out.size(), 8192u);
+
+    // Prove a flush actually fired mid-family: at least one put() must have
+    // reached the sink while some series were still unwritten. A "buffer the
+    // whole family, flush once at the end" implementation would only ever
+    // put() after every series had already been generated (progress ==
+    // series_count for every recorded put), and would pass the rest of this
+    // test undetected.
+    BOOST_REQUIRE(!put_progress_snapshots.empty());
+    bool mid_family_flush_seen = std::any_of(put_progress_snapshots.begin(), put_progress_snapshots.end(),
+        [](size_t progress_at_put) { return progress_at_put < series_count; });
+    BOOST_REQUIRE_MESSAGE(mid_family_flush_seen,
+        "no put() observed before all series were generated - looks like a single end-of-family flush");
+
+    std::vector<sstring> lines;
+    std::string out_str(out);
+    std::istringstream iss{out_str};
+    for (std::string line; std::getline(iss, line);) {
+        lines.push_back(sstring(line));
+    }
+
+    BOOST_REQUIRE_EQUAL(lines.size(), series_count + 2);
+    BOOST_REQUIRE_EQUAL(lines[0], "# HELP seastar_group_1_metric metric description");
+    BOOST_REQUIRE_EQUAL(lines[1], "# TYPE seastar_group_1_metric counter");
+
+    std::regex series_re(R"re(^seastar_group_1_metric\{label-0="label-0-(\d+)",shard="0"\} 123$)re");
+    std::vector<bool> seen(series_count, false);
+    for (size_t li = 2; li < lines.size(); ++li) {
+        std::string line(lines[li]);
+        std::smatch m;
+        BOOST_REQUIRE_MESSAGE(std::regex_match(line, m, series_re),
+            fmt::format("malformed or unexpected line: {}", line));
+        auto idx = std::stoul(m[1].str());
+        BOOST_REQUIRE_LT(idx, series_count);
+        BOOST_REQUIRE_MESSAGE(!seen[idx], fmt::format("duplicated series for index {}", idx));
+        seen[idx] = true;
+    }
+    BOOST_REQUIRE(std::all_of(seen.begin(), seen.end(), [](bool b) { return b; }));
+}
+
 SEASTAR_TEST_CASE(test_family_filter_mixed_prefixed_and_unprefixed) {
     // Filter with both prefixed ("seastar_group_1_metric_0") and unprefixed ("group_1_metric_2") names
     // Both should match their respective metrics
@@ -848,6 +982,17 @@ SEASTAR_TEST_CASE(test_family_filter_mixed_prefixed_and_unprefixed) {
         R"(# HELP seastar_group_1_metric_2 metric description)" "\n"
         R"(# TYPE seastar_group_1_metric_2 counter)" "\n"
         R"(seastar_group_1_metric_2{label-0="label-0-2",shard="0"} 123)" "\n"
+    );
+}
+
+SEASTAR_TEST_CASE(test_value_format_range_error_yields_nan) {
+    // A COUNTER's value is stored as a double but rendered via metric_value::i(),
+    // which throws std::range_error when the double is out of long's range.
+    // write_value_as_string() catches exactly that and falls back to "NaN".
+    auto actual = co_await prometheus_test_fixture::capture_overflowing_counter_output();
+    BOOST_REQUIRE_EQUAL(actual,
+        R"(# TYPE seastar_group_1_metric counter)" "\n"
+        R"(seastar_group_1_metric{shard="0"} NaN)" "\n"
     );
 }
 

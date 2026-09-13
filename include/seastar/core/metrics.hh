@@ -440,14 +440,23 @@ escaped_string shard();
 template<std::invocable T>
 metric_function make_function(T val, data_type dt) {
     return [dt, val = std::move(val)] {
-        return metric_value(val(), dt);
+        if constexpr (std::is_arithmetic_v<std::invoke_result_t<T>>) {
+            // explicit: values (e.g. uint64_t) may not be exactly representable as double
+            return metric_value(static_cast<double>(val()), dt);
+        } else {
+            return metric_value(val(), dt);
+        }
     };
 }
 
 template<typename T>
 metric_function make_function(T& val, data_type dt) {
     return [dt, &val] {
-        return metric_value(val, dt);
+        if constexpr (std::is_arithmetic_v<T>) {
+            return metric_value(static_cast<double>(val), dt);
+        } else {
+            return metric_value(val, dt);
+        }
     };
 }
 }
