@@ -41,8 +41,10 @@
 #include <seastar/core/loop.hh>
 #include <seastar/util/assert.hh>
 #include <algorithm>
+#include <optional>
 #include <ranges>
 #include <regex>
+#include <set>
 #include <string_view>
 #include <type_traits>
 
@@ -559,16 +561,36 @@ public:
     /** @} */
 };
 
-static future<metrics_families_per_shard> get_map_value() {
+// Placeholder for a shard skipped by restrict_to_shards: metric_family_iterator
+// only needs a non-null metadata pointing at an empty vector to treat this
+// shard's contribution as "no families here" without any cross-shard call.
+static foreign_ptr<mi::values_reference> empty_values_reference() {
+    mi::values_reference res = ::seastar::make_shared<mi::values_copy>();
+    res->metadata = ::seastar::make_shared<mi::metric_metadata>();
+    return make_foreign(std::move(res));
+}
+
+static future<metrics_families_per_shard> get_map_value(const std::optional<std::vector<shard_id>>& restrict_to_shards) {
     metrics_families_per_shard vec;
-    vec.resize(this_smp_shard_count());
-    co_await parallel_for_each(std::views::iota(0u, this_smp_shard_count()), [&vec] (auto cpu) {
+    auto total_shards = this_smp_shard_count();
+    vec.resize(total_shards);
+    auto fetch = [&vec] (auto cpu) {
         return smp::submit_to(cpu, [] {
             return mi::get_values();
         }).then([&vec, cpu] (auto res) {
             vec[cpu] = std::move(res);
         });
-    });
+    };
+    if (restrict_to_shards) {
+        // Every requested family is known to live only on these shards -
+        // fill the rest locally, with no smp::submit_to at all.
+        for (unsigned cpu = 0; cpu < total_shards; ++cpu) {
+            vec[cpu] = empty_values_reference();
+        }
+        co_await parallel_for_each(*restrict_to_shards, fetch);
+    } else {
+        co_await parallel_for_each(std::views::iota(0u, total_shards), fetch);
+    }
     co_return vec;
 }
 
@@ -1048,6 +1070,38 @@ class metrics_handler : public httpd::handler_base  {
         return false;
     }
     /*!
+     * \brief restrict shard fanout for this scrape, when possible
+     *
+     * Returns the shard ids to visit if every requested __name__ filter is an
+     * exact (non-prefix) match for a metrics::local_shard_only() family, or
+     * nullopt if the fanout can't be safely restricted (no __name__ filter,
+     * a prefix filter, or a filter naming a family that isn't single-shard).
+     */
+    std::optional<std::vector<shard_id>> compute_restricted_shards(const std::vector<details::name_filter>& name_filters) {
+        if (name_filters.empty()) {
+            return std::nullopt;
+        }
+        auto prefix_with_underscore = _ctx.prefix.empty() ? sstring() : (_ctx.prefix + "_");
+        std::set<shard_id> shards;
+        for (const auto& f : name_filters) {
+            if (f.is_prefix) {
+                return std::nullopt;
+            }
+            sstring name = f.name;
+            if (!prefix_with_underscore.empty() && name.starts_with(prefix_with_underscore)) {
+                name = name.substr(prefix_with_underscore.size());
+            }
+            auto family_shards = mi::local_shard_only_family_shards(name);
+            if (family_shards.empty()) {
+                // Not opted in (or has a non-hinted registration somewhere) - unsafe to restrict.
+                return std::nullopt;
+            }
+            shards.insert(family_shards.begin(), family_shards.end());
+        }
+        return std::vector<shard_id>(shards.begin(), shards.end());
+    }
+
+    /*!
      * \brief Return a filter function, based on the request
      *
      * A filter function filter what metrics should be included.
@@ -1086,12 +1140,14 @@ public:
                 name_filters.push_back({std::move(name), is_prefix});
             }
         }
+        auto restrict_to_shards = compute_restricted_shards(name_filters);
         write_body_args args{
             .filter = make_filter(*req),
             .family_filter = details::make_family_filter(std::move(name_filters), _ctx.prefix),
             .use_protobuf_format = _ctx.allow_protobuf && is_accept_protobuf(req->get_header("Accept")),
             .show_help = req->get_query_param("__help__") != "false",
-            .enable_aggregation = req->get_query_param("__aggregate__") != "false"
+            .enable_aggregation = req->get_query_param("__aggregate__") != "false",
+            .restrict_to_shards = std::move(restrict_to_shards)
         };
         rep->write_body(args.use_protobuf_format ? "proto" : "txt", [this, args = std::move(args)](output_stream<char>&& s) {
             return write_body(std::move(args), std::move(s));
@@ -1103,7 +1159,7 @@ private:
 
     future<> write_body(write_body_args args, output_stream<char>&& out_stream) {
         auto s = std::move(out_stream);
-        auto families = co_await get_map_value();
+        auto families = co_await get_map_value(args.restrict_to_shards);
         bool use_protobuf = args.use_protobuf_format;
 
         write_context context{

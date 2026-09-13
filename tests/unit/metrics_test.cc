@@ -355,6 +355,32 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_enable_disable_skip_when_empty) {
     sm::set_relabel_configs({}).get();
 }
 
+// Covers the registration-time directory behind local_shard_only():
+// (a) a hinted family resolves to this shard, (b) the directory is pruned
+// once all its metrics are unregistered, (c) a family nobody ever hinted
+// is simply absent (the safe "must fall back to full fanout" case).
+SEASTAR_THREAD_TEST_CASE(test_local_shard_only_directory) {
+    using namespace seastar::metrics;
+    namespace sm = seastar::metrics;
+    namespace smi = seastar::metrics::impl;
+
+    BOOST_CHECK(smi::local_shard_only_family_shards("test_lso_never_hinted").empty());
+
+    {
+        sm::metric_groups app_metrics;
+        app_metrics.add_group("test_lso", {
+            sm::make_gauge("hinted", sm::description("hinted gauge"), { sm::label_instance("l", "1") }, [] { return 0; })(sm::local_shard_only::yes),
+            sm::make_gauge("hinted", sm::description("hinted gauge"), { sm::label_instance("l", "2") }, [] { return 0; })(sm::local_shard_only::yes)
+        });
+        auto shards = smi::local_shard_only_family_shards("test_lso_hinted");
+        BOOST_REQUIRE_EQUAL(shards.size(), 1u);
+        BOOST_CHECK_EQUAL(shards[0], seastar::this_shard_id());
+    }
+    // app_metrics went out of scope: both series were unregistered, so the
+    // directory entry (refcounted per family+shard) must be fully pruned.
+    BOOST_CHECK(smi::local_shard_only_family_shards("test_lso_hinted").empty());
+}
+
 SEASTAR_THREAD_TEST_CASE(test_estimated_histogram) {
     using namespace seastar::metrics;
     using namespace std::chrono_literals;

@@ -48,6 +48,24 @@ For example, to get both the HTTP requests and connections metrics:
 This also works with prefix matching:
 `http://localhost:9180/metrics?__name__=httpd_requests*&__name__=httpd_connections*`
 
+#### Single-shard metrics
+Collecting metrics visits every shard on every scrape, even when `__name__`
+restricts the response to a metric family that is only ever registered on
+one shard (e.g. a process-wide counter registered once at startup). To
+avoid that wasted cross-shard work, mark such a metric with
+`local_shard_only()` when defining it:
+
+```c++
+sm::make_gauge("some_process_wide_stat", ...)(sm::local_shard_only::yes)
+```
+
+This is a hint, not automatic discovery: only set it on a metric that is
+truly registered on the same shard(s) for its whole lifetime. When an
+exact (non-wildcard) `__name__` filter names only such metrics, Seastar
+restricts collection to the shard(s) that registered them; any other
+query (unfiltered, wildcard, or naming a metric without the hint) collects
+from every shard as before.
+
 ### Filtering by a label value
 The Prometheus protocol uses labels to differentiate the characteristics of the thing that is being measured.
 For example, in Seastar, it is common to report each metric per shard and add a `shard` label to the metric.

@@ -21,8 +21,10 @@
 
 
 #include <memory>
+#include <mutex>
 #include <regex>
 #include <random>
+#include <unordered_map>
 #include <variant>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/replace.hpp>
@@ -247,6 +249,74 @@ inline sstring escape_label_value(sstring label_value) {
 
 }
 
+namespace {
+/*
+ * Tracks, for metric families registered with local_shard_only(), which
+ * shard(s) actually registered them - so a __name__-filtered scrape can
+ * skip smp::submit_to on the rest. Only touched for hinted families, so
+ * it adds no overhead to the (overwhelmingly common) non-hinted path.
+ * Registration/deregistration is rare compared to scrapes, so a plain
+ * mutex (shared across shards' reactor threads, same pattern as
+ * seastar::logger_registry) is cheap enough here.
+ */
+class local_shard_only_directory {
+    mutable std::mutex _mutex;
+    std::unordered_map<sstring, std::unordered_map<shard_id, uint32_t>> _families;
+public:
+    void add(const sstring& family, shard_id shard) {
+        std::lock_guard<std::mutex> g(_mutex);
+        ++_families[family][shard];
+    }
+    void remove(const sstring& family, shard_id shard) {
+        std::lock_guard<std::mutex> g(_mutex);
+        auto it = _families.find(family);
+        if (it == _families.end()) {
+            return;
+        }
+        auto sit = it->second.find(shard);
+        if (sit == it->second.end()) {
+            return;
+        }
+        if (--sit->second == 0) {
+            it->second.erase(sit);
+        }
+        if (it->second.empty()) {
+            _families.erase(it);
+        }
+    }
+    std::vector<shard_id> shards_for(const sstring& family) const {
+        std::lock_guard<std::mutex> g(_mutex);
+        std::vector<shard_id> result;
+        auto it = _families.find(family);
+        if (it != _families.end()) {
+            result.reserve(it->second.size());
+            for (auto&& [s, count] : it->second) {
+                result.push_back(s);
+            }
+        }
+        return result;
+    }
+};
+
+local_shard_only_directory& get_local_shard_only_directory() {
+    static local_shard_only_directory dir;
+    return dir;
+}
+
+void register_local_shard_only(const sstring& family, shard_id shard) {
+    get_local_shard_only_directory().add(family, shard);
+}
+
+void unregister_local_shard_only(const sstring& family, shard_id shard) {
+    get_local_shard_only_directory().remove(family, shard);
+}
+
+}
+
+std::vector<shard_id> local_shard_only_family_shards(const sstring& family_name) {
+    return get_local_shard_only_directory().shards_for(family_name);
+}
+
 escaped_string::escaped_string(sstring v) : _value(escape_label_value(std::move(v))) {}
 
 escaped_string& escaped_string::operator=(const sstring& v) {
@@ -254,10 +324,11 @@ escaped_string& escaped_string::operator=(const sstring& v) {
     return *this;
 }
 
-registered_metric::registered_metric(metric_id id, metric_function f, bool enabled, skip_when_empty skip) :
+registered_metric::registered_metric(metric_id id, metric_function f, bool enabled, skip_when_empty skip, local_shard_only local_only) :
         _f(f) {
     _info.enabled = enabled;
     _info.should_skip_when_empty = skip;
+    _info.is_local_shard_only = local_only;
     _info.id = id;
     _info.original_labels = id.internalized_labels();
 }
@@ -312,6 +383,11 @@ metric_definition_impl& metric_definition_impl::operator ()(skip_when_empty skip
     return *this;
 }
 
+metric_definition_impl& metric_definition_impl::operator ()(local_shard_only only) noexcept {
+    _local_shard_only = only;
+    return *this;
+}
+
 metric_definition_impl& metric_definition_impl::set_type(const sstring& type_name) {
     type.type_name = type_name;
     return *this;
@@ -326,6 +402,11 @@ metric_definition_impl& metric_definition_impl::aggregate(const std::vector<labe
 
 metric_definition_impl& metric_definition_impl::set_skip_when_empty(bool skip) noexcept {
     _skip_when_empty = skip_when_empty(skip);
+    return *this;
+}
+
+metric_definition_impl& metric_definition_impl::set_local_shard_only(bool only) noexcept {
+    _local_shard_only = local_shard_only(only);
     return *this;
 }
 
@@ -362,7 +443,7 @@ metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const m
 
     metric_id id(name, md._impl->name, internalized_labels);
 
-    auto reg = get_local_impl()->add_registration(id, md._impl->type, md._impl->f, md._impl->d, md._impl->enabled, md._impl->_skip_when_empty, md._impl->aggregate_labels);
+    auto reg = get_local_impl()->add_registration(id, md._impl->type, md._impl->f, md._impl->d, md._impl->enabled, md._impl->_skip_when_empty, md._impl->aggregate_labels, md._impl->_local_shard_only);
 
     _registration.push_back(std::move(reg));
     return *this;
@@ -414,6 +495,9 @@ void impl::remove_registration(const metric_id& id) {
     if (i != get_value_map().end()) {
         auto j = i->second.find(id.labels());
         if (j != i->second.end()) {
+            if (j->second && bool(j->second->info().is_local_shard_only)) {
+                unregister_local_shard_only(id.full_name(), this_shard_id());
+            }
             j->second = nullptr;
             i->second.erase(j);
         }
@@ -509,13 +593,16 @@ std::vector<std::deque<metric_function>>& impl::functions() {
     return _current_metrics;
 }
 
-register_ref impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels) {
-    auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled, skip);
+register_ref impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels, local_shard_only local_only) {
+    auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled, skip, local_only);
     for (auto&& rl : _relabel_configs) {
         apply_relabeling(rl, rm->info());
     }
 
     sstring name = id.full_name();
+    if (bool(local_only)) {
+        register_local_shard_only(name, this_shard_id());
+    }
     if (_value_map.find(name) != _value_map.end()) {
         auto& metric = _value_map[name];
         if (metric.find(rm->info().id.labels()) != metric.end()) {

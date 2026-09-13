@@ -176,3 +176,46 @@ SEASTAR_TEST_CASE(test_prometheus_multiple_name_filters) {
         server.stop().get();
     });
 }
+
+// Covers metrics::local_shard_only(): a __name__-filtered scrape for a
+// hinted family must still return correct values (it goes through the
+// smp::submit_to-restricting path in metrics_handler::handle()), and an
+// unfiltered scrape mixing hinted and non-hinted families must still
+// return everything, unaffected (regression safety for the common case).
+SEASTAR_TEST_CASE(test_prometheus_local_shard_only_filtered) {
+    metrics::metric_groups test_metrics;
+    test_metrics.add_group("test", {
+        metrics::make_gauge("hinted_metric", [] { return 42; }, metrics::description{"hinted metric"})(metrics::local_shard_only::yes),
+        metrics::make_gauge("plain_metric", [] { return 7; }, metrics::description{"plain metric"}),
+    });
+
+    co_await seastar::async([] {
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+
+        prometheus::config ctx;
+        add_prometheus_routes(server, ctx).get();
+
+        future<> client = seastar::async([&lcf] {
+            // Filtered: only the hinted family, via the shard-restricting path.
+            auto filtered = get_metrics_body(lcf, "/metrics?__name__=test_hinted_metric");
+            BOOST_REQUIRE_MESSAGE(std::ranges::search(filtered, "seastar_test_hinted_metric{shard=\"0\"} 42.000000"sv),
+                fmt::format("should contain hinted_metric with correct value\nResponse: {}\n", filtered));
+            BOOST_REQUIRE_MESSAGE(!std::ranges::search(filtered, "seastar_test_plain_metric"sv),
+                fmt::format("should NOT contain plain_metric\nResponse: {}\n", filtered));
+
+            // Unfiltered: full fanout, both families present with correct values.
+            auto unfiltered = get_metrics_body(lcf, "/metrics");
+            BOOST_REQUIRE_MESSAGE(std::ranges::search(unfiltered, "seastar_test_hinted_metric{shard=\"0\"} 42.000000"sv),
+                fmt::format("should contain hinted_metric\nResponse: {}\n", unfiltered));
+            BOOST_REQUIRE_MESSAGE(std::ranges::search(unfiltered, "seastar_test_plain_metric{shard=\"0\"} 7.000000"sv),
+                fmt::format("should contain plain_metric\nResponse: {}\n", unfiltered));
+        });
+
+        server.do_accepts(0).get();
+
+        client.get();
+        server.stop().get();
+    });
+}

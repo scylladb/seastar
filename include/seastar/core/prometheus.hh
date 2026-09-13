@@ -25,8 +25,10 @@
 #include <seastar/core/metrics.hh>
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/internal/api-level.hh>
+#include <seastar/core/shard_id.hh>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 struct prometheus_test_fixture;
 
@@ -89,6 +91,11 @@ struct write_body_args {
     bool use_protobuf_format;
     bool show_help;
     bool enable_aggregation;
+    // Shards to visit for this scrape. nullopt means visit every shard (the
+    // default, always-correct behavior). Set only when every requested
+    // __name__ filter names a metrics::local_shard_only() family, letting
+    // the fanout skip shards known to never host any of them.
+    std::optional<std::vector<shard_id>> restrict_to_shards = std::nullopt;
 };
 
 class test_access {
