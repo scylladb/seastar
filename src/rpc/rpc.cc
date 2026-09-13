@@ -1014,7 +1014,14 @@ future<> client::loop(client_options ops, const socket_address& addr, const sock
                 co_await handle_stream_frame();
                 continue;
             }
-            auto&& [msg_id, ht, data] = co_await read_response_frame_compressed(_connected->read_buf);
+            // Not a structured binding: GCC 16's coroutine codegen has been observed
+            // (seastar#3625) destroying the optional<rcv_buf> member of a structured
+            // binding to a co_await result even when the co_await itself threw and the
+            // binding was never constructed. Named variable + get<> avoids that path.
+            auto response = co_await read_response_frame_compressed(_connected->read_buf);
+            auto& msg_id = std::get<0>(response);
+            auto& ht = std::get<1>(response);
+            auto& data = std::get<2>(response);
             auto it = _outstanding.find(std::abs(msg_id));
             if (!data) {
                 _error = true;
@@ -1249,7 +1256,12 @@ future<> server::connection::process() {
                 co_await handle_stream_frame();
                 continue;
             }
-            auto [expire, type, msg_id, data] = co_await read_request_frame_compressed(_connected->read_buf);
+            // Not a structured binding: see the comment in client::loop() (seastar#3625).
+            auto request = co_await read_request_frame_compressed(_connected->read_buf);
+            auto& expire = std::get<0>(request);
+            auto& type = std::get<1>(request);
+            auto& msg_id = std::get<2>(request);
+            auto& data = std::get<3>(request);
             if (!data) {
                 _error = true;
                 continue;
