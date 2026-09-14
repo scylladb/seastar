@@ -77,12 +77,16 @@ future<> sleep_abortable(typename Clock::duration dur);
 extern template future<> sleep_abortable<steady_clock_type>(typename steady_clock_type::duration);
 extern template future<> sleep_abortable<lowres_clock>(typename lowres_clock::duration);
 
-/// Returns a future which completes after a specified time has elapsed
-/// or throws \ref sleep_aborted exception if the sleep is aborted.
+/// Returns a future which completes after a specified time has elapsed,
+/// or returns a failed future immediately if the sleep is aborted via \p as.
+///
+/// If the abort carried a custom exception (via \ref abort_source::request_abort_ex),
+/// the returned future is failed with that exception; otherwise it is failed
+/// with \ref sleep_aborted.
 ///
 /// \param dur minimum amount of time before the returned future becomes
 ///            ready.
-/// \param as the \ref abort_source that eventually notifies that the sleep
+/// \param as the \ref abort_source that can be used to notify that the sleep
 ///            should be aborted.
 /// \return A \ref future which becomes ready when the sleep duration elapses.
 template <typename Clock = steady_clock_type>
