@@ -856,3 +856,28 @@ SEASTAR_TEST_CASE(test_allocate_refcounted_is_balanced) {
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(test_temporary_buffer_share_is_refcounted) {
+    for (auto size : refcounted_sizes) {
+        auto buf = temporary_buffer<char>(size);
+        std::memset(buf.get_write(), 'x', size);
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+        // sharing a buffer which owns its memory does not allocate
+        auto mallocs = memory::stats().mallocs();
+#endif
+        auto shared = buf.share();
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+        BOOST_REQUIRE_EQUAL(memory::stats().mallocs(), mallocs);
+#endif
+        BOOST_REQUIRE(shared.get() == buf.get());
+        BOOST_REQUIRE_EQUAL(shared.size(), size);
+        // the memory outlives the buffer it was allocated for
+        buf = {};
+        BOOST_REQUIRE(std::all_of(shared.begin(), shared.end(), [] (char c) { return c == 'x'; }));
+        // appending a deleter to a shared buffer keeps it alive too
+        auto d = shared.share().release();
+        d.append(make_object_deleter(int(3)));
+        shared = {};
+        d = {};
+    }
+    return make_ready_future<>();
+}

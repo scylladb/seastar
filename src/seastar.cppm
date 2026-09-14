@@ -403,6 +403,7 @@ using seastar::make_object_deleter;
 using seastar::make_pipe_input_stream;
 using seastar::make_pipe_output_stream;
 using seastar::make_ready_future;
+using seastar::make_refcounted_deleter;
 using seastar::make_scheduling_group_key_config;
 using seastar::make_shared;
 using seastar::make_socket;
