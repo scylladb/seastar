@@ -172,6 +172,7 @@ arch_packages=(
     c-ares
     cmake
     crypto++
+    doxygen
     filesystem
     fmt
     gcc
@@ -183,6 +184,7 @@ arch_packages=(
     liburing
     libxml2
     lksctp-tools
+    lttng-ust
     lz4
     make
     meson
@@ -191,9 +193,9 @@ arch_packages=(
     openssl
     pkgconf
     protobuf
-    python3
     python-pyelftools
     python-yaml
+    python3
     ragel
     stow
     valgrind
