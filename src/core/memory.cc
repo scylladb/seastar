@@ -158,6 +158,24 @@ thread_local constinit int abort_on_alloc_failure_suppressed = 0;
 static std::pmr::polymorphic_allocator<char> static_malloc_allocator{std::pmr::get_default_resource()};;
 std::pmr::polymorphic_allocator<char>* malloc_allocator{&static_malloc_allocator};
 
+// Memory obtained from allocate_refcounted() which cannot keep its reference
+// counter in allocator metadata gets this header prepended to it, with the
+// counter occupying its last bytes - adjacent to the memory itself, so that
+// the two share a cache line. The header is as large as the alignment
+// malloc() guarantees, so that the memory we hand out is just as aligned.
+static constexpr size_t refcount_header_size = alignof(std::max_align_t);
+
+static_assert(refcount_header_size >= sizeof(refcount_type));
+
+// The reference counter of memory with a prepended header, and vice versa.
+static refcount_type* header_refcount_of(void* memory) noexcept {
+    return reinterpret_cast<refcount_type*>(memory) - 1;
+}
+
+static void* header_block_of(refcount_type* refcount) noexcept {
+    return reinterpret_cast<char*>(refcount + 1) - refcount_header_size;
+}
+
 namespace internal {
 
 #ifdef __cpp_constinit
@@ -367,7 +385,12 @@ struct page {
     uint32_t span_size; // in pages, if we're the head or the tail
     page_list_link link;
     small_pool* pool;  // if used in a small_pool
-    free_object* freelist;
+    union {
+        free_object* freelist;   // if used in a small_pool
+        // if allocated by allocate_refcounted(), and large enough to own whole
+        // pages: the reference counter, in the first page of the allocation
+        refcount_type refcount;
+    };
 #ifdef SEASTAR_HEAPPROF
     allocation_site_ptr alloc_site; // for objects whose size is multiple of page size, valid for head only
 #endif
@@ -1903,6 +1926,69 @@ void free_aligned(void* obj, size_t align, size_t size) {
     free(obj, size);
 }
 
+// If \c refcount is the reference counter of memory which owns whole pages,
+// and so keeps its counter in the page structure describing its first page,
+// return that memory; otherwise return nullptr, meaning that the counter is
+// part of a header prepended to the memory.
+static void* large_refcounted_memory(refcount_type* refcount) noexcept {
+    if (!is_seastar_memory(refcount)) {
+        return nullptr;
+    }
+    // The page array lives in the memory of the shard it describes, so the
+    // counter and the pages it points at have the same owner.
+    auto& cp = *cpu_pages::all_cpus[object_cpu_id(refcount)];
+    auto addr = reinterpret_cast<char*>(refcount);
+    auto pages_start = reinterpret_cast<char*>(cp.pages);
+    if (addr < pages_start || addr >= reinterpret_cast<char*>(cp.pages + cp.nr_pages)) {
+        return nullptr;
+    }
+    return cp.mem() + (addr - pages_start) / sizeof(page) * page_size;
+}
+
+refcounted_memory allocate_refcounted(size_t size) noexcept {
+    if (size > max_small_allocation && is_reactor_thread) {
+        // A large allocation owns whole pages, so the page structure of its
+        // first page is ours to use, and the allocation itself is undisturbed.
+        // Note the page array is only relocated by configure(), long before
+        // anything can hold a reference counter pointing into it.
+        void* ptr = allocate(size);
+        if (!ptr) [[unlikely]] {
+            return {};
+        }
+        page* span = cpu_mem.to_page(ptr);
+        span->refcount = 1;
+        return {.memory = ptr, .refcount = &span->refcount};
+    }
+    if (size > std::numeric_limits<size_t>::max() - refcount_header_size) [[unlikely]] {
+        return {};
+    }
+    // Anything else (including memory allocated by a foreign thread, which has
+    // no page structures to spare) carries its counter in a header.
+    auto block = static_cast<char*>(allocate(size + refcount_header_size));
+    if (!block) [[unlikely]] {
+        return {};
+    }
+    void* ptr = block + refcount_header_size;
+    auto refcount = header_refcount_of(ptr);
+    *refcount = 1;
+    return {.memory = ptr, .refcount = refcount};
+}
+
+void free_refcounted(refcounted_memory memory) noexcept {
+    if (memory.refcount == header_refcount_of(memory.memory)) {
+        free(header_block_of(memory.refcount));
+        return;
+    }
+    free(memory.memory);
+}
+
+refcounted_memory refcounted_memory_of(refcount_type* refcount) noexcept {
+    if (void* ptr = large_refcounted_memory(refcount)) {
+        return {.memory = ptr, .refcount = refcount};
+    }
+    return {.memory = refcount + 1, .refcount = refcount};
+}
+
 void shrink(void* obj, size_t new_size) {
     alloc_stats::increment_local(alloc_stats::types::frees);
     alloc_stats::increment_local(alloc_stats::types::allocs); // keep them balanced
@@ -2894,6 +2980,30 @@ internal::global_setup(unsigned nr_shards) {
 
 void free(void* ptr, size_t size) {
     ::free(ptr);
+}
+
+refcounted_memory allocate_refcounted(size_t size) noexcept {
+    if (size > std::numeric_limits<size_t>::max() - refcount_header_size) {
+        return {};
+    }
+    // The system allocator has no metadata to spare, so the reference counter
+    // always goes into a header prepended to the memory.
+    auto block = static_cast<char*>(std::malloc(size + refcount_header_size));
+    if (!block) {
+        return {};
+    }
+    void* ptr = block + refcount_header_size;
+    auto refcount = header_refcount_of(ptr);
+    *refcount = 1;
+    return {.memory = ptr, .refcount = refcount};
+}
+
+void free_refcounted(refcounted_memory memory) noexcept {
+    std::free(header_block_of(memory.refcount));
+}
+
+refcounted_memory refcounted_memory_of(refcount_type* refcount) noexcept {
+    return {.memory = refcount + 1, .refcount = refcount};
 }
 
 }

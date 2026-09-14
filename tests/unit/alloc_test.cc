@@ -29,6 +29,8 @@
 #include <seastar/util/log.hh>
 #include <seastar/util/memory_diagnostics.hh>
 
+#include <algorithm>
+#include <cstring>
 #include <memory>
 #include <new>
 #include <limits>
@@ -815,3 +817,42 @@ SEASTAR_TEST_CASE(test_posix_memalign) {
 
     return make_ready_future<>();
 }
+
+// Sizes which exercise the different places allocate_refcounted() can put the
+// reference counter: tiny objects, objects with a header, objects which own
+// whole pages, and objects which own many pages.
+static const std::vector<size_t> refcounted_sizes = {
+    0, 1, 7, 8, 100, 1024, 4096, 8192, 16384, 128 * 1024, 1024 * 1024,
+};
+
+SEASTAR_TEST_CASE(test_allocate_refcounted) {
+    for (auto size : refcounted_sizes) {
+        auto alloc = memory::allocate_refcounted(size);
+        BOOST_REQUIRE(alloc.memory != nullptr);
+        BOOST_REQUIRE(alloc.refcount != nullptr);
+        BOOST_REQUIRE_EQUAL(*alloc.refcount, 1u);
+        BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(alloc.memory) % alignof(std::max_align_t), 0u);
+        // writing to the memory must not disturb the reference counter, and
+        // the counter is not part of the memory we handed out
+        std::memset(alloc.memory, 0xff, size);
+        BOOST_REQUIRE_EQUAL(*alloc.refcount, 1u);
+        ++*alloc.refcount;
+        BOOST_REQUIRE_EQUAL(*alloc.refcount, 2u);
+        --*alloc.refcount;
+        memory::free_refcounted(alloc);
+    }
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_allocate_refcounted_is_balanced) {
+    // free_refcounted() must return the memory to the pool it came from, so
+    // that allocations and frees stay balanced
+    auto live_objects = memory::stats().live_objects();
+    for (auto size : refcounted_sizes) {
+        auto alloc = memory::allocate_refcounted(size);
+        memory::free_refcounted(alloc);
+    }
+    BOOST_REQUIRE_EQUAL(memory::stats().live_objects(), live_objects);
+    return make_ready_future<>();
+}
+
