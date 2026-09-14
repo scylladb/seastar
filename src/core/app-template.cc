@@ -186,11 +186,39 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
 
     bpo::variables_map configuration;
     try {
+        // bpo::store() keeps the first value it is given for an ordinary
+        // option, so the order of these three is their precedence: the command
+        // line beats SEASTAR_OPTIONS, which beats the configuration file. An
+        // option declared with boost's composing() semantic is the exception:
+        // its values accumulate across all three rather than the first source
+        // claiming it. No Seastar option is declared that way, but an
+        // application's own option may be.
         bpo::store(bpo::command_line_parser(ac, av)
                     .options(all_opts)
                     .positional(_pos_opts)
                     .run()
             , configuration);
+        if (const char* env_options = std::getenv("SEASTAR_OPTIONS")) {
+            // Split the way a shell would, so a value containing spaces can be
+            // quoted. The empty positional description rejects anything which is
+            // not an option: this sets options, it does not stand in for a
+            // command line. Without it a stray word is silently dropped.
+            //
+            // Catch std::exception, not just bpo::error: a bad escape makes
+            // bpo::split_unix throw boost::escaped_list_error, which is a
+            // std::runtime_error. Naming the variable in the message also
+            // matters here, since the command line the user typed is fine.
+            try {
+                bpo::store(bpo::command_line_parser(bpo::split_unix(env_options))
+                            .options(all_opts)
+                            .positional(bpo::positional_options_description())
+                            .run()
+                    , configuration);
+            } catch (const std::exception& e) {
+                fmt::print("error in SEASTAR_OPTIONS: {}\n\nTry --help.\n", e.what());
+                return 2;
+            }
+        }
         _conf_reader(configuration);
     } catch (bpo::error& e) {
         fmt::print("error: {}\n\nTry --help.\n", e.what());
