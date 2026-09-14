@@ -384,27 +384,27 @@ public:
         return _p->_count == 1;
     }
 
-    bool operator==(const lw_shared_ptr<const T>& x) const {
+    bool operator==(const lw_shared_ptr<const T>& x) const noexcept {
         return _p == x._p;
     }
 
-    bool operator!=(const lw_shared_ptr<const T>& x) const {
+    bool operator!=(const lw_shared_ptr<const T>& x) const noexcept {
         return !operator==(x);
     }
 
-    bool operator==(const lw_shared_ptr<std::remove_const_t<T>>& x) const {
+    bool operator==(const lw_shared_ptr<std::remove_const_t<T>>& x) const noexcept {
         return _p == x._p;
     }
 
-    bool operator!=(const lw_shared_ptr<std::remove_const_t<T>>& x) const {
+    bool operator!=(const lw_shared_ptr<std::remove_const_t<T>>& x) const noexcept {
         return !operator==(x);
     }
 
-    bool operator<(const lw_shared_ptr<const T>& x) const {
+    bool operator<(const lw_shared_ptr<const T>& x) const noexcept {
         return _p < x._p;
     }
 
-    bool operator<(const lw_shared_ptr<std::remove_const_t<T>>& x) const {
+    bool operator<(const lw_shared_ptr<std::remove_const_t<T>>& x) const noexcept {
         return _p < x._p;
     }
 
@@ -717,154 +717,154 @@ enable_shared_from_this<T>::shared_from_this() const noexcept {
 template <typename T, typename U>
 inline
 bool
-operator==(const shared_ptr<T>& x, const shared_ptr<U>& y) {
+operator==(const shared_ptr<T>& x, const shared_ptr<U>& y) noexcept {
     return x.get() == y.get();
 }
 
 template <typename T>
 inline
 bool
-operator==(const shared_ptr<T>& x, std::nullptr_t) {
+operator==(const shared_ptr<T>& x, std::nullptr_t) noexcept {
     return x.get() == nullptr;
 }
 
 template <typename T>
 inline
 bool
-operator==(std::nullptr_t, const shared_ptr<T>& y) {
+operator==(std::nullptr_t, const shared_ptr<T>& y) noexcept {
     return nullptr == y.get();
 }
 
 template <typename T>
 inline
 bool
-operator==(const lw_shared_ptr<T>& x, std::nullptr_t) {
+operator==(const lw_shared_ptr<T>& x, std::nullptr_t) noexcept {
     return x.get() == nullptr;
 }
 
 template <typename T>
 inline
 bool
-operator==(std::nullptr_t, const lw_shared_ptr<T>& y) {
+operator==(std::nullptr_t, const lw_shared_ptr<T>& y) noexcept {
     return nullptr == y.get();
 }
 
 template <typename T, typename U>
 inline
 bool
-operator!=(const shared_ptr<T>& x, const shared_ptr<U>& y) {
+operator!=(const shared_ptr<T>& x, const shared_ptr<U>& y) noexcept {
     return x.get() != y.get();
 }
 
 template <typename T>
 inline
 bool
-operator!=(const shared_ptr<T>& x, std::nullptr_t) {
+operator!=(const shared_ptr<T>& x, std::nullptr_t) noexcept {
     return x.get() != nullptr;
 }
 
 template <typename T>
 inline
 bool
-operator!=(std::nullptr_t, const shared_ptr<T>& y) {
+operator!=(std::nullptr_t, const shared_ptr<T>& y) noexcept {
     return nullptr != y.get();
 }
 
 template <typename T>
 inline
 bool
-operator!=(const lw_shared_ptr<T>& x, std::nullptr_t) {
+operator!=(const lw_shared_ptr<T>& x, std::nullptr_t) noexcept {
     return x.get() != nullptr;
 }
 
 template <typename T>
 inline
 bool
-operator!=(std::nullptr_t, const lw_shared_ptr<T>& y) {
+operator!=(std::nullptr_t, const lw_shared_ptr<T>& y) noexcept {
     return nullptr != y.get();
 }
 
 template <typename T, typename U>
 inline
 bool
-operator<(const shared_ptr<T>& x, const shared_ptr<U>& y) {
+operator<(const shared_ptr<T>& x, const shared_ptr<U>& y) noexcept {
     return x.get() < y.get();
 }
 
 template <typename T>
 inline
 bool
-operator<(const shared_ptr<T>& x, std::nullptr_t) {
+operator<(const shared_ptr<T>& x, std::nullptr_t) noexcept {
     return x.get() < nullptr;
 }
 
 template <typename T>
 inline
 bool
-operator<(std::nullptr_t, const shared_ptr<T>& y) {
+operator<(std::nullptr_t, const shared_ptr<T>& y) noexcept {
     return nullptr < y.get();
 }
 
 template <typename T, typename U>
 inline
 bool
-operator<=(const shared_ptr<T>& x, const shared_ptr<U>& y) {
+operator<=(const shared_ptr<T>& x, const shared_ptr<U>& y) noexcept {
     return x.get() <= y.get();
 }
 
 template <typename T>
 inline
 bool
-operator<=(const shared_ptr<T>& x, std::nullptr_t) {
+operator<=(const shared_ptr<T>& x, std::nullptr_t) noexcept {
     return x.get() <= nullptr;
 }
 
 template <typename T>
 inline
 bool
-operator<=(std::nullptr_t, const shared_ptr<T>& y) {
+operator<=(std::nullptr_t, const shared_ptr<T>& y) noexcept {
     return nullptr <= y.get();
 }
 
 template <typename T, typename U>
 inline
 bool
-operator>(const shared_ptr<T>& x, const shared_ptr<U>& y) {
+operator>(const shared_ptr<T>& x, const shared_ptr<U>& y) noexcept {
     return x.get() > y.get();
 }
 
 template <typename T>
 inline
 bool
-operator>(const shared_ptr<T>& x, std::nullptr_t) {
+operator>(const shared_ptr<T>& x, std::nullptr_t) noexcept {
     return x.get() > nullptr;
 }
 
 template <typename T>
 inline
 bool
-operator>(std::nullptr_t, const shared_ptr<T>& y) {
+operator>(std::nullptr_t, const shared_ptr<T>& y) noexcept {
     return nullptr > y.get();
 }
 
 template <typename T, typename U>
 inline
 bool
-operator>=(const shared_ptr<T>& x, const shared_ptr<U>& y) {
+operator>=(const shared_ptr<T>& x, const shared_ptr<U>& y) noexcept {
     return x.get() >= y.get();
 }
 
 template <typename T>
 inline
 bool
-operator>=(const shared_ptr<T>& x, std::nullptr_t) {
+operator>=(const shared_ptr<T>& x, std::nullptr_t) noexcept {
     return x.get() >= nullptr;
 }
 
 template <typename T>
 inline
 bool
-operator>=(std::nullptr_t, const shared_ptr<T>& y) {
+operator>=(std::nullptr_t, const shared_ptr<T>& y) noexcept {
     return nullptr >= y.get();
 }
 
