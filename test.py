@@ -33,6 +33,8 @@ if __name__ == "__main__":
     parser.add_argument('--timeout', action="store",default="300",type=int, help="timeout value for test execution")
     parser.add_argument('--jenkins', action="store",help="jenkins output file prefix")
     parser.add_argument('--smp', '-c', action="store",default='2',type=int,help="Number of threads for multi-core tests")
+    parser.add_argument('--jobs', '-j', action="store", default=None, type=int,
+                        help="Run up to this many tests in parallel (default: number of CPUs)")
     parser.add_argument('--verbose', '-v', action = 'store_true', default = False,
                         help = 'Verbose reporting')
     parser.add_argument('--offline', action="store_true", default = False,
@@ -66,6 +68,8 @@ if __name__ == "__main__":
             TRANSLATED_CTEST_ARGS += ['--verbose']
         if args.name:
             TRANSLATED_CTEST_ARGS += ['-R', args.name]
+        if args.jobs:
+            TRANSLATED_CTEST_ARGS += ['--parallel', str(args.jobs)]
 
         CTEST_ARGS = ['ctest', BUILD_PATH] + TRANSLATED_CTEST_ARGS + args.ctest_forward
         print(CTEST_ARGS)
