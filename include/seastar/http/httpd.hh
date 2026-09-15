@@ -33,6 +33,8 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/queue.hh>
+#include <list>
+
 #include <seastar/core/gate.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/http/routes.hh>
@@ -57,6 +59,25 @@ class http_stats {
     metrics::metric_groups _metric_groups;
 public:
     http_stats(http_server& server, const sstring& name);
+};
+
+/// One listening socket of an http_server, and the accept loop that feeds it.
+///
+/// A listener is identified by this object rather than by the address it is bound to: a
+/// wildcard bind shares its address with nothing and yet accepts connections whose own
+/// local address is a concrete one, and the proxy protocol replaces an accepted socket's
+/// local address outright, so an address identifies a listener only by accident.
+struct listener_entry {
+    server_socket socket;
+    socket_address addr;
+    bool tls;
+    // The position this listener was added at. Only the deprecated do_accepts(int) and
+    // accept_loop(int) still name a listener this way; nothing renumbers.
+    size_t index;
+    future<> accept_loop = make_ready_future<>();
+
+    listener_entry(server_socket socket_, socket_address addr_, bool tls_, size_t index_)
+        : socket(std::move(socket_)), addr(addr_), tls(tls_), index(index_) {}
 };
 
 class connection : public boost::intrusive::list_base_hook<> {
@@ -122,7 +143,11 @@ public:
 class http_server_tester;
 
 class http_server {
-    std::vector<server_socket> _listeners;
+    // std::list, because an accept loop holds a reference to its own entry for as long
+    // as it runs, and because the deprecated index-taking interface still wants the
+    // order they were added in.
+    std::list<listener_entry> _listeners;
+    size_t _next_listener_index = 0;
     http_stats _stats;
     uint64_t _total_connections = 0;
     uint64_t _current_connections = 0;
@@ -225,9 +250,12 @@ public:
     // RFC 7231, Section 7.1.1.1.
     static sstring http_date();
 private:
-    future<> start_accepting(int which, bool with_tls);
-    future<> run_accept_loop(int which, bool tls);
-    future<> do_accept_one(int which, bool with_tls);
+    listener_entry& add_listener(server_socket&& ss, bool with_tls);
+    void start_accepting(listener_entry& listener, bool with_tls);
+    future<> run_accept_loop(listener_entry& listener, bool tls);
+    future<> do_accept_one(listener_entry& listener, bool tls);
+    // Find the listener the deprecated index-taking interface is asking for.
+    listener_entry* listener_at(int which);
     future<> do_process_connection(connected_socket conn_fd, socket_address remote_address, bool tls);
     boost::intrusive::list<connection> _connections;
     friend class seastar::httpd::connection;
@@ -236,7 +264,7 @@ private:
 
 class http_server_tester {
 public:
-    static std::vector<server_socket>& listeners(http_server& server) {
+    static std::list<listener_entry>& listeners(http_server& server) {
         return server._listeners;
     }
 };

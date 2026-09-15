@@ -420,12 +420,25 @@ void http_server::set_request_scheduling_group(scheduling_group sg) {
 
 future<> http_server::listen(socket_address addr, listen_options lo,
             server_credentials_ptr listener_credentials) {
-    if (listener_credentials) {
-        _listeners.push_back(seastar::tls::listen(listener_credentials, addr, lo));
-    } else {
-        _listeners.push_back(seastar::listen(addr, lo));
-    }
-    return start_accepting(_listeners.size() - 1, listener_credentials != nullptr);
+    auto ss = listener_credentials
+            ? seastar::tls::listen(listener_credentials, addr, lo)
+            : seastar::listen(addr, lo);
+    add_listener(std::move(ss), listener_credentials != nullptr);
+    return make_ready_future<>();
+}
+
+listener_entry& http_server::add_listener(server_socket&& ss, bool tls) {
+    // The address actually bound, rather than the one asked for: a listener asked for
+    // port 0 is known by the port it was given.
+    auto bound = ss.local_address();
+    auto& listener = _listeners.emplace_back(std::move(ss), bound, tls, _next_listener_index++);
+    start_accepting(listener, tls);
+    return listener;
+}
+
+listener_entry* http_server::listener_at(int which) {
+    auto it = std::ranges::find(_listeners, size_t(which), &listener_entry::index);
+    return it == _listeners.end() ? nullptr : &*it;
 }
 
 future<> http_server::listen(socket_address addr, listen_options lo) {
@@ -446,18 +459,18 @@ future<> http_server::listen(socket_address addr) {
 }
 
 future<> http_server::listen(server_socket&& ss, bool tls) {
-    _listeners.push_back(std::move(ss));
-    return start_accepting(_listeners.size() - 1, tls);
+    add_listener(std::move(ss), tls);
+    return make_ready_future<>();
 }
 
 std::vector<socket_address> http_server::listening_addresses() const {
-    return _listeners | std::views::transform(&server_socket::local_address) | std::ranges::to<std::vector>();
+    return _listeners | std::views::transform(&listener_entry::addr) | std::ranges::to<std::vector>();
 }
 
 future<> http_server::stop() {
     future<> tasks_done = _task_gate.close();
     for (auto&& l : _listeners) {
-        l.abort_accept();
+        l.socket.abort_accept();
     }
     for (auto&& c : _connections) {
         c.shutdown();
@@ -468,10 +481,10 @@ future<> http_server::stop() {
 // This is a named class member coroutine, so that 'this', 'which' and 'tls'
 // live safely in the coroutine frame, therefore `accept_loop()` can safely suspend
 // at `co_await do_accept_one()`.
-future<> http_server::run_accept_loop(int which, bool tls) {
+future<> http_server::run_accept_loop(listener_entry& listener, bool tls) {
     while (!_task_gate.is_closed()) {
         try {
-            co_await do_accept_one(which, tls);
+            co_await do_accept_one(listener, tls);
         } catch (const gate_closed_exception&) {
             co_return;
         } catch (const std::system_error& e) {
@@ -486,29 +499,39 @@ future<> http_server::run_accept_loop(int which, bool tls) {
     }
 }
 
-future<> http_server::start_accepting(int which, bool tls) {
-    (void)try_with_gate(_task_gate, [this, which, tls] {
-        return run_accept_loop(which, tls);
-    }).handle_exception_type([which, tls] (const gate_closed_exception& e) {
-        hlogger.warn("In http_server::start_accepting(), try_with_gate(which={}, tls={}): {}", which, tls, e.what());
+void http_server::start_accepting(listener_entry& listener, bool tls) {
+    // Kept rather than detached, so that this listener's loop can be waited for on its
+    // own rather than through the server's task gate.
+    listener.accept_loop = try_with_gate(_task_gate, [this, &listener, tls] {
+        return run_accept_loop(listener, tls);
+    }).handle_exception_type([addr = listener.addr] (const gate_closed_exception& e) {
+        hlogger.warn("In http_server::start_accepting({}): {}", addr, e.what());
     });
-    return make_ready_future<>();
 }
 
 future<> http_server::do_accepts(int which, bool tls) {
-    return start_accepting(which, tls);
+    auto* listener = listener_at(which);
+    if (!listener) {
+        return make_exception_future<>(std::out_of_range(seastar::format("no listener {}", which)));
+    }
+    start_accepting(*listener, tls);
+    return make_ready_future<>();
 }
 
 future<> http_server::do_accepts(int which){
-    return start_accepting(which, _credentials != nullptr);
+    return do_accepts(which, _credentials != nullptr);
 }
 
 future<> http_server::accept_loop(int which, bool tls) {
-    return run_accept_loop(which, tls);
+    auto* listener = listener_at(which);
+    if (!listener) {
+        return make_exception_future<>(std::out_of_range(seastar::format("no listener {}", which)));
+    }
+    return run_accept_loop(*listener, tls);
 }
 
-future<> http_server::do_accept_one(int which, bool tls) {
-    auto ar = co_await _listeners[which].accept();
+future<> http_server::do_accept_one(listener_entry& listener, bool tls) {
+    auto ar = co_await listener.socket.accept();
     if (_keepalive_params) {
         ar.connection.set_keepalive(true);
         ar.connection.set_keepalive_parameters(_keepalive_params.value());
