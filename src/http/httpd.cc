@@ -482,6 +482,45 @@ void http_server::drop_listener(listener_entry& listener) {
     _listeners.remove_if([&listener] (const listener_entry& e) { return &e == &listener; });
 }
 
+socket_address listeners_compat_view::entry::local_address() const noexcept {
+    return _entry->addr;
+}
+
+size_t listeners_compat_view::size() const noexcept {
+    return _server->_listeners.size();
+}
+
+bool listeners_compat_view::empty() const noexcept {
+    return _server->_listeners.empty();
+}
+
+listeners_compat_view::entry listeners_compat_view::at(size_t i) const {
+    if (i >= size()) {
+        throw std::out_of_range(seastar::format("no listener {}", i));
+    }
+    return entry(*std::next(_server->_listeners.begin(), i));
+}
+
+listeners_compat_view::entry listeners_compat_view::operator[](size_t i) const {
+    return at(i);
+}
+
+listeners_compat_view::entry listeners_compat_view::front() const {
+    return at(0);
+}
+
+listeners_compat_view::entry listeners_compat_view::back() const {
+    return at(size() - 1);
+}
+
+void listeners_compat_view::push_back(server_socket&& ss) {
+    _server->add_listener(std::move(ss), false);
+}
+
+void listeners_compat_view::emplace_back(server_socket&& ss) {
+    push_back(std::move(ss));
+}
+
 listener& listener::operator=(listener&& other) noexcept {
     if (this != &other) {
         // Release what this one holds rather than destroying it: calling the destructor

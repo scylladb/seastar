@@ -3317,3 +3317,43 @@ SEASTAR_TEST_CASE(test_a_listener_that_is_never_served_gives_its_address_up) {
         server.stop().get();
     });
 }
+
+// The deprecated http_server_tester::listeners() still answers what its callers used to
+// ask of it, so that they have a release to move off it in rather than a build break.
+// NOTE: remove this once http_server_tester is removed.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+SEASTAR_TEST_CASE(test_deprecated_listeners_view_still_works) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        put_hello_route(server);
+
+        // How a caller of the old interface served a socket of its own: push it in, then
+        // start accepting on it by position.
+        auto& listeners = httpd::http_server_tester::listeners(server);
+        BOOST_REQUIRE(listeners.empty());
+        listeners.push_back(lcf.get_server_socket());
+        BOOST_REQUIRE_EQUAL(listeners.size(), 1u);
+        server.do_accepts(listeners.size() - 1).get();
+
+        // ... and how it read back what was bound.
+        BOOST_REQUIRE_EQUAL(listeners.at(0).local_address(), server.listening_addresses().front());
+        BOOST_REQUIRE_EQUAL(listeners.back().local_address(), listeners.front().local_address());
+        BOOST_REQUIRE_THROW(listeners.at(1), std::out_of_range);
+
+        loopback_socket_impl lsi(lcf);
+        auto c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get();
+        auto input = c_socket.input();
+        auto output = c_socket.output();
+        output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")).get();
+        output.flush().get();
+        BOOST_REQUIRE(util::read_entire_stream_contiguous(input).get().find("hello") != sstring::npos);
+        input.close().get();
+        output.close().get();
+
+        server.stop().get();
+        lcf.destroy_all_shards().get();
+    });
+}
+#pragma GCC diagnostic pop

@@ -208,6 +208,41 @@ public:
     output_stream<char>& out();
 };
 
+/// What http_server_tester::listeners() hands back: enough of the vector of sockets it
+/// used to return for its callers to go on working while they move off it.
+///
+/// Not a container - a server's listeners are not bare sockets any more - but it answers
+/// the questions that were asked of one: how many there are, the address each is bound
+/// to, and adding a socket of your own. Positions are counted the way the vector's were,
+/// so they mean what they used to for a caller that only ever adds listeners, which is
+/// the only thing this interface was ever able to do.
+class listeners_compat_view {
+    http_server* _server = nullptr;
+    friend class http_server;
+public:
+    explicit listeners_compat_view(http_server& server) noexcept : _server(&server) {}
+
+    /// Stands in for the server_socket that used to be at this position.
+    class entry {
+        const listener_entry* _entry = nullptr;
+        friend class listeners_compat_view;
+        explicit entry(const listener_entry& e) noexcept : _entry(&e) {}
+    public:
+        socket_address local_address() const noexcept;
+    };
+
+    size_t size() const noexcept;
+    bool empty() const noexcept;
+    entry at(size_t i) const;
+    entry operator[](size_t i) const;
+    entry front() const;
+    entry back() const;
+    /// Bind a socket of the caller's into the server. As before, nothing is accepted on
+    /// it until it is served.
+    void push_back(server_socket&& ss);
+    void emplace_back(server_socket&& ss);
+};
+
 class http_server {
     // std::list, because an accept loop holds a reference to its own entry for as long
     // as it runs, and because the deprecated index-taking interface still wants the
@@ -218,6 +253,9 @@ class http_server {
     // which is when stop() fires this. The futures are those listeners' ends of it.
     abort_source _stop;
     std::vector<future<>> _listening;
+    // Handed out by the deprecated http_server_tester::listeners(). A member rather than
+    // a temporary because its callers bind it to a non-const reference.
+    listeners_compat_view _listeners_view{*this};
     http_stats _stats;
     uint64_t _total_connections = 0;
     uint64_t _current_connections = 0;
@@ -350,6 +388,7 @@ private:
     friend class seastar::httpd::connection;
     friend class http_server_tester;
     friend class seastar::httpd::listener;
+    friend class seastar::httpd::listeners_compat_view;
 };
 
 /*
@@ -365,11 +404,18 @@ private:
  *                  std::cout << "Seastar HTTP server listening on port " << port << " ...\n";
  *              });
  */
-// A hook for tests that need more of a server than its public interface offers.
+// A hook for tests that need more of a server than its public interface offers. Nothing
+// in this tree needs it any more: what its users reached in for, a server now offers
+// itself.
 class http_server_tester {
 public:
-    static std::list<listener_entry>& listeners(http_server& server) {
-        return server._listeners;
+    /// \deprecated Serving a socket of your own is listen(server_socket&&), and reading
+    /// back what a server is serving is listening_addresses(). This hands out the
+    /// server's own list, whose shape is not something callers should be holding on to.
+    [[deprecated("Use http_server::listen(server_socket&&) to serve a socket of your own, "
+                 "and http_server::listening_addresses() to read back what is served")]]
+    static listeners_compat_view& listeners(http_server& server) {
+        return server._listeners_view;
     }
 };
 
