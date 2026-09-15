@@ -94,7 +94,7 @@ future<> test_prometheus_metrics_body(test_case tc) {
     co_await seastar::async([tc] {
         loopback_connection_factory lcf(1);
         http_server server("test");
-        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+        server.listen(lcf.get_server_socket()).get();
 
         prometheus::config ctx;
         if (tc.use_global_label) {
@@ -120,7 +120,6 @@ future<> test_prometheus_metrics_body(test_case tc) {
             }
         });
 
-        server.do_accepts(0).get();
 
         client.get();
         server.stop().get();
@@ -150,7 +149,7 @@ SEASTAR_TEST_CASE(test_prometheus_multiple_name_filters) {
     co_await seastar::async([] {
         loopback_connection_factory lcf(1);
         http_server server("test");
-        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+        server.listen(lcf.get_server_socket()).get();
 
         prometheus::config ctx;
         add_prometheus_routes(server, ctx).get();
@@ -170,7 +169,6 @@ SEASTAR_TEST_CASE(test_prometheus_multiple_name_filters) {
                 fmt::format("should NOT contain metric_beta\nResponse: {}\n", resp_str));
         });
 
-        server.do_accepts(0).get();
 
         client.get();
         server.stop().get();

@@ -188,11 +188,32 @@ public:
     future<> listen(socket_address addr, listen_options lo, server_credentials_ptr credentials);
     future<> listen(socket_address addr, listen_options lo);
     future<> listen(socket_address addr);
-    future<> stop();
 
+    /// Serve a socket the caller created, rather than one this server binds itself.
+    ///
+    /// Useful for serving something that is not a TCP socket at all - a loopback pair in
+    /// a test, say - and for a caller that wants to bind with options this class does not
+    /// expose. \c tls says whether the socket is already wrapped in TLS: a socket that
+    /// arrives ready-made carries no sign of it, and a connection accepted on it has to
+    /// know in order to report the client's identity to a handler.
+    future<> listen(server_socket&& ss, bool tls = false);
+
+    /// The addresses this server is listening on, in no particular order. A listener that
+    /// asked for port 0 appears here under the port it was actually given.
+    std::vector<socket_address> listening_addresses() const;
+
+    // Starting the accept loop is not something a caller has to do: listen() starts one
+    // for the socket it creates, and listen(server_socket&&) for the socket it is given,
+    // so calling these on top of that starts a second loop on a socket that already has
+    // one. They are kept for callers that relied on them.
+    [[deprecated("listen() starts accepting by itself; to serve a socket you created, use listen(server_socket&&)")]]
     future<> do_accepts(int which);
+    [[deprecated("listen() starts accepting by itself; to serve a socket you created, use listen(server_socket&&)")]]
     future<> do_accepts(int which, bool with_tls);
+    [[deprecated("listen() starts accepting by itself; to serve a socket you created, use listen(server_socket&&)")]]
     future<> accept_loop(int which, bool tls);
+
+    future<> stop();
 
     uint64_t total_connections() const;
     uint64_t current_connections() const;
@@ -204,6 +225,8 @@ public:
     // RFC 7231, Section 7.1.1.1.
     static sstring http_date();
 private:
+    future<> start_accepting(int which, bool with_tls);
+    future<> run_accept_loop(int which, bool tls);
     future<> do_accept_one(int which, bool with_tls);
     future<> do_process_connection(connected_socket conn_fd, socket_address remote_address, bool tls);
     boost::intrusive::list<connection> _connections;

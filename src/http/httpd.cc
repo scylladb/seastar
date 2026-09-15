@@ -33,6 +33,8 @@
 #include <seastar/core/queue.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/metrics.hh>
+#include <ranges>
+
 #include <seastar/http/httpd.hh>
 #include <seastar/http/internal/content_source.hh>
 #include <seastar/http/reply.hh>
@@ -423,7 +425,7 @@ future<> http_server::listen(socket_address addr, listen_options lo,
     } else {
         _listeners.push_back(seastar::listen(addr, lo));
     }
-    return do_accepts(_listeners.size() - 1, listener_credentials != nullptr);
+    return start_accepting(_listeners.size() - 1, listener_credentials != nullptr);
 }
 
 future<> http_server::listen(socket_address addr, listen_options lo) {
@@ -442,6 +444,16 @@ future<> http_server::listen(socket_address addr) {
     lo.reuse_address = true;
     return listen(addr, lo);
 }
+
+future<> http_server::listen(server_socket&& ss, bool tls) {
+    _listeners.push_back(std::move(ss));
+    return start_accepting(_listeners.size() - 1, tls);
+}
+
+std::vector<socket_address> http_server::listening_addresses() const {
+    return _listeners | std::views::transform(&server_socket::local_address) | std::ranges::to<std::vector>();
+}
+
 future<> http_server::stop() {
     future<> tasks_done = _task_gate.close();
     for (auto&& l : _listeners) {
@@ -456,7 +468,7 @@ future<> http_server::stop() {
 // This is a named class member coroutine, so that 'this', 'which' and 'tls'
 // live safely in the coroutine frame, therefore `accept_loop()` can safely suspend
 // at `co_await do_accept_one()`.
-future<> http_server::accept_loop(int which, bool tls) {
+future<> http_server::run_accept_loop(int which, bool tls) {
     while (!_task_gate.is_closed()) {
         try {
             co_await do_accept_one(which, tls);
@@ -474,17 +486,25 @@ future<> http_server::accept_loop(int which, bool tls) {
     }
 }
 
-future<> http_server::do_accepts(int which, bool tls) {
+future<> http_server::start_accepting(int which, bool tls) {
     (void)try_with_gate(_task_gate, [this, which, tls] {
-        return accept_loop(which, tls);
+        return run_accept_loop(which, tls);
     }).handle_exception_type([which, tls] (const gate_closed_exception& e) {
-        hlogger.warn("In http_server::do_accepts(), try_with_gate(which={}, tls={}): {}", which, tls, e.what());
+        hlogger.warn("In http_server::start_accepting(), try_with_gate(which={}, tls={}): {}", which, tls, e.what());
     });
     return make_ready_future<>();
 }
 
+future<> http_server::do_accepts(int which, bool tls) {
+    return start_accepting(which, tls);
+}
+
 future<> http_server::do_accepts(int which){
-    return do_accepts(which, _credentials != nullptr);
+    return start_accepting(which, _credentials != nullptr);
+}
+
+future<> http_server::accept_loop(int which, bool tls) {
+    return run_accept_loop(which, tls);
 }
 
 future<> http_server::do_accept_one(int which, bool tls) {
