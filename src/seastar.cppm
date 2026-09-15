@@ -651,6 +651,7 @@ using seastar::httpd::http_server;
 using seastar::httpd::http_server_control;
 using seastar::httpd::http_server_tester;
 using seastar::httpd::json_request_function;
+using seastar::httpd::listener;
 using seastar::httpd::operation_type;
 using seastar::httpd::routes;
 using seastar::httpd::type2str;

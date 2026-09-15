@@ -2978,3 +2978,342 @@ SEASTAR_TEST_CASE(test_tls_handshake_error_metric) {
         server.stop().get();
     });
 }
+
+// Serve /test on a fresh listener, for as long as the returned abort_source is not
+// aborted, and hand back the address it was given.
+static socket_address serve_on_ephemeral_port(http_server& server, abort_source& as,
+        future<>& served, const char* address = "127.0.0.1") {
+    listen_options lo;
+    lo.reuse_address = true;
+    lo.set_fixed_cpu(this_shard_id());
+    auto listener = server.bind(socket_address(ipv4_addr(address, 0)), lo).get();
+    // The address is live as soon as bind() resolves, whether or not anything is being
+    // accepted on it yet.
+    auto addr = listener.address();
+    BOOST_REQUIRE_EQUAL(server.listening_addresses().size(), 1u);
+    served = listener.serve(as);
+    return addr;
+}
+
+static sstring get_test_response(socket_address addr) {
+    auto c_socket = connect(addr).get();
+    auto input = c_socket.input();
+    auto output = c_socket.output();
+    output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")).get();
+    output.flush().get();
+    auto response = util::read_entire_stream_contiguous(input).get();
+    input.close().get();
+    output.close().get();
+    return response;
+}
+
+static void put_hello_route(http_server& server) {
+    server._routes.put(GET, "/test", new function_handler([] (const_req) {
+        return "hello";
+    }, "txt"));
+}
+
+SEASTAR_TEST_CASE(test_aborting_a_listener_stops_serving_its_address) {
+    return seastar::async([] {
+        http_server server("test");
+        put_hello_route(server);
+
+        abort_source as;
+        future<> served = make_ready_future<>();
+        auto addr = serve_on_ephemeral_port(server, as, served);
+        BOOST_REQUIRE(get_test_response(addr).find("hello") != sstring::npos);
+
+        as.request_abort();
+        served.get();
+
+        BOOST_REQUIRE(server.listening_addresses().empty());
+        // Nothing is accepting on it any more.
+        BOOST_REQUIRE_THROW(connect(addr).get(), std::system_error);
+
+        server.stop().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_aborting_a_listener_leaves_the_others_alone) {
+    return seastar::async([] {
+        http_server server("test");
+        put_hello_route(server);
+
+        listen_options lo;
+        lo.reuse_address = true;
+        lo.set_fixed_cpu(this_shard_id());
+        abort_source removed_as, kept_as;
+        auto removed_listener = server.bind(socket_address(ipv4_addr("127.0.0.1", 0)), lo).get();
+        auto kept_listener = server.bind(socket_address(ipv4_addr("127.0.0.1", 0)), lo).get();
+        auto kept = kept_listener.address();
+        auto removed_served = removed_listener.serve(removed_as);
+        auto kept_served = kept_listener.serve(kept_as);
+
+        BOOST_REQUIRE_EQUAL(server.listening_addresses().size(), 2u);
+
+        removed_as.request_abort();
+        removed_served.get();
+
+        BOOST_REQUIRE_EQUAL(server.listening_addresses().size(), 1u);
+        BOOST_REQUIRE_EQUAL(server.listening_addresses().front(), kept);
+        // The one that stayed is still serving, and the routes and the server itself are
+        // untouched by its neighbour going away.
+        BOOST_REQUIRE(get_test_response(kept).find("hello") != sstring::npos);
+
+        kept_as.request_abort();
+        kept_served.get();
+        server.stop().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_aborting_a_listener_twice_is_harmless) {
+    return seastar::async([] {
+        http_server server("test");
+        abort_source as;
+        future<> served = make_ready_future<>();
+        serve_on_ephemeral_port(server, as, served);
+
+        as.request_abort();
+        as.request_abort();
+        served.get();
+
+        server.stop().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_stopping_the_server_finishes_serve) {
+    return seastar::async([] {
+        http_server server("test");
+        abort_source as;
+        future<> served = make_ready_future<>();
+        serve_on_ephemeral_port(server, as, served);
+
+        // Never aborted: stopping the whole server has to finish serve() too, or its
+        // caller would wait forever.
+        server.stop().get();
+        served.get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_aborting_a_listener_drains_the_request_in_flight) {
+    return seastar::async([] {
+        promise<> handler_entered;
+        promise<> let_handler_finish;
+        bool handler_finished = false;
+
+        http_server server("test");
+        server._routes.put(GET, "/test", new function_handler(
+                [&] (std::unique_ptr<http::request>, std::unique_ptr<http::reply> rep) -> future<std::unique_ptr<http::reply>> {
+            handler_entered.set_value();
+            co_await let_handler_finish.get_future();
+            handler_finished = true;
+            rep->write_body("txt", sstring("drained"));
+            co_return rep;
+        }, "txt"));
+
+        abort_source as;
+        future<> served = make_ready_future<>();
+        auto addr = serve_on_ephemeral_port(server, as, served);
+
+        auto c_socket = connect(addr).get();
+        auto input = c_socket.input();
+        auto output = c_socket.output();
+        output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")).get();
+        output.flush().get();
+
+        // The request is now inside the handler, so the connection has work outstanding.
+        handler_entered.get_future().get();
+
+        as.request_abort();
+        // serve() cannot be finished while the handler is still running: that is what
+        // draining means. Give it a chance to finish wrongly before letting the handler go.
+        seastar::sleep(std::chrono::milliseconds(100)).get();
+        BOOST_REQUIRE(!served.available());
+        BOOST_REQUIRE(!handler_finished);
+
+        let_handler_finish.set_value();
+        served.get();
+        BOOST_REQUIRE(handler_finished);
+
+        // ... and the client got the answer rather than a severed connection.
+        auto response = util::read_entire_stream_contiguous(input).get();
+        BOOST_REQUIRE(response.find("drained") != sstring::npos);
+        input.close().get();
+        output.close().get();
+
+        server.stop().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_aborting_a_listener_drains_a_keep_alive_request_in_flight) {
+    return seastar::async([] {
+        promise<> handler_entered;
+        promise<> let_handler_finish;
+
+        http_server server("test");
+        server._routes.put(GET, "/test", new function_handler(
+                [&] (std::unique_ptr<http::request>, std::unique_ptr<http::reply> rep) -> future<std::unique_ptr<http::reply>> {
+            handler_entered.set_value();
+            co_await let_handler_finish.get_future();
+            rep->write_body("txt", sstring("drained"));
+            co_return rep;
+        }, "txt"));
+
+        abort_source as;
+        future<> served = make_ready_future<>();
+        auto addr = serve_on_ephemeral_port(server, as, served);
+
+        // No "Connection: close": the request in flight is one the connection means to
+        // keep alive afterwards, so finishing it puts the connection back to waiting for
+        // another request unless draining says otherwise.
+        auto c_socket = connect(addr).get();
+        auto input = c_socket.input();
+        auto output = c_socket.output();
+        output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\n\r\n")).get();
+        output.flush().get();
+        handler_entered.get_future().get();
+
+        as.request_abort();
+        // Let the drain reach this connection while its request is still in the handler:
+        // that is the case where finishing the request would otherwise put the connection
+        // back to waiting for another one.
+        seastar::sleep(std::chrono::milliseconds(200)).get();
+        BOOST_REQUIRE(!served.available());
+
+        let_handler_finish.set_value();
+
+        // The reply is sent, and then the connection goes away rather than waiting for a
+        // request that is never coming.
+        served.get();
+        BOOST_REQUIRE(input.read().get().size() != 0);
+
+        input.close().get();
+        output.close().get();
+        server.stop().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_aborting_a_wildcard_listener_drains_its_connections) {
+    return seastar::async([] {
+        http_server server("test");
+        put_hello_route(server);
+
+        // A wildcard bind, which is what a server does by default. Its own address is
+        // 0.0.0.0, while every connection accepted on it has a concrete local address,
+        // so a listener that identified its connections by address would find none of
+        // them and wait for them forever.
+        abort_source as;
+        future<> served = make_ready_future<>();
+        auto bound = serve_on_ephemeral_port(server, as, served, "0.0.0.0");
+        auto connect_to = socket_address(ipv4_addr("127.0.0.1", bound.port()));
+
+        // An idle keep-alive connection: one request answered, then nothing. Nothing will
+        // make it go away on its own, so draining has to.
+        auto c_socket = connect(connect_to).get();
+        auto input = c_socket.input();
+        auto output = c_socket.output();
+        output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\n\r\n")).get();
+        output.flush().get();
+        input.read().get();
+
+        as.request_abort();
+        served.get();
+
+        input.close().get();
+        output.close().get();
+        server.stop().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_aborting_a_listener_does_not_cut_off_a_request_body) {
+    return seastar::async([] {
+        sstring received;
+        http_server server("test");
+        server._routes.put(PUT, "/test", new function_handler(
+                [&] (std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) -> future<std::unique_ptr<http::reply>> {
+            received = co_await util::read_entire_stream_contiguous(*req->content_stream);
+            rep->write_body("txt", sstring("got it"));
+            co_return rep;
+        }, "txt"));
+        server.set_content_streaming(true);
+
+        abort_source as;
+        future<> served = make_ready_future<>();
+        auto addr = serve_on_ephemeral_port(server, as, served);
+
+        auto c_socket = connect(addr).get();
+        auto input = c_socket.input();
+        auto output = c_socket.output();
+        // Headers and the first half of the body, then abort the listener before the
+        // rest of it is sent. The body has to arrive whole even so.
+        output.write(sstring("PUT /test HTTP/1.1\r\nHost: test\r\nContent-Length: 8\r\nConnection: close\r\n\r\nabcd")).get();
+        output.flush().get();
+        seastar::sleep(std::chrono::milliseconds(100)).get();
+
+        as.request_abort();
+        seastar::sleep(std::chrono::milliseconds(100)).get();
+        BOOST_REQUIRE(!served.available());
+
+        output.write(sstring("efgh")).get();
+        output.flush().get();
+        served.get();
+
+        BOOST_REQUIRE_EQUAL(received, sstring("abcdefgh"));
+        input.close().get();
+        output.close().get();
+        server.stop().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_a_bound_listener_is_live_before_it_is_served) {
+    return seastar::async([] {
+        http_server server("test");
+        put_hello_route(server);
+
+        listen_options lo;
+        lo.reuse_address = true;
+        lo.set_fixed_cpu(this_shard_id());
+        auto listener = server.bind(socket_address(ipv4_addr("127.0.0.1", 0)), lo).get();
+
+        // Bound, so the address is known and a client can connect - the kernel queues it -
+        // even though nothing is accepting yet. This is what lets a caller announce where
+        // it can be found before it starts serving.
+        auto addr = listener.address();
+        BOOST_REQUIRE_NE(addr.port(), 0);
+        auto c_socket = connect(addr).get();
+
+        abort_source as;
+        auto served = listener.serve(as);
+        auto input = c_socket.input();
+        auto output = c_socket.output();
+        output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")).get();
+        output.flush().get();
+        BOOST_REQUIRE(util::read_entire_stream_contiguous(input).get().find("hello") != sstring::npos);
+        input.close().get();
+        output.close().get();
+
+        as.request_abort();
+        served.get();
+        server.stop().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_a_listener_that_is_never_served_gives_its_address_up) {
+    return seastar::async([] {
+        http_server server("test");
+        listen_options lo;
+        lo.reuse_address = true;
+        lo.set_fixed_cpu(this_shard_id());
+
+        socket_address addr;
+        {
+            auto listener = server.bind(socket_address(ipv4_addr("127.0.0.1", 0)), lo).get();
+            addr = listener.address();
+            BOOST_REQUIRE_EQUAL(server.listening_addresses().size(), 1u);
+        }
+        // Dropped without being served, so the server is not holding it any more.
+        BOOST_REQUIRE(server.listening_addresses().empty());
+
+        server.stop().get();
+    });
+}
