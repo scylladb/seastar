@@ -2751,7 +2751,7 @@ void reactor::task_queue::do_dump() const {
             const auto rp = t->get_resume_point();
             const std::string_view file_name = rp.file_name();
             if (file_name.empty()) {
-                seastar_logger.log(log_level::warn, "{}{}", count_text, typeid(t).name());
+                seastar_logger.log(log_level::warn, "{}{}", count_text, typeid(*t).name());
             }
             else {
                 seastar_logger.log(log_level::warn, "{}{}:{}:{}", count_text, rp.file_name(), rp.line(), rp.column());
