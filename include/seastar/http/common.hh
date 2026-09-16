@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <unordered_map>
 
 #include <seastar/core/sstring.hh>
@@ -41,6 +42,22 @@ output_stream<char> make_http_content_length_output_stream(output_stream<char>& 
 
 namespace httpd {
 
+/// An opaque value the caller may associate with an http_server listener.
+///
+/// The value is attached to a listener by passing it to \ref
+/// http_server::listen(); every request received on a connection accepted by
+/// that listener reports it via \ref http::request::get_listener_tag(). Seastar
+/// attaches no meaning to the value: use it as an index into the caller's own
+/// array of per-endpoint state, or hold a pointer to such state in it (hence
+/// the uintptr_t representation).
+///
+/// Requests arriving on a listener created without a tag report \ref
+/// no_listener_tag.
+enum class listener_tag : uintptr_t {};
+
+/// The tag reported for a request that arrived on a listener created without
+/// one, or that was not received by an http_server at all.
+constexpr listener_tag no_listener_tag{};
 
 class parameters {
     // Note: the path matcher adds parameters with the '/' prefix into the params map (eg. "/param1"), and some getters
