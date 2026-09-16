@@ -628,6 +628,10 @@ public:
         return _fq._priority_groups[index]->_parent == &_fq._root;
     }
 
+    unsigned group_shares(unsigned index) {
+        return _fq._priority_groups[index]->_shares;
+    }
+
     std::optional<unsigned> get_parent_index(scheduling_group sg) {
         auto& pe = reinterpret_cast<fair_queue::priority_entry&>(*_fq._priority_classes[internal::scheduling_group_index(sg)]);
         if (pe._parent == &_fq._root) {
@@ -676,6 +680,38 @@ SEASTAR_THREAD_TEST_CASE(test_nested_priority_classes_basic_linkage) {
     BOOST_CHECK(!fq.get_parent_index(sg0));
     BOOST_CHECK(fq.get_parent_index(sg1) == 0);
     BOOST_CHECK(fq.get_parent_index(sg2) == 1);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_supergroup_index_reuse_refreshes_group_shares) {
+    io_queue_for_tests tio;
+
+    auto ssg = create_scheduling_supergroup(100).get();
+    auto sg = create_scheduling_group("a", "a", 100, ssg).get();
+
+    tio.find_or_create_class(sg);
+
+    seastar::testing::fair_queue_test fq(tio.get_fair_queue());
+    BOOST_REQUIRE_EQUAL(fq.group_shares(ssg.index()), 100);
+
+    tio.queue.destroy_priority_class(sg);
+    destroy_scheduling_group(sg).get();
+    auto reused_index = ssg.index();
+    destroy_scheduling_supergroup(ssg).get();
+
+    // Supergroups are allocated from the first free slot, so the new one
+    // takes over the index of the one just destroyed. The io-queue keeps
+    // the group data of the old supergroup on that index, and must still
+    // apply the new supergroup's shares to the fair-queue group
+    auto ssg2 = create_scheduling_supergroup(800).get();
+    BOOST_REQUIRE_EQUAL(ssg2.index(), reused_index);
+    auto sg2 = create_scheduling_group("b", "b", 100, ssg2).get();
+
+    tio.find_or_create_class(sg2);
+    BOOST_REQUIRE_EQUAL(fq.group_shares(ssg2.index()), 800);
+
+    tio.queue.destroy_priority_class(sg2);
+    destroy_scheduling_group(sg2).get();
+    destroy_scheduling_supergroup(ssg2).get();
 }
 
 SEASTAR_THREAD_TEST_CASE(test_destroy_priority_class_with_requests) {
