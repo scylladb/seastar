@@ -1285,14 +1285,17 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
 
                 try {
                     tcp.indata = f.get();
-                    continue; // loop will take care of data
                 } catch (std::system_error& e) {
                     errno = e.code().value();
                     return -1;
                 } catch (...) {
+                    return -1;
                 }
-                return -1;
-
+                if (tcp.indata.empty()) {
+                    dns_log.trace("Read {}: connection closed by peer", fd);
+                    return 0;
+                }
+                continue; // loop will take care of data
             }
             case type::udp: {
                 auto & udp = e.udp;
