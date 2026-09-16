@@ -29,6 +29,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/coroutine/as_future.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/dns.hh>
 #include <seastar/net/inet_address.hh>
@@ -113,6 +114,27 @@ static future<> serve_split_tcp_dns_response(server_socket& listener) {
     co_await out.flush();
     co_await out.close();
     co_await in.close();
+}
+
+// Closes every connection after reading its query, until abort_accept().
+static future<> serve_tcp_dns_and_close(server_socket& listener) {
+    for (;;) {
+        auto ar = co_await coroutine::as_future(listener.accept());
+        if (ar.failed()) {
+            ar.ignore_ready_future();
+            co_return;
+        }
+        auto socket = std::move(ar.get().connection);
+        auto in = socket.input();
+
+        auto len_buf = co_await in.read_exactly(2);
+        BOOST_REQUIRE_EQUAL(len_buf.size(), 2);
+        auto query_len = read_be16(len_buf.get());
+        auto query = co_await in.read_exactly(query_len);
+        BOOST_REQUIRE_EQUAL(query.size(), query_len);
+        co_await in.close();
+        socket.shutdown_output();
+    }
 }
 
 static future<> test_resolve(dns_resolver::options opts) {
@@ -274,6 +296,34 @@ SEASTAR_TEST_CASE(test_resolve_tcp_split_response) {
     if (ex) {
         std::rethrow_exception(ex);
     }
+}
+
+// A name server that closes the connection must fail the query, not hang the reactor.
+SEASTAR_TEST_CASE(test_tcp_server_closes_connection) {
+    listen_options lo;
+    lo.reuse_address = true;
+    lo.set_fixed_cpu(this_shard_id());
+    auto listener = seastar::listen(socket_address(inet_address("127.0.0.1"), 0), lo);
+    auto server = serve_tcp_dns_and_close(listener);
+
+    dns_resolver::options opts;
+    opts.servers = std::vector<inet_address>({ inet_address("127.0.0.1") });
+    opts.use_tcp_query = true;
+    opts.tcp_port = listener.local_address().port();
+    opts.timeout = std::chrono::milliseconds(300);
+
+    auto d = ::make_lw_shared<dns_resolver>(engine().net(), opts);
+    auto f = co_await coroutine::as_future(with_timeout(timer<>::clock::now() + std::chrono::seconds(10),
+            d->get_host_by_name("closed.seastar.test", inet_address::family::INET)));
+
+    co_await d->close();
+    listener.abort_accept();
+    co_await std::move(server);
+
+    BOOST_REQUIRE(f.failed());
+    BOOST_REQUIRE_EXCEPTION(f.get(), std::system_error, [] (const std::system_error& e) {
+        return e.code().category() == dns::error_category();
+    });
 }
 
 SEASTAR_TEST_CASE(test_resolve_tcp,
