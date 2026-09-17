@@ -316,6 +316,7 @@ SEASTAR_THREAD_TEST_CASE(udp_ipv4_wildcard_dst_test) {
 
     BOOST_REQUIRE_EQUAL(pkt.get_dst(), dst);
     BOOST_REQUIRE_EQUAL(pkt.get_src(), cc.local_address());
+    BOOST_REQUIRE_EQUAL(pkt.get_src().length(), sizeof(::sockaddr_in));
 
     cc.close();
     sc.close();

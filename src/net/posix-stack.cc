@@ -967,7 +967,6 @@ private:
             _hdr.msg_iov = &_iov;
             _hdr.msg_iovlen = 1;
             _hdr.msg_name = &_src_addr.u.sa;
-            _hdr.msg_namelen = sizeof(_src_addr.u.sas);
             if (use_pktinfo) {
                 _hdr.msg_control = _cmsg;
             }
@@ -980,7 +979,8 @@ private:
             _buffer = new char[MAX_DATAGRAM_SIZE];
             _iov.iov_base = _buffer;
             _iov.iov_len = MAX_DATAGRAM_SIZE;
-            // recvmsg() overwrites this
+            // recvmsg() overwrites these
+            _hdr.msg_namelen = sizeof(_src_addr.u.sas);
             _hdr.msg_controllen = _hdr.msg_control ? sizeof(_cmsg) : 0;
         }
     };
@@ -1139,6 +1139,14 @@ future<datagram>
 posix_datagram_channel::receive() {
     _recv.prepare();
     return _fd.recvmsg(&_recv._hdr).then([this] (size_t size) {
+        if (_recv._hdr.msg_namelen < sizeof(sa_family_t)) {
+            // an unbound AF_UNIX sender has no name and recvmsg() leaves msg_name untouched
+            memset(&_recv._src_addr.u, 0, sizeof(_recv._src_addr.u));
+            _recv._src_addr.u.sa.sa_family = _address.family();
+            _recv._src_addr.addr_length = sizeof(sa_family_t);
+        } else {
+            _recv._src_addr.addr_length = _recv._hdr.msg_namelen;
+        }
         std::optional<socket_address> dst;
         for (auto* cmsg = CMSG_FIRSTHDR(&_recv._hdr); cmsg != nullptr; cmsg = CMSG_NXTHDR(&_recv._hdr, cmsg)) {
             // a truncated cmsg keeps its header but not all its data
