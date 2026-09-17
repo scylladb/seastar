@@ -1017,7 +1017,11 @@ private:
         file_desc fd = file_desc::socket(family, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
 
         if (is_inet(family)) {
-            fd.setsockopt(SOL_IP, IP_PKTINFO, true);
+            if (family == AF_INET6) {
+                fd.setsockopt(IPPROTO_IPV6, IPV6_RECVPKTINFO, 1);
+            } else {
+                fd.setsockopt(SOL_IP, IP_PKTINFO, 1);
+            }
             if (engine().posix_reuseport_available()) {
                 fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
             }

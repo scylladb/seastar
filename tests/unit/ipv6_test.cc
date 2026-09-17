@@ -60,12 +60,30 @@ SEASTAR_TEST_CASE(udp_packet_test) {
             auto a = sc.local_address();
             sc.close();
             BOOST_REQUIRE_EQUAL(src, pkt.get_src());
-            auto dst = pkt.get_dst();
-            // Don't always get a dst address.
-            if (dst != socket_address()) {
-                BOOST_REQUIRE_EQUAL(a, pkt.get_dst());
-            }
+            BOOST_REQUIRE_EQUAL(pkt.get_src().length(), sizeof(::sockaddr_in6));
+            BOOST_REQUIRE_EQUAL(a, pkt.get_dst());
         });
+    });
+}
+
+SEASTAR_TEST_CASE(udp_wildcard_dst_test) {
+    if (!check_ipv6_support()) {
+        return make_ready_future<>();
+    }
+
+    return async([] {
+        auto sc = make_bound_datagram_channel(ipv6_addr{"::"});
+        auto cc = make_bound_datagram_channel(ipv6_addr{"::1"});
+        socket_address dst(ipv6_addr{"::1", sc.local_address().port()});
+
+        cc.send(dst, "apa").get();
+        auto pkt = sc.receive().get();
+
+        BOOST_REQUIRE_EQUAL(pkt.get_src(), cc.local_address());
+        BOOST_REQUIRE_EQUAL(pkt.get_dst(), dst);
+
+        cc.close();
+        sc.close();
     });
 }
 
