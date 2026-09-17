@@ -306,6 +306,21 @@ SEASTAR_THREAD_TEST_CASE(socket_abort_accept_on_empty_test) {
     moved_to.abort_accept();
 }
 
+SEASTAR_THREAD_TEST_CASE(udp_ipv4_wildcard_dst_test) {
+    auto sc = make_bound_datagram_channel(ipv4_addr("0.0.0.0", 0));
+    auto cc = make_bound_datagram_channel(ipv4_addr("127.0.0.1", 0));
+    socket_address dst(ipv4_addr("127.0.0.1", sc.local_address().port()));
+
+    cc.send(dst, "apa").get();
+    auto pkt = sc.receive().get();
+
+    BOOST_REQUIRE_EQUAL(pkt.get_dst(), dst);
+    BOOST_REQUIRE_EQUAL(pkt.get_src(), cc.local_address());
+
+    cc.close();
+    sc.close();
+}
+
 SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
 
     // Test that setting the send and recv buffer sizes on the listening

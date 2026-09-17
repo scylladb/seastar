@@ -20,6 +20,7 @@
  */
 
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <functional>
@@ -951,14 +952,6 @@ posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
         server_socket(std::make_unique<posix_ap_server_socket_impl>(protocol, sa, _allocator));
 }
 
-struct cmsg_with_pktinfo {
-    struct cmsghdrcmh;
-    union {
-        struct in_pktinfo pktinfo;
-        struct in6_pktinfo pkt6info;
-    };
-};
-
 class posix_datagram_channel : public datagram_channel_impl {
 private:
     static constexpr int MAX_DATAGRAM_SIZE = 65507;
@@ -967,7 +960,7 @@ private:
         struct iovec _iov;
         socket_address _src_addr;
         char* _buffer;
-        cmsg_with_pktinfo _cmsg;
+        alignas(struct cmsghdr) char _cmsg[std::max(CMSG_SPACE(sizeof(struct in_pktinfo)), CMSG_SPACE(sizeof(struct in6_pktinfo)))];
 
         recv_ctx(bool use_pktinfo) {
             memset(&_hdr, 0, sizeof(_hdr));
@@ -975,14 +968,8 @@ private:
             _hdr.msg_iovlen = 1;
             _hdr.msg_name = &_src_addr.u.sa;
             _hdr.msg_namelen = sizeof(_src_addr.u.sas);
-
             if (use_pktinfo) {
-                memset(&_cmsg, 0, sizeof(_cmsg));
-                _hdr.msg_control = &_cmsg;
-                _hdr.msg_controllen = sizeof(_cmsg);
-            } else {
-                _hdr.msg_control = nullptr;
-                _hdr.msg_controllen = 0;
+                _hdr.msg_control = _cmsg;
             }
         }
 
@@ -993,6 +980,8 @@ private:
             _buffer = new char[MAX_DATAGRAM_SIZE];
             _iov.iov_base = _buffer;
             _iov.iov_len = MAX_DATAGRAM_SIZE;
+            // recvmsg() overwrites this
+            _hdr.msg_controllen = _hdr.msg_control ? sizeof(_cmsg) : 0;
         }
     };
     struct send_ctx {
@@ -1152,10 +1141,11 @@ posix_datagram_channel::receive() {
     return _fd.recvmsg(&_recv._hdr).then([this] (size_t size) {
         std::optional<socket_address> dst;
         for (auto* cmsg = CMSG_FIRSTHDR(&_recv._hdr); cmsg != nullptr; cmsg = CMSG_NXTHDR(&_recv._hdr, cmsg)) {
-            if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO) {
+            // a truncated cmsg keeps its header but not all its data
+            if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO && cmsg->cmsg_len >= CMSG_LEN(sizeof(in_pktinfo))) {
                 dst = ipv4_addr(copy_reinterpret_cast<in_pktinfo>(CMSG_DATA(cmsg)).ipi_addr, _address.port());
                 break;
-            } else if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_PKTINFO) {
+            } else if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_PKTINFO && cmsg->cmsg_len >= CMSG_LEN(sizeof(in6_pktinfo))) {
                 dst = ipv6_addr(copy_reinterpret_cast<in6_pktinfo>(CMSG_DATA(cmsg)).ipi6_addr, _address.port());
                 break;
             }
