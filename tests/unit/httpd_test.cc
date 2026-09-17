@@ -317,6 +317,43 @@ SEASTAR_TEST_CASE(test_url_decode_edge_cases) {
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(test_file_handler_redirect_preserves_query) {
+    file_handler handler("");
+
+    struct redirect_case {
+        std::string_view target;
+        std::string_view location;
+    };
+    const redirect_case cases[] = {
+        {"/docs?lang=zh",  "http://xx.yy/docs/?lang=zh"},
+        {"/docs?next=/",   "http://xx.yy/docs/?next=/"},
+        {"/docs?lang=zh/", "http://xx.yy/docs/?lang=zh/"},
+        {"/doc", "http://xx.yy/doc/"},
+    };
+
+    for (const auto& c : cases) {
+        http::request req;
+        req._headers["Host"] = "xx.yy";
+        req._url = sstring(c.target);
+        http::reply rep;
+
+        BOOST_REQUIRE(handler.redirect_if_needed(req, rep));
+        BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::moved_permanently);
+        BOOST_REQUIRE_EQUAL(rep._headers["Location"], sstring(c.location));
+    }
+
+    // A slash at the end of the path prevents a redirect regardless of the
+    // contents of the query component.
+    http::request req;
+    req._headers["Host"] = "xx.yy";
+    req._url = "/docs/?lang=zh";
+    http::reply rep;
+    BOOST_REQUIRE(!handler.redirect_if_needed(req, rep));
+    BOOST_REQUIRE(!rep._headers.contains("Location"));
+
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(test_file_handler_get_extension) {
     struct extension_case {
         std::string_view path;

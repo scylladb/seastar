@@ -136,9 +136,15 @@ future<std::unique_ptr<http::reply>> file_interaction_handler::read(
 
 bool file_interaction_handler::redirect_if_needed(const http::request& req,
         http::reply& rep) const {
-    if (req._url.length() == 0 || req._url.back() != '/') {
+    auto location = req.get_url();
+    auto query_pos = location.find('?');
+    auto insert_pos = (query_pos == sstring::npos) ? location.size() : query_pos;
+
+    if (insert_pos == 0 || location[insert_pos - 1] != '/') {
+        location.replace(insert_pos, 0, "/", 1);
+
         rep.set_status(http::reply::status_type::moved_permanently);
-        rep._headers["Location"] = req.get_url() + "/";
+        rep._headers["Location"] = std::move(location);
         return true;
     }
     return false;
