@@ -2426,9 +2426,12 @@ void* calloc(size_t nmemb, size_t size) {
     if (try_trigger_error_injector()) {
         return nullptr;
     }
-    auto s1 = __int128(nmemb) * __int128(size);
-    SEASTAR_ASSERT(s1 == size_t(s1));
-    size_t s = s1;
+
+    if (size != 0 && nmemb > std::numeric_limits<size_t>::max() / size) {
+        return nullptr;
+    }
+
+    size_t s = nmemb * size;
     auto p = malloc(s);
     if (p) {
         std::memset(p, 0, s);
@@ -2515,10 +2518,11 @@ int posix_memalign(void** ptr, size_t align, size_t size) noexcept {
         return ENOMEM;
     }
     size = std::max(size, align);
-    *ptr = allocate_aligned(align, size);
-    if (!*ptr) {
+    void* allocated = allocate_aligned(align, size);
+    if (!allocated) {
         return ENOMEM;
     }
+    *ptr = allocated;
     return 0;
 }
 

@@ -72,6 +72,15 @@ SEASTAR_TEST_CASE(malloc_0_and_free_it) {
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(calloc_size_overflow_returns_null) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+    volatile size_t nmemb = std::numeric_limits<size_t>::max();
+    auto obj = calloc(nmemb, 2);
+    BOOST_REQUIRE_EQUAL(obj, nullptr);
+#endif
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(new_0) {
 
     {
@@ -813,5 +822,25 @@ SEASTAR_TEST_CASE(test_posix_memalign) {
     verify(16, 32);
     verify(32, 16);
 
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_posix_memalign_failure_preserves_pointer) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+    constexpr auto overflowing_page_count =
+        uint64_t(std::numeric_limits<unsigned>::max()) + 2;
+    if constexpr (std::numeric_limits<size_t>::max() / memory::page_size >= overflowing_page_count) {
+        auto size = size_t(overflowing_page_count) * memory::page_size;
+        int sentinel;
+        void* p = &sentinel;
+        void* original = p;
+        // Call indirectly so the compiler cannot apply the standard posix_memalign()
+        // failure semantics and optimize away the pointer check below.
+        decltype(&::posix_memalign) volatile call_posix_memalign = &::posix_memalign;
+
+        BOOST_REQUIRE_EQUAL(call_posix_memalign(&p, memory::page_size, size), ENOMEM);
+        BOOST_REQUIRE_EQUAL(p, original);
+    }
+#endif
     return make_ready_future<>();
 }
