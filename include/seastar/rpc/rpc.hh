@@ -78,9 +78,9 @@ struct isolation_config {
     scheduling_group sched_group = current_scheduling_group();
 };
 
-/// Default isolation configuration - run everything in the default scheduling group.
-///
-/// In the scheduling_group that the protocol::server was created in.
+/// Default isolation configuration - ignore the cookie and run the connection
+/// and its handlers in the scheduling_group the protocol::server was created
+/// in, i.e. leave the connection's group as it is.
 isolation_config default_isolate_connection(sstring isolation_cookie);
 
 /// \brief Resource limits for an RPC server
@@ -845,15 +845,22 @@ protected:
 /// ## Isolation
 ///
 /// RPC supports isolating verb handlers from each other. There are two ways to
-/// achieve this: per-handler isolation (the old way) and per-connection
-/// isolation (the new way). If no isolation is configured, all handlers will be
-/// executed in the context of the scheduling_group in which the
-/// protocol::server was created.
+/// achieve this: per-handler isolation (the old way, deprecated) and
+/// per-connection isolation (the new way).
+///
+/// Every connection has a scheduling_group of its own, in which its connection
+/// loop -- socket reads, frame decoding and decompression -- runs. It is the
+/// group in which the protocol::server was created, unless per-connection
+/// isolation replaces it during negotiation. If neither isolation mechanism
+/// applies to a request, its handler runs in the connection's group too.
 ///
 /// Per-handler isolation (the old way) can be configured by using the
 /// register_handler() overload which takes a scheduling_group. When invoked,
 /// the body of the handler will be executed from the context of the configured
-/// scheduling_group.
+/// scheduling_group, while the connection loop stays in the connection's group.
+/// This overload is deprecated: the same verb cannot be run in different groups
+/// for different tenants, and a low-priority group can block a high-priority one
+/// by consuming all of the connection's request memory.
 ///
 /// Per-connection isolation (the new way) is a more flexible mechanism that
 /// requires user application provided logic to determine how connections are
@@ -868,6 +875,16 @@ protected:
 /// handlers, but also the connection loop itself, hence providing better
 /// isolation.
 ///
+/// In short, the scheduling_group a handler runs in is the first of these that
+/// applies:
+///
+/// 1. the group resolved from the connection's isolation cookie, if the client
+///    sent one;
+/// 2. the group the handler was registered with, if the deprecated
+///    register_handler() overload taking one was used;
+/// 3. the connection's own group, i.e. the one the protocol::server was created
+///    in.
+///
 /// There a few gotchas related to mixing the two isolation mechanisms. This can
 /// happen when the application is updated and one of the client/server is
 /// still using the old/new mechanism. In general per-connection isolation
@@ -875,9 +892,11 @@ protected:
 /// the scheduling_group context for the handlers. If the client is not
 /// configured to send an isolation cookie, the server's
 /// resource_limits::isolate_connection will not be invoked and the server will
-/// fall back to per-handler isolation if configured. If the client is
-/// configured to send an isolation cookie but the server doesn't have a
-/// resource_limits::isolate_connection configured, it will use
+/// fall back to per-handler isolation if configured. Note that an empty
+/// client_options::isolation_cookie is not sent at all, and is therefore
+/// indistinguishable from a client that does not use the mechanism. If the
+/// client is configured to send an isolation cookie but the server doesn't have
+/// a resource_limits::isolate_connection configured, it will use
 /// default_isolate_connection() to interpret the cookie. Note that this still
 /// overrides the per-handler isolation if any is configured. If the server is
 /// so old that it doesn't have the per-connection isolation feature at all, it
@@ -960,6 +979,9 @@ public:
     /// \param t the verb to register the handler for.
     /// \param func the callable to be called when the verb is invoked by the
     ///     remote.
+    ///
+    /// The handler runs in the scheduling group of the connection the request
+    /// arrived on, see the Isolation section above.
     ///
     /// \returns a client, a callable that can be used to invoke the verb. See
     ///     make_client(). The client can be discarded, in fact this is what
