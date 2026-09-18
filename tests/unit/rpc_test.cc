@@ -36,6 +36,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/with_scheduling_group.hh>
+#include <seastar/core/internal/api-level.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/metrics_api.hh>
 #include <seastar/util/assert.hh>
@@ -210,11 +211,14 @@ public:
             });
         }
 
+        // The per-verb scheduling group is deprecated, but still has to be tested.
+        SEASTAR_INTERNAL_BEGIN_IGNORE_DEPRECATIONS
         template<typename Func>
         auto register_handler(MsgType t, scheduling_group sg, Func func) {
             _handlers.emplace_back(t);
             return proto().register_handler(t, sg, std::move(func));
         }
+        SEASTAR_INTERNAL_END_IGNORE_DEPRECATIONS
 
         template<typename Func>
         auto register_handler(MsgType t, Func func) {

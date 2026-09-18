@@ -970,14 +970,18 @@ public:
 
     /// Register a handler to be called when this verb is invoked.
     ///
+    /// \deprecated Use per-connection isolation instead, see the Isolation
+    ///     section above. Per-verb isolation cannot run the same verb in
+    ///     different groups for different tenants, and lets a low-priority
+    ///     group block a high-priority one by exhausting the connection's
+    ///     request memory.
+    ///
     /// \tparam Func the type of the handler for the verb. This determines the
     ///     signature of the verb.
     /// \param t the verb to register the handler for.
     /// \param sg the scheduling group that will be used to invoke the handler
     ///     in. This can be used to execute different verbs in different
-    ///     scheduling groups. Note that there is a newer mechanism to determine
-    ///     the scheduling groups a handler will run it per invocation, see
-    ///     isolation_config.
+    ///     scheduling groups.
     /// \param func the callable to be called when the verb is invoked by the
     ///     remote.
     ///
@@ -986,6 +990,7 @@ public:
     ///     most callers will do as real clients will live on a remote node, not
     ///     on the one where handlers are registered.
     template <typename Func>
+    [[deprecated("use per-connection isolation (client_options::isolation_cookie) instead")]]
     auto register_handler(MsgType t, scheduling_group sg, Func&& func);
 
     /// Unregister the handler for the verb.
