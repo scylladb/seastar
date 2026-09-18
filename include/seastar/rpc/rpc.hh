@@ -290,6 +290,11 @@ protected:
     bool _propagate_timeout = false;
     bool _timeout_negotiated = false;
     bool _handler_duration_negotiated = false;
+    // The scheduling group this connection's own fiber runs in. On the server
+    // it is the group the rpc::server was created in, until negotiation
+    // replaces it with the one resolved from the isolation cookie. On the
+    // client it is the group the connection was created in.
+    scheduling_group _sg = current_scheduling_group();
     // stream related fields
     bool _is_stream = false;
     connection_id _id = invalid_connection_id;
@@ -771,7 +776,9 @@ using rpc_handler_func = std::function<future<> (shared_ptr<server::connection>,
                                                  rcv_buf data, gate::holder guard)>;
 
 struct rpc_handler {
-    scheduling_group sg;
+    // Disengaged if the handler was registered without an explicit scheduling
+    // group, in which case the connection's group is used.
+    std::optional<scheduling_group> sg;
     rpc_handler_func func;
     gate use_gate;
 };
@@ -1019,6 +1026,9 @@ public:
 
 private:
     std::optional<handler_with_holder> get_handler(uint64_t msg_id) override;
+
+    template<typename Func>
+    auto do_register_handler(MsgType t, std::optional<scheduling_group> sg, Func&& func);
 
     template<typename Ret, typename... In>
     auto make_client(signature<Ret(In...)> sig, MsgType t);

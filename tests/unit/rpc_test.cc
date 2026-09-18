@@ -35,6 +35,7 @@
 #include <seastar/testing/test_runner.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sleep.hh>
+#include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/metrics_api.hh>
 #include <seastar/util/assert.hh>
@@ -217,7 +218,8 @@ public:
 
         template<typename Func>
         auto register_handler(MsgType t, Func func) {
-            return register_handler(t, scheduling_group(), std::forward<Func>(func));
+            _handlers.emplace_back(t);
+            return proto().register_handler(t, std::move(func));
         }
 
         future<> unregister_handler(MsgType t) {
@@ -296,7 +298,9 @@ public:
 
     template<typename Func>
     future<> register_handler(MsgType t, Func func) {
-        return register_handler(t, scheduling_group(), std::move(func));
+        return _service->invoke_on_all([t, func = std::move(func)] (rpc_test_service& s) mutable {
+            s.register_handler(t, std::move(func));
+        });
     }
 
     future<> unregister_handler(MsgType t) {
@@ -811,6 +815,27 @@ SEASTAR_TEST_CASE(test_rpc_scheduling) {
         auto id = call_sg_id(c1).get();
         BOOST_REQUIRE(id == internal::scheduling_group_index(sg));
     });
+}
+
+// With neither per-connection isolation (no cookie from the client) nor a
+// per-handler scheduling group, the handler must run in the connection's
+// group, which is the one the server was created in.
+SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_no_isolation) {
+    auto server_sg = create_scheduling_group("rpc_server", 100).get();
+    auto server_sg_kill = defer([&] () noexcept { destroy_scheduling_group(server_sg).get(); });
+    BOOST_REQUIRE(server_sg != default_scheduling_group());
+
+    // Create the server, and with it its accept loop, in server_sg.
+    with_scheduling_group(server_sg, [server_sg] {
+        return rpc_test_env<>::do_with_thread(rpc_test_config(), [server_sg] (rpc_test_env<>& env, test_rpc_proto::client& c1) {
+            env.register_handler(1, [] {
+                return make_ready_future<unsigned>(internal::scheduling_group_index(current_scheduling_group()));
+            }).get();
+            auto call_sg_id = env.proto().make_client<unsigned ()>(1);
+            auto id = call_sg_id(c1).get();
+            BOOST_REQUIRE_EQUAL(id, internal::scheduling_group_index(server_sg));
+        });
+    }).get();
 }
 
 // Helper for connection-based scheduling tests with a synchronous

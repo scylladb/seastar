@@ -762,7 +762,7 @@ auto protocol<Serializer, MsgType>::make_client(MsgType t) {
 
 template<typename Serializer, typename MsgType>
 template<typename Func>
-auto protocol<Serializer, MsgType>::register_handler(MsgType t, scheduling_group sg, Func&& func) {
+auto protocol<Serializer, MsgType>::do_register_handler(MsgType t, std::optional<scheduling_group> sg, Func&& func) {
     using sig_type = signature<typename function_traits<Func>::signature>;
     using clean_sig_type = typename sig_type::clean;
     using want_client_info = typename sig_type::want_client_info;
@@ -775,8 +775,14 @@ auto protocol<Serializer, MsgType>::register_handler(MsgType t, scheduling_group
 
 template<typename Serializer, typename MsgType>
 template<typename Func>
+auto protocol<Serializer, MsgType>::register_handler(MsgType t, scheduling_group sg, Func&& func) {
+    return do_register_handler(t, sg, std::forward<Func>(func));
+}
+
+template<typename Serializer, typename MsgType>
+template<typename Func>
 auto protocol<Serializer, MsgType>::register_handler(MsgType t, Func&& func) {
-    return register_handler(t, scheduling_group(), std::forward<Func>(func));
+    return do_register_handler(t, std::nullopt, std::forward<Func>(func));
 }
 
 template<typename Serializer, typename MsgType>
