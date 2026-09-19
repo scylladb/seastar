@@ -96,7 +96,8 @@ sstring file_interaction_handler::get_extension(const sstring& file) {
     size_t last_slash_pos = file.find_last_of('/');
     size_t last_dot_pos = file.find_last_of('.');
     sstring extension;
-    if (last_dot_pos != sstring::npos && last_dot_pos > last_slash_pos) {
+    if (last_dot_pos != sstring::npos &&
+            (last_slash_pos == sstring::npos || last_dot_pos > last_slash_pos)) {
         extension = file.substr(last_dot_pos + 1);
     }
     // normalize file extension for mime type

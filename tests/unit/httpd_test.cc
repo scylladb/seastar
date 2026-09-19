@@ -317,6 +317,28 @@ SEASTAR_TEST_CASE(test_url_decode_edge_cases) {
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(test_file_handler_get_extension) {
+    struct extension_case {
+        std::string_view path;
+        std::string_view extension;
+    };
+    const extension_case cases[] = {
+        {"index.html",        "html"},
+        {"./index.html",      "html"},
+        {"dir/index.HTML",    "html"},
+        {"dir.name/index",    ""},
+        {"index",             ""},
+        {".html",             "html"},
+        {"./.html",           "html"},
+        {"archive.tar.gz",    "gz"},
+    };
+
+    for (const auto& c : cases) {
+        BOOST_CHECK_EQUAL(file_handler::get_extension(sstring(c.path)), c.extension);
+    }
+    return make_ready_future<>();
+}
+
 // A directory_handler must never serve a file outside its doc_root. Both raw
 // ("../") and percent-encoded ("%2e%2e%2f") traversal are rejected before the
 // filesystem is touched, so a "secret" sibling of doc_root stays unreachable
