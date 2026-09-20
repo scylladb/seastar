@@ -117,6 +117,34 @@ SEASTAR_TEST_CASE(test_aligned_alloc) {
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(test_large_alignment_larger_than_size) {
+    static constexpr size_t large_align = memory::huge_page_size < 512 * memory::page_size
+            ? memory::huge_page_size
+            : 512 * memory::page_size;
+    static constexpr size_t size = memory::page_size;
+    static_assert(large_align > size);
+
+    std::vector<void*> allocations;
+    allocations.reserve(4);
+    for (unsigned i = 0; i != 4; ++i) {
+        void* p = nullptr;
+        BOOST_REQUIRE_EQUAL(posix_memalign(&p, large_align, size), 0);
+        BOOST_REQUIRE(p != nullptr);
+        BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(p) % large_align, 0);
+        allocations.push_back(p);
+    }
+    for (auto p : allocations) {
+        free(p);
+    }
+
+    auto p = ::operator new(size, std::align_val_t(large_align));
+    BOOST_REQUIRE(p != nullptr);
+    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(p) % large_align, 0);
+    ::operator delete(p, size, std::align_val_t(large_align));
+
+    return make_ready_future<>();
+}
+
 #ifdef __cpp_sized_deallocation
 SEASTAR_TEST_CASE(test_sized_delete) {
     for (size_t size = 0; size <= 65536; size++) {
