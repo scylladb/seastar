@@ -658,6 +658,11 @@ auto fmt::formatter<seastar::internal::formattable_exception_ptr>::format(
 
         try {
             throw;
+        } catch (const seastar::nested_exception&) {
+            // Already fully rendered (inner and outer) by the branch above.
+            // seastar::nested_exception also derives from std::nested_exception,
+            // so without this catch it would fall into the branch below and print
+            // its inner exception a second time.
         } catch (const std::nested_exception& ne) {
             out = fmt::format_to(out, ": {}", seastar::formattable(ne.nested_ptr()));
         } catch (...) {
