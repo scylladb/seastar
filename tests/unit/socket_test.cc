@@ -42,6 +42,10 @@
 #include <seastar/net/posix-stack.hh>
 #include <stdexcept>
 
+#include <netinet/tcp.h>
+
+#include <cstring>
+#include <fstream>
 #include <optional>
 #include <tuple>
 #include <future>
@@ -378,6 +382,99 @@ SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
     BOOST_CHECK_LT(send_default, 20'000'000);
     BOOST_CHECK_LT(recv_default, 20'000'000);
 }
+
+#ifdef TCP_FASTOPEN
+// getsockopt() reflects the set value even when the TFO sysctl is off.
+SEASTAR_THREAD_TEST_CASE(socket_tcp_fastopen_listen_sockopt) {
+    auto fastopen_qlen = [](listen_options lo) {
+        ipv4_addr addr("127.0.0.1", 0);
+        pollable_fd pfd = internal::posix_listen(addr, lo);
+        auto val = pfd.get_file_desc().getsockopt<int>(IPPROTO_TCP, TCP_FASTOPEN);
+        pfd.close();
+        return val;
+    };
+
+    listen_options enabled;
+    enabled.reuse_address = true;
+    enabled.tcp_fastopen = true;
+    enabled.listen_backlog = 42;
+    BOOST_CHECK_EQUAL(fastopen_qlen(enabled), 42);
+
+    listen_options disabled;
+    disabled.reuse_address = true;
+    BOOST_CHECK_EQUAL(fastopen_qlen(disabled), 0);
+}
+#endif
+
+#if defined(TCP_FASTOPEN) && defined(MSG_FASTOPEN) && defined(TCPI_OPT_SYN_DATA)
+static bool tcp_fastopen_enabled() {
+    // Needs both client (0x1) and server (0x2) bits.
+    std::ifstream ifs("/proc/sys/net/ipv4/tcp_fastopen");
+    int val = 0;
+    return (ifs >> val) && ((val & 0x3) == 0x3);
+}
+
+// First connection only fetches the TFO cookie; the second carries SYN data.
+SEASTAR_THREAD_TEST_CASE(socket_tcp_fastopen) {
+    const bool tfo = tcp_fastopen_enabled();
+    constexpr const char* payload = "fast-open-hello";
+    const auto payload_len = std::strlen(payload);
+
+    ipv4_addr addr("127.0.0.1", 12002);
+    listen_options lo;
+    lo.reuse_address = true;
+    lo.tcp_fastopen = true;
+    server_socket ss = seastar::listen(addr, lo);
+
+    auto client = std::async(std::launch::async, [&] {
+        int sent = 0, acked = 0;
+        auto sa = make_ipv4_address(addr);
+        for (int i = 0; i < 2; ++i) {
+            int fd = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            if (fd < 0) {
+                break;
+            }
+            auto close_fd = defer([fd] () noexcept { ::close(fd); });
+            auto n = ::sendto(fd, payload, payload_len, MSG_FASTOPEN,
+                              &sa.as_posix_sockaddr(), sa.length());
+            if (n != static_cast<ssize_t>(payload_len)) {
+                break;
+            }
+            ++sent;
+            char ack = 0;
+            if (::recv(fd, &ack, 1, 0) == 1) {
+                ++acked;
+            }
+        }
+        return std::make_pair(sent, acked);
+    });
+
+    for (int i = 0; i < 2; ++i) {
+        auto ar = ss.accept().get();
+        auto& server = ar.connection;
+
+        if (tfo && i > 0) {
+            tcp_info ti{};
+            BOOST_REQUIRE_EQUAL(server.get_sockopt(IPPROTO_TCP, TCP_INFO, &ti, sizeof(ti)), 0);
+            BOOST_CHECK(ti.tcpi_options & TCPI_OPT_SYN_DATA);
+        }
+
+        auto in = server.input();
+        auto buf = in.read_exactly(payload_len).get();
+        BOOST_CHECK_EQUAL(std::string(buf.get(), buf.size()), payload);
+
+        auto out = server.output();
+        out.write("x", 1).get();
+        out.close().get();
+        in.close().get();
+    }
+
+    auto [sent, acked] = client.get();
+    BOOST_CHECK_EQUAL(sent, 2);
+    BOOST_CHECK_EQUAL(acked, 2);
+    ss.abort_accept();
+}
+#endif
 
 static
 void
