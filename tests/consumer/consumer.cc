@@ -23,13 +23,16 @@
 // this directory for what is being tested and how to run it.
 //
 // It stays deliberately small. What is under test is the packaging -- headers
-// found, flags and definitions arriving, every dependency named, the whole
-// thing linking -- not Seastar's behaviour, which the unit tests cover.
+// found, flags and definitions arriving, every dependency named, the fmt
+// module resolving, the whole thing linking -- not Seastar's behaviour, which
+// the unit tests cover.
 //
 // It does reach for pieces that live in the library rather than the headers,
-// since an application that resolves nothing is not much of a link test: a
-// logger call (logger::failed_to_log), a formatter defined out of line
-// (log_level), and one built on fmt::ostream_formatter (socket_address).
+// since an application that resolves nothing is not much of a link test, and
+// specifically for the parts of the ABI that mention fmt types, which are what
+// an `import fmt;` build gets wrong at link time: a logger call
+// (logger::failed_to_log), a formatter defined out of line (log_level), and
+// one built on fmt::ostream_formatter (socket_address).
 
 #include <seastar/core/app-template.hh>
 #include <seastar/core/format.hh>

@@ -24,7 +24,8 @@
 # Neither channel is reachable from Seastar's own build tree. Its targets link
 # the seastar target directly and never see SeastarConfig.cmake or seastar.pc,
 # so what those two files say about dependencies, flags and definitions is
-# whatever it was last edited to say. This project is what checks it.
+# whatever it was last edited to say -- Seastar_IMPORT_FMT's among them. This
+# project is what checks it.
 #
 # It is not part of Seastar's build. Install Seastar somewhere, then:
 #
@@ -34,7 +35,12 @@
 #
 # with PKG_CONFIG_PATH naming the directory the installed seastar.pc landed in.
 # Building is the test: a consumer that cannot find the headers, is handed the
-# wrong flags, or is left with an unresolved dependency fails here.
+# wrong flags, is left with an unresolved dependency, or ends up with fmt names
+# the library does not define fails here.
+#
+# It doubles as the worked example of what an application has to do for
+# Seastar_IMPORT_FMT, which is more than linking Seastar -- see the fmt module
+# handling below.
 
 cmake_minimum_required (VERSION 3.28)
 
@@ -48,9 +54,30 @@ if (NOT CMAKE_CXX_STANDARD)
   set (CMAKE_CXX_STANDARD 20)
 endif ()
 set (CMAKE_CXX_STANDARD_REQUIRED ON)
-# Seastar builds with GNU extensions on. seastar.pc names a standard of its
-# own, which lands after this one and wins for that channel.
+# Seastar builds with GNU extensions on, and a translation unit that disagrees
+# about them refuses a module BMI. seastar.pc names a standard of its own,
+# which lands after this one and wins for that channel -- harmlessly, since it
+# then applies to every source in the target, module interface unit included,
+# which is what the BMI needs.
 set (CMAKE_CXX_EXTENSIONS ON)
+
+# `import fmt;` (Seastar_IMPORT_FMT) needs the module's interface unit compiled
+# into a BMI, and that is on the consumer: CMake resolves an import only
+# against the module-providing targets a target links *directly*, so Seastar
+# cannot pass fmt's along on its interface. Each channel below therefore has to
+# arrange it, and neither should when Seastar was built the ordinary way -- the
+# textual <fmt/*.h> that Seastar's headers then include would collide with an
+# import of the same library.
+#
+# Whether it applies is read off the definitions the channel hands over, which
+# is the same thing <seastar/core/internal/fmt.hh> keys off.
+function (consumer_uses_fmt_module out definitions)
+  if ("SEASTAR_IMPORT_FMT" IN_LIST definitions OR "-DSEASTAR_IMPORT_FMT" IN_LIST definitions)
+    set (${out} TRUE PARENT_SCOPE)
+  else ()
+    set (${out} FALSE PARENT_SCOPE)
+  endif ()
+endfunction ()
 
 #
 # Channel 1: the CMake package.
@@ -63,6 +90,24 @@ target_link_libraries (consumer_cmake
   PRIVATE
     Seastar::seastar)
 
+get_target_property (seastar_definitions Seastar::seastar INTERFACE_COMPILE_DEFINITIONS)
+consumer_uses_fmt_module (cmake_needs_fmt_module "${seastar_definitions}")
+if (cmake_needs_fmt_module)
+  # find_package (Seastar) has already found fmt and given fmt::fmt-module the
+  # properties an importing build needs, so linking it is all that is left.
+  if (NOT TARGET fmt::fmt-module)
+    message (FATAL_ERROR
+      "Seastar was installed with Seastar_IMPORT_FMT but find_package (Seastar) "
+      "did not define fmt::fmt-module.")
+  endif ()
+  target_link_libraries (consumer_cmake
+    PRIVATE
+      fmt::fmt-module)
+  set_target_properties (consumer_cmake
+    PROPERTIES
+      CXX_SCAN_FOR_MODULES ON)
+endif ()
+
 #
 # Channel 2: pkg-config.
 #
@@ -73,7 +118,8 @@ pkg_check_modules (SEASTAR REQUIRED seastar)
 # Wired up by hand from what pkg-config reported, rather than through
 # pkg_check_modules' IMPORTED_TARGET: seastar.pc names its libraries by
 # absolute path, which that target carries as link *options*, placing them
-# ahead of the object files, where a static archive contributes nothing.
+# ahead of the object files, where a static archive contributes nothing -- and
+# the fmt Seastar links is one.
 #
 # The STATIC_ variables are the ones that include seastar.pc's Libs.private
 # and Requires.private, which a static libseastar needs and a shared one
@@ -89,3 +135,28 @@ target_compile_options (consumer_pkgconfig
 target_link_libraries (consumer_pkgconfig
   PRIVATE
     ${SEASTAR_STATIC_LDFLAGS})
+
+consumer_uses_fmt_module (pkgconfig_needs_fmt_module "${SEASTAR_STATIC_CFLAGS_OTHER}")
+if (pkgconfig_needs_fmt_module)
+  # No targets come over this channel, so the module interface unit is compiled
+  # as part of this executable, from the source fmt installs alongside its
+  # headers. The flags it needs -- FMT_ATTACH_TO_GLOBAL_MODULE in particular --
+  # are in seastar.pc's Cflags and so already apply to it.
+  find_file (FMT_MODULE_SOURCE fmt/src/fmt.cc
+    PATHS ${SEASTAR_STATIC_INCLUDE_DIRS}
+    NO_DEFAULT_PATH)
+  if (NOT FMT_MODULE_SOURCE)
+    message (FATAL_ERROR
+      "Seastar was installed with Seastar_IMPORT_FMT but fmt's module source "
+      "(fmt/src/fmt.cc) is not among the include directories seastar.pc names: "
+      "${SEASTAR_STATIC_INCLUDE_DIRS}. It is installed by an fmt built with "
+      "FMT_MODULE.")
+  endif ()
+  cmake_path (GET FMT_MODULE_SOURCE PARENT_PATH fmt_module_dir)
+  target_sources (consumer_pkgconfig
+    PRIVATE
+      FILE_SET fmt_module
+      TYPE CXX_MODULES
+      BASE_DIRS ${fmt_module_dir}
+      FILES ${FMT_MODULE_SOURCE})
+endif ()
