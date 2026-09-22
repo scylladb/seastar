@@ -170,6 +170,8 @@ arg_parser.add_argument('--c++-standard', action='store', dest='cpp_standard', d
                         help='C++ standard to build with')
 arg_parser.add_argument('--cook', action='append', dest='cook', default=[],
                         help='Supply this dependency locally for development via `cmake-cooking` (can be repeated)')
+arg_parser.add_argument('--ngtcp2-provider', choices=['auto', 'system', 'bundled'], default='auto',
+                        help='Select the ngtcp2 provider: prefer a system package, require it, or use the bundled submodule')
 arg_parser.add_argument('--verbose', dest='verbose', action='store_true', help='Make configure output more verbose.')
 arg_parser.add_argument('--scheduling-groups-count', action='store', dest='scheduling_groups_count', default='16',
                         help='Number of available scheduling groups in the reactor')
@@ -297,6 +299,7 @@ def configure_mode(mode):
     TRANSLATED_ARGS = [
         '-DCMAKE_BUILD_TYPE={}'.format(MODE_TO_CMAKE_BUILD_TYPE[mode]),
         '-DCMAKE_CXX_COMPILER={}'.format(args.cxx),
+        '-DCMAKE_C_COMPILER={}'.format(args.cc),
         '-DCMAKE_CXX_STANDARD={}'.format(args.cpp_standard),
         '-DCMAKE_CXX_COMPILER_LAUNCHER={}'.format(compiler_cache),
         '-DCMAKE_INSTALL_PREFIX={}'.format(args.install_prefix),
@@ -312,6 +315,7 @@ def configure_mode(mode):
         tr(args.cxx_modules, 'MODULE'),
         tr(args.dpdk, 'DPDK'),
         tr(args.dpdk_machine, 'DPDK_MACHINE'),
+        tr(args.ngtcp2_provider.upper(), 'NGTCP2_PROVIDER'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
         tr(args.io_uring, 'IO_URING', value_when_none=None),
         tr(args.gnutls, 'GNUTLS', value_when_none=None),
@@ -345,9 +349,6 @@ def configure_mode(mode):
 
     # Generate a new build by pointing to the source directory.
     if ingredients_to_cook:
-        # the C compiler is only used when building ingredients.
-        TRANSLATED_ARGS.append(f'-DCMAKE_C_COMPILER={args.cc}')
-
         # We need to use cmake-cooking for some dependencies.
         inclusion_arguments = []
 

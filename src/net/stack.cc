@@ -21,6 +21,7 @@
 
 
 #include <memory>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -289,6 +290,15 @@ network_stack::connect(socket_address sa, socket_address local, transport proto)
 
 std::vector<network_interface> network_stack::network_interfaces() {
     return {};
+}
+
+net::datagram_channel network_stack::make_bound_datagram_channel_with_options(
+        const socket_address& local,
+        net::datagram_channel_options opts) {
+    if (opts.reuse_port) {
+        throw std::runtime_error("SO_REUSEPORT is not supported by this network stack");
+    }
+    return make_bound_datagram_channel(local);
 }
 
 void register_net_metrics_for_scheduling_group(
