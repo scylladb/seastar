@@ -94,9 +94,15 @@ fi
 # The check is version-guarded rather
 # than blanket-applied so future pre-20 clang versions in the matrix
 # don't pay the build cost.
+#
+# --enable-import-fmt needs one too, for a different reason: it consumes fmt as
+# a C++20 module, which no libfmt-dev ships -- the module has to be built
+# alongside the library, which cooking_recipe.cmake arranges (with FMT_MODULE)
+# when that option is on.
 cook_args=()
 clang_ver="${COMPILER#clang++-}"
-if [[ "$COMPILER" == clang++-* && "$clang_ver" -ge 20 || "$STANDARD" -ge 26 ]] ; then
+if [[ "$COMPILER" == clang++-* && "$clang_ver" -ge 20 || "$STANDARD" -ge 26 ]] \
+   || [[ "$ENABLES" == *import-fmt* ]]; then
     cook_args=(--cook fmt)
 fi
 
