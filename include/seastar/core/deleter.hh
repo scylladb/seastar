@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include <seastar/core/refcounted_memory.hh>
+
 #include <cstdint>
 #include <cstdlib>
 #include <new>
@@ -49,9 +51,13 @@ public:
     /// \cond internal
     struct impl;
     struct raw_object_tag {};
+    struct refcounted_object_tag {};
     /// \endcond
 private:
-    // if bit 0 set, point to object to be freed directly.
+    // if bit 0 set, points to an object to be freed directly.
+    // if bit 1 set, points to the reference counter of memory obtained from
+    // memory::allocate_refcounted(); the memory is freed when the counter
+    // drops to zero.
     impl* _impl = nullptr;
 public:
     /// Constructs an empty deleter that does nothing in its destructor.
@@ -63,6 +69,8 @@ public:
     explicit deleter(impl* i) noexcept : _impl(i) {}
     deleter(raw_object_tag, void* object) noexcept
         : _impl(from_raw_object(object)) {}
+    deleter(refcounted_object_tag, memory::refcount_type* refcount) noexcept
+        : _impl(from_refcount(refcount)) {}
     /// \endcond
     /// Destroys the deleter and carries out the encapsulated action.
     ~deleter();
@@ -104,9 +112,44 @@ private:
         auto x = reinterpret_cast<uintptr_t>(object);
         return reinterpret_cast<impl*>(x | 1);
     }
+    static bool is_refcounted_object(impl* i) noexcept {
+        auto x = reinterpret_cast<uintptr_t>(i);
+        return x & 2;
+    }
+    bool is_refcounted_object() const noexcept {
+        return is_refcounted_object(_impl);
+    }
+    static memory::refcount_type* to_refcount(impl* i) noexcept {
+        auto x = reinterpret_cast<uintptr_t>(i);
+        return reinterpret_cast<memory::refcount_type*>(x & ~uintptr_t(2));
+    }
+    memory::refcount_type* to_refcount() const noexcept {
+        return to_refcount(_impl);
+    }
+    static impl* from_refcount(memory::refcount_type* refcount) noexcept {
+        auto x = reinterpret_cast<uintptr_t>(refcount);
+        return reinterpret_cast<impl*>(x | 2);
+    }
 };
 
+// The low bits of a deleter's pointer are used to tell what it points at, so
+// reference counters must be aligned enough to leave them free.
+static_assert(alignof(memory::refcount_type) >= 4);
+
 /// \cond internal
+namespace internal {
+
+// Drops one reference to memory obtained from memory::allocate_refcounted(),
+// freeing it if it was the last one.
+inline
+void release_refcounted_memory(memory::refcount_type* refcount) noexcept {
+    if (--*refcount == 0) {
+        memory::free_refcounted(memory::refcounted_memory_of(refcount));
+    }
+}
+
+}
+
 struct deleter::impl {
     unsigned refs = 1;
     deleter next;
@@ -119,6 +162,10 @@ inline
 deleter::~deleter() {
     if (is_raw_object()) {
         std::free(to_raw_object());
+        return;
+    }
+    if (is_refcounted_object()) {
+        internal::release_refcounted_memory(to_refcount());
         return;
     }
     if (_impl && --_impl->refs == 0) {
@@ -191,6 +238,17 @@ struct free_deleter_impl final : deleter::impl {
     free_deleter_impl(free_deleter_impl&&) = delete;
     virtual ~free_deleter_impl() override { std::free(obj); }
 };
+
+struct refcount_deleter_impl final : deleter::impl {
+    memory::refcount_type* refcount;
+    explicit refcount_deleter_impl(memory::refcount_type* refcount) noexcept
+        : impl(deleter()), refcount(refcount) {}
+    refcount_deleter_impl(const refcount_deleter_impl&) = delete;
+    refcount_deleter_impl(refcount_deleter_impl&&) = delete;
+    virtual ~refcount_deleter_impl() override {
+        internal::release_refcounted_memory(refcount);
+    }
+};
 /// \endcond
 
 inline
@@ -198,6 +256,12 @@ deleter
 deleter::share() {
     if (!_impl) {
         return deleter();
+    }
+    if (is_refcounted_object()) {
+        // Sharing a reference counter costs nothing but the increment; no
+        // need to fall back to a heap-allocated impl.
+        ++*to_refcount();
+        return deleter(_impl);
     }
     if (is_raw_object()) {
         _impl = new free_deleter_impl(to_raw_object());
@@ -222,6 +286,8 @@ void deleter::append(deleter d) {
         }
         if (is_raw_object(next_impl)) {
             next_d->_impl = next_impl = new free_deleter_impl(to_raw_object(next_impl));
+        } else if (is_refcounted_object(next_impl)) {
+            next_d->_impl = next_impl = new refcount_deleter_impl(to_refcount(next_impl));
         }
 
         if (next_impl->refs != 1) {
@@ -247,6 +313,25 @@ make_free_deleter(void* obj) {
         return deleter();
     }
     return deleter(deleter::raw_object_tag(), obj);
+}
+
+/// Makes a \ref deleter for memory obtained from
+/// memory::allocate_refcounted().
+///
+/// The deleter drops one reference to the memory when it is destroyed, and the
+/// memory is freed when the last reference is dropped.  Unlike other deleters,
+/// sharing it (see \ref deleter::share()) does not allocate.
+///
+/// \param refcount reference counter obtained from
+///        memory::allocate_refcounted(), together with the memory it refers to.
+/// \related deleter
+inline
+deleter
+make_refcounted_deleter(memory::refcount_type* refcount) noexcept {
+    if (!refcount) {
+        return deleter();
+    }
+    return deleter(deleter::refcounted_object_tag(), refcount);
 }
 
 /// Makes a deleter that calls \c std::free() when it is destroyed, as well

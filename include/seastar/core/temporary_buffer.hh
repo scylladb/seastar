@@ -30,6 +30,7 @@
 #include <malloc.h>
 
 #include <seastar/core/deleter.hh>
+#include <seastar/core/refcounted_memory.hh>
 #include <seastar/util/assert.hh>
 
 namespace seastar {
@@ -74,11 +75,13 @@ public:
     ///
     /// \param size buffer size, in bytes
     explicit temporary_buffer(size_t size)
-        : _buffer(static_cast<CharType*>(malloc(size * sizeof(CharType)))), _size(size)
-        , _deleter(make_free_deleter(_buffer)) {
-        if (size && !_buffer) {
+        : _buffer(nullptr), _size(size) {
+        auto buf = memory::allocate_refcounted(size * sizeof(CharType));
+        if (size && !buf.memory) {
             throw std::bad_alloc();
         }
+        _buffer = static_cast<CharType*>(buf.memory);
+        _deleter = make_refcounted_deleter(buf.refcount);
     }
     //explicit temporary_buffer(CharType* borrow, size_t size) : _buffer(borrow), _size(size) {}
     /// Creates an empty \c temporary_buffer that does not point at anything.
@@ -219,13 +222,13 @@ public:
     }
 
     static temporary_buffer copy_of(std::string_view view) {
-        void* ptr = ::malloc(view.size());
-        if (!ptr) {
+        auto alloc = memory::allocate_refcounted(view.size());
+        if (!alloc.memory) {
             throw std::bad_alloc();
         }
-        auto buf = static_cast<CharType*>(ptr);
+        auto buf = static_cast<CharType*>(alloc.memory);
         std::memcpy(buf, view.data(), view.size());
-        return temporary_buffer(buf, view.size(), make_free_deleter(buf));
+        return temporary_buffer(buf, view.size(), make_refcounted_deleter(alloc.refcount));
     }
 
     /// Compare contents of this buffer with another buffer for equality

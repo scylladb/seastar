@@ -595,6 +595,7 @@ add_library (seastar
   include/seastar/core/queue.hh
   include/seastar/core/ragel.hh
   include/seastar/core/reactor.hh
+  include/seastar/core/refcounted_memory.hh
   include/seastar/core/report_exception.hh
   include/seastar/core/resource.hh
   include/seastar/core/rwlock.hh

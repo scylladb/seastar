@@ -29,6 +29,8 @@
 #include <seastar/util/log.hh>
 #include <seastar/util/memory_diagnostics.hh>
 
+#include <algorithm>
+#include <cstring>
 #include <memory>
 #include <new>
 #include <limits>
@@ -813,5 +815,69 @@ SEASTAR_TEST_CASE(test_posix_memalign) {
     verify(16, 32);
     verify(32, 16);
 
+    return make_ready_future<>();
+}
+
+// Sizes which exercise the different places allocate_refcounted() can put the
+// reference counter: tiny objects, objects with a header, objects which own
+// whole pages, and objects which own many pages.
+static const std::vector<size_t> refcounted_sizes = {
+    0, 1, 7, 8, 100, 1024, 4096, 8192, 16384, 128 * 1024, 1024 * 1024,
+};
+
+SEASTAR_TEST_CASE(test_allocate_refcounted) {
+    for (auto size : refcounted_sizes) {
+        auto alloc = memory::allocate_refcounted(size);
+        BOOST_REQUIRE(alloc.memory != nullptr);
+        BOOST_REQUIRE(alloc.refcount != nullptr);
+        BOOST_REQUIRE_EQUAL(*alloc.refcount, 1u);
+        BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(alloc.memory) % alignof(std::max_align_t), 0u);
+        // writing to the memory must not disturb the reference counter, and
+        // the counter is not part of the memory we handed out
+        std::memset(alloc.memory, 0xff, size);
+        BOOST_REQUIRE_EQUAL(*alloc.refcount, 1u);
+        ++*alloc.refcount;
+        BOOST_REQUIRE_EQUAL(*alloc.refcount, 2u);
+        --*alloc.refcount;
+        memory::free_refcounted(alloc);
+    }
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_allocate_refcounted_is_balanced) {
+    // free_refcounted() must return the memory to the pool it came from, so
+    // that allocations and frees stay balanced
+    auto live_objects = memory::stats().live_objects();
+    for (auto size : refcounted_sizes) {
+        auto alloc = memory::allocate_refcounted(size);
+        memory::free_refcounted(alloc);
+    }
+    BOOST_REQUIRE_EQUAL(memory::stats().live_objects(), live_objects);
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_temporary_buffer_share_is_refcounted) {
+    for (auto size : refcounted_sizes) {
+        auto buf = temporary_buffer<char>(size);
+        std::memset(buf.get_write(), 'x', size);
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+        // sharing a buffer which owns its memory does not allocate
+        auto mallocs = memory::stats().mallocs();
+#endif
+        auto shared = buf.share();
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+        BOOST_REQUIRE_EQUAL(memory::stats().mallocs(), mallocs);
+#endif
+        BOOST_REQUIRE(shared.get() == buf.get());
+        BOOST_REQUIRE_EQUAL(shared.size(), size);
+        // the memory outlives the buffer it was allocated for
+        buf = {};
+        BOOST_REQUIRE(std::all_of(shared.begin(), shared.end(), [] (char c) { return c == 'x'; }));
+        // appending a deleter to a shared buffer keeps it alive too
+        auto d = shared.share().release();
+        d.append(make_object_deleter(int(3)));
+        shared = {};
+        d = {};
+    }
     return make_ready_future<>();
 }

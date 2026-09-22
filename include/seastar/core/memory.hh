@@ -23,6 +23,7 @@
 
 #include <seastar/core/resource.hh>
 #include <seastar/core/bitops.hh>
+#include <seastar/core/refcounted_memory.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/sampler.hh>
 #include <cstdint>

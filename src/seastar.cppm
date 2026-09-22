@@ -105,6 +105,7 @@ module;
 #include <seastar/core/ragel.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/reactor_config.hh>
+#include <seastar/core/refcounted_memory.hh>
 #include <seastar/core/relabel_config.hh>
 #include <seastar/core/report_exception.hh>
 #include <seastar/core/resource.hh>
@@ -402,6 +403,7 @@ using seastar::make_object_deleter;
 using seastar::make_pipe_input_stream;
 using seastar::make_pipe_output_stream;
 using seastar::make_ready_future;
+using seastar::make_refcounted_deleter;
 using seastar::make_scheduling_group_key_config;
 using seastar::make_shared;
 using seastar::make_socket;
@@ -687,9 +689,11 @@ using seastar::log_cli::options;
 
 export namespace seastar::memory {
 
+using seastar::memory::allocate_refcounted;
 using seastar::memory::allocation_site;
 using seastar::memory::disable_abort_on_alloc_failure_temporarily;
 using seastar::memory::free_memory;
+using seastar::memory::free_refcounted;
 using seastar::memory::generate_memory_diagnostics_report;
 using seastar::memory::get_large_allocation_warning_threshold;
 using seastar::memory::get_memory_layout;
@@ -703,6 +707,9 @@ using seastar::memory::page_size;
 using seastar::memory::reclaimer;
 using seastar::memory::reclaimer_scope;
 using seastar::memory::reclaiming_result;
+using seastar::memory::refcount_type;
+using seastar::memory::refcounted_memory;
+using seastar::memory::refcounted_memory_of;
 using seastar::memory::sampled_memory_profile;
 using seastar::memory::scoped_critical_alloc_section;
 using seastar::memory::scoped_large_allocation_warning_disable;
