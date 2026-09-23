@@ -54,6 +54,7 @@
 #include <sys/eventfd.h>
 #include <poll.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/constants.hpp>
 #include <boost/algorithm/string/find_iterator.hpp>
@@ -1674,6 +1675,13 @@ pollable_fd posix_listen(socket_address sa, listen_options opts) {
 
     if (opts.so_rcvbuf) {
         fd.setsockopt(SOL_SOCKET, SO_RCVBUF, *opts.so_rcvbuf);
+    }
+
+    if (opts.tcp_fastopen && !sa.is_af_unix() && opts.proto == transport::TCP) {
+#ifdef TCP_FASTOPEN
+        // Value is the max pending TFO connections.
+        fd.setsockopt(IPPROTO_TCP, TCP_FASTOPEN, opts.listen_backlog);
+#endif
     }
 
     try {
