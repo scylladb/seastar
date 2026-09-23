@@ -21,7 +21,7 @@
 
 
 #include <sstream>
-#include <fmt/core.h>
+#include <seastar/core/internal/fmt.hh>
 
 #include <seastar/core/loop.hh>
 #include <seastar/json/json_elements.hh>

@@ -34,6 +34,7 @@
 #include <optional>
 #include <unordered_map>
 #include <string_view>
+#include <seastar/core/internal/fmt.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/http/mime_types.hh>
 #include <seastar/http/types.hh>

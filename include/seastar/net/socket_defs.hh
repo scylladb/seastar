@@ -25,7 +25,7 @@
 #include <array>
 #include <functional>
 #include <iosfwd>
-#include <fmt/ostream.h>
+#include <seastar/core/internal/fmt.hh>
 #include <seastar/net/byteorder.hh>
 #include <seastar/net/unix_address.hh>
 

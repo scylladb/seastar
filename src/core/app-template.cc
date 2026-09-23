@@ -24,7 +24,7 @@
 #include <cstdlib>
 #include <chrono>
 #include <iostream>
-#include <fmt/format.h>
+#include <seastar/core/internal/fmt.hh>
 #include <boost/program_options.hpp>
 #include <boost/make_shared.hpp>
 

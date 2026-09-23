@@ -22,6 +22,8 @@
 
 #pragma once
 
+#include <filesystem>
+
 #include <seastar/core/future.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/thread.hh>

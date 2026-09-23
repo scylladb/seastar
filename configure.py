@@ -186,6 +186,11 @@ add_tristate(
     help='build as C++20 module')
 add_tristate(
     arg_parser,
+    name='import-fmt',
+    dest='import_fmt',
+    help='pulling fmt in as a C++20 module (`import fmt;`) rather than textually')
+add_tristate(
+    arg_parser,
     name='hwloc',
     dest='hwloc',
     help='hwloc support')
@@ -310,6 +315,7 @@ def configure_mode(mode):
         tr(CFLAGS, 'CXX_FLAGS'),
         tr(LDFLAGS, 'LD_FLAGS'),
         tr(args.cxx_modules, 'MODULE'),
+        tr(args.import_fmt, 'IMPORT_FMT'),
         tr(args.dpdk, 'DPDK'),
         tr(args.dpdk_machine, 'DPDK_MACHINE'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
