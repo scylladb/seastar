@@ -1165,6 +1165,7 @@ server::connection::negotiate(feature_map requested) {
             f = f.then([visitor = std::move(visitor), this] () mutable {
                 return std::visit(visitor, get_server()._limits.isolate_connection).then([this] (isolation_config conf) {
                     _isolation_config = conf;
+                    _sg = conf.sched_group;
                 });
             });
             ret.emplace(e);
@@ -1241,8 +1242,7 @@ future<> server::connection::process() {
     std::exception_ptr ep;
     try {
         co_await negotiate_protocol();
-        auto sg = _isolation_config ? _isolation_config->sched_group : current_scheduling_group();
-        co_await coroutine::switch_to(sg);
+        co_await coroutine::switch_to(_sg);
         set_negotiated();
         while (!_connected->read_buf.eof() && !_error) {
             if (is_stream()) {
@@ -1265,8 +1265,9 @@ future<> server::connection::process() {
                 }
 
                 // If the new method of per-connection scheduling group was used, honor it.
-                // Otherwise, use the old per-handler scheduling group.
-                auto sg = _isolation_config ? _isolation_config->sched_group : h->handler.sg;
+                // Otherwise, use the old per-handler scheduling group, if the handler
+                // was registered with one. Failing both, run in the connection's group.
+                auto sg = _isolation_config ? _sg : h->handler.sg.value_or(_sg);
                 if (sg == current_scheduling_group()) {
                     co_await h->handler.func(shared_from_this(), timeout, msg_id, std::move(data.value()), std::move(h->holder));
                     continue;
