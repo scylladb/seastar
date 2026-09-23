@@ -6,7 +6,7 @@ There are multiple ways to configure Seastar and its dependencies.
 
 ### Use system-packages for most dependencies
 
-See the instructions in [README.md](./README.md).
+See the instructions in [BUILD.md](./BUILD.md).
 
 ### Download and install all external dependencies in a project-specific location
 
