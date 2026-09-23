@@ -258,11 +258,28 @@ SEASTAR_THREAD_TEST_CASE(unixdomain_datagram_autobind) {
     chan1.send(chan2.local_address(), "hello").get();
     net::datagram dgram = chan2.receive().get();
 
+    BOOST_REQUIRE_EQUAL(dgram.get_src().family(), AF_UNIX);
+    BOOST_REQUIRE_EQUAL(dgram.get_src().length(), offsetof(sockaddr_un, sun_path));
+
     auto bufs = dgram.get_buffers();
     // POSIX impementation uses single buffer
     BOOST_REQUIRE_EQUAL(bufs.size(), 1);
     string received = internal::to_sstring<sstring>(bufs[0]);
     BOOST_REQUIRE_EQUAL(received, "hello");
+}
+
+SEASTAR_THREAD_TEST_CASE(unixdomain_datagram_reply) {
+    auto a = make_bound_datagram_channel(autobind());
+    auto b = make_bound_datagram_channel(autobind());
+
+    a.send(b.local_address(), "ping").get();
+    net::datagram request = b.receive().get();
+    BOOST_REQUIRE_EQUAL(request.get_src(), a.local_address());
+    BOOST_REQUIRE_EQUAL(request.get_src().length(), a.local_address().length());
+
+    b.send(request.get_src(), "pong").get();
+    net::datagram reply = a.receive().get();
+    BOOST_REQUIRE_EQUAL(internal::to_sstring<sstring>(reply.get_buffers()[0]), "pong");
 }
 
 SEASTAR_THREAD_TEST_CASE(unixdomain_datagram_named_bound) {

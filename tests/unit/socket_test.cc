@@ -42,6 +42,7 @@
 #include <seastar/net/posix-stack.hh>
 #include <stdexcept>
 
+#include <fstream>
 #include <optional>
 #include <tuple>
 #include <future>
@@ -304,6 +305,49 @@ SEASTAR_THREAD_TEST_CASE(socket_abort_accept_on_empty_test) {
     live_ss.abort_accept();
     BOOST_CHECK(live_ss.local_address().is_unspecified());
     moved_to.abort_accept();
+}
+
+SEASTAR_THREAD_TEST_CASE(udp_ipv4_wildcard_dst_test) {
+    auto sc = make_bound_datagram_channel(ipv4_addr("0.0.0.0", 0));
+    auto cc = make_bound_datagram_channel(ipv4_addr("127.0.0.1", 0));
+    socket_address dst(ipv4_addr("127.0.0.1", sc.local_address().port()));
+
+    cc.send(dst, "apa").get();
+    auto pkt = sc.receive().get();
+
+    BOOST_REQUIRE_EQUAL(pkt.get_dst(), dst);
+    BOOST_REQUIRE_EQUAL(pkt.get_src(), cc.local_address());
+    BOOST_REQUIRE_EQUAL(pkt.get_src().length(), sizeof(::sockaddr_in));
+
+    cc.close();
+    sc.close();
+}
+
+static bool dual_stack_sockets_available() {
+    std::ifstream f("/proc/sys/net/ipv6/bindv6only");
+    int bindv6only = 1;
+    f >> bindv6only;
+    return engine().net().supports_ipv6() && bindv6only == 0;
+}
+
+// the kernel reports both ends of an IPv4 datagram on a [::] channel as v4-mapped addresses
+SEASTAR_THREAD_TEST_CASE(udp_dual_stack_v4_mapped_dst_test) {
+    if (!dual_stack_sockets_available()) {
+        return;
+    }
+    auto sc = make_bound_datagram_channel(ipv6_addr("::", 0));
+    auto cc = make_bound_datagram_channel(ipv4_addr("127.0.0.1", 0));
+    auto port = sc.local_address().port();
+
+    cc.send(ipv4_addr("127.0.0.1", port), "apa").get();
+    auto pkt = sc.receive().get();
+
+    BOOST_REQUIRE_EQUAL(pkt.get_src().family(), AF_INET6);
+    BOOST_REQUIRE_EQUAL(pkt.get_src().port(), cc.local_address().port());
+    BOOST_REQUIRE_EQUAL(pkt.get_dst(), socket_address(ipv6_addr("::ffff:127.0.0.1", port)));
+
+    cc.close();
+    sc.close();
 }
 
 SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
