@@ -19,6 +19,9 @@
  * Copyright (C) 2016 ScyllaDB
  */
 
+#include <functional>
+#include <unordered_set>
+
 #include <fmt/core.h>
 #include <fmt/compile.h>
 #include <google/protobuf/io/coded_stream.h>
@@ -894,10 +897,33 @@ details::family_filter_t details::make_family_filter(std::vector<details::name_f
             }
         }
     }
-    return [filters = std::move(filters)](std::string_view family_name) {
-        for (const auto& f : filters) {
-            bool match = f.is_prefix ? family_name.starts_with(f.name) : family_name == f.name;
-            if (match) {
+    // Transparent hasher/eq so lookup by string_view doesn't allocate an sstring per call.
+    struct sv_hash {
+        using is_transparent = void;
+        size_t operator()(std::string_view sv) const noexcept { return std::hash<std::string_view>{}(sv); }
+    };
+    std::unordered_set<sstring, sv_hash, std::equal_to<>> exact_names;
+    std::vector<details::name_filter> prefix_filters;
+    exact_names.reserve(filters.size());
+    prefix_filters.reserve(filters.size());
+    for (auto& f : filters) {
+        if (f.is_prefix) {
+            prefix_filters.push_back(std::move(f));
+        } else {
+            exact_names.insert(std::move(f.name));
+        }
+    }
+    return [exact_names = std::move(exact_names), prefix_filters = std::move(prefix_filters)](std::string_view family_name) {
+        // Single exact name: a direct compare beats hashing into the set.
+        if (exact_names.size() == 1) {
+            if (*exact_names.begin() == family_name) {
+                return true;
+            }
+        } else if (exact_names.contains(family_name)) {
+            return true;
+        }
+        for (const auto& f : prefix_filters) {
+            if (family_name.starts_with(f.name)) {
                 return true;
             }
         }
