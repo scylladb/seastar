@@ -184,7 +184,8 @@ bool impl::impl::apply_relabeling(const relabel_config& rc, metric_info& info) {
         case relabel_config::relabel_action::report_when_empty:
         case relabel_config::relabel_action::skip_when_empty: {
             info.should_skip_when_empty = (rc.action == relabel_config::relabel_action::skip_when_empty) ? skip_when_empty::yes : skip_when_empty::no;
-            return false;
+            // Unused metrics aren't reported, so the metadata changes
+            return true;
         }
         case relabel_config::relabel_action::drop_label: {
             if (info.id.labels().find(rc.target_label) != info.id.labels().end()) {
@@ -450,6 +451,7 @@ foreign_ptr<values_reference> get_values() {
     shared_ptr<values_copy> res_ref = ::seastar::make_shared<values_copy>();
     auto& res = *(res_ref.get());
     auto& mv = res.values;
+    get_local_impl()->update_used_metrics();
     res.metadata = get_local_impl()->metadata();
     auto& collectors = get_local_impl()->collectors();
     auto reset_collectors = defer([&collectors] () noexcept {
@@ -500,12 +502,18 @@ void impl::update_metrics_if_needed() {
         _current_collectors.clear();
         _current_metrics.resize(_value_map.size());
         std::unordered_set<internal::collector_base*> distinct_collectors;
+        _unused_metrics.clear();
         size_t i = 0;
         for (auto&& mf : _value_map) {
             metric_metadata_fifo metrics;
             _current_metrics[i].clear();
             for (auto&& m : mf.second) {
                 if (m.second && m.second->is_enabled()) {
+                    auto& info = m.second->info();
+                    if (info.should_skip_when_empty && !info.was_used) {
+                        _unused_metrics.push_back(m.second);
+                        continue;
+                    }
                     metrics.emplace_back(m.second->info().id.internalized_labels(), m.second->info().should_skip_when_empty);
                     _current_metrics[i].emplace_back(m.second->get_function());
                     if (auto c = m.second->get_collector()) {
@@ -527,6 +535,32 @@ void impl::update_metrics_if_needed() {
         _dirty = false;
 
         gc_internalized_labels();
+    }
+}
+
+void impl::update_used_metrics() {
+    update_metrics_if_needed();
+    // The functions of a collector's metrics read what it collects, so
+    // collect for the polled metrics too.
+    std::unordered_set<internal::collector_base*> collectors;
+    for (auto& m : _unused_metrics) {
+        if (auto c = m->get_collector()) {
+            collectors.insert(c);
+        }
+    }
+    auto reset_collectors = defer([&collectors] () noexcept {
+        for (auto c : collectors) {
+            c->reset();
+        }
+    });
+    for (auto c : collectors) {
+        c->collect();
+    }
+    for (auto& m : _unused_metrics) {
+        if (!(*m)().is_empty()) {
+            m->info().was_used = true;
+            dirty();
+        }
     }
 }
 
