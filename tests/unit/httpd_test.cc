@@ -1541,6 +1541,47 @@ SEASTAR_TEST_CASE(test_request_body_ends_early) {
     });
 }
 
+SEASTAR_TEST_CASE(test_client_retry_body_ends_early) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        auto write_reply = [] (accept_result ar, size_t body) {
+            return seastar::async([sk = std::move(ar.connection), body] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                output_stream<char> out = sk.output();
+                out.write(format("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n", 128)).get();
+                out.write(sstring(body, 'a')).get();
+                out.flush().get();
+                out.close().get();
+            });
+        };
+        future<> server = ss.accept().then([write_reply] (accept_result ar) {
+            return write_reply(std::move(ar), 64); // half the declared body, then hang up
+        }).then([&ss, write_reply] {
+            return ss.accept().then([write_reply] (accept_result ar) {
+                return write_reply(std::move(ar), 128); // the retry gets it whole
+            });
+        });
+
+        future<> client = seastar::async([&lcf] {
+            auto cln = http::client(std::make_unique<loopback_http_factory>(lcf), 2, http::client::retry_requests::yes);
+            auto req = http::request::make("GET", "test", "/test");
+            size_t got = 0;
+            cln.make_request(std::move(req), [&got] (const http::reply& rep, input_stream<char>&& in) {
+                return seastar::async([&got, in = std::move(in)] () mutable {
+                    auto close = deferred_close(in);
+                    got = util::read_entire_stream_contiguous(in).get().size();
+                });
+            }, http::reply::status_type::ok).get();
+            cln.close().get();
+            BOOST_REQUIRE_EQUAL(got, 128);
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_100_continue) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);
