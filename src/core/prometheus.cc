@@ -32,6 +32,7 @@
 #include <seastar/http/function_handlers.hh>
 
 #include "prometheus-impl.hh"
+#include "gzip-template.hh"
 
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/algorithm/string.hpp>
@@ -931,6 +932,14 @@ struct extra_label {
  * Using a template has two steps: evaluate() computes the value of each
  * line from a snapshot (or detects that the snapshot doesn't fit the
  * template), and render_text() writes the output.
+ *
+ * For gzip compressed output, the template is compressed too, with holes
+ * for the values (see gzip_template), and render_gzip() fills them in.
+ * This requires the holes to have a fixed width, which the text format
+ * allows: blanks may separate the tokens of a line, so values are padded
+ * with spaces on their left (trailing blanks aren't accepted by all
+ * parsers). The values are formatted as usual, so if one is wider than
+ * its hole, the template is rebuilt.
  */
 
 // The value of an output line
@@ -1022,7 +1031,8 @@ struct text_template {
     // The text of the families' headers and of the lines, in chunks, so
     // that the allocations stay small however large the output is. A
     // string doesn't span chunks, so a chunk is only larger than
-    // literals_chunk_size if it holds a single larger string.
+    // literals_chunk_size if it holds a single larger string. Not kept for
+    // gzip templates.
     std::vector<std::string> literals;
     // Deques, like the literals' chunks, keep the allocations small
     std::deque<family_template> families;
@@ -1031,6 +1041,8 @@ struct text_template {
     std::deque<line_template> lines;
     // Bucket upper bounds of histograms and summaries
     std::vector<std::vector<double>> layouts;
+    // For gzip compressed output, with a hole for each line's value
+    std::optional<seastar::internal::gzip_template> gzip;
 
     static constexpr size_t literals_chunk_size = 64 * 1024;
 
@@ -1380,6 +1392,7 @@ static void render_text(const text_template& t, const text_values& values, outpu
 // values: the configuration, the request's options and filters, and the
 // metrics' shape (identified by the shards' generations)
 struct template_key {
+    internal::compression_type compression;
     sstring prefix;
     std::optional<std::pair<sstring, sstring>> label;
     bool show_help;
@@ -1394,7 +1407,8 @@ struct template_key {
 struct template_key_hash {
     size_t operator()(const template_key& k) const noexcept {
         std::hash<sstring> h;
-        size_t seed = h(k.prefix);
+        size_t seed = size_t(k.compression);
+        boost::hash_combine(seed, h(k.prefix));
         if (k.label) {
             boost::hash_combine(seed, h(k.label->first));
             boost::hash_combine(seed, h(k.label->second));
@@ -1416,6 +1430,7 @@ struct template_key_hash {
 
 static template_key make_template_key(const config& ctx, const write_body_args& args, const metrics_families_per_shard& families) {
     return {
+        .compression = args.compression,
         .prefix = ctx.prefix,
         .label = ctx.label ? std::make_optional(std::pair(sstring(ctx.label->key()), sstring(ctx.label->value()))) : std::nullopt,
         .show_help = args.show_help,
@@ -1424,6 +1439,63 @@ static template_key make_template_key(const config& ctx, const write_body_args& 
         .generations = families | std::views::transform(&mi::values_copy::generation)
                 | std::ranges::to<std::vector>(),
     };
+}
+
+// Value holes are wider than the values they're built from, so that values
+// can grow before the template has to be rebuilt.
+constexpr size_t gzip_value_headroom = 2;
+constexpr size_t gzip_min_value_width = 4;
+
+// Compresses a template, whose values from the snapshot it was built from
+// are given. The literals are dropped, so the template can only be rendered
+// compressed. If given, previous is the compressed template this one
+// replaces, of the same lines, whose holes are kept at least as wide, so
+// that values whose width varies don't keep invalidating templates.
+// Must run in a seastar::thread.
+static void compress_template(text_template& t, const text_values& values,
+        const seastar::internal::gzip_template* previous) {
+    if (previous && previous->hole_count() != t.lines.size()) {
+        previous = nullptr;
+    }
+    seastar::internal::gzip_template_builder b;
+    char formatted[max_formatted_value_size];
+    for (auto& f : t.families) {
+        b.append(t.literal(f.header));
+        for (auto li = f.first_line; li != f.end_line; ++li) {
+            b.append(t.literal(t.lines[li].text));
+            auto len = size_t(format_value(values[li], formatted) - formatted);
+            auto width = std::max(gzip_min_value_width, len + gzip_value_headroom);
+            if (previous) {
+                width = std::max(width, previous->hole_width(li));
+            }
+            b.append_hole(width);
+            b.append("\n");
+        }
+        thread::maybe_yield();
+    }
+    t.gzip = std::move(b).build([] { thread::maybe_yield(); });
+    t.literals = {};
+}
+
+// Renders a compressed template with the given values. Returns std::nullopt
+// if a value doesn't fit its hole.
+// Must run in a seastar::thread.
+static std::optional<std::vector<temporary_buffer<char>>> render_gzip(const text_template& t, const text_values& values) {
+    // The holes are filled in order
+    auto value = values.begin();
+    return t.gzip->render([&] (size_t i, char* dst, size_t width) {
+        if (i % 1024 == 0) {
+            thread::maybe_yield();
+        }
+        char formatted[max_formatted_value_size];
+        auto len = size_t(format_value(*value++, formatted) - formatted);
+        if (len > width) {
+            return false;
+        }
+        std::fill_n(dst, width - len, ' ');
+        std::copy_n(formatted, len, dst + width - len);
+        return true;
+    });
 }
 
 /*
@@ -1614,22 +1686,37 @@ future<> write_context::write_text_representation() {
             key = make_template_key(ctx, args, families);
             t = cache.find(*key);
         }
+        const bool gzip = args.compression == internal::compression_type::gzip;
         text_values values;
+        std::optional<std::vector<temporary_buffer<char>>> compressed;
         future<> shared = make_ready_future<>();
+        // A template which only failed because a value didn't fit its hole
+        lw_shared_ptr<shared_text_template> too_narrow;
         if (t) {
-            if (evaluate(**t, families, values)) {
-                ++cache.stats.hits;
-            } else {
+            if (!evaluate(**t, families, values)) {
                 ++cache.stats.invalidations;
                 t = nullptr;
+            } else if (gzip && !(compressed = render_gzip(**t, values))) {
+                ++cache.stats.invalidations;
+                too_narrow = std::exchange(t, nullptr);
+            } else {
+                ++cache.stats.hits;
             }
         }
         if (!t) {
             ++cache.stats.builds;
-            auto built = make_lw_shared<const text_template>(build_text_template(m, families, ctx, args));
-            if (!evaluate(*built, families, values)) {
+            auto tmpl = build_text_template(m, families, ctx, args);
+            if (!evaluate(tmpl, families, values)) {
                 throw std::logic_error("prometheus: template doesn't fit the snapshot it was built from");
             }
+            if (gzip) {
+                compress_template(tmpl, values, too_narrow ? &*(*too_narrow)->gzip : nullptr);
+                compressed = render_gzip(tmpl, values);
+                if (!compressed) {
+                    throw std::logic_error("prometheus: compressed template doesn't fit the snapshot it was built from");
+                }
+            }
+            auto built = make_lw_shared<const text_template>(std::move(tmpl));
             t = make_lw_shared<shared_text_template>(make_foreign(built));
             if (key) {
                 auto expiry = template_expiry();
@@ -1643,7 +1730,13 @@ future<> write_context::write_text_representation() {
         }
         std::exception_ptr ex;
         try {
-            render_text(**t, values, out);
+            if (gzip) {
+                for (auto& buf : *compressed) {
+                    out.write(std::move(buf)).get();
+                }
+            } else {
+                render_text(**t, values, out);
+            }
         } catch (...) {
             ex = std::current_exception();
         }
@@ -1691,6 +1784,33 @@ future<> write_context::write_protobuf_representation() {
         }
         return out.write(s);
     });
+}
+
+// Whether the Accept-Encoding header allows gzip content coding. An
+// explicit gzip (or x-gzip) entry takes precedence over the "*" wildcard.
+static bool is_accept_gzip(std::string_view accept_encoding) {
+    std::optional<bool> gzip, star;
+    for (auto coding : std::views::split(accept_encoding, ',')) {
+        std::string_view c(coding.begin(), coding.end());
+        auto params = c.find(';');
+        auto name = boost::trim_copy(c.substr(0, params));
+        bool is_gzip = boost::iequals(name, "gzip") || boost::iequals(name, "x-gzip");
+        if (!is_gzip && name != "*") {
+            continue;
+        }
+        // Only q=0 means "not acceptable"
+        bool acceptable = true;
+        if (params != std::string_view::npos) {
+            auto q = boost::trim_copy(c.substr(params + 1));
+            if (q.starts_with("q=") || q.starts_with("Q=")) {
+                q.remove_prefix(2);
+                acceptable = q.find_first_not_of("0.") != std::string_view::npos;
+            }
+        }
+        auto& result = is_gzip ? gzip : star;
+        result = result.value_or(false) || acceptable;
+    }
+    return gzip.value_or(star.value_or(false));
 }
 
 bool is_accept_protobuf(const std::string& accept) {
@@ -1788,6 +1908,13 @@ public:
             .enable_aggregation = req->get_query_param("__aggregate__") != "false",
             .cache_key = std::move(key),
         };
+        if (!args.use_protobuf_format) {
+            rep->add_header("Vary", "Accept-Encoding");
+            if (is_accept_gzip(req->get_header("Accept-Encoding"))) {
+                args.compression = internal::compression_type::gzip;
+                rep->add_header("Content-Encoding", "gzip");
+            }
+        }
         rep->write_body(args.use_protobuf_format ? "proto" : "txt", [this, args = std::move(args)](output_stream<char>&& s) {
             return write_body(std::move(args), std::move(s));
         });

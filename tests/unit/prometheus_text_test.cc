@@ -30,6 +30,7 @@
 
 #include "core/prometheus-impl.hh"
 #include "memory-data-sink.hh"
+#include "gunzip.hh"
 
 #include <map>
 #include <set>
@@ -178,7 +179,7 @@ struct prometheus_test_fixture {
 
         auto filter = test_conf.filter.value_or(always_true);
         auto family_filter = test_conf.family_filter.value_or([](std::string_view) { return true; });
-        auto args = [&] (std::optional<sp::internal::filter_key> cache_key) {
+        auto args = [&] (std::optional<sp::internal::filter_key> cache_key, sp::internal::compression_type compression = sp::internal::compression_type::none) {
             return sp::internal::write_body_args{
                 .filter = filter,
                 .family_filter = family_filter,
@@ -186,6 +187,7 @@ struct prometheus_test_fixture {
                 .show_help = test_conf.show_help,
                 .enable_aggregation = test_conf.aggregation_mode != aggr_mode::NO_AGGR,
                 .cache_key = std::move(cache_key),
+                .compression = compression,
             };
         };
         auto check = [&] (std::string_view what, sstring actual) {
@@ -212,6 +214,47 @@ struct prometheus_test_fixture {
         BOOST_REQUIRE_EQUAL(stats.hits, 2);
         BOOST_REQUIRE_EQUAL(stats.invalidations, 0);
         BOOST_REQUIRE_EQUAL(stats.entries, 1);
+
+        // Compressed, with and without caching
+        auto gzip = sp::internal::compression_type::gzip;
+        check("gzip uncached", normalize(co_await scrape_gzip(config, args(std::nullopt, gzip))));
+        for (int i = 0; i < 3; ++i) {
+            check("gzip", normalize(co_await scrape_gzip(config, args(sp::internal::filter_key{}, gzip))));
+        }
+        stats = access::cache_stats();
+        BOOST_REQUIRE_EQUAL(stats.builds, 4);
+        BOOST_REQUIRE_EQUAL(stats.hits, 4);
+        BOOST_REQUIRE_EQUAL(stats.invalidations, 0);
+        BOOST_REQUIRE_EQUAL(stats.entries, 2);
+    }
+
+    // Returns the decompressed output
+    static seastar::future<sstring> scrape_gzip(prometheus::config config, sp::internal::write_body_args args) {
+        auto compressed = co_await scrape(config, std::move(args));
+        co_return sstring(gunzip(compressed.data(), compressed.size()));
+    }
+
+    // Converts the decompressed gzip output to the uncompressed output, by
+    // dropping the padding of values.
+    static sstring normalize(std::string_view s) {
+        std::string out;
+        while (!s.empty()) {
+            auto eol = s.find('\n');
+            BOOST_REQUIRE(eol != std::string_view::npos);
+            auto line = s.substr(0, eol + 1);
+            s.remove_prefix(eol + 1);
+            if (line.starts_with("#")) {
+                out += line;
+            } else {
+                auto brace = line.rfind('}');
+                BOOST_REQUIRE(brace != std::string_view::npos);
+                auto value = line.find_first_not_of(' ', brace + 1);
+                BOOST_REQUIRE(value != std::string_view::npos);
+                out += line.substr(0, brace + 2);
+                out += line.substr(value);
+            }
+        }
+        return sstring(out);
     }
 
     static sp::internal::text_cache_stats cache_stats() {
@@ -1285,4 +1328,124 @@ SEASTAR_TEST_CASE(test_cache_shared_per_numa_node) {
             BOOST_REQUIRE_NE(templates[shard], templates[0]);
         }
     }
+}
+
+static sp::internal::write_body_args all_metrics_gzip(std::optional<sp::internal::filter_key> cache_key = sp::internal::filter_key{}) {
+    auto args = all_metrics(std::move(cache_key));
+    args.compression = sp::internal::compression_type::gzip;
+    return args;
+}
+
+SEASTAR_TEST_CASE(test_cache_gzip_skip_when_empty) {
+    co_await reset_metrics();
+    uint64_t value = 0;
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        sm::make_counter("counter", [&value] { return value; }, sm::description("counter"))
+            .set_skip_when_empty(true),
+    });
+
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()), "");
+    value = 5;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()),
+        "# TYPE seastar_cache_counter counter\n"
+        "seastar_cache_counter{shard=\"0\"}    5\n");
+    value = 0;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()),
+        "# TYPE seastar_cache_counter counter\n"
+        "seastar_cache_counter{shard=\"0\"}    0\n");
+    auto stats = prometheus_test_fixture::cache_stats();
+    BOOST_REQUIRE_EQUAL(stats.builds, 2);
+    BOOST_REQUIRE_EQUAL(stats.hits, 1);
+}
+
+SEASTAR_TEST_CASE(test_cache_gzip_value_growth) {
+    co_await reset_metrics();
+    double value = 1;
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        sm::make_gauge("gauge", sm::description("gauge"), [&value] { return value; }),
+    });
+    auto expected = [] (std::string_view padded) {
+        return fmt::format("# TYPE seastar_cache_gauge gauge\nseastar_cache_gauge{{shard=\"0\"}} {}\n", padded);
+    };
+    // The hole is 2 characters wider than the value it's built from
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()), expected("  1.000000"));
+    value = -10;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()), expected("-10.000000"));
+    value = std::numeric_limits<double>::infinity();
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()), expected("       inf"));
+    BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().builds, 1);
+
+    // A value too wide for its hole rebuilds the template
+    value = 12345;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()), expected("  12345.000000"));
+    value = 99999;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()), expected("  99999.000000"));
+    auto stats = prometheus_test_fixture::cache_stats();
+    BOOST_REQUIRE_EQUAL(stats.builds, 2);
+    BOOST_REQUIRE_EQUAL(stats.invalidations, 1);
+    BOOST_REQUIRE_EQUAL(stats.hits, 3);
+}
+
+SEASTAR_TEST_CASE(test_cache_gzip_width_kept) {
+    co_await reset_metrics();
+    double a = 1, b = 1;
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        sm::make_gauge("a", sm::description("a"), [&a] { return a; }),
+        sm::make_gauge("b", sm::description("b"), [&b] { return b; }),
+    });
+    auto expected = [] (std::string_view a, std::string_view b) {
+        return fmt::format("# TYPE seastar_cache_a gauge\nseastar_cache_a{{shard=\"0\"}} {}\n"
+                "# TYPE seastar_cache_b gauge\nseastar_cache_b{{shard=\"0\"}} {}\n", a, b);
+    };
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()),
+            expected("  1.000000", "  1.000000"));
+    // a widens its hole
+    a = 12345;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()),
+            expected("  12345.000000", "  1.000000"));
+    // b widens its hole, and a's hole stays wide although a is narrow now
+    a = 1;
+    b = 12345;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()),
+            expected("      1.000000", "  12345.000000"));
+    // so a can widen again without a rebuild
+    a = 12345;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()),
+            expected("  12345.000000", "  12345.000000"));
+    auto stats = prometheus_test_fixture::cache_stats();
+    BOOST_REQUIRE_EQUAL(stats.builds, 3);
+    BOOST_REQUIRE_EQUAL(stats.invalidations, 2);
+    BOOST_REQUIRE_EQUAL(stats.hits, 1);
+}
+
+SEASTAR_TEST_CASE(test_cache_gzip_large) {
+    // Enough output for LZ77 matches to span many holes and exceed the
+    // deflate window
+    co_await reset_metrics();
+    std::vector<uint64_t> values(5000);
+    sm::metric_groups metrics;
+    std::vector<sm::metric_definition> defs;
+    sm::label l("label");
+    for (size_t i = 0; i < values.size(); ++i) {
+        values[i] = i;
+        defs.push_back(sm::make_counter(fmt::format("counter_{}", i % 7), [&values, i] { return values[i]; },
+                sm::description("counter"), {l(fmt::format("value-{}", i))}).set_skip_when_empty(i % 3 == 0));
+    }
+    metrics.add_group("cache", defs);
+    for (int round = 0; round < 3; ++round) {
+        auto text = co_await prometheus_test_fixture::scrape({}, all_metrics());
+        auto gzip = co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip());
+        BOOST_REQUIRE_EQUAL(prometheus_test_fixture::normalize(gzip), text);
+        for (size_t i = 0; i < values.size(); ++i) {
+            values[i] = (values[i] * 7 + round) % 1000;
+        }
+    }
+    // The text and gzip templates are built in the first round, and again
+    // in the third, when counter 0 (with skip_when_empty) is first used
+    auto stats = prometheus_test_fixture::cache_stats();
+    BOOST_REQUIRE_EQUAL(stats.builds, 4);
+    BOOST_REQUIRE_EQUAL(stats.hits + stats.invalidations, 2);
 }
