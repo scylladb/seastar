@@ -812,13 +812,14 @@ dns_resolver::impl::poll_sockets() {
 
         if (event_count > 0) {
             ares_process_fds(_channel, events, event_count, ARES_PROCESS_FLAG_NONE);
-            processed = true;
+        } else if (!processed) {
+            // Nothing is ready: process timeouts, which can open a socket to the
+            // next server, and look again.
+            ares_process_fd(_channel, ARES_SOCKET_BAD, ARES_SOCKET_BAD);
         } else {
             break;
         }
-    }
-    if (!processed) {
-        ares_process_fd(_channel, ARES_SOCKET_BAD, ARES_SOCKET_BAD);
+        processed = true;
     }
 #else
     // For older c-ares versions, use the traditional FD polling approach
@@ -829,10 +830,6 @@ dns_resolver::impl::poll_sockets() {
         // Use ares_getsock for c-ares >= 1.13.0
         ares_socket_t socks[ARES_GETSOCK_MAXNUM];
         int bitmask = ares_getsock(_channel, socks, ARES_GETSOCK_MAXNUM);
-
-        if (bitmask == 0) {
-            break;
-        }
 
         // Convert bitmask to fd_sets for compatibility with existing code
         fd_set readers, writers;
@@ -885,18 +882,19 @@ dns_resolver::impl::poll_sockets() {
                 ++processed_fds;
             }
         }
-        // no sockets of interest had polling values. done.
         if (processed_fds == 0) {
-            break;
+            if (processed) {
+                break;
+            }
+            // Nothing is ready: process timeouts, which can open a socket to the
+            // next server, and look again.
+            ares_process_fd(_channel, ARES_SOCKET_BAD, ARES_SOCKET_BAD);
+            processed = true;
+            continue;
         }
         // call fd processing. this will clean up and close sockets as well.
         ares_process(_channel, &readers, &writers);
         processed = true;
-    }
-    // even if we did not process anything, do a single callback to maybe close
-    // broken sockets.
-    if (!processed) {
-        ares_process_fd(_channel, ARES_SOCKET_BAD, ARES_SOCKET_BAD);
     }
 #endif  // USE_CARES_EVENTFD
 }
