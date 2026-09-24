@@ -23,6 +23,7 @@
 #include <algorithm>
 
 #include <seastar/core/seastar.hh>
+#include <seastar/core/shared_future.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/with_timeout.hh>
 #include <seastar/testing/test_case.hh>
@@ -334,15 +335,57 @@ SEASTAR_TEST_CASE(test_tcp_server_closes_connection) {
 enum class stack_fault {
     udp_socket,  // creating a channel fails with EMFILE
     tcp_connect, // connect() fails
+    tcp_output,  // creating the output stream fails
 };
 
-// connect() fails at once with bad_alloc. It sets errno to EINTR, as a signal
-// does when it interrupts the reactor's sleep.
-class failing_connector : public socket_impl {
+// Creating the output stream fails with bad_alloc. Reads wait for
+// shutdown_input().
+class failing_connection : public connected_socket_impl {
+    lw_shared_ptr<shared_promise<>> _input_shutdown = make_lw_shared<shared_promise<>>();
+
+    class source_impl : public data_source_impl {
+        lw_shared_ptr<shared_promise<>> _input_shutdown;
+    public:
+        explicit source_impl(lw_shared_ptr<shared_promise<>> s) : _input_shutdown(std::move(s)) {}
+        future<temporary_buffer<char>> get() override {
+            return _input_shutdown->get_shared_future().then([] { return temporary_buffer<char>(); });
+        }
+    };
 public:
+    data_source source() override { return data_source(std::make_unique<source_impl>(_input_shutdown)); }
+    data_sink sink() override { throw std::bad_alloc(); }
+    void shutdown_input() override {
+        if (!_input_shutdown->available()) {
+            _input_shutdown->set_value();
+        }
+    }
+    void shutdown_output() override {}
+    void set_nodelay(bool) override {}
+    bool get_nodelay() const override { return true; }
+    void set_keepalive(bool) override {}
+    bool get_keepalive() const override { return false; }
+    void set_keepalive_parameters(const keepalive_params&) override {}
+    keepalive_params get_keepalive_parameters() const override { return tcp_keepalive_params{}; }
+    void set_sockopt(int, int, const void*, size_t) override {}
+    int get_sockopt(int, int, void*, size_t) const override { return 0; }
+    socket_address local_address() const noexcept override { return {}; }
+    socket_address remote_address() const noexcept override { return {}; }
+    future<> wait_input_shutdown() override { return _input_shutdown->get_shared_future(); }
+};
+
+// For tcp_connect, connect() fails at once with bad_alloc. It sets errno to
+// EINTR, as a signal does when it interrupts the reactor's sleep. Otherwise it
+// returns a failing_connection.
+class failing_connector : public socket_impl {
+    stack_fault _fault;
+public:
+    explicit failing_connector(stack_fault fault) : _fault(fault) {}
     future<connected_socket> connect(socket_address, socket_address, transport) override {
-        errno = EINTR;
-        return make_exception_future<connected_socket>(std::bad_alloc());
+        if (_fault == stack_fault::tcp_connect) {
+            errno = EINTR;
+            return make_exception_future<connected_socket>(std::bad_alloc());
+        }
+        return make_ready_future<connected_socket>(connected_socket(std::make_unique<failing_connection>()));
     }
     void set_reuseaddr(bool) override {}
     bool get_reuseaddr() const override { return false; }
@@ -355,7 +398,7 @@ public:
     explicit failing_stack(stack_fault fault) : _fault(fault) {}
     server_socket listen(socket_address, listen_options) override { throw std::logic_error("not used"); }
     ::seastar::socket socket() override {
-        return ::seastar::socket(std::make_unique<failing_connector>());
+        return ::seastar::socket(std::make_unique<failing_connector>(_fault));
     }
     datagram_channel make_unbound_datagram_channel(sa_family_t) override {
         if (_fault == stack_fault::udp_socket) {
@@ -371,17 +414,17 @@ public:
 
 // Resolves a name through a stack with the given fault. c-ares must give up on
 // the only server and end the query with ARES_ECONNREFUSED, its status for any
-// socket failure.
+// socket failure. The resolver must then close.
 static future<> test_failing_stack(stack_fault fault) {
     failing_stack stack(fault);
     dns_resolver::options opts;
     opts.servers = std::vector<inet_address>({ inet_address("127.0.0.1") });
-    opts.use_tcp_query = fault == stack_fault::tcp_connect;
+    opts.use_tcp_query = fault == stack_fault::tcp_connect || fault == stack_fault::tcp_output;
     opts.timeout = std::chrono::milliseconds(300);
 
     dns_resolver d(stack, opts);
     auto f = co_await coroutine::as_future(d.get_host_by_name("failing.seastar.test", inet_address::family::INET));
-    co_await d.close();
+    co_await with_timeout(timer<>::clock::now() + std::chrono::seconds(10), d.close());
 
     BOOST_REQUIRE_EXCEPTION(f.get(), std::system_error, [] (const std::system_error& e) {
         return e.code().category() == dns::error_category() && e.code().value() == ares_econnrefused;
@@ -394,6 +437,10 @@ SEASTAR_TEST_CASE(test_udp_socket_creation_fails) {
 
 SEASTAR_TEST_CASE(test_tcp_connect_fails) {
     return test_failing_stack(stack_fault::tcp_connect);
+}
+
+SEASTAR_TEST_CASE(test_tcp_output_stream_fails) {
+    return test_failing_stack(stack_fault::tcp_output);
 }
 
 SEASTAR_TEST_CASE(test_resolve_tcp,

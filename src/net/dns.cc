@@ -1368,9 +1368,6 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
 }
 
 ssize_t dns_resolver::impl::do_send_tcp(sock_entry& e, send_packet_t p, size_t bytes, ares_socket_t fd) {
-    if (!e.tcp.out) {
-        e.tcp.out = e.tcp.socket.output(0).detach();
-    }
     auto f = e.tcp.out->put(std::move(p));
 
     if (!f.available()) {
@@ -1473,9 +1470,14 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
                 return -1;
             }
 
-            if (e.typ == type::tcp && !e.tcp.socket) {
-                errno = ENOTCONN;
-                return -1;
+            if (e.typ == type::tcp) {
+                if (!e.tcp.socket) {
+                    errno = ENOTCONN;
+                    return -1;
+                }
+                if (!e.tcp.out) {
+                    e.tcp.out = e.tcp.socket.output(0).detach();
+                }
             }
 
 #if ARES_VERSION >= 0x012200
