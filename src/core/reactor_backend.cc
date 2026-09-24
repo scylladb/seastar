@@ -2647,20 +2647,33 @@ reactor_backend_selector reactor_backend_selector::default_backend() {
 }
 
 std::vector<reactor_backend_selector> reactor_backend_selector::available() {
-    std::vector<reactor_backend_selector> ret;
+    // Each of the checks below does a real, sometimes expensive kernel probe
+    // (e.g. io_uring detection creates and tears down actual io_uring
+    // instances). Probe once and cache the result: callers (the
+    // --reactor-backend candidates list, its default, and its description)
+    // must all agree on what's available, and repeated independent probing
+    // can give different answers under load.
+    static const std::vector<reactor_backend_selector> cached = [] {
+        std::vector<reactor_backend_selector> ret;
 #ifdef SEASTAR_HAVE_URING
-    if (detect_io_uring()) {
-        ret.push_back(reactor_backend_selector("io_uring"));
-    }
-    if (detect_asymmetric_io_uring()) {
-        ret.push_back(reactor_backend_selector("asymmetric_io_uring"));
-    }
+        if (detect_io_uring()) {
+            ret.push_back(reactor_backend_selector("io_uring"));
+            // asymmetric_io_uring requires a strict superset of what plain
+            // io_uring requires, so there's no point probing it (another
+            // real io_uring_setup(2) call, plus SQPOLL kernel worker thread
+            // creation) once the plain probe has already failed.
+            if (detect_asymmetric_io_uring()) {
+                ret.push_back(reactor_backend_selector("asymmetric_io_uring"));
+            }
+        }
 #endif
-    if (has_enough_aio_nr() && detect_aio_poll()) {
-        ret.push_back(reactor_backend_selector("linux-aio"));
-    }
-    ret.push_back(reactor_backend_selector("epoll"));
-    return ret;
+        if (has_enough_aio_nr() && detect_aio_poll()) {
+            ret.push_back(reactor_backend_selector("linux-aio"));
+        }
+        ret.push_back(reactor_backend_selector("epoll"));
+        return ret;
+    }();
+    return cached;
 }
 
 std::shared_ptr<reactor_backend_configurator> reactor_backend_selector::configurator(resource::cpuset cpu_set, const reactor_options& reactor_opts, const smp_options& smp_opts) const {
