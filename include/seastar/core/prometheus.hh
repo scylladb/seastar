@@ -28,6 +28,7 @@
 #include <chrono>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 struct prometheus_test_fixture;
 
@@ -123,6 +124,11 @@ class test_access {
     static void clear_cache();
     // Sets the time after which templates expire, on all shards
     static void set_cache_ttl(std::chrono::milliseconds ttl);
+    // Returns a template cached by this shard, or nullptr
+    static const void* cached_template();
+    // Overrides the shards' NUMA nodes when sharing templates, on all shards;
+    // must not be called while requests are served.
+    static void set_numa_node_mapping(std::optional<std::vector<unsigned>> mapping);
 
     friend struct metrics_perf_fixture;
     friend struct ::prometheus_test_fixture;
