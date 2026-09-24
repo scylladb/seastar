@@ -56,6 +56,10 @@ uint32_t crc32_combine_op(uint32_t crc1, uint32_t crc2, uint32_t op) noexcept;
 
 class gzip_template;
 
+/// For tests: when \c enable is false, gzip_template doesn't use
+/// carry-less multiplication instructions even if available.
+void gzip_template_use_clmul(bool enable) noexcept;
+
 /// \brief Builds a \ref gzip_template.
 ///
 /// The uncompressed stream is described as a sequence of literal byte runs
@@ -66,10 +70,9 @@ class gzip_template_builder {
     struct hole {
         size_t offset;
         size_t width;
-        uint32_t crc_before; // CRC-32 of the literal run preceding the hole
     };
     std::deque<hole> _holes;
-    uint32_t _run_crc = 0; // CRC-32 of the literal run since the last hole
+    uint32_t _zeroed_crc = 0; // CRC-32 of the stream, with zeroed holes
 public:
     /// The maximum width of a single hole.
     static constexpr size_t max_hole_width = 1024;
@@ -77,7 +80,7 @@ public:
     /// Appends literal bytes to the stream.
     void append(std::string_view literal) {
         _data.insert(_data.end(), literal.begin(), literal.end());
-        _run_crc = crc32_update(_run_crc, literal.data(), literal.size());
+        _zeroed_crc = crc32_update(_zeroed_crc, literal.data(), literal.size());
     }
 
     /// Appends a hole of \c width bytes to the stream. The content of the hole
@@ -104,31 +107,46 @@ public:
 /// hole content.
 class gzip_template {
     struct hole {
-        uint64_t bit_offset;  // in the compressed stream
+        uint64_t bit_offset;     // in the compressed stream
         uint32_t width;
-        uint32_t crc_before;  // CRC-32 of the literal run preceding the hole
-        uint32_t op_before;   // crc32_combine_gen() of that run's length
+        uint32_t first_constant; // index into _crc_constants
     };
     // Deques, which keep the allocations small however large the stream is
     // The header and deflate stream, holes zeroed, in chunks of buffer_size
     // bytes (except the last), one for each buffer render() returns
     std::vector<std::vector<uint8_t>> _data;
     std::deque<hole> _holes;
-    uint32_t _tail_crc = 0;
-    uint32_t _tail_op = 0;
+    // The CRC-32 of the uncompressed stream is linear in the holes' content,
+    // so it's the CRC-32 of the stream with zeroed holes, XORed with the
+    // contribution of each hole's content. A hole's content is split into
+    // chunks of up to 8 bytes, from its end, and the contribution of a
+    // chunk C followed by n bytes is C(x) * x^(32 + 8n) modulo the CRC
+    // polynomial. _crc_constants holds x^(8n) modulo the polynomial for each
+    // chunk, bit-reflected (see crc32_combine_gen()).
+    std::deque<uint32_t> _crc_constants;
+    uint32_t _zeroed_crc = 0;
     uint32_t _isize = 0;
-
-    static const std::array<uint8_t, 0x90> literal_codes;
 
     // The size of the buffers render() returns, except the last
     static constexpr size_t buffer_size = 64 * 1024;
     // Zeroed room after each buffer, for the codes of a hole which starts
-    // in the buffer and continues in the next one, and for the trailer
+    // in the buffer and continues in the next one, for 8-byte accesses
+    // starting at any byte of a hole, and for the trailer
     static constexpr size_t buffer_slack = gzip_template_builder::max_hole_width + 16;
+    // render() fills the holes' content in batches of up to this size
+    static constexpr size_t batch_size = 4096;
+    static_assert(batch_size >= gzip_template_builder::max_hole_width);
 
     // Copies the stream into buffers of buffer_size bytes, each followed by
     // buffer_slack zeroed bytes.
     std::vector<temporary_buffer<char>> copy_data() const;
+    using hole_iterator = std::deque<hole>::const_iterator;
+
+    // Encodes the content of holes [begin, end), concatenated in contents
+    // (which must be preceded by 8 readable bytes), into bufs, and XORs
+    // their contribution into crc.
+    bool encode_holes(std::vector<temporary_buffer<char>>& bufs, hole_iterator begin, hole_iterator end,
+            const char* contents, uint32_t& crc) const noexcept;
     // Moves the codes which were encoded past the end of each buffer to the
     // start of the next one, appends the trailer to the last buffer, and
     // trims the buffers.
@@ -168,33 +186,31 @@ public:
 template <typename Fill>
 std::optional<std::vector<temporary_buffer<char>>> gzip_template::render(Fill&& fill) const {
     auto bufs = copy_data();
-    uint32_t crc = 0;
-    char tmp[gzip_template_builder::max_hole_width];
-    for (size_t i = 0; i < _holes.size(); ++i) {
-        const auto& h = _holes[i];
-        crc = crc32_combine_op(crc, h.crc_before, h.op_before);
-        if (!fill(i, tmp, size_t(h.width))) {
-            return std::nullopt;
-        }
-        crc = crc32_update(crc, tmp, h.width);
-        // Each byte is an 8-bit Huffman code, which may straddle two bytes
-        // of the compressed stream. The hole is encoded into the buffer it
-        // starts in, continuing into its slack.
-        auto byte = h.bit_offset / 8;
-        auto* dst = reinterpret_cast<uint8_t*>(bufs[byte / buffer_size].get_write()) + byte % buffer_size;
-        unsigned shift = h.bit_offset % 8;
-        for (uint32_t j = 0; j < h.width; ++j) {
-            auto c = static_cast<unsigned char>(tmp[j]);
-            if (c >= literal_codes.size()) [[unlikely]] {
+    uint32_t crc = _zeroed_crc;
+    // The content of a batch of holes, preceded by 8 bytes so that
+    // encode_holes() can load 8-byte words ending at any hole
+    std::array<char, 8 + batch_size> contents;
+    std::fill_n(contents.begin(), 8, 0);
+    char* dst = contents.data() + 8;
+    auto first = _holes.begin();
+    size_t i = 0;
+    for (auto h = _holes.begin(); h != _holes.end(); ++h, ++i) {
+        auto width = size_t(h->width);
+        if (size_t(contents.data() + contents.size() - dst) < width) {
+            if (!encode_holes(bufs, first, h, contents.data() + 8, crc)) {
                 return std::nullopt;
             }
-            unsigned code = unsigned(literal_codes[c]) << shift;
-            dst[j] |= code;
-            // dst[j + 1] is at most in the buffer's slack.
-            dst[j + 1] |= code >> 8;
+            first = h;
+            dst = contents.data() + 8;
         }
+        if (!fill(i, dst, width)) {
+            return std::nullopt;
+        }
+        dst += width;
     }
-    crc = crc32_combine_op(crc, _tail_crc, _tail_op);
+    if (!encode_holes(bufs, first, _holes.end(), contents.data() + 8, crc)) {
+        return std::nullopt;
+    }
     finish(bufs, crc);
     return bufs;
 }
