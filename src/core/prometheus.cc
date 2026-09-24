@@ -927,7 +927,7 @@ future<> write_context::write_text_representation() {
             bool should_aggregate = args.enable_aggregation && !metric_family.metadata().aggregate_labels.empty();
             metric_family.foreach_metric([this, &s, &found, &name, &metric_family, &aggregated_values, should_aggregate](const mi::metric_value& value, const mi::metric_series_metadata& value_info) mutable {
                 s.clear();
-                if ((value_info.should_skip_when_empty() && value.is_empty()) || !args.filter(value_info.labels())) {
+                if (!args.filter(value_info.labels())) {
                     return;
                 }
                 if (!found) {
@@ -985,7 +985,7 @@ future<> write_context::write_protobuf_representation() {
         mtf.set_name(fmt::format("{}_{}", ctx.prefix, name));
         mtf.mutable_metric()->Reserve(metric_family.size());
         metric_family.foreach_metric([this, &mtf, &aggregated_values, &empty_metric, should_aggregate](const auto& value, const auto& value_info) {
-            if ((value_info.should_skip_when_empty() && value.is_empty()) || !args.filter(value_info.labels())) {
+            if (!args.filter(value_info.labels())) {
                 return;
             }
             if (should_aggregate) {
