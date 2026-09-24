@@ -759,7 +759,7 @@ void
 dns_resolver::impl::poll_sockets() {
     dns_log.trace("Poll sockets");
 
-#if ARES_VERSION >= 0x011300 && USE_CARES_EVENTFD
+#if USE_CARES_EVENTFD
     // When using ARES_OPT_SOCK_STATE_CB with modern c-ares >= 1.34.0
     // we know exactly which sockets c-ares cares about through the callback
     bool processed = false;
@@ -820,54 +820,6 @@ dns_resolver::impl::poll_sockets() {
     if (!processed) {
         ares_process_fd(_channel, ARES_SOCKET_BAD, ARES_SOCKET_BAD);
     }
-#elif USE_CARES_EVENTFD
-    // For modern c-ares >= 1.34.0 without sock_state_cb, we directly process
-    // sockets using ares_process_fds. Iterate through tracked sockets and
-    // process any that have available data.
-
-    // Most DNS queries use few sockets, so optimize for the common case by
-    // stack-allocating a small buffer and only allocating on heap if needed
-    constexpr int MAX_EVENTS = 16;
-    ares_fd_events_t stack_events[MAX_EVENTS];
-    std::unique_ptr<ares_fd_events_t[]> heap_events;
-    ares_fd_events_t* events = stack_events;
-
-    int available_count = 0;
-    for (auto& [fd, e] : _sockets) {
-        if (e.avail != 0 && !e.closed) {
-            available_count++;
-        }
-    }
-
-    if (available_count > MAX_EVENTS) {
-        heap_events = std::make_unique<ares_fd_events_t[]>(available_count);
-        events = heap_events.get();
-    }
-
-    int event_count = 0;
-    for (auto& [fd, e] : _sockets) {
-        if (e.avail != 0 && !e.closed) {
-            events[event_count].fd = fd;
-            events[event_count].events = 0;
-            if (e.avail & POLLIN) {
-                events[event_count].events |= ARES_FD_EVENT_READ;
-            }
-            if (e.avail & POLLOUT) {
-                events[event_count].events |= ARES_FD_EVENT_WRITE;
-            }
-            if (events[event_count].events) {
-                event_count++;
-                if (event_count >= available_count) break;
-            }
-        }
-    }
-
-    if (event_count > 0) {
-        ares_process_fds(_channel, events, event_count, ARES_PROCESS_FLAG_NONE);
-    } else {
-        // No sockets ready, just process timeouts
-        ares_process_fd(_channel, ARES_SOCKET_BAD, ARES_SOCKET_BAD);
-    }
 #else
     // For older c-ares versions, use the traditional FD polling approach
     bool processed = false;
@@ -903,14 +855,6 @@ dns_resolver::impl::poll_sockets() {
         dns_log.trace("ares_getsock: {} sockets", nr_fds);
 #endif
 
-#if USE_CARES_EVENTFD
-        // avoid allocations on every poll. the ares_process_fds will not reenter this,
-        // as any read/write/close callbacks will either complete or create a pending
-        // future which cannot execute until the call returns.
-        // I.e. we cannot get here while this call is running, so safe to make this
-        // thread static
-        static thread_local ares_fd_events_t events[FD_SETSIZE];
-#endif
         int processed_fds = 0;
 
         for (auto& [fd, e] : _sockets) {
@@ -925,29 +869,9 @@ dns_resolver::impl::poll_sockets() {
                           read_avail ? "r" : "",
                           write_avail ? "w" : "");
 
-            // #2641 - don't do callbacks per fd, instead use
-            // ares_process or ares_process_fds if available.
-            // Use ares_process_fds if possible, since this is the
-            // recommended API and avoids allocations.
-            // Note: For c-ares >= 1.19.0 with ARES_OPT_SOCK_STATE_CB,
-            // the modern code path above already uses socket state callbacks.
+            // #2641 - don't do callbacks per fd, instead use ares_process.
 
             // clear fd state
-#if USE_CARES_EVENTFD
-            events[processed_fds] = {0,};
-            // Update read/write state based on our poll info
-            if (read_monitor && read_avail) {
-                events[processed_fds].fd = fd;
-                events[processed_fds].events |= ARES_FD_EVENT_READ;
-            }
-            if (write_monitor && write_avail) {
-                events[processed_fds].fd = fd;
-                events[processed_fds].events |= ARES_FD_EVENT_WRITE;
-            }
-            if (events[processed_fds].events) {
-                ++processed_fds;
-            }
-#else
             FD_CLR(fd, &readers);
             FD_CLR(fd, &writers);
             // Update read/write state based on our poll info
@@ -960,18 +884,13 @@ dns_resolver::impl::poll_sockets() {
             if (FD_ISSET(fd, &readers) || FD_ISSET(fd, &writers)) {
                 ++processed_fds;
             }
-#endif
         }
         // no sockets of interest had polling values. done.
         if (processed_fds == 0) {
             break;
         }
         // call fd processing. this will clean up and close sockets as well.
-#if USE_CARES_EVENTFD
-        ares_process_fds(_channel, events, processed_fds, ARES_PROCESS_FLAG_NONE);
-#else
         ares_process(_channel, &readers, &writers);
-#endif
         processed = true;
     }
     // even if we did not process anything, do a single callback to maybe close
