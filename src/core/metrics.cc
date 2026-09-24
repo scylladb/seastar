@@ -449,6 +449,7 @@ foreign_ptr<values_reference> get_values() {
     auto& mv = res.values;
     get_local_impl()->update_used_metrics();
     res.metadata = get_local_impl()->metadata();
+    res.generation = get_local_impl()->generation();
     auto & functions = get_local_impl()->functions();
     for (auto&& i : functions) {
         value_vector values;
@@ -512,6 +513,7 @@ void impl::update_metrics_if_needed() {
         _current_metrics.resize(i);
         _metadata = mt_ref;
         _dirty = false;
+        ++_generation;
 
         gc_internalized_labels();
     }
@@ -642,6 +644,8 @@ void impl::set_metric_family_configs(const std::vector<metric_family_config>& fa
             }
         }
     }
+    // The metadata was modified in place, so the shape changed
+    ++_generation;
 }
 }
 
