@@ -437,6 +437,8 @@ using metric_values = std::deque<value_vector>;
 struct values_copy {
     shared_ptr<metric_metadata> metadata;
     metric_values values;
+    /// The shape generation of \c metadata, see impl::generation().
+    uint64_t generation = 0;
 };
 
 struct config {
@@ -449,6 +451,7 @@ class impl {
     value_map _value_map;
     config _config;
     bool _dirty = true;
+    uint64_t _generation = 0;
     shared_ptr<metric_metadata> _metadata;
     std::set<sstring> _labels;
     std::vector<std::deque<metric_function>> _current_metrics;
@@ -498,6 +501,20 @@ public:
 
     void dirty() {
         _dirty = true;
+    }
+
+    /*!
+     * \brief The generation of the metrics' shape on this shard
+     *
+     * The shape is everything reported about the metrics except their
+     * values: which metrics exist and are enabled, their labels, and
+     * their families' metadata (including the aggregation labels).
+     * The generation changes whenever the shape changes, and the
+     * same generation always refers to the same shape.
+     */
+    uint64_t generation() {
+        update_metrics_if_needed();
+        return _generation;
     }
 
     const std::set<sstring>& get_labels() const noexcept {
