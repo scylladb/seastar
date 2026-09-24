@@ -29,8 +29,11 @@ static bool is_retryable_exception(std::exception_ptr ex) {
         try {
             std::rethrow_exception(ex);
         } catch (const std::system_error& sys_err) {
-            auto code = sys_err.code().value();
-            if (code == EPIPE || code == ECONNABORTED || code == ECONNRESET || code == tls::ERROR_PREMATURE_TERMINATION) {
+            const auto& code = sys_err.code();
+            if (code.value() == EPIPE || code.value() == ECONNABORTED || code.value() == ECONNRESET) {
+                return true;
+            }
+            if (code.category() == tls::error_category() && code.value() == tls::ERROR_PREMATURE_TERMINATION) {
                 return true;
             }
             try {
