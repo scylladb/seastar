@@ -24,9 +24,18 @@
 #include <seastar/util/assert.hh>
 
 #include <algorithm>
+#include <atomic>
+#include <bit>
 #include <deque>
 #include <limits>
 #include <stdexcept>
+
+#if defined(__x86_64__)
+#include <immintrin.h>
+#elif defined(__aarch64__)
+#include <arm_neon.h>
+#include <sys/auxv.h>
+#endif
 
 namespace seastar::internal {
 
@@ -334,7 +343,10 @@ public:
 
 }
 
-const std::array<uint8_t, 0x90> gzip_template::literal_codes = [] {
+namespace {
+
+// The fixed Huffman codes of the literals encodable in holes, bit-reversed
+constexpr auto literal_codes = [] {
     std::array<uint8_t, 0x90> t{};
     for (unsigned c = 0; c < t.size(); ++c) {
         t[c] = reverse_bits(0x30 + c, 8);
@@ -342,27 +354,132 @@ const std::array<uint8_t, 0x90> gzip_template::literal_codes = [] {
     return t;
 }();
 
-uint32_t crc32_update(uint32_t crc, const char* p, size_t n) noexcept {
-    crc = ~crc;
-    for (size_t i = 0; i < n; ++i) {
-        crc = crc_table[(crc ^ static_cast<uint8_t>(p[i])) & 0xff] ^ (crc >> 8);
+uint64_t load_le64(const void* p) noexcept {
+    uint64_t v;
+    std::memcpy(&v, p, 8);
+    if constexpr (std::endian::native == std::endian::big) {
+        v = __builtin_bswap64(v);
     }
-    return ~crc;
+    return v;
 }
 
-uint32_t crc32_combine_gen(uint64_t len) noexcept {
-    // x^(8 * len) modulo the CRC polynomial
-    uint32_t p = uint32_t(1) << 31; // x^0
-    for (unsigned k = 3; len; len >>= 1, ++k) {
-        if (len & 1) {
-            p = multmodp(x2n_table[k & 31], p);
+void store_le64(void* p, uint64_t v) noexcept {
+    if constexpr (std::endian::native == std::endian::big) {
+        v = __builtin_bswap64(v);
+    }
+    std::memcpy(p, &v, 8);
+}
+
+// Encodes a hole's content as literal codes at a bit offset of out, which
+// must be followed by at least 8 bytes. Returns false if a byte can't be
+// encoded.
+bool encode_hole(uint8_t* out, uint64_t bit_offset, const char* src, uint32_t width) noexcept {
+    auto* dst = out + bit_offset / 8;
+    unsigned shift = bit_offset % 8;
+    // Seven codes at a time: shifted by up to 7 bits, they fit in a word
+    for (uint32_t i = 0; i < width; i += 7) {
+        uint64_t codes = 0;
+        uint32_t n = std::min(width - i, 7u);
+        for (uint32_t k = 0; k < n; ++k) {
+            auto c = static_cast<uint8_t>(src[i + k]);
+            if (c >= literal_codes.size()) [[unlikely]] {
+                return false;
+            }
+            codes |= uint64_t(literal_codes[c]) << (8 * k);
         }
+        store_le64(dst + i, load_le64(dst + i) | (codes << shift));
     }
-    return p;
+    return true;
 }
 
-uint32_t crc32_combine_op(uint32_t crc1, uint32_t crc2, uint32_t op) noexcept {
-    return multmodp(op, crc1) ^ crc2;
+// Loads the n <= 8 bytes of a chunk ending at end (which must be preceded by
+// 8 - n readable bytes) as a bit-reflected polynomial: x^0 at bit 63.
+uint64_t load_chunk(const char* end, unsigned n) noexcept {
+    auto v = load_le64(end - 8);
+    return n == 8 ? v : v & (~uint64_t(0) << (64 - 8 * n));
+}
+
+// Iterates over the chunks of all holes, from the end of each hole
+#define SEASTAR_FOR_EACH_HOLE_CHUNK(holes, contents, constants, chunk, k, body) \
+    for (auto& h_ : holes) { \
+        contents += h_.width; \
+        auto k_ = constants + h_.first_constant; \
+        for (uint32_t done_ = 0; done_ < h_.width; done_ += 8) { \
+            uint64_t chunk = load_chunk(contents - done_, std::min(h_.width - done_, 8u)); \
+            uint32_t k = *k_++; \
+            body \
+        } \
+    }
+
+// Reduces the carry-less product of chunks (bit-reflected, with x^0 at bit
+// 94) and their constants, multiplied by x^32, modulo the CRC polynomial.
+uint32_t reduce_product(uint64_t lo, uint64_t hi) noexcept {
+    static const uint32_t x32 = crc32_combine_gen(4);
+    static const uint32_t x64 = crc32_combine_gen(8);
+    static const uint32_t x96 = crc32_combine_gen(12);
+    // Bit 63 + k, 31 + k and k - 1 of the product have x^(31 - k) times
+    // x^-32, x^0 and x^32, respectively.
+    return multmodp(x32, uint32_t((lo >> 63) | (hi << 1)))
+        ^ multmodp(x64, uint32_t(lo >> 31))
+        ^ multmodp(x96, uint32_t(lo << 1));
+}
+
+#if defined(__x86_64__)
+
+[[gnu::target("pclmul")]]
+uint32_t holes_crc_clmul(const auto& holes, const char* contents, auto constants) noexcept {
+    auto acc = _mm_setzero_si128();
+    SEASTAR_FOR_EACH_HOLE_CHUNK(holes, contents, constants, chunk, k, {
+        acc = _mm_xor_si128(acc, _mm_clmulepi64_si128(_mm_cvtsi64_si128(chunk), _mm_cvtsi32_si128(int(k)), 0));
+    })
+    return reduce_product(_mm_cvtsi128_si64(acc), _mm_cvtsi128_si64(_mm_unpackhi_epi64(acc, acc)));
+}
+
+bool have_clmul() noexcept {
+    static const bool have = __builtin_cpu_supports("pclmul");
+    return have;
+}
+
+#elif defined(__aarch64__)
+
+[[gnu::target("+aes")]]
+uint32_t holes_crc_clmul(const auto& holes, const char* contents, auto constants) noexcept {
+    auto acc = vdupq_n_u64(0);
+    SEASTAR_FOR_EACH_HOLE_CHUNK(holes, contents, constants, chunk, k, {
+        acc = veorq_u64(acc, vreinterpretq_u64_p128(vmull_p64(chunk, k)));
+    })
+    return reduce_product(vgetq_lane_u64(acc, 0), vgetq_lane_u64(acc, 1));
+}
+
+bool have_clmul() noexcept {
+    static const bool have = getauxval(AT_HWCAP) & HWCAP_PMULL;
+    return have;
+}
+
+#endif
+
+uint32_t holes_crc_generic(const auto& holes, const char* contents, auto constants) noexcept {
+    uint32_t acc = 0;
+    SEASTAR_FOR_EACH_HOLE_CHUNK(holes, contents, constants, chunk, k, {
+        // The CRC of the chunk bytes, without pre- and post-conditioning,
+        // is the chunk multiplied by x^32 modulo the CRC polynomial
+        uint32_t r = 0;
+        for (unsigned i = 0; i < 8; ++i) {
+            r = crc_table[(r ^ (chunk >> (8 * i))) & 0xff] ^ (r >> 8);
+        }
+        acc ^= multmodp(k, r);
+    })
+    return acc;
+}
+
+#undef SEASTAR_FOR_EACH_HOLE_CHUNK
+
+std::atomic<bool> use_clmul = true;
+
+}
+
+void gzip_template_use_clmul(bool enable) noexcept {
+    use_clmul.store(enable, std::memory_order_relaxed);
 }
 
 std::vector<temporary_buffer<char>> gzip_template::copy_data() const {
@@ -374,6 +491,31 @@ std::vector<temporary_buffer<char>> gzip_template::copy_data() const {
         bufs.push_back(std::move(buf));
     }
     return bufs;
+}
+
+bool gzip_template::encode_holes(std::vector<temporary_buffer<char>>& bufs, hole_iterator begin, hole_iterator end,
+        const char* contents, uint32_t& crc) const noexcept {
+    const char* p = contents;
+    for (auto& h : std::ranges::subrange(begin, end)) {
+        // The hole is encoded into the buffer it starts in, continuing
+        // into its slack.
+        auto buf = h.bit_offset / 8 / buffer_size;
+        auto* out = reinterpret_cast<uint8_t*>(bufs[buf].get_write());
+        if (!encode_hole(out, h.bit_offset - buf * buffer_size * 8, p, h.width)) {
+            return false;
+        }
+        p += h.width;
+    }
+    auto holes = std::ranges::subrange(begin, end);
+#if defined(__x86_64__) || defined(__aarch64__)
+    if (use_clmul && have_clmul()) [[likely]] {
+        crc ^= holes_crc_clmul(holes, contents, _crc_constants.begin());
+    } else
+#endif
+    {
+        crc ^= holes_crc_generic(holes, contents, _crc_constants.begin());
+    }
+    return true;
 }
 
 void gzip_template::finish(std::vector<temporary_buffer<char>>& bufs, uint32_t crc) const noexcept {
@@ -402,14 +544,38 @@ void gzip_template::finish(std::vector<temporary_buffer<char>>& bufs, uint32_t c
     }
 }
 
+uint32_t crc32_update(uint32_t crc, const char* p, size_t n) noexcept {
+    crc = ~crc;
+    for (size_t i = 0; i < n; ++i) {
+        crc = crc_table[(crc ^ static_cast<uint8_t>(p[i])) & 0xff] ^ (crc >> 8);
+    }
+    return ~crc;
+}
+
+uint32_t crc32_combine_gen(uint64_t len) noexcept {
+    // x^(8 * len) modulo the CRC polynomial
+    uint32_t p = uint32_t(1) << 31; // x^0
+    for (unsigned k = 3; len; len >>= 1, ++k) {
+        if (len & 1) {
+            p = multmodp(x2n_table[k & 31], p);
+        }
+    }
+    return p;
+}
+
+uint32_t crc32_combine_op(uint32_t crc1, uint32_t crc2, uint32_t op) noexcept {
+    return multmodp(op, crc1) ^ crc2;
+}
+
 void gzip_template_builder::append_hole(size_t width) {
     if (width > max_hole_width) {
         throw std::length_error("gzip template hole too wide");
     }
-    _holes.push_back({_data.size(), width, _run_crc});
-    _run_crc = 0;
+    _holes.push_back({_data.size(), width});
     // The content is irrelevant, as it is never referenced by matches.
     _data.insert(_data.end(), width, 0);
+    static constexpr std::array<char, max_hole_width> zeros{};
+    _zeroed_crc = crc32_update(_zeroed_crc, zeros.data(), width);
 }
 
 gzip_template gzip_template_builder::build(noncopyable_function<void()> maybe_yield) && {
@@ -436,7 +602,6 @@ gzip_template gzip_template_builder::build(noncopyable_function<void()> maybe_yi
     match_finder mf(win, n);
 
     enc.begin_final_block();
-    size_t run_start = 0;
     size_t p = 0;
     constexpr size_t yield_interval = 64 * 1024;
     size_t next_yield = yield_interval;
@@ -470,22 +635,24 @@ gzip_template gzip_template_builder::build(noncopyable_function<void()> maybe_yi
                 ++p;
             }
         }
-        auto run_crc = hi < _holes.size() ? _holes[hi].crc_before : _run_crc;
-        auto run_op = crc32_combine_gen(run_end - run_start);
         if (hi == _holes.size()) {
-            t._tail_crc = run_crc;
-            t._tail_op = run_op;
             break;
         }
         const auto& h = _holes[hi];
-        t._holes.push_back({w.position(), uint32_t(h.width), run_crc, run_op});
+        t._holes.push_back({w.position(), uint32_t(h.width), uint32_t(t._crc_constants.size())});
+        // The chunks of the hole, from its end, and the bytes following them
+        const size_t after = n - (h.offset + h.width);
+        for (size_t chunk_end = h.width; chunk_end > 0; chunk_end -= std::min<size_t>(chunk_end, 8)) {
+            t._crc_constants.push_back(crc32_combine_gen(after + h.width - chunk_end));
+        }
         for (size_t k = 0; k < h.width; ++k) {
             w.put(0, 8);
         }
-        p = run_start = h.offset + h.width;
+        p = h.offset + h.width;
     }
     enc.end_block();
     w.flush();
+    t._zeroed_crc = _zeroed_crc;
     t._isize = uint32_t(n);
     // The template is kept for a while, so release the unused capacity
     if (!t._data.empty()) {
@@ -493,6 +660,7 @@ gzip_template gzip_template_builder::build(noncopyable_function<void()> maybe_yi
     }
     t._data.shrink_to_fit();
     t._holes.shrink_to_fit();
+    t._crc_constants.shrink_to_fit();
     return t;
 }
 
