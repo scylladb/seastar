@@ -1429,6 +1429,41 @@ SEASTAR_TEST_CASE(test_client_retry_request) {
     });
 }
 
+// The handler leaves the body unread, and the peer that would have received an
+// error reply is the one that went away, so the only thing a truncated request
+// body decides is that the connection cannot be reused.
+SEASTAR_TEST_CASE(test_request_body_ends_early) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        server.set_content_streaming(true);
+        loopback_socket_impl lsi(lcf);
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+
+        future<> client = seastar::async([&lsi] {
+            connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get();
+            input_stream<char> input(c_socket.input());
+            output_stream<char> output(c_socket.output());
+            // None of the declared body arrives, so the probe below reads straight
+            // to end of stream with all 32 bytes still owed.
+            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nContent-Length: 32\r\n\r\n")).get();
+            output.flush().get();
+            output.close().get();
+            input.close().get();
+        });
+
+        auto handler = new json_test_handler(json::stream_object("hello"));
+        server._routes.put(GET, "/test", handler);
+        server.do_accepts(0).get();
+
+        client.get();
+        // Without the guard the read fails with a std::system_error, which is not a
+        // base_exception, so it escapes the error-reply path and is counted here.
+        BOOST_REQUIRE_EQUAL(server.read_errors(), 0u);
+        server.stop().get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_100_continue) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);

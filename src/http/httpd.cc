@@ -277,8 +277,18 @@ future<> connection::read_one() {
                         // need to close it (via "_done = true"). But we can't
                         // just check content_stream.eof(): It may only become
                         // true after read(). Issue #907.
-                        return content_stream.read().then([this] (temporary_buffer<char> buf) {
-                            if (!buf.empty()) {
+                        //
+                        // That read can now fail rather than answer: a body that
+                        // ended early raises. The reply is already generated and the
+                        // peer that would receive an error is the one that went away,
+                        // so only the connection is left to decide, and it is done.
+                        return content_stream.read().then_wrapped([this] (future<temporary_buffer<char>> f) {
+                            if (f.failed()) {
+                                f.ignore_ready_future();
+                                _done = true;
+                                return;
+                            }
+                            if (!f.get().empty()) {
                                 _done = true;
                             }
                         });
