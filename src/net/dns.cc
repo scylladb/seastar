@@ -257,22 +257,6 @@ private:
         int pending = 0;
         bool closed = false;
 
-        sock_entry(sock_entry&& e)
-            : typ(e.typ)
-            , avail(e.avail)
-        {
-            e.typ = type::none;
-            switch (typ) {
-            case type::tcp:
-                new (&tcp) tcp_entry(std::move(e.tcp));
-                break;
-            case type::udp:
-                new (&udp) udp_entry(std::move(e.udp));
-                break;
-            default:
-                break;
-            }
-        }
         sock_entry(connected_socket s)
             : tcp(tcp_entry{std::move(s)})
             , typ(type::tcp)
