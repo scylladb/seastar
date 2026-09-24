@@ -173,6 +173,8 @@ struct metrics_perf_fixture {
 
     // If set, the output is compressed by zlib with this level
     std::optional<int> zlib_level;
+    // The text template cache key; if unset, a template is built per request
+    std::optional<filter_key> cache_key = filter_key{};
 
     template <typename COUNTER_TYPE = double>
     seastar::future<size_t> run_metrics_bench(
@@ -260,7 +262,8 @@ struct metrics_perf_fixture {
                     .family_filter = family_filter,
                     .use_protobuf_format = use_protobuf,
                     .show_help = true,
-                    .enable_aggregation = enable_aggregation
+                    .enable_aggregation = enable_aggregation,
+                    .cache_key = cache_key,
                 },
                 std::move(out));
         };
@@ -344,6 +347,23 @@ PERF_TEST_CN(metrics_perf_fixture, test_histogram_aggr) {
     co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM, true);
 }
 
+// The _uncached variants build the text template for every request
+
+PERF_TEST_CN(metrics_perf_fixture, test_large_families_int_uncached) {
+    cache_key = std::nullopt;
+    co_return co_await run_metrics_bench<size_t>(1, 1, 10000, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_uncached) {
+    cache_key = std::nullopt;
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_histogram_uncached) {
+    cache_key = std::nullopt;
+    co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM);
+}
+
 // The _zlib variants compress the text with zlib at the given level, as a
 // compressing HTTP server would
 
@@ -359,6 +379,12 @@ PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_zlib1) {
 
 PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_zlib6) {
     zlib_level = 6;
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_uncached_zlib1) {
+    cache_key = std::nullopt;
+    zlib_level = 1;
     co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER);
 }
 

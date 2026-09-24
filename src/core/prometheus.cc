@@ -38,9 +38,14 @@
 #include <boost/algorithm/string.hpp>
 #include <seastar/core/thread.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/core/lowres_clock.hh>
 #include <seastar/util/assert.hh>
 #include <algorithm>
+#include <atomic>
+#include <map>
+#include <memory>
 #include <ranges>
+#include <span>
 #include <regex>
 #include <string_view>
 #include <type_traits>
@@ -605,6 +610,12 @@ public:
 
     void foreach_metric(std::function<void(const mi::metric_value&, const mi::metric_series_metadata&)>&& f);
 
+    // Like foreach_metric(), but also passes the location of each metric: its
+    // shard, the position of the family in the shard's metadata, and the
+    // position of the metric in the family.
+    template <typename Func>
+    void foreach_metric_with_location(Func&& f);
+
     bool end() const {
         return !_name || !_family_info;
     }
@@ -738,10 +749,34 @@ public:
         }
     }
 
+
+    template <typename Func>
+    void foreach_metric_with_location(Func&& f) {
+        unsigned shard = 0;
+        for (auto&& [pos_in_metric_per_shard, metric_family] : std::views::zip(_positions, _families)) {
+            auto this_shard = shard++;
+            if (pos_in_metric_per_shard >= metric_family->metadata->size()) {
+                continue;
+            }
+            auto& metadata = metric_family->metadata->at(pos_in_metric_per_shard);
+            if (metadata.mf.name == name()) {
+                const mi::value_vector& values = metric_family->values[pos_in_metric_per_shard];
+                uint32_t index = 0;
+                for (auto&& [value, metric_metadata] : std::views::zip(values, metadata.metrics)) {
+                    f(this_shard, uint32_t(pos_in_metric_per_shard), index++, value, metric_metadata);
+                }
+            }
+        }
+    }
 };
 
 void metric_family::foreach_metric(std::function<void(const mi::metric_value&, const mi::metric_series_metadata&)>&& f) {
     _iterator_state.foreach_metric(std::move(f));
+}
+
+template <typename Func>
+void metric_family::foreach_metric_with_location(Func&& f) {
+    _iterator_state.foreach_metric_with_location(std::forward<Func>(f));
 }
 
 class metric_family_range {
@@ -819,65 +854,580 @@ metric_family_range get_range(const metrics_families_per_shard& mf, const sstrin
 }
 
 
-template <typename Extra = no_label>
-static inline void write_series(buf_t& buf, std::string_view name, const labels_type& labels, const config& ctx, auto v, std::string_view suffix, Extra e = {}) {
-    write_name_and_labels(buf, name, suffix, labels, ctx, e);
-    static constexpr auto format = std::is_floating_point_v<decltype(v)> ? "{:g}\n" : "{}\n";
-    fmt::format_to(buf.back_insert_begin(), FMT_COMPILE(format), v);
-};
-
-
 struct extra_label {
     std::string_view name, value;
 };
 
-void write_histogram(buf_t& buf, const config& ctx, std::string_view name, const seastar::metrics::histogram& h, const labels_type& labels) noexcept {
+/*
+ * Text representation templates
+ *
+ * Formatting the text representation is expensive: every line repeats the
+ * metric name and all of its labels, while only the value changes between
+ * requests. So, like a prepared statement, the text is formatted once into a
+ * template with the values left out, and each request only computes and
+ * formats the values.
+ *
+ * A template is built from a snapshot of the metrics (the values collected
+ * from all shards), and can be used for any later snapshot with the same
+ * shape, as indicated by the metrics generation of every shard. A template
+ * is split into:
+ *
+ *  - families, each with a header (the HELP and TYPE lines) and series
+ *  - series, each a metric (or with aggregation, the sum of several metrics),
+ *    referring to its metrics' locations in the snapshot
+ *  - lines, one per output line; a scalar series has a single line, while
+ *    histograms and summaries have a line per bucket and more.
+ *
+ A few parts of the output depend on the values and not only on the shape,
+ * so are verified against the snapshot, and a mismatch invalidates the
+ * template:
+ *
+ *  - the buckets of histograms and summaries.
+ *  - summary sums and counts are omitted while they're zero, so are part
+ *    of the template only if they were non-zero when it was built (and
+ *    from then on reported even if zero).
+ *
+ * Using a template has two steps: evaluate() computes the value of each
+ * line from a snapshot (or detects that the snapshot doesn't fit the
+ * template), and render_text() writes the output.
+ */
 
-    auto write_one = [&] (auto v, std::string_view suffix) {
-        write_series(buf, name, labels, ctx, v, suffix);
+// The value of an output line
+struct line_value {
+    enum class kind : uint8_t {
+        fixed,   // d, formatted as {:.6f}
+        general, // d, formatted as {:g}
+        int64,   // i
+        uint64,  // u
+        nan,     // a counter that isn't representable as an integer
+        empty,   // no value (aggregated summaries)
+    };
+    kind k = kind::empty;
+    union {
+        double d;
+        int64_t i;
+        uint64_t u;
     };
 
-    write_one(h.sample_sum, "_sum");
-    write_one(h.sample_count, "_count");
+    line_value() noexcept : u(0) {}
+    line_value(kind k, double d) noexcept : k(k), d(d) {}
+    line_value(int64_t i) noexcept : k(kind::int64), i(i) {}
+    line_value(uint64_t u) noexcept : k(kind::uint64), u(u) {}
+    explicit line_value(kind k) noexcept : k(k), u(0) {}
+};
 
-    for (auto  i : h.buckets) {
-        write_series(buf, name, labels, ctx, i.count, "_bucket",
-            extra_label{"le", fmt::format(FMT_COMPILE("{:f}"), i.upper_bound)} );
+// The longest value format_value() writes: {:.6f} of -DBL_MAX
+constexpr size_t max_formatted_value_size = 320;
+
+// Writes the formatted value to out, returning the end of the output
+static char* format_value(const line_value& v, char* out) noexcept {
+    switch (v.k) {
+    case line_value::kind::fixed:
+        return fmt::format_to(out, FMT_COMPILE("{:.6f}"), v.d);
+    case line_value::kind::general:
+        return fmt::format_to(out, FMT_COMPILE("{:g}"), v.d);
+    case line_value::kind::int64:
+        return fmt::format_to(out, FMT_COMPILE("{}"), v.i);
+    case line_value::kind::uint64:
+        return fmt::format_to(out, FMT_COMPILE("{}"), v.u);
+    case line_value::kind::nan:
+        return std::copy_n("NaN", 3, out);
+    case line_value::kind::empty:
+        return out;
     }
-    write_series(buf, name, labels, ctx, h.sample_count, "_bucket", extra_label{"le", "+Inf"} );
+    __builtin_unreachable();
 }
 
-void write_summary(buf_t& buf, const config& ctx, std::string_view name, const seastar::metrics::histogram& h, const labels_type& labels) noexcept {
+// The location of a metric in a snapshot
+struct metric_location {
+    uint32_t shard;
+    uint32_t family; // position of the family in the shard's metadata
+    uint32_t index;  // position of the metric in the family
+};
 
-    auto write_one = [&] (auto v, std::string_view suffix) {
-        write_series(buf, name, labels, ctx, v, suffix);
+struct series_template {
+    mi::data_type type;
+    bool aggregated;
+    // summaries: whether the sum and count are reported
+    bool has_sum;
+    bool has_count;
+    uint32_t layout;       // histograms and summaries: index into text_template::layouts
+    uint32_t first_source; // index into text_template::sources
+    uint32_t nr_sources;
+    uint32_t first_line;   // index into text_template::lines
+    uint32_t nr_lines;
+};
+
+struct line_template {
+    // The name and labels, followed by a space, in text_template::literals
+    uint32_t begin;
+    uint32_t end;
+};
+
+struct family_template {
+    // The HELP and TYPE lines, in text_template::literals
+    uint32_t header_begin;
+    uint32_t header_end;
+    uint32_t first_line;
+    uint32_t end_line;
+};
+
+struct text_template {
+    std::string literals;
+    std::vector<family_template> families;
+    std::vector<series_template> series;
+    std::vector<metric_location> sources;
+    std::vector<line_template> lines;
+    // Bucket upper bounds of histograms and summaries
+    std::vector<std::vector<double>> layouts;
+};
+
+// The values of a template's lines, computed from a snapshot
+using text_values = std::vector<line_value>;
+
+// Computes the value of a series from a snapshot. value points either into
+// the snapshot or to storage. Returns false if the snapshot doesn't fit the
+// template.
+static bool get_series_value(const series_template& s, std::span<const metric_location> sources,
+        const metrics_families_per_shard& snapshot, const mi::metric_value*& value, mi::metric_value& storage) {
+    auto get = [&] (const metric_location& l) -> const mi::metric_value& {
+        return snapshot[l.shard]->values[l.family][l.index];
+    };
+    if (!s.aggregated) {
+        value = &get(sources[0]);
+        return value->type() == s.type;
+    }
+    for (auto& l : sources) {
+        auto& v = get(l);
+        if (v.type() != s.type) [[unlikely]] {
+            return false;
+        }
+        if (&l == &sources[0]) {
+            storage = v;
+        } else {
+            try {
+                storage += v;
+            } catch (const std::out_of_range&) {
+                // histograms with different buckets
+                return false;
+            }
+        }
+    }
+    value = &storage;
+    return true;
+}
+
+static bool same_layout(const metrics::histogram& h, const std::vector<double>& layout) noexcept {
+    return h.buckets.size() == layout.size()
+        && std::ranges::equal(h.buckets, layout, std::equal_to<>(), &metrics::histogram_bucket::upper_bound);
+}
+
+// Sets the values of a series' lines. Returns false if the value doesn't fit
+// the template.
+static bool set_line_values(const text_template& t, const series_template& s, const mi::metric_value& v, line_value* out) {
+    using kind = line_value::kind;
+    switch (s.type) {
+    case mi::data_type::COUNTER:
+        try {
+            out[0] = line_value(int64_t(v.i()));
+        } catch (const std::range_error&) {
+            out[0] = line_value(kind::nan);
+        }
+        return true;
+    case mi::data_type::GAUGE:
+    case mi::data_type::REAL_COUNTER:
+        out[0] = line_value(kind::fixed, v.d());
+        return true;
+    case mi::data_type::HISTOGRAM: {
+        auto& h = v.get_histogram();
+        if (!same_layout(h, t.layouts[s.layout])) {
+            return false;
+        }
+        *out++ = line_value(kind::general, h.sample_sum);
+        *out++ = line_value(h.sample_count);
+        for (auto& b : h.buckets) {
+            *out++ = line_value(b.count);
+        }
+        *out++ = line_value(h.sample_count);
+        return true;
+    }
+    case mi::data_type::SUMMARY: {
+        if (s.aggregated) {
+            out[0] = line_value(kind::empty);
+            return true;
+        }
+        auto& h = v.get_histogram();
+        if (!same_layout(h, t.layouts[s.layout]) || (h.sample_sum && !s.has_sum) || (h.sample_count && !s.has_count)) {
+            return false;
+        }
+        if (s.has_sum) {
+            *out++ = line_value(kind::general, h.sample_sum);
+        }
+        if (s.has_count) {
+            *out++ = line_value(h.sample_count);
+        }
+        for (auto& b : h.buckets) {
+            *out++ = line_value(b.count);
+        }
+        return true;
+    }
+    }
+    return false;
+}
+
+// Computes the values of all lines of the template from the snapshot.
+// Returns false if the snapshot doesn't fit the template.
+// Must run in a seastar::thread.
+static bool evaluate(const text_template& t, const metrics_families_per_shard& snapshot, text_values& out) {
+    out.resize(t.lines.size());
+    mi::metric_value storage;
+    for (auto& s : t.series) {
+        const mi::metric_value* v = nullptr;
+        auto sources = std::span(t.sources).subspan(s.first_source, s.nr_sources);
+        if (!get_series_value(s, sources, snapshot, v, storage) || !set_line_values(t, s, *v, out.data() + s.first_line)) {
+            return false;
+        }
+        thread::maybe_yield();
+    }
+    return true;
+}
+
+// Builds a template from a snapshot.
+// Must run in a seastar::thread.
+static text_template build_text_template(const metric_family_range& m, const metrics_families_per_shard& snapshot,
+        const config& ctx, const write_body_args& args) {
+    text_template t;
+    buf_t buf;
+    std::map<std::vector<double>, uint32_t> layout_index;
+
+    auto offset = [&] {
+        if (t.literals.size() > std::numeric_limits<uint32_t>::max()) {
+            throw std::length_error("prometheus: text representation too large");
+        }
+        return uint32_t(t.literals.size());
+    };
+    auto intern_layout = [&] (const metrics::histogram& h) {
+        std::vector<double> layout;
+        layout.reserve(h.buckets.size());
+        for (auto& b : h.buckets) {
+            layout.push_back(b.upper_bound);
+        }
+        auto [it, inserted] = layout_index.try_emplace(std::move(layout), t.layouts.size());
+        if (inserted) {
+            t.layouts.push_back(it->first);
+        }
+        return it->second;
     };
 
-    if (h.sample_sum) {
-        write_one(h.sample_sum, "_sum");
-    }
-    if (h.sample_count) {
-        write_one(h.sample_count, "_count");
-    }
+    struct contributor {
+        metric_location location;
+        const mi::metric_value* value;
+        const labels_type* labels;
+    };
+    std::vector<contributor> contributors;
+    std::vector<metric_location> locations;
 
-    for (auto  i : h.buckets) {
-        write_series(buf, name, labels, ctx, i.count, "",
-            extra_label{"quantile", fmt::format(FMT_COMPILE("{:f}"), i.upper_bound)} );
+    for (metric_family& mf : m) {
+        if (!args.family_filter(mf.name())) {
+            continue;
+        }
+        contributors.clear();
+        mf.foreach_metric_with_location([&] (unsigned shard, uint32_t family, uint32_t index,
+                const mi::metric_value& value, const mi::metric_series_metadata& md) {
+            if (args.filter(md.labels())) {
+                contributors.push_back({{shard, family, index}, &value, &md.labels()});
+            }
+        });
+        if (contributors.empty()) {
+            continue;
+        }
+        auto name = ctx.prefix + "_" + mf.name();
+        auto& metadata = mf.metadata();
+
+        family_template ft;
+        ft.header_begin = offset();
+        buf.clear();
+        if (args.show_help && metadata.d.str() != "") {
+            buf << "# HELP " << name << " " << metadata.d.str() << "\n";
+        }
+        buf << "# TYPE " << name << " " << to_string(metadata.type) << "\n";
+        t.literals.append(buf.str());
+        ft.header_end = offset();
+        ft.first_line = t.lines.size();
+
+        // sample: any of the series' values, for its type
+        auto add_series = [&] (const labels_type& labels, std::span<const metric_location> sources, bool aggregated,
+                const mi::metric_value& sample) {
+            series_template s{
+                .type = sample.type(),
+                .aggregated = aggregated,
+                .has_sum = false,
+                .has_count = false,
+                .layout = 0,
+                .first_source = uint32_t(t.sources.size()),
+                .nr_sources = uint32_t(sources.size()),
+                .first_line = uint32_t(t.lines.size()),
+                .nr_lines = 0,
+            };
+            t.sources.insert(t.sources.end(), sources.begin(), sources.end());
+            const mi::metric_value* v = nullptr;
+            mi::metric_value storage;
+            if (!get_series_value(s, sources, snapshot, v, storage)) {
+                throw std::runtime_error(fmt::format("prometheus: inconsistent values in metric family {}", mf.name()));
+            }
+            auto add_line = [&] (std::string_view suffix, auto extra) {
+                buf.clear();
+                write_name_and_labels(buf, name, suffix, labels, ctx, extra);
+                auto begin = offset();
+                t.literals.append(buf.str());
+                t.lines.push_back({begin, offset()});
+            };
+            switch (s.type) {
+            case mi::data_type::HISTOGRAM: {
+                auto& h = v->get_histogram();
+                s.layout = intern_layout(h);
+                add_line("_sum", no_label{});
+                add_line("_count", no_label{});
+                for (auto& b : h.buckets) {
+                    add_line("_bucket", extra_label{"le", fmt::format(FMT_COMPILE("{:f}"), b.upper_bound)});
+                }
+                add_line("_bucket", extra_label{"le", "+Inf"});
+                break;
+            }
+            case mi::data_type::SUMMARY:
+                if (aggregated) {
+                    add_line("", no_label{});
+                    break;
+                } else {
+                    auto& h = v->get_histogram();
+                    s.layout = intern_layout(h);
+                    s.has_sum = h.sample_sum != 0;
+                    s.has_count = h.sample_count != 0;
+                    if (s.has_sum) {
+                        add_line("_sum", no_label{});
+                    }
+                    if (s.has_count) {
+                        add_line("_count", no_label{});
+                    }
+                    for (auto& b : h.buckets) {
+                        add_line("", extra_label{"quantile", fmt::format(FMT_COMPILE("{:f}"), b.upper_bound)});
+                    }
+                }
+                break;
+            default:
+                add_line("", no_label{});
+                break;
+            }
+            s.nr_lines = t.lines.size() - s.first_line;
+            t.series.push_back(s);
+            thread::maybe_yield();
+        };
+
+        if (args.enable_aggregation && !metadata.aggregate_labels.empty()) {
+            // Group the metrics by the labels which aren't aggregated. The
+            // groups are output in the same order metric_aggregate_by_labels
+            // uses.
+            struct group {
+                labels_type labels;
+                std::vector<metric_location> sources;
+                const mi::metric_value* sample;
+            };
+            std::vector<group> groups;
+            std::unordered_map<label_key, uint32_t> group_index;
+            label_key key;
+            for (auto& c : contributors) {
+                key.construct(*c.labels, metadata.aggregate_labels);
+                auto [it, inserted] = group_index.try_emplace(key, groups.size());
+                if (inserted) {
+                    labels_type labels;
+                    for (auto& l : *c.labels) {
+                        if (!internal::is_aggregated(metadata.aggregate_labels, l.first)) {
+                            labels.insert(l);
+                        }
+                    }
+                    groups.push_back({std::move(labels), {}, c.value});
+                }
+                groups[it->second].sources.push_back(c.location);
+            }
+            for (auto& [_, i] : group_index) {
+                add_series(groups[i].labels, groups[i].sources, true, *groups[i].sample);
+            }
+        } else {
+            for (auto& c : contributors) {
+                add_series(*c.labels, std::span(&c.location, 1), false, *c.value);
+            }
+        }
+        ft.end_line = t.lines.size();
+        t.families.push_back(ft);
     }
+    return t;
 }
 
-void write_value_as_string(buf_t& s, const mi::metric_value& value) noexcept {
-    try {
-        fmt::format_to(s.back_insert_begin(), FMT_COMPILE("{}\n"), value);
-    } catch (const std::range_error& e) {
-        seastar_logger.debug("prometheus: write_value_as_string: {}: {}", s.str(), e.what());
-        s << "NaN\n";
-    } catch (...) {
-        auto ex = std::current_exception();
-        // print this error as it's ignored later on by `connection::start_response`
-        seastar_logger.error("prometheus: write_value_as_string: {}: {}", s.str(), seastar::formattable(ex));
-        std::rethrow_exception(std::move(ex));
+// Writes the text representation of a template with the given values.
+// Must run in a seastar::thread.
+static void render_text(const text_template& t, const text_values& values, output_stream<char>& out) {
+    static constexpr size_t chunk_size = 128 * 1024;
+    temporary_buffer<char> buf;
+    char* p = nullptr;
+    char* end = nullptr;
+    auto flush = [&] {
+        if (p != buf.get()) {
+            buf.trim(p - buf.get());
+            out.write(std::move(buf)).get();
+        }
+    };
+    // Makes room for at least n bytes
+    auto reserve = [&] (size_t n) {
+        if (size_t(end - p) < n) [[unlikely]] {
+            flush();
+            buf = temporary_buffer<char>(std::max(n, chunk_size));
+            p = buf.get_write();
+            end = p + buf.size();
+        }
+    };
+    auto append = [&] (uint32_t begin, uint32_t end) {
+        p = std::copy(t.literals.data() + begin, t.literals.data() + end, p);
+    };
+
+    for (auto& f : t.families) {
+        reserve(f.header_end - f.header_begin);
+        append(f.header_begin, f.header_end);
+        for (auto li = f.first_line; li != f.end_line; ++li) {
+            auto& v = values[li];
+            auto& l = t.lines[li];
+            reserve(l.end - l.begin + max_formatted_value_size + 1);
+            append(l.begin, l.end);
+            p = format_value(v, p);
+            *p++ = '\n';
+            thread::maybe_yield();
+        }
     }
+    flush();
+}
+
+// Identifies a template: everything which affects the output except the
+// values: the configuration, the request's options and filters, and the
+// metrics' shape (identified by the shards' generations)
+struct template_key {
+    sstring prefix;
+    std::optional<std::pair<sstring, sstring>> label;
+    bool show_help;
+    bool enable_aggregation;
+    details::filter_key filters;
+    // The metrics generation of every shard
+    std::vector<uint64_t> generations;
+
+    bool operator==(const template_key&) const = default;
+};
+
+struct template_key_hash {
+    size_t operator()(const template_key& k) const noexcept {
+        std::hash<sstring> h;
+        size_t seed = h(k.prefix);
+        if (k.label) {
+            boost::hash_combine(seed, h(k.label->first));
+            boost::hash_combine(seed, h(k.label->second));
+        }
+        boost::hash_combine(seed, k.show_help);
+        boost::hash_combine(seed, k.enable_aggregation);
+        for (auto& n : k.filters.names) {
+            boost::hash_combine(seed, h(n.name));
+            boost::hash_combine(seed, n.is_prefix);
+        }
+        for (auto& [label, expr] : k.filters.labels) {
+            boost::hash_combine(seed, h(label));
+            boost::hash_combine(seed, h(expr));
+        }
+        boost::hash_range(seed, k.generations.begin(), k.generations.end());
+        return seed;
+    }
+};
+
+static template_key make_template_key(const config& ctx, const write_body_args& args, const metrics_families_per_shard& families) {
+    return {
+        .prefix = ctx.prefix,
+        .label = ctx.label ? std::make_optional(std::pair(sstring(ctx.label->key()), sstring(ctx.label->value()))) : std::nullopt,
+        .show_help = args.show_help,
+        .enable_aggregation = args.enable_aggregation,
+        .filters = *args.cache_key,
+        .generations = families | std::views::transform(&mi::values_copy::generation)
+                | std::ranges::to<std::vector>(),
+    };
+}
+
+/*
+ * A cache of text representation templates
+ *
+ * Each shard keeps its own cache. Templates are keyed by everything which
+ * affects the output except the values: the configuration, the request's
+ * filters and options, and the metrics generation of every shard.
+ * Templates expire some time after they were last used, so that templates
+ * of requests which are no longer made are dropped, while those in use are
+ * only rebuilt when they no longer fit the metrics.
+ */
+static std::atomic<lowres_clock::duration::rep> template_ttl{std::chrono::duration_cast<lowres_clock::duration>(std::chrono::minutes(5)).count()};
+
+// The expiry time of a template used now
+static lowres_clock::time_point template_expiry() {
+    return lowres_clock::now() + lowres_clock::duration(template_ttl.load(std::memory_order_relaxed));
+}
+
+class template_cache {
+public:
+    struct entry {
+        lowres_clock::time_point expiry;
+        lw_shared_ptr<const text_template> tmpl;
+    };
+private:
+    // Limits the memory used by the cache, in case of requests with
+    // many distinct filters.
+    static constexpr size_t max_entries = 16;
+
+    // Templates of older generations are no longer found once the metrics
+    // change, and are dropped when they expire or are evicted.
+    std::unordered_map<template_key, entry, template_key_hash> _entries;
+
+    void expire(lowres_clock::time_point now) {
+        std::erase_if(_entries, [now] (const auto& e) { return e.second.expiry <= now; });
+    }
+public:
+    details::text_cache_stats stats;
+
+    lw_shared_ptr<const text_template> find(const template_key& key) {
+        expire(lowres_clock::now());
+        auto it = _entries.find(key);
+        if (it == _entries.end()) {
+            return nullptr;
+        }
+        it->second.expiry = template_expiry();
+        return it->second.tmpl;
+    }
+
+    void insert(const template_key& key, entry e) {
+        expire(lowres_clock::now());
+        auto it = _entries.find(key);
+        if (it != _entries.end()) {
+            it->second = std::move(e);
+            return;
+        }
+        if (_entries.size() >= max_entries) {
+            _entries.erase(std::ranges::min_element(_entries, std::less<>(), [] (const auto& e) { return e.second.expiry; }));
+        }
+        _entries.emplace(key, std::move(e));
+    }
+
+    size_t size() const noexcept {
+        return _entries.size();
+    }
+
+    void clear() noexcept {
+        _entries.clear();
+    }
+};
+
+static template_cache& local_template_cache() {
+    static thread_local template_cache cache;
+    return cache;
 }
 
 details::family_filter_t details::make_family_filter(std::vector<details::name_filter> filters, std::string_view prefix) {
@@ -907,6 +1457,7 @@ details::family_filter_t details::make_family_filter(std::vector<details::name_f
 struct write_context {
     output_stream<char>& out;
     const config& ctx;
+    const metrics_families_per_shard& families;
     const metric_family_range m;
     const write_body_args args;
 
@@ -916,57 +1467,34 @@ struct write_context {
 
 future<> write_context::write_text_representation() {
     return seastar::async([this] {
-        buf_t s;
-        for (metric_family& metric_family : m) {
-            if (!args.family_filter(metric_family.name())) {
-                continue;
-            }
-            auto name = ctx.prefix + "_" + metric_family.name();
-            bool found = false;
-            metric_aggregate_by_labels aggregated_values(metric_family.metadata().aggregate_labels);
-            bool should_aggregate = args.enable_aggregation && !metric_family.metadata().aggregate_labels.empty();
-            metric_family.foreach_metric([this, &s, &found, &name, &metric_family, &aggregated_values, should_aggregate](const mi::metric_value& value, const mi::metric_series_metadata& value_info) mutable {
-                s.clear();
-                if (!args.filter(value_info.labels())) {
-                    return;
-                }
-                if (!found) {
-                    if (args.show_help && metric_family.metadata().d.str() != "") {
-                        s << "# HELP " << name << " " <<  metric_family.metadata().d.str() << "\n";
-                    }
-                    s << "# TYPE " << name << " " << to_string(metric_family.metadata().type) << "\n";
-                    found = true;
-                }
-                if (should_aggregate) {
-                    aggregated_values.add(value, value_info.labels());
-                } else if (value.type() == mi::data_type::SUMMARY) {
-                    write_summary(s, ctx, name, value.get_histogram(), value_info.labels());
-                } else if (value.type() == mi::data_type::HISTOGRAM) {
-                    write_histogram(s, ctx, name, value.get_histogram(), value_info.labels());
-                } else {
-                    write_name_and_labels(s, name, "", value_info.labels(), ctx);
-                    write_value_as_string(s, value);
-                }
-                out.write(s.data(), s.size()).get();
-                thread::maybe_yield();
-            });
-            if (!aggregated_values.empty()) {
-                for (auto&& h : aggregated_values.get_values()) {
-                    s.clear();
-                    // Labels are already filtered (aggregated labels removed)
-                    auto& labels = h.second.labels;
-                    auto& value = h.second.m;
-                    if (value.type() == mi::data_type::HISTOGRAM) {
-                        write_histogram(s, ctx, name, value.get_histogram(), labels);
-                    } else {
-                        write_name_and_labels(s, name, "", labels, ctx);
-                        write_value_as_string(s, value);
-                    }
-                    out.write(s.data(), s.size()).get();
-                    thread::maybe_yield();
-                }
+        auto& cache = local_template_cache();
+        lw_shared_ptr<const text_template> t;
+        std::optional<template_key> key;
+        if (args.cache_key) {
+            key = make_template_key(ctx, args, families);
+            t = cache.find(*key);
+        }
+        text_values values;
+        if (t) {
+            if (evaluate(*t, families, values)) {
+                ++cache.stats.hits;
+            } else {
+                ++cache.stats.invalidations;
+                t = nullptr;
             }
         }
+        if (!t) {
+            ++cache.stats.builds;
+            auto built = make_lw_shared<const text_template>(build_text_template(m, families, ctx, args));
+            if (!evaluate(*built, families, values)) {
+                throw std::logic_error("prometheus: template doesn't fit the snapshot it was built from");
+            }
+            t = built;
+            if (key) {
+                cache.insert(*key, {template_expiry(), std::move(built)});
+            }
+        }
+        render_text(*t, values, out);
     });
 }
 
@@ -1052,14 +1580,22 @@ class metrics_handler : public httpd::handler_base  {
      * A filter function filter what metrics should be included.
      * It returns true if a metric should be included, or false otherwise.
      * The filters are created from the request query parameters.
+     *
+     * The label matchers the filter uses are stored in \c key.
      */
-    std::function<bool(const mi::labels_type&)> make_filter(const http::request& req) {
-        std::unordered_map<sstring, std::regex> matcher;
+    std::function<bool(const mi::labels_type&)> make_filter(const http::request& req, details::filter_key& key) {
+        // Sorted, so the key doesn't depend on the parameters' order
+        std::map<sstring, sstring> expressions;
         auto labels = mi::get_local_impl()->get_labels();
         for (auto&& qp : req.get_query_params()) {
             if (labels.find(qp.first) != labels.end()) {
-                matcher.emplace(qp.first, std::regex(qp.second.back().c_str()));
+                expressions.emplace(qp.first, qp.second.back());
             }
+        }
+        std::unordered_map<sstring, std::regex> matcher;
+        for (auto&& [label, expr] : expressions) {
+            matcher.emplace(label, std::regex(expr.c_str()));
+            key.labels.emplace_back(label, expr);
         }
         return (matcher.empty()) ? _true_function : [matcher](const mi::labels_type& labels) {
             for (auto&& m : matcher) {
@@ -1085,12 +1621,16 @@ public:
                 name_filters.push_back({std::move(name), is_prefix});
             }
         }
+        // The cache key identifies the filters
+        details::filter_key key{.names = name_filters};
+        auto filter = make_filter(*req, key);
         write_body_args args{
-            .filter = make_filter(*req),
+            .filter = std::move(filter),
             .family_filter = details::make_family_filter(std::move(name_filters), _ctx.prefix),
             .use_protobuf_format = _ctx.allow_protobuf && is_accept_protobuf(req->get_header("Accept")),
             .show_help = req->get_query_param("__help__") != "false",
-            .enable_aggregation = req->get_query_param("__aggregate__") != "false"
+            .enable_aggregation = req->get_query_param("__aggregate__") != "false",
+            .cache_key = std::move(key),
         };
         rep->write_body(args.use_protobuf_format ? "proto" : "txt", [this, args = std::move(args)](output_stream<char>&& s) {
             return write_body(std::move(args), std::move(s));
@@ -1108,6 +1648,7 @@ private:
         write_context context{
             .out = s,
             .ctx = _ctx,
+            .families = families,
             .m = metric_family_range(families),
             .args = std::move(args)
         };
@@ -1122,6 +1663,23 @@ private:
 future<> details::test_access::write_body(config cfg, write_body_args args, output_stream<char>&& s) {
     metrics_handler handler(std::move(cfg));
     co_return co_await handler.write_body(std::move(args), std::move(s));
+}
+
+details::text_cache_stats details::test_access::cache_stats() {
+    auto& cache = local_template_cache();
+    auto stats = cache.stats;
+    stats.entries = cache.size();
+    return stats;
+}
+
+void details::test_access::clear_cache() {
+    auto& cache = local_template_cache();
+    cache.clear();
+    cache.stats = {};
+}
+
+void details::test_access::set_cache_ttl(std::chrono::milliseconds ttl) {
+    template_ttl.store(std::chrono::duration_cast<lowres_clock::duration>(ttl).count(), std::memory_order_relaxed);
 }
 
 std::function<bool(const mi::labels_type&)> metrics_handler::_true_function = [](const mi::labels_type&) {
