@@ -221,6 +221,12 @@ struct prometheus_test_fixture {
     static void set_cache_ttl(std::chrono::milliseconds ttl) {
         sp::details::test_access::set_cache_ttl(ttl);
     }
+    static const void* cached_template() {
+        return sp::details::test_access::cached_template();
+    }
+    static void set_numa_node_mapping(std::optional<std::vector<unsigned>> mapping) {
+        sp::details::test_access::set_numa_node_mapping(std::move(mapping));
+    }
 
     static seastar::future<sstring> scrape(prometheus::config config, sp::details::write_body_args args) {
         std::stringstream ss;
@@ -1159,4 +1165,73 @@ SEASTAR_TEST_CASE(test_cache_aggregation) {
     v2 = 0;
     BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected(1));
     BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().builds, 2);
+}
+
+SEASTAR_TEST_CASE(test_cache_shared_between_shards) {
+    co_await reset_metrics();
+    double value = 1;
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        sm::make_gauge("gauge", sm::description("gauge"), [&value] { return value; }),
+    });
+    auto expected = co_await prometheus_test_fixture::scrape({}, all_metrics());
+    BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().builds, 1);
+
+    // All other shards got the template, and use it
+    co_await smp::invoke_on_others([expected] () -> future<> {
+        BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().entries, 1);
+        BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected);
+        auto stats = prometheus_test_fixture::cache_stats();
+        BOOST_REQUIRE_EQUAL(stats.builds, 0);
+        BOOST_REQUIRE_EQUAL(stats.hits, 1);
+    });
+
+    // A template built by another shard is shared with this one
+    co_await reset_metrics();
+    sm::metric_groups more;
+    more.add_group("cache", {
+        sm::make_gauge("gauge", sm::description("gauge"), [&value] { return value; }),
+    });
+    auto other = (this_shard_id() + 1) % this_smp_shard_count();
+    expected = co_await smp::submit_to(other, [] {
+        return prometheus_test_fixture::scrape({}, all_metrics());
+    });
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected);
+    auto stats = prometheus_test_fixture::cache_stats();
+    BOOST_REQUIRE_EQUAL(stats.builds, other == this_shard_id() ? 1 : 0);
+}
+
+SEASTAR_TEST_CASE(test_cache_shared_per_numa_node) {
+    co_await reset_metrics();
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        sm::make_gauge("gauge", sm::description("gauge"), [] { return 1; }),
+    });
+    // Pretend that shards alternate between two NUMA nodes
+    std::vector<unsigned> mapping;
+    for (unsigned shard = 0; shard < this_smp_shard_count(); ++shard) {
+        mapping.push_back(shard % 2);
+    }
+    prometheus_test_fixture::set_numa_node_mapping(mapping);
+    auto expected = co_await prometheus_test_fixture::scrape({}, all_metrics());
+    prometheus_test_fixture::set_numa_node_mapping(std::nullopt);
+
+    std::vector<const void*> templates;
+    for (unsigned shard = 0; shard < this_smp_shard_count(); ++shard) {
+        templates.push_back(co_await smp::submit_to(shard, [] () -> future<const void*> {
+            BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().entries, 1);
+            auto t = prometheus_test_fixture::cached_template();
+            // Each shard's copy works
+            co_await prometheus_test_fixture::scrape({}, all_metrics());
+            BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().builds, this_shard_id() == 0 ? 1 : 0);
+            co_return t;
+        }));
+    }
+    for (unsigned shard = 0; shard < this_smp_shard_count(); ++shard) {
+        // Shards on the same node share one copy, and each node has its own
+        BOOST_REQUIRE_EQUAL(templates[shard], templates[shard % 2]);
+        if (shard % 2) {
+            BOOST_REQUIRE_NE(templates[shard], templates[0]);
+        }
+    }
 }
