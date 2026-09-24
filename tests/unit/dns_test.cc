@@ -334,26 +334,66 @@ SEASTAR_TEST_CASE(test_tcp_server_closes_connection) {
 
 enum class stack_fault {
     udp_socket,  // creating a channel fails with EMFILE
+    udp_receive, // receives fail
+    udp_send,    // sends fail
     tcp_connect, // connect() fails
     tcp_output,  // creating the output stream fails
+    tcp_receive, // receives fail
+    tcp_send,    // sends fail
 };
 
-// Creating the output stream fails with bad_alloc. Reads wait for
-// shutdown_input().
+// Fails 1 ms after the operation started, when its callback into the resolver
+// has already returned.
+template <typename T = void>
+static future<T> fail_soon(std::exception_ptr ex) {
+    return sleep(std::chrono::milliseconds(1)).then([ex = std::move(ex)] {
+        return make_exception_future<T>(ex);
+    });
+}
+
+// For tcp_output, creating the output stream fails with bad_alloc. For
+// tcp_receive, reads fail with bad_alloc 1 ms after they start, and writes
+// succeed. For tcp_send, writes fail with bad_alloc 1 ms after they start. Reads
+// otherwise wait for shutdown_input().
 class failing_connection : public connected_socket_impl {
+    stack_fault _fault;
     lw_shared_ptr<shared_promise<>> _input_shutdown = make_lw_shared<shared_promise<>>();
 
     class source_impl : public data_source_impl {
+        stack_fault _fault;
         lw_shared_ptr<shared_promise<>> _input_shutdown;
     public:
-        explicit source_impl(lw_shared_ptr<shared_promise<>> s) : _input_shutdown(std::move(s)) {}
+        source_impl(stack_fault fault, lw_shared_ptr<shared_promise<>> s) : _fault(fault), _input_shutdown(std::move(s)) {}
         future<temporary_buffer<char>> get() override {
+            if (_fault == stack_fault::tcp_receive) {
+                return fail_soon<temporary_buffer<char>>(std::make_exception_ptr(std::bad_alloc()));
+            }
             return _input_shutdown->get_shared_future().then([] { return temporary_buffer<char>(); });
         }
     };
+
+    class sink_impl : public data_sink_impl {
+        stack_fault _fault;
+    public:
+        explicit sink_impl(stack_fault fault) : _fault(fault) {}
+        future<> put(std::span<temporary_buffer<char>>) override {
+            if (_fault == stack_fault::tcp_send) {
+                return fail_soon(std::make_exception_ptr(std::bad_alloc()));
+            }
+            return make_ready_future<>();
+        }
+        future<> close() override { return make_ready_future<>(); }
+        size_t buffer_size() const noexcept override { return 512; }
+    };
 public:
-    data_source source() override { return data_source(std::make_unique<source_impl>(_input_shutdown)); }
-    data_sink sink() override { throw std::bad_alloc(); }
+    explicit failing_connection(stack_fault fault) : _fault(fault) {}
+    data_source source() override { return data_source(std::make_unique<source_impl>(_fault, _input_shutdown)); }
+    data_sink sink() override {
+        if (_fault == stack_fault::tcp_output) {
+            throw std::bad_alloc();
+        }
+        return data_sink(std::make_unique<sink_impl>(_fault));
+    }
     void shutdown_input() override {
         if (!_input_shutdown->available()) {
             _input_shutdown->set_value();
@@ -385,11 +425,45 @@ public:
             errno = EINTR;
             return make_exception_future<connected_socket>(std::bad_alloc());
         }
-        return make_ready_future<connected_socket>(connected_socket(std::make_unique<failing_connection>()));
+        return make_ready_future<connected_socket>(connected_socket(std::make_unique<failing_connection>(_fault)));
     }
     void set_reuseaddr(bool) override {}
     bool get_reuseaddr() const override { return false; }
     void shutdown() override {}
+};
+
+// For udp_receive, receives fail with bad_alloc 1 ms after they start, and
+// sends are dropped. For udp_send, sends fail with ENETUNREACH 1 ms after they
+// start, and receives wait for shutdown_input().
+class failing_channel : public datagram_channel_impl {
+    stack_fault _fault;
+    shared_promise<> _input_shutdown;
+public:
+    explicit failing_channel(stack_fault fault) : _fault(fault) {}
+    socket_address local_address() const override { return {}; }
+    future<datagram> receive() override {
+        if (_fault == stack_fault::udp_receive) {
+            return fail_soon<datagram>(std::make_exception_ptr(std::bad_alloc()));
+        }
+        return _input_shutdown.get_shared_future().then([] () -> datagram {
+            throw std::system_error(ECONNABORTED, std::system_category());
+        });
+    }
+    future<> send(const socket_address&, const char*) override { return make_ready_future<>(); }
+    future<> send(const socket_address&, std::span<temporary_buffer<char>>) override {
+        if (_fault == stack_fault::udp_send) {
+            return fail_soon(std::make_exception_ptr(std::system_error(ENETUNREACH, std::system_category())));
+        }
+        return make_ready_future<>();
+    }
+    void shutdown_input() override {
+        if (!_input_shutdown.available()) {
+            _input_shutdown.set_value();
+        }
+    }
+    void shutdown_output() override {}
+    bool is_closed() const override { return false; }
+    void close() override {}
 };
 
 class failing_stack : public network_stack {
@@ -404,7 +478,7 @@ public:
         if (_fault == stack_fault::udp_socket) {
             throw std::system_error(EMFILE, std::system_category());
         }
-        throw std::logic_error("not used");
+        return datagram_channel(std::make_unique<failing_channel>(_fault));
     }
     datagram_channel make_bound_datagram_channel(const socket_address&) override { throw std::logic_error("not used"); }
     bool has_per_core_namespace() override { return false; }
@@ -419,7 +493,8 @@ static future<> test_failing_stack(stack_fault fault) {
     failing_stack stack(fault);
     dns_resolver::options opts;
     opts.servers = std::vector<inet_address>({ inet_address("127.0.0.1") });
-    opts.use_tcp_query = fault == stack_fault::tcp_connect || fault == stack_fault::tcp_output;
+    opts.use_tcp_query = fault == stack_fault::tcp_connect || fault == stack_fault::tcp_output
+        || fault == stack_fault::tcp_receive || fault == stack_fault::tcp_send;
     opts.timeout = std::chrono::milliseconds(300);
 
     dns_resolver d(stack, opts);
@@ -435,12 +510,28 @@ SEASTAR_TEST_CASE(test_udp_socket_creation_fails) {
     return test_failing_stack(stack_fault::udp_socket);
 }
 
+SEASTAR_TEST_CASE(test_udp_receive_fails) {
+    return test_failing_stack(stack_fault::udp_receive);
+}
+
+SEASTAR_TEST_CASE(test_udp_send_fails) {
+    return test_failing_stack(stack_fault::udp_send);
+}
+
 SEASTAR_TEST_CASE(test_tcp_connect_fails) {
     return test_failing_stack(stack_fault::tcp_connect);
 }
 
 SEASTAR_TEST_CASE(test_tcp_output_stream_fails) {
     return test_failing_stack(stack_fault::tcp_output);
+}
+
+SEASTAR_TEST_CASE(test_tcp_receive_fails) {
+    return test_failing_stack(stack_fault::tcp_receive);
+}
+
+SEASTAR_TEST_CASE(test_tcp_send_fails) {
+    return test_failing_stack(stack_fault::tcp_send);
 }
 
 SEASTAR_TEST_CASE(test_resolve_tcp,

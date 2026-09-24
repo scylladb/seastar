@@ -256,6 +256,14 @@ private:
         int avail = 0;
         int pending = 0;
         bool closed = false;
+        bool failed = false;
+
+        // Fails every later read, and marks the socket readable so that
+        // c-ares reads.
+        void mark_failed() noexcept {
+            failed = true;
+            avail |= POLLIN;
+        }
 
         sock_entry(connected_socket s)
             : tcp(tcp_entry{std::move(s)})
@@ -1238,6 +1246,10 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
     try {
         auto& e = get_socket_entry(fd);
         dns_log.trace("Read {}({})", fd, int(e.typ));
+        if (e.failed) {
+            errno = EIO;
+            return -1;
+        }
         // check if we're already reading.
         if (!(e.avail & POLLIN)) {
             dns_log.trace("Read already pending {}", fd);
@@ -1275,6 +1287,7 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
                             e.tcp.indata = std::move(buf);
                         } catch (...) {
                             dns_log.debug("Read {} failed: {}", fd, seastar::formattable(std::current_exception()));
+                            e.mark_failed();
                         }
                         e.avail |= POLLIN; // always reset state
                         me->poll_sockets();
@@ -1344,6 +1357,7 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
                             e.avail |= POLLIN;
                         } catch (...) {
                             dns_log.debug("Read {} failed: {}", fd, seastar::formattable(std::current_exception()));
+                            e.mark_failed();
                         }
                         me->poll_sockets();
                         me->release(fd);
@@ -1380,6 +1394,7 @@ ssize_t dns_resolver::impl::do_send_tcp(sock_entry& e, send_packet_t p, size_t b
                 dns_log.trace("Send {}. {} bytes sent.", fd, bytes);
             } catch (...) {
                 dns_log.debug("Send {} failed: {}", fd, seastar::formattable(std::current_exception()));
+                e.mark_failed();
             }
             e.avail |= POLLOUT;
             me->poll_sockets();
@@ -1421,9 +1436,15 @@ ssize_t dns_resolver::impl::do_send_udp(sock_entry& e, send_packet_t p, size_t b
             return fail_socket_call(std::move(ex), "Send", fd);
         }
     } else {
-        // ensure that no exception from channel.send is left uncaught
-        e.udp.f = e.udp.f.handle_exception_type([](std::system_error const& e){
-            dns_log.warn("UDP send exception: {}", e.what());
+        // The chain above releases fd before this continuation runs.
+        use(fd);
+        e.udp.f = e.udp.f.then_wrapped([me = shared_from_this(), &e, fd](future<> f) {
+            if (f.failed()) {
+                dns_log.warn("UDP send exception: {}", seastar::formattable(f.get_exception()));
+                e.mark_failed();
+                me->poll_sockets();
+            }
+            me->release(fd);
         });
     }
     // c-ares does _not_ use non-blocking retry for udp sockets. We just pretend
