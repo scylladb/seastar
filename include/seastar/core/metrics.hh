@@ -109,6 +109,12 @@ public:
 using metric_type_def = sstring; /*!< Used to hold an inherit type (like bytes)*/
 using metric_name_type = sstring; /*!<  The metric name'*/
 using instance_id_type = sstring; /*!<  typically used for the shard id*/
+/*!
+ * Whether to skip reporting a metric until it's used: a metric with
+ * skip_when_empty::yes isn't reported until its value is first non-empty
+ * (non-zero for counters, with samples for histograms and summaries), and
+ * from then on is always reported.
+ */
 using skip_when_empty = bool_class<class skip_when_empty_tag>;
 
 /*!
