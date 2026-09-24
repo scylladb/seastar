@@ -453,6 +453,7 @@ foreign_ptr<values_reference> get_values() {
     auto& mv = res.values;
     get_local_impl()->update_used_metrics();
     res.metadata = get_local_impl()->metadata();
+    res.generation = get_local_impl()->generation();
     auto& collectors = get_local_impl()->collectors();
     auto reset_collectors = defer([&collectors] () noexcept {
         for (auto c : collectors) {
@@ -533,6 +534,7 @@ void impl::update_metrics_if_needed() {
         _current_collectors.assign_range(distinct_collectors);
         _metadata = mt_ref;
         _dirty = false;
+        ++_generation;
 
         gc_internalized_labels();
     }
@@ -685,6 +687,8 @@ void impl::set_metric_family_configs(const std::vector<metric_family_config>& fa
             }
         }
     }
+    // The metadata was modified in place, so the shape changed
+    ++_generation;
 }
 }
 
