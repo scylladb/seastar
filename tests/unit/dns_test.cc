@@ -331,6 +331,11 @@ SEASTAR_TEST_CASE(test_tcp_server_closes_connection) {
     });
 }
 
+enum class stack_fault {
+    udp_socket,  // creating a channel fails with EMFILE
+    tcp_connect, // connect() fails
+};
+
 // connect() fails at once with bad_alloc. It sets errno to EINTR, as a signal
 // does when it interrupts the reactor's sleep.
 class failing_connector : public socket_impl {
@@ -345,26 +350,33 @@ public:
 };
 
 class failing_stack : public network_stack {
+    stack_fault _fault;
 public:
+    explicit failing_stack(stack_fault fault) : _fault(fault) {}
     server_socket listen(socket_address, listen_options) override { throw std::logic_error("not used"); }
     ::seastar::socket socket() override {
         return ::seastar::socket(std::make_unique<failing_connector>());
     }
-    datagram_channel make_unbound_datagram_channel(sa_family_t) override { throw std::logic_error("not used"); }
+    datagram_channel make_unbound_datagram_channel(sa_family_t) override {
+        if (_fault == stack_fault::udp_socket) {
+            throw std::system_error(EMFILE, std::system_category());
+        }
+        throw std::logic_error("not used");
+    }
     datagram_channel make_bound_datagram_channel(const socket_address&) override { throw std::logic_error("not used"); }
     bool has_per_core_namespace() override { return false; }
     statistics stats(unsigned) override { return {}; }
     void clear_stats(unsigned) override {}
 };
 
-// Resolves a name through a stack whose connect() fails. c-ares must give up on
+// Resolves a name through a stack with the given fault. c-ares must give up on
 // the only server and end the query with ARES_ECONNREFUSED, its status for any
 // socket failure.
-SEASTAR_TEST_CASE(test_tcp_connect_fails) {
-    failing_stack stack;
+static future<> test_failing_stack(stack_fault fault) {
+    failing_stack stack(fault);
     dns_resolver::options opts;
     opts.servers = std::vector<inet_address>({ inet_address("127.0.0.1") });
-    opts.use_tcp_query = true;
+    opts.use_tcp_query = fault == stack_fault::tcp_connect;
     opts.timeout = std::chrono::milliseconds(300);
 
     dns_resolver d(stack, opts);
@@ -374,6 +386,14 @@ SEASTAR_TEST_CASE(test_tcp_connect_fails) {
     BOOST_REQUIRE_EXCEPTION(f.get(), std::system_error, [] (const std::system_error& e) {
         return e.code().category() == dns::error_category() && e.code().value() == ares_econnrefused;
     });
+}
+
+SEASTAR_TEST_CASE(test_udp_socket_creation_fails) {
+    return test_failing_stack(stack_fault::udp_socket);
+}
+
+SEASTAR_TEST_CASE(test_tcp_connect_fails) {
+    return test_failing_stack(stack_fault::tcp_connect);
 }
 
 SEASTAR_TEST_CASE(test_resolve_tcp,
