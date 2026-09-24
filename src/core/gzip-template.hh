@@ -55,6 +55,10 @@ uint32_t crc32_combine_op(uint32_t crc1, uint32_t crc2, uint32_t op) noexcept;
 
 class gzip_template;
 
+/// For tests: when \c enable is false, gzip_template doesn't use
+/// carry-less multiplication instructions even if available.
+void gzip_template_use_clmul(bool enable) noexcept;
+
 /// \brief Builds a \ref gzip_template.
 ///
 /// The uncompressed stream is described as a sequence of literal byte runs
@@ -99,18 +103,28 @@ public:
 /// hole content.
 class gzip_template {
     struct hole {
-        uint64_t bit_offset;  // in the compressed stream
+        uint64_t bit_offset;     // in the compressed stream
         uint32_t width;
-        uint32_t crc_before;  // CRC-32 of the literal run preceding the hole
-        uint32_t op_before;   // crc32_combine_gen() of that run's length
+        uint32_t first_constant; // index into _crc_constants
     };
     std::vector<uint8_t> _data; // header and deflate stream, holes zeroed
     std::vector<hole> _holes;
-    uint32_t _tail_crc = 0;
-    uint32_t _tail_op = 0;
+    // The CRC-32 of the uncompressed stream is linear in the holes' content,
+    // so it's the CRC-32 of the stream with zeroed holes, XORed with the
+    // contribution of each hole's content. A hole's content is split into
+    // chunks of up to 8 bytes, from its end, and the contribution of a
+    // chunk C followed by n bytes is C(x) * x^(32 + 8n) modulo the CRC
+    // polynomial. _crc_constants holds x^(8n) modulo the polynomial for each
+    // chunk, bit-reflected (see crc32_combine_gen()).
+    std::vector<uint32_t> _crc_constants;
+    uint32_t _zeroed_crc = 0;
     uint32_t _isize = 0;
+    size_t _total_width = 0;
 
-    static const std::array<uint8_t, 0x90> literal_codes;
+    // Encodes the holes' content, concatenated in contents, into out (a
+    // copy of _data with room for the trailer and 8 more bytes), and
+    // writes the trailer.
+    bool finish(uint8_t* out, const char* contents) const noexcept;
 
     friend class gzip_template_builder;
 public:
@@ -143,40 +157,25 @@ public:
 
 template <typename Fill>
 std::optional<temporary_buffer<char>> gzip_template::render(Fill&& fill) const {
-    temporary_buffer<char> out(_data.size() + 8);
-    auto* p = reinterpret_cast<uint8_t*>(out.get_write());
-    std::memcpy(p, _data.data(), _data.size());
-    uint32_t crc = 0;
-    char tmp[gzip_template_builder::max_hole_width];
+    // The content of all holes, preceded by 8 bytes so that finish() can
+    // load 8-byte words ending at any hole
+    std::vector<char> contents(8 + _total_width);
+    char* dst = contents.data() + 8;
     for (size_t i = 0; i < _holes.size(); ++i) {
-        const auto& h = _holes[i];
-        crc = crc32_combine_op(crc, h.crc_before, h.op_before);
-        if (!fill(i, tmp, size_t(h.width))) {
+        auto width = size_t(_holes[i].width);
+        if (!fill(i, dst, width)) {
             return std::nullopt;
         }
-        crc = crc32_update(crc, tmp, h.width);
-        // Each byte is an 8-bit Huffman code, which may straddle two bytes
-        // of the compressed stream.
-        auto* dst = p + h.bit_offset / 8;
-        unsigned shift = h.bit_offset % 8;
-        for (uint32_t j = 0; j < h.width; ++j) {
-            auto c = static_cast<unsigned char>(tmp[j]);
-            if (c >= literal_codes.size()) [[unlikely]] {
-                return std::nullopt;
-            }
-            unsigned code = unsigned(literal_codes[c]) << shift;
-            dst[j] |= code;
-            // The stream always continues past a hole (at least with the
-            // end-of-block code), so dst[j + 1] is in bounds.
-            dst[j + 1] |= code >> 8;
-        }
+        dst += width;
     }
-    crc = crc32_combine_op(crc, _tail_crc, _tail_op);
-    auto* trailer = p + _data.size();
-    for (unsigned i = 0; i < 4; ++i) {
-        trailer[i] = crc >> (8 * i);
-        trailer[4 + i] = _isize >> (8 * i);
+    // Room for the trailer, and for finish() to access 8-byte words
+    // starting at any byte of the stream
+    temporary_buffer<char> out(_data.size() + 16);
+    std::memcpy(out.get_write(), _data.data(), _data.size());
+    if (!finish(reinterpret_cast<uint8_t*>(out.get_write()), contents.data() + 8)) {
+        return std::nullopt;
     }
+    out.trim(_data.size() + 8);
     return out;
 }
 

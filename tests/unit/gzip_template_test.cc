@@ -57,6 +57,16 @@ BOOST_AUTO_TEST_CASE(test_crc32) {
     }
 }
 
+BOOST_AUTO_TEST_CASE(test_crc32_combine) {
+    std::mt19937_64 rng(2);
+    for (int i = 0; i < 100000; ++i) {
+        uint32_t crc1 = rng();
+        uint32_t crc2 = rng();
+        uint64_t len = i < 1000 ? i : rng() % (uint64_t(1) << (i % 40));
+        BOOST_REQUIRE_EQUAL(crc32_combine_op(crc1, crc2, crc32_combine_gen(len)), ::crc32_combine64(crc1, crc2, len));
+    }
+}
+
 // Builds a random template resembling metrics text, renders it with random
 // hole content, and verifies that zlib decompresses it to the expected text.
 static void test_random_template(unsigned seed, size_t lines) {
@@ -80,7 +90,7 @@ static void test_random_template(unsigned seed, size_t lines) {
             literal(std::move(junk));
         }
         for (unsigned h = rng() % 3; h; --h) {
-            size_t w = rng() % 4 == 0 ? 0 : 1 + rng() % 30;
+            size_t w = rng() % 4 == 0 ? 0 : rng() % 16 == 0 ? 1 + rng() % 200 : 1 + rng() % 30;
             b.append_hole(w);
             pieces.emplace_back(widths.size());
             widths.push_back(w);
@@ -148,10 +158,21 @@ BOOST_AUTO_TEST_CASE(test_empty_template) {
     BOOST_REQUIRE_EQUAL(gunzip(out->get(), out->size()), "");
 }
 
-BOOST_AUTO_TEST_CASE(test_random_templates) {
+static void test_random_templates() {
     for (unsigned seed = 0; seed < 20; ++seed) {
         test_random_template(seed, 1 + seed * 50);
     }
     // Long enough to exceed the deflate window
     test_random_template(100, 20000);
+}
+
+BOOST_AUTO_TEST_CASE(test_random_templates_clmul) {
+    // Uses carry-less multiplication if the machine supports it
+    test_random_templates();
+}
+
+BOOST_AUTO_TEST_CASE(test_random_templates_generic) {
+    gzip_template_use_clmul(false);
+    test_random_templates();
+    gzip_template_use_clmul(true);
 }
