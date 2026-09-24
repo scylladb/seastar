@@ -582,11 +582,13 @@ seastar_add_test (gzip_template
   LIBRARIES ZLIB::ZLIB)
 
 seastar_add_test (prometheus_text
-  SOURCES prometheus_text_test.cc)
+  SOURCES prometheus_text_test.cc
+  LIBRARIES ZLIB::ZLIB)
 
 seastar_add_test (prometheus_http
   SOURCES
-    prometheus_http_test.cc)
+    prometheus_http_test.cc
+  LIBRARIES ZLIB::ZLIB)
 
 function(seastar_add_certgen name)
   cmake_parse_arguments(CERT
