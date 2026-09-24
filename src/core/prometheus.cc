@@ -39,6 +39,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/lowres_clock.hh>
+#include <seastar/util/std-compat.hh>
 #include <seastar/util/assert.hh>
 #include <algorithm>
 #include <atomic>
@@ -49,6 +50,10 @@
 #include <regex>
 #include <string_view>
 #include <type_traits>
+
+#ifdef SEASTAR_ASAN_ENABLED
+#include <sanitizer/lsan_interface.h>
+#endif
 
 using namespace std::literals;
 
@@ -1372,11 +1377,14 @@ static lowres_clock::time_point template_expiry() {
     return lowres_clock::now() + lowres_clock::duration(template_ttl.load(std::memory_order_relaxed));
 }
 
+// A template, possibly shared by another shard (see share_template())
+using shared_text_template = foreign_ptr<lw_shared_ptr<const text_template>>;
+
 class template_cache {
 public:
     struct entry {
         lowres_clock::time_point expiry;
-        lw_shared_ptr<const text_template> tmpl;
+        lw_shared_ptr<shared_text_template> tmpl;
     };
 private:
     // Limits the memory used by the cache, in case of requests with
@@ -1393,7 +1401,24 @@ private:
 public:
     details::text_cache_stats stats;
 
-    lw_shared_ptr<const text_template> find(const template_key& key) {
+    template_cache() = default;
+    template_cache(const template_cache&) = delete;
+
+    // The cache is destroyed when its thread exits, after the reactor
+    // stopped, so templates owned by other shards can't be released, since
+    // that requires messaging them. Leak them instead.
+    ~template_cache() {
+        for (auto& [_, e] : _entries) {
+            if (e.tmpl->get_owner_shard() != this_shard_id()) {
+                [[maybe_unused]] auto leaked = new shared_text_template(std::move(*e.tmpl));
+#ifdef SEASTAR_ASAN_ENABLED
+                __lsan_ignore_object(leaked);
+#endif
+            }
+        }
+    }
+
+    lw_shared_ptr<shared_text_template> find(const template_key& key) {
         expire(lowres_clock::now());
         auto it = _entries.find(key);
         if (it == _entries.end()) {
@@ -1420,6 +1445,10 @@ public:
         return _entries.size();
     }
 
+    const text_template* any_template() const noexcept {
+        return _entries.empty() ? nullptr : _entries.begin()->second.tmpl->get();
+    }
+
     void clear() noexcept {
         _entries.clear();
     }
@@ -1428,6 +1457,51 @@ public:
 static template_cache& local_template_cache() {
     static thread_local template_cache cache;
     return cache;
+}
+
+// Shares a template built by this shard with the other shards, which likely
+// receive the same requests. Each NUMA node gets its own copy, allocated by
+// one of its shards, which is shared by all of the node's shards.
+static std::optional<std::vector<unsigned>> numa_node_mapping_for_tests;
+
+static future<> share_template(template_key key, lowres_clock::time_point expiry,
+        lw_shared_ptr<const text_template> tmpl) {
+    auto mapping = numa_node_mapping_for_tests ? std::span<const unsigned>(*numa_node_mapping_for_tests)
+            : this_smp().shard_to_numa_node_mapping();
+    auto node_of = [mapping] (unsigned shard) {
+        return shard < mapping.size() ? mapping[shard] : 0;
+    };
+    const auto origin = this_shard_id();
+    std::map<unsigned, std::vector<unsigned>> nodes;
+    for (auto shard : std::views::iota(0u, this_smp_shard_count())) {
+        if (shard != origin) {
+            nodes[node_of(shard)].push_back(shard);
+        }
+    }
+    // For each shard, a pointer to its node's copy of the template, owned
+    // by the shard which allocated it
+    std::vector<shared_text_template> copies(this_smp_shard_count());
+    co_await parallel_for_each(nodes, [&] (this auto self, const auto& node) -> future<> {
+        auto& [id, shards] = node;
+        if (id == node_of(origin)) {
+            for (auto shard : shards) {
+                copies[shard] = make_foreign(tmpl);
+            }
+            co_return;
+        }
+        co_await smp::submit_to(shards.front(), [&] {
+            auto copy = make_lw_shared<const text_template>(*tmpl);
+            for (auto shard : shards) {
+                copies[shard] = make_foreign(copy);
+            }
+        });
+    });
+    co_await smp::invoke_on_all([&] {
+        if (this_shard_id() != origin) {
+            local_template_cache().insert(key, {expiry,
+                    make_lw_shared<shared_text_template>(std::move(copies[this_shard_id()]))});
+        }
+    });
 }
 
 details::family_filter_t details::make_family_filter(std::vector<details::name_filter> filters, std::string_view prefix) {
@@ -1468,15 +1542,16 @@ struct write_context {
 future<> write_context::write_text_representation() {
     return seastar::async([this] {
         auto& cache = local_template_cache();
-        lw_shared_ptr<const text_template> t;
+        lw_shared_ptr<shared_text_template> t;
         std::optional<template_key> key;
         if (args.cache_key) {
             key = make_template_key(ctx, args, families);
             t = cache.find(*key);
         }
         text_values values;
+        future<> shared = make_ready_future<>();
         if (t) {
-            if (evaluate(*t, families, values)) {
+            if (evaluate(**t, families, values)) {
                 ++cache.stats.hits;
             } else {
                 ++cache.stats.invalidations;
@@ -1489,12 +1564,27 @@ future<> write_context::write_text_representation() {
             if (!evaluate(*built, families, values)) {
                 throw std::logic_error("prometheus: template doesn't fit the snapshot it was built from");
             }
-            t = built;
+            t = make_lw_shared<shared_text_template>(make_foreign(built));
             if (key) {
-                cache.insert(*key, {template_expiry(), std::move(built)});
+                auto expiry = template_expiry();
+                cache.insert(*key, {expiry, t});
+                // Shares the template in the background of rendering
+                shared = share_template(std::move(*key), expiry, std::move(built))
+                        .handle_exception([] (std::exception_ptr ex) {
+                    seastar_logger.warn("prometheus: failed to share a text template: {}", ex);
+                });
             }
         }
-        render_text(*t, values, out);
+        std::exception_ptr ex;
+        try {
+            render_text(**t, values, out);
+        } catch (...) {
+            ex = std::current_exception();
+        }
+        shared.get();
+        if (ex) {
+            std::rethrow_exception(std::move(ex));
+        }
     });
 }
 
@@ -1676,6 +1766,14 @@ void details::test_access::clear_cache() {
     auto& cache = local_template_cache();
     cache.clear();
     cache.stats = {};
+}
+
+const void* details::test_access::cached_template() {
+    return local_template_cache().any_template();
+}
+
+void details::test_access::set_numa_node_mapping(std::optional<std::vector<unsigned>> mapping) {
+    numa_node_mapping_for_tests = std::move(mapping);
 }
 
 void details::test_access::set_cache_ttl(std::chrono::milliseconds ttl) {
