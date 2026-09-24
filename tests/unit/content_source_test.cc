@@ -26,6 +26,7 @@
 #include <seastar/http/internal/content_source.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/util/memory-data-source.hh>
+#include <system_error>
 #include <tuple>
 
 using namespace seastar;
@@ -38,9 +39,9 @@ SEASTAR_TEST_CASE(test_incomplete_content) {
 
         auto content1 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>("asdfghjkl;", 10) == content1);
-        auto content2 = content_strm.read().get();
-        BOOST_REQUIRE(temporary_buffer<char>() == content2);
-        BOOST_REQUIRE(content_strm.eof());
+        BOOST_REQUIRE_EXCEPTION(content_strm.read().get(), std::system_error, [] (const std::system_error& e) {
+            return e.code() == std::errc::protocol_error;
+        });
         BOOST_REQUIRE(inp.eof());
       }
 
