@@ -175,6 +175,7 @@ struct metrics_perf_fixture {
     std::optional<int> zlib_level;
     // The text template cache key; if unset, a template is built per request
     std::optional<filter_key> cache_key = filter_key{};
+    compression_type compression = compression_type::none;
 
     template <typename COUNTER_TYPE = double>
     seastar::future<size_t> run_metrics_bench(
@@ -264,6 +265,7 @@ struct metrics_perf_fixture {
                     .show_help = true,
                     .enable_aggregation = enable_aggregation,
                     .cache_key = cache_key,
+                    .compression = compression,
                 },
                 std::move(out));
         };
@@ -361,6 +363,29 @@ PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_uncached) {
 
 PERF_TEST_CN(metrics_perf_fixture, test_histogram_uncached) {
     cache_key = std::nullopt;
+    co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM);
+}
+
+// The _gzip variants render from pre-compressed templates
+
+PERF_TEST_CN(metrics_perf_fixture, test_large_families_int_gzip) {
+    compression = compression_type::gzip;
+    co_return co_await run_metrics_bench<size_t>(1, 1, 10000, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_gzip) {
+    compression = compression_type::gzip;
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_gzip_uncached) {
+    compression = compression_type::gzip;
+    cache_key = std::nullopt;
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_histogram_gzip) {
+    compression = compression_type::gzip;
     co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM);
 }
 
