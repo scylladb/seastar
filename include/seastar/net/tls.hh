@@ -332,6 +332,14 @@ namespace tls {
         void set_session_resume_mode(session_resume_mode);
 
         /**
+         * As above, but also sets the number of session tickets issued
+         * per handshake (default is the backend default, typically 2).
+         * Useful for clients that will open several connections (e.g. one
+         * per shard) and want a spare ticket for each.
+        */
+        void set_session_resume_mode(session_resume_mode, unsigned num_tickets);
+
+        /**
          * Sets Application-Layer Protocol Name (ALPN) supported by the server,
          * in preference order.
          */
@@ -379,6 +387,9 @@ namespace tls {
          * simply call this method again to regenerate the key.
          */
         void set_session_resume_mode(session_resume_mode);
+
+        /// As above, but also sets the number of session tickets issued per handshake.
+        void set_session_resume_mode(session_resume_mode, unsigned num_tickets);
 
         /**
          * Sets Application-Layer Protocol Name (ALPN) supported by the server,
@@ -611,6 +622,16 @@ namespace tls {
      * delay this call to sometime before shutting down/closing the socket.
     */
     future<session_data> get_session_resume_data(connected_socket&);
+
+    /**
+     * Returns the number of extra TLS1.3 session tickets explicitly sent by
+     * the server post-handshake, if a non-default count was requested via
+     * set_session_resume_mode(session_resume_mode, unsigned). Returns
+     * std::nullopt if no such manual send occurred (e.g. default count,
+     * client socket, or non-gnutls backend).
+     * Mainly for testing purposes.
+    */
+    future<std::optional<unsigned>> get_session_tickets_sent(connected_socket&);
 
     /**
      * Gets the Application-Layer Protocol Name (ALPN) selected during the TLS handshake.

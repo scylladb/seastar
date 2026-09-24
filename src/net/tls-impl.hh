@@ -76,6 +76,7 @@ constexpr auto x509_crl_key = std::string_view("x509_crl");
 constexpr auto x509_key_key = std::string_view("x509_key");
 constexpr auto pkcs12_key = std::string_view("pkcs12");
 constexpr auto system_trust = std::string_view("system_trust");
+constexpr auto num_session_tickets_key = std::string_view("num_session_tickets");
 
 struct x509_simple {
     buffer_type data;
@@ -145,7 +146,7 @@ public:
     virtual void set_dn_verification_callback(dn_callback) = 0;
     virtual void set_enable_certificate_verification(bool) = 0;
     virtual void set_client_auth(client_auth) = 0;
-    virtual void set_session_resume_mode(session_resume_mode, std::span<const uint8_t> key = {}) = 0;
+    virtual void set_session_resume_mode(session_resume_mode, std::span<const uint8_t> key = {}, unsigned num_tickets = 0) = 0;
     virtual void set_alpn_protocols(const std::vector<sstring>&) = 0;
     virtual void set_dh_params(const tls::dh_params&) = 0;
 
@@ -187,6 +188,8 @@ public:
     virtual future<sstring> get_cipher_suite() = 0;
     virtual future<sstring> get_protocol_version() = 0;
     virtual future<> force_rehandshake() = 0;
+    // Backend-specific; only gnutls tracks this. Used by tests.
+    virtual std::optional<unsigned> get_session_tickets_sent() { return std::nullopt; }
 };
 
 /// Shared-ownership wrapper for session_impl.
@@ -278,6 +281,9 @@ public:
     }
     future<session_data> get_session_resume_data() {
         return _session->get_session_resume_data();
+    }
+    future<std::optional<unsigned>> get_session_tickets_sent() {
+        return make_ready_future<std::optional<unsigned>>(_session->get_session_tickets_sent());
     }
     future<std::optional<sstring>> get_selected_alpn_protocol() {
         return _session->get_selected_alpn_protocol();
