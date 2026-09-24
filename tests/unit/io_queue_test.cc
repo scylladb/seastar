@@ -867,15 +867,18 @@ SEASTAR_THREAD_TEST_CASE(test_class_bandwidth_throttler) {
 
     auto sg = create_scheduling_group("a", 100).get();
     auto pc = internal::priority_class(sg);
+    auto destroy_groups = defer([&] () noexcept {
+        destroy_scheduling_group(sg).get();
+    });
     tio.queue.update_bandwidth_for_class(pc, bandwidth).get();
 
     background_drain drain(tio);
+    auto stop = defer([&] () noexcept {
+        drain.stop().get();
+    });
 
     auto bw = run_and_check_bandwidth(tio, pc, bandwidth * 0.9).get().bandwidth();
     BOOST_REQUIRE_LE(bw, bandwidth * 1.15);
-
-    drain.stop().get();
-    destroy_scheduling_group(sg).get();
 }
 
 SEASTAR_THREAD_TEST_CASE(test_class_group_bandwidth_throttler) {
@@ -886,16 +889,19 @@ SEASTAR_THREAD_TEST_CASE(test_class_group_bandwidth_throttler) {
     auto ssg = create_scheduling_supergroup(100).get();
     auto sg = create_scheduling_group("a", "a", 100, ssg).get();
     auto pc = internal::priority_class(sg);
+    auto destroy_groups = defer([&] () noexcept {
+        destroy_scheduling_group(sg).get();
+        destroy_scheduling_supergroup(ssg).get();
+    });
     tio.queue.update_bandwidth_for_class_group(ssg.index(), bandwidth).get();
 
     background_drain drain(tio);
+    auto stop = defer([&] () noexcept {
+        drain.stop().get();
+    });
 
     auto bw = run_and_check_bandwidth(tio, pc, bandwidth * 0.9).get().bandwidth();
     BOOST_REQUIRE_LE(bw, bandwidth + burst + bw_slack);
-
-    drain.stop().get();
-    destroy_scheduling_group(sg).get();
-    destroy_scheduling_supergroup(ssg).get();
 }
 
 SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler) {
@@ -910,12 +916,20 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler) {
     auto pc0 = internal::priority_class(sg0);
     auto sg1 = create_scheduling_group("b", "b", 100, ssg).get();
     auto pc1 = internal::priority_class(sg1);
+    auto destroy_groups = defer([&] () noexcept {
+        destroy_scheduling_group(sg1).get();
+        destroy_scheduling_group(sg0).get();
+        destroy_scheduling_supergroup(ssg).get();
+    });
 
     tio.queue.update_bandwidth_for_class(pc0, bandwidth).get();
     tio.queue.update_bandwidth_for_class(pc1, bandwidth).get();
     tio.queue.update_bandwidth_for_class_group(ssg.index(), group_bandwidth).get();
 
     background_drain drain(tio);
+    auto stop = defer([&] () noexcept {
+        drain.stop().get();
+    });
 
     // Set goal to be 40% of the maximum, as both classes will hit
     // the group limit and won't reach their personal limits
@@ -930,11 +944,6 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler) {
     BOOST_REQUIRE_LE(m1.bandwidth(), bandwidth + burst + bw_slack);
     // Both classes must not exceed the group bandwidth
     BOOST_REQUIRE_LE(combined_bandwidth(m0, m1), group_bandwidth + burst + bw_slack);
-
-    drain.stop().get();
-    destroy_scheduling_group(sg1).get();
-    destroy_scheduling_group(sg0).get();
-    destroy_scheduling_supergroup(ssg).get();
 }
 
 SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_1_unlimited) {
@@ -949,11 +958,19 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_1_unlimited) {
     auto pc0 = internal::priority_class(sg0);
     auto sg1 = create_scheduling_group("b", "b", 100, ssg).get();
     auto pc1 = internal::priority_class(sg1);
+    auto destroy_groups = defer([&] () noexcept {
+        destroy_scheduling_group(sg1).get();
+        destroy_scheduling_group(sg0).get();
+        destroy_scheduling_supergroup(ssg).get();
+    });
 
     tio.queue.update_bandwidth_for_class(pc0, bandwidth).get();
     tio.queue.update_bandwidth_for_class_group(ssg.index(), group_bandwidth).get();
 
     background_drain drain(tio);
+    auto stop = defer([&] () noexcept {
+        drain.stop().get();
+    });
 
     // Set goal to be 40% of the maximum, as both classes will hit
     // the group limit and won't reach their personal limits
@@ -967,11 +984,6 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_1_unlimited) {
     BOOST_REQUIRE_LE(m0.bandwidth(), bandwidth + burst + bw_slack);
     // Both classes must not exceed the group bandwidth
     BOOST_REQUIRE_LE(combined_bandwidth(m0, m1), group_bandwidth + burst + bw_slack);
-
-    drain.stop().get();
-    destroy_scheduling_group(sg1).get();
-    destroy_scheduling_group(sg0).get();
-    destroy_scheduling_supergroup(ssg).get();
 }
 
 SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
@@ -987,10 +999,18 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
     auto pc0 = internal::priority_class(sg0);
     auto sg1 = create_scheduling_group("b", "b", 100, ssg).get();
     auto pc1 = internal::priority_class(sg1);
+    auto destroy_groups = defer([&] () noexcept {
+        destroy_scheduling_group(sg1).get();
+        destroy_scheduling_group(sg0).get();
+        destroy_scheduling_supergroup(ssg).get();
+    });
 
     tio.queue.update_bandwidth_for_class_group(ssg.index(), bandwidth).get();
 
     background_drain drain(tio);
+    auto stop = defer([&] () noexcept {
+        drain.stop().get();
+    });
 
     // Unlike the tests above, this one compares the two bandwidths against each
     // other, within 1.25%. A one second window cannot support that: the burst is
@@ -1009,11 +1029,6 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
     BOOST_REQUIRE_LE(float(bw0) / float(bw1), 4.05);
     BOOST_REQUIRE_GE(float(bw0) / float(bw1), 3.95);
     BOOST_REQUIRE_LE(combined_bandwidth(m0, m1), bandwidth + burst + bw_slack);
-
-    drain.stop().get();
-    destroy_scheduling_group(sg1).get();
-    destroy_scheduling_group(sg0).get();
-    destroy_scheduling_supergroup(ssg).get();
 }
 
 SEASTAR_THREAD_TEST_CASE(test_get_all_io_queues) {
