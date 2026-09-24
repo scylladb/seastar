@@ -1111,6 +1111,43 @@ SEASTAR_TEST_CASE(test_client_head_empty_body) {
     });
 }
 
+// A 304 may report the length a 200 would have carried and still carry no body
+// of its own, so the length says nothing about what is on the connection.
+SEASTAR_TEST_CASE(test_client_bodyless_reply_with_content_length) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        future<> server = ss.accept().then([] (accept_result ar) {
+            return seastar::async([sk = std::move(ar.connection)] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                output_stream<char> out = sk.output();
+                out.write(format("HTTP/1.1 304 Not Modified\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n", 1234)).get();
+                out.flush().get();
+                out.close().get();
+            });
+        });
+
+        future<> client = seastar::async([&lcf] {
+            auto cln = http::client(std::make_unique<loopback_http_factory>(lcf), 1, http::client::retry_requests::no);
+            auto req = http::request::make("GET", "test", "/test");
+            bool handled = false;
+            cln.make_request(std::move(req), [&handled] (const http::reply& rep, input_stream<char>&& in) {
+                return seastar::async([&handled, &rep, in = std::move(in)] () mutable {
+                    auto close = deferred_close(in);
+                    BOOST_REQUIRE_EQUAL(rep.content_length, 1234);
+                    BOOST_REQUIRE(in.read().get().empty());
+                    handled = true;
+                });
+            }, http::reply::status_type::not_modified).get();
+            cln.close().get();
+            BOOST_REQUIRE(handled);
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_client_retry_nested) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);
