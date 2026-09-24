@@ -88,6 +88,11 @@ struct name_filter {
 // allowing users to query with either "foo" or "seastar_foo" when prefix is "seastar".
 family_filter_t make_family_filter(std::vector<name_filter> filters, std::string_view prefix = "");
 
+enum class compression_type {
+    none,
+    gzip,
+};
+
 // Identifies the filters of a request, as specified by its parameters
 struct filter_key {
     // Name filters, sorted and without duplicates
@@ -108,6 +113,9 @@ struct write_body_args {
     // have equivalent filters. If set, the text representation's template
     // is cached.
     std::optional<filter_key> cache_key = std::nullopt;
+    // Compression of the text representation (the protobuf representation
+    // isn't compressed)
+    compression_type compression = compression_type::none;
 };
 
 // Statistics of the text representation template cache of a shard
