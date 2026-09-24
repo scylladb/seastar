@@ -663,10 +663,15 @@ public:
                     size_t count = 0;
                     while (more) {
                         write_request(output).get();
-                        size_t body_size = response_body_size(input);
                         if (std::get<bool>(tests[count])) {
-                            BOOST_REQUIRE_EQUAL(body_size, std::get<size_t>(tests[count]));
+                            BOOST_REQUIRE_EQUAL(response_body_size(input), std::get<size_t>(tests[count]));
                         } else {
+                            // The handler throws part way through the body, so the last
+                            // chunk never arrives and the response stream says so instead
+                            // of passing the cut-off body off as a complete one.
+                            BOOST_REQUIRE_EXCEPTION(response_body_size(input), std::system_error, [] (const std::system_error& e) {
+                                return e.code() == std::errc::protocol_error;
+                            });
                             BOOST_REQUIRE_EQUAL(input.eof(), true);
                             more = false;
                         }
@@ -1087,6 +1092,43 @@ SEASTAR_TEST_CASE(test_client_response_body_ends_early) {
                 output_stream<char> out = sk.output();
                 out.write(format("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n", 128)).get();
                 out.write(sstring(64, 'a')).get(); // half the body, then hang up
+                out.flush().get();
+                out.close().get();
+            });
+        });
+
+        future<> client = seastar::async([&lcf] {
+            auto cln = http::client(std::make_unique<loopback_http_factory>(lcf), 1, http::client::retry_requests::no);
+            auto req = http::request::make("GET", "test", "/test");
+            BOOST_REQUIRE_EXCEPTION(cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
+                return seastar::async([in = std::move(in)] () mutable {
+                    auto close = deferred_close(in);
+                    util::read_entire_stream_contiguous(in).get();
+                });
+            }, http::reply::status_type::ok).get(), std::system_error, [] (const std::system_error& e) {
+                return e.code() == std::errc::protocol_error;
+            });
+
+            cln.close().get();
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_client_chunked_body_ends_early) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        future<> server = ss.accept().then([] (accept_result ar) {
+            return seastar::async([sk = std::move(ar.connection)] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                output_stream<char> out = sk.output();
+                out.write(sstring("HTTP/1.1 200 OK\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n")).get();
+                // One whole chunk, then a second one that never arrives in full and
+                // no terminating chunk at all.
+                out.write(sstring("4\r\nabcd\r\n4\r\nab")).get();
                 out.flush().get();
                 out.close().get();
             });

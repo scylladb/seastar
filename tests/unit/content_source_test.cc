@@ -52,9 +52,9 @@ SEASTAR_TEST_CASE(test_incomplete_content) {
 
         auto content1 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>("132", 3) == content1);
-        auto content2 = content_strm.read().get();
-        BOOST_REQUIRE(temporary_buffer<char>() == content2);
-        BOOST_REQUIRE(content_strm.eof());
+        BOOST_REQUIRE_EXCEPTION(content_strm.read().get(), std::system_error, [] (const std::system_error& e) {
+            return e.code() == std::errc::protocol_error;
+        });
       }
     });
 }

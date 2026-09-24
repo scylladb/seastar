@@ -141,10 +141,16 @@ class chunked_source_impl : public data_source_impl {
         }
 
         future<consumption_result_type> operator()(temporary_buffer<char> data) {
-            if (_buf.size() || _end_of_request || data.empty()) {
-                // return if we have already read some content (_buf.size()), we have already reached the end of the chunked request (_end_of_request),
-                // or the underlying stream reached eof (data.empty())
+            if (_buf.size() || _end_of_request) {
+                // return if we have already read some content (_buf.size()), or we have
+                // already reached the end of the chunked request (_end_of_request)
                 return make_ready_future<consumption_result_type>(stop_consuming(std::move(data)));
+            }
+            if (data.empty()) {
+                // consume() only hands over an empty buffer at end of stream, and the
+                // terminating chunk has not been seen, so the body was cut short.
+                return make_exception_future<consumption_result_type>(std::system_error(
+                        std::make_error_code(std::errc::protocol_error), "Chunked body ended before its last chunk"));
             }
             switch (_ps) {
             // "data" buffer is non-empty
