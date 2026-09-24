@@ -929,7 +929,7 @@ static future<size_t> run_and_check_bandwidth(io_queue_for_tests& tio, schedulin
     while (true) {
         co_await seastar::sleep(std::chrono::seconds(1));
         auto now = std::chrono::steady_clock::now();
-        real_bandwidth = (nr_requests * req_size) / std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
+        real_bandwidth = (nr_requests * req_size) / std::chrono::duration<double>(now - start).count();
         fmt::print("Measured for {} {} MB/s, goal {} MB/s\n", internal::scheduling_group_index(sg), real_bandwidth >> 20, bandwidth_goal >> 20);
         if ((real_bandwidth >= bandwidth_goal && now >= start + min_window) || now >= stop) {
             break;
