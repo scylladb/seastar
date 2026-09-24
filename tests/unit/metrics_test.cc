@@ -408,6 +408,63 @@ SEASTAR_THREAD_TEST_CASE(test_skip_when_empty_latch) {
     sm::set_relabel_configs({}).get();
 }
 
+SEASTAR_THREAD_TEST_CASE(test_metrics_generation) {
+    namespace sm = seastar::metrics;
+    auto impl = sm::impl::get_local_impl();
+    auto generation = [] {
+        return sm::impl::get_values()->generation;
+    };
+
+    auto g0 = generation();
+    // Reading values doesn't change the shape
+    BOOST_REQUIRE_EQUAL(generation(), g0);
+
+    std::optional<sm::metric_groups> metrics;
+    metrics.emplace();
+    metrics->add_group("generation_test", {
+        sm::make_gauge("gauge", sm::description("gauge"), [] { return 1; }),
+    });
+    auto g1 = generation();
+    BOOST_REQUIRE_NE(g1, g0);
+    BOOST_REQUIRE_EQUAL(generation(), g1);
+    BOOST_REQUIRE_EQUAL(impl->generation(), g1);
+
+    // Changing the aggregation labels changes the shape
+    std::vector<sm::metric_family_config> fc(1);
+    fc[0].name = "generation_test_gauge";
+    fc[0].aggregate_labels = { "shard" };
+    sm::set_metric_family_configs(fc);
+    auto g2 = generation();
+    BOOST_REQUIRE_NE(g2, g1);
+    sm::set_metric_family_configs({});
+
+    // So does relabeling
+    std::vector<sm::relabel_config> rl(1);
+    rl[0].source_labels = {"__name__"};
+    rl[0].target_label = "level";
+    rl[0].replacement = "1";
+    rl[0].expr = "generation_test_gauge";
+    sm::set_relabel_configs(rl).get();
+    auto g3 = generation();
+    BOOST_REQUIRE_NE(g3, g2);
+    sm::set_relabel_configs({}).get();
+
+    // And a skip_when_empty metric being used for the first time
+    uint64_t value = 0;
+    metrics->add_group("generation_test", {
+        sm::make_counter("counter", [&value] { return value; }, sm::description("counter")).set_skip_when_empty(),
+    });
+    auto g4 = generation();
+    BOOST_REQUIRE_EQUAL(generation(), g4);
+    value = 1;
+    BOOST_REQUIRE_NE(generation(), g4);
+
+    // And removing metrics
+    g4 = generation();
+    metrics.reset();
+    BOOST_REQUIRE_NE(generation(), g4);
+}
+
 SEASTAR_THREAD_TEST_CASE(test_estimated_histogram) {
     using namespace seastar::metrics;
     using namespace std::chrono_literals;
