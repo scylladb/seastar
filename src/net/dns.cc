@@ -1084,6 +1084,16 @@ dns_resolver::impl::release(ares_socket_t fd) {
     _gate.leave();
 }
 
+// The operation failed, so there is nothing to wait for and c-ares must give
+// up on the server. Ignore the code a std::system_error carries: EAGAIN,
+// EINPROGRESS or EINTR would make c-ares wait or call connect again, and any
+// other code acts like EIO. Log the error instead.
+static int fail_socket_call(std::exception_ptr ex, std::string_view operation, ares_socket_t fd) noexcept {
+    dns_log.debug("{} {} failed: {}", operation, fd, seastar::formattable(ex));
+    errno = EIO;
+    return -1;
+}
+
 ares_socket_t
 dns_resolver::impl::do_socket(int af, int type, int protocol) {
     if (_closed) {
@@ -1196,6 +1206,9 @@ dns_resolver::impl::do_connect(ares_socket_t fd, const sockaddr * addr, socklen_
                 errno = EWOULDBLOCK;
                 return -1;
             }
+            if (f.failed()) {
+                return fail_socket_call(f.get_exception(), "Connect", fd);
+            }
             e.tcp.socket = f.get();
             break;
         }
@@ -1209,7 +1222,7 @@ dns_resolver::impl::do_connect(ares_socket_t fd, const sockaddr * addr, socklen_
         }
         return 0;
     } catch (...) {
-        return -1;
+        return fail_socket_call(std::current_exception(), "Connect", fd);
     }
 }
 
@@ -1267,14 +1280,10 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
                     return -1;
                 }
 
-                try {
-                    tcp.indata = f.get();
-                } catch (std::system_error& e) {
-                    errno = e.code().value();
-                    return -1;
-                } catch (...) {
-                    return -1;
+                if (f.failed()) {
+                    return fail_socket_call(f.get_exception(), "Read", fd);
                 }
+                tcp.indata = f.get();
                 if (tcp.indata.empty()) {
                     dns_log.trace("Read {}: connection closed by peer", fd);
                     return 0;
@@ -1339,23 +1348,19 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
                     return -1;
                 }
 
-                try {
-                    udp.in = f.get();
-                    continue; // loop will take care of data
-                } catch (std::system_error& e) {
-                    errno = e.code().value();
-                    return -1;
-                } catch (...) {
+                if (f.failed()) {
+                    return fail_socket_call(f.get_exception(), "Read", fd);
                 }
-                return -1;
+                udp.in = f.get();
+                continue; // loop will take care of data
             }
             default:
                 return -1;
             }
         }
     } catch (...) {
+        return fail_socket_call(std::current_exception(), "Read", fd);
     }
-    return -1;
 }
 
 ssize_t dns_resolver::impl::do_send_tcp(sock_entry& e, send_packet_t p, size_t bytes, ares_socket_t fd) {
@@ -1388,13 +1393,7 @@ ssize_t dns_resolver::impl::do_send_tcp(sock_entry& e, send_packet_t p, size_t b
     release(fd);
 
     if (f.failed()) {
-        try {
-            f.get();
-        } catch (std::system_error& e) {
-            errno = e.code().value();
-        } catch (...) {
-        }
-        return -1;
+        return fail_socket_call(f.get_exception(), "Send", fd);
     }
 
     return bytes;
@@ -1416,14 +1415,9 @@ ssize_t dns_resolver::impl::do_send_udp(sock_entry& e, send_packet_t p, size_t b
     if (e.udp.f.available()) {
         // if we have a fast-fail, give error.
         if (e.udp.f.failed()) {
-            try {
-                e.udp.f.get();
-            } catch (std::system_error& e) {
-                errno = e.code().value();
-            } catch (...) {
-            }
+            auto ex = e.udp.f.get_exception();
             e.udp.f = make_ready_future<>();
-            return -1;
+            return fail_socket_call(std::move(ex), "Send", fd);
         }
     } else {
         // ensure that no exception from channel.send is left uncaught
@@ -1503,8 +1497,8 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
                 return -1;
             }
     } catch (...) {
+        return fail_socket_call(std::current_exception(), "Send", fd);
     }
-    return -1;
 }
 
 ares_socket_t

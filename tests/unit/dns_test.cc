@@ -33,11 +33,16 @@
 #include <seastar/net/api.hh>
 #include <seastar/net/dns.hh>
 #include <seastar/net/inet_address.hh>
+#include <seastar/net/stack.hh>
 
 using namespace seastar;
 using namespace seastar::net;
 
 static const sstring seastar_name = "seastar.io";
+
+// ARES_ECONNREFUSED. The test doesn't include <ares.h>, whose hostent clashes
+// with net::hostent.
+static constexpr int ares_econnrefused = 11;
 
 static uint16_t read_be16(const char* p) {
     return (uint16_t(uint8_t(p[0])) << 8) | uint8_t(p[1]);
@@ -323,6 +328,51 @@ SEASTAR_TEST_CASE(test_tcp_server_closes_connection) {
     BOOST_REQUIRE(f.failed());
     BOOST_REQUIRE_EXCEPTION(f.get(), std::system_error, [] (const std::system_error& e) {
         return e.code().category() == dns::error_category();
+    });
+}
+
+// connect() fails at once with bad_alloc. It sets errno to EINTR, as a signal
+// does when it interrupts the reactor's sleep.
+class failing_connector : public socket_impl {
+public:
+    future<connected_socket> connect(socket_address, socket_address, transport) override {
+        errno = EINTR;
+        return make_exception_future<connected_socket>(std::bad_alloc());
+    }
+    void set_reuseaddr(bool) override {}
+    bool get_reuseaddr() const override { return false; }
+    void shutdown() override {}
+};
+
+class failing_stack : public network_stack {
+public:
+    server_socket listen(socket_address, listen_options) override { throw std::logic_error("not used"); }
+    ::seastar::socket socket() override {
+        return ::seastar::socket(std::make_unique<failing_connector>());
+    }
+    datagram_channel make_unbound_datagram_channel(sa_family_t) override { throw std::logic_error("not used"); }
+    datagram_channel make_bound_datagram_channel(const socket_address&) override { throw std::logic_error("not used"); }
+    bool has_per_core_namespace() override { return false; }
+    statistics stats(unsigned) override { return {}; }
+    void clear_stats(unsigned) override {}
+};
+
+// Resolves a name through a stack whose connect() fails. c-ares must give up on
+// the only server and end the query with ARES_ECONNREFUSED, its status for any
+// socket failure.
+SEASTAR_TEST_CASE(test_tcp_connect_fails) {
+    failing_stack stack;
+    dns_resolver::options opts;
+    opts.servers = std::vector<inet_address>({ inet_address("127.0.0.1") });
+    opts.use_tcp_query = true;
+    opts.timeout = std::chrono::milliseconds(300);
+
+    dns_resolver d(stack, opts);
+    auto f = co_await coroutine::as_future(d.get_host_by_name("failing.seastar.test", inet_address::family::INET));
+    co_await d.close();
+
+    BOOST_REQUIRE_EXCEPTION(f.get(), std::system_error, [] (const std::system_error& e) {
+        return e.code().category() == dns::error_category() && e.code().value() == ares_econnrefused;
     });
 }
 
