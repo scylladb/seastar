@@ -37,6 +37,15 @@ using namespace seastar;
 using namespace httpd;
 using namespace std::literals;
 
+struct prometheus_http_test_access {
+    static prometheus::internal::text_cache_stats cache_stats() {
+        return prometheus::internal::test_access::cache_stats();
+    }
+    static void clear_cache() {
+        prometheus::internal::test_access::clear_cache();
+    }
+};
+
 namespace {
 
 class loopback_http_factory : public http::connection_factory {
@@ -133,6 +142,49 @@ SEASTAR_TEST_CASE(test_prometheus_metrics) {
 
 SEASTAR_TEST_CASE(test_prometheus_metrics_global_label) {
     return test_prometheus_metrics_body({.use_global_label = true});
+}
+
+// Test that requests whose name filters differ only in order and duplicates
+// share a cached template
+SEASTAR_TEST_CASE(test_prometheus_name_filters_share_template) {
+    metrics::metric_groups test_metrics;
+    test_metrics.add_group("test", {
+        metrics::make_gauge("metric_alpha", [] { return 1; }, metrics::description{"alpha metric"}),
+        metrics::make_gauge("metric_beta", [] { return 2; }, metrics::description{"beta metric"}),
+        metrics::make_gauge("metric_gamma", [] { return 3; }, metrics::description{"gamma metric"}),
+    });
+
+    co_await seastar::async([] {
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+        prometheus::config ctx;
+        add_prometheus_routes(server, ctx).get();
+
+        future<> client = seastar::async([&lcf] {
+            prometheus_http_test_access::clear_cache();
+            auto first = get_metrics_body(lcf, "/metrics?__name__=test_metric_alpha&__name__=test_metric_gamma");
+            BOOST_REQUIRE_EQUAL(prometheus_http_test_access::cache_stats().entries, 1);
+
+            for (auto path : {
+                    "/metrics?__name__=test_metric_gamma&__name__=test_metric_alpha",
+                    "/metrics?__name__=test_metric_alpha&__name__=test_metric_gamma&__name__=test_metric_alpha"}) {
+                auto body = get_metrics_body(lcf, path);
+                BOOST_REQUIRE_EQUAL(body, first);
+                BOOST_REQUIRE_EQUAL(prometheus_http_test_access::cache_stats().entries, 1);
+            }
+            BOOST_REQUIRE_EQUAL(prometheus_http_test_access::cache_stats().builds, 1);
+
+            // A prefix filter differs from an exact filter of the same name
+            get_metrics_body(lcf, "/metrics?__name__=test_metric_alpha*&__name__=test_metric_gamma");
+            BOOST_REQUIRE_EQUAL(prometheus_http_test_access::cache_stats().entries, 2);
+        });
+
+        server.do_accepts(0).get();
+
+        client.get();
+        server.stop().get();
+    });
 }
 
 // Test that multiple __name__ query parameters filter to only matching metrics
