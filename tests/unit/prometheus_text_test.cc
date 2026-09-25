@@ -153,8 +153,7 @@ struct prometheus_test_fixture {
                     return make_histogram(metric_name, sm::description(metric_name), labels,
                             [histogram = make_historgam()]() { return histogram->to_metrics_histogram(); });
                 } else if (test_conf.type == data_type::SUMMARY) {
-                    // SUMMARY doesn't support specifying labels
-                    return make_summary(metric_name, sm::description(metric_name),
+                    return make_summary(metric_name, sm::description(metric_name), labels,
                             [histogram = make_historgam()]() { return histogram->to_metrics_histogram(); });
                 }
                 BOOST_FAIL("unknown data type");
@@ -290,6 +289,9 @@ SEASTAR_TEST_CASE(test_basic_histogram) {
 
 SEASTAR_TEST_CASE(test_basic_summary) {
     test_config cfg{data_type::SUMMARY};
+    // make_summary used to silently drop labels; now it honors them like other types,
+    // so pin labels_per_metric to 0 to keep this golden output unchanged.
+    cfg.labels_per_metric = 0;
     return prometheus_test_fixture::run_metrics_test(cfg, {},
         R"(# HELP seastar_group_1_metric_0 metric_0)" "\n"
         R"(# TYPE seastar_group_1_metric_0 summary)" "\n"
@@ -314,6 +316,109 @@ SEASTAR_TEST_CASE(test_basic_summary) {
         R"(seastar_group_1_metric_0{quantile="131072.000000",shard="0"} 45)" "\n"
         R"(seastar_group_1_metric_0{quantile="262144.000000",shard="0"} 48)" "\n"
         R"(seastar_group_1_metric_0{quantile="1000000.000000",shard="0"} 51)" "\n"
+    );
+}
+
+SEASTAR_TEST_CASE(test_histogram_label_named_le) {
+    // A real label literally named "le" is kept (not silently dropped): it
+    // renders alongside the synthetic bucket-bound le=, matching pre-optimization
+    // behavior. Two "le" labels is technically invalid Prometheus, but that's a
+    // pre-existing quirk of registering a label named "le" on a histogram, not
+    // something this renderer should paper over by discarding real data.
+    test_config cfg{data_type::HISTOGRAM};
+    cfg.labels_per_metric = 0;
+    sm::label le_label{"le"};
+    cfg.extra_label = le_label("bogus");
+    return prometheus_test_fixture::run_metrics_test(cfg, {},
+        R"(# HELP seastar_group_1_metric_0 metric_0)" "\n"
+        R"(# TYPE seastar_group_1_metric_0 histogram)" "\n"
+        R"(seastar_group_1_metric_0_sum{le="bogus",shard="0"} 6.42072e+06)" "\n"
+        R"(seastar_group_1_metric_0_count{le="bogus",shard="0"} 53)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="2.000000",shard="0"} 3)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="4.000000",shard="0"} 6)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="8.000000",shard="0"} 8)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="16.000000",shard="0"} 11)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="32.000000",shard="0"} 14)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="64.000000",shard="0"} 16)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="128.000000",shard="0"} 19)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="256.000000",shard="0"} 22)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="512.000000",shard="0"} 24)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="1024.000000",shard="0"} 27)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="2048.000000",shard="0"} 30)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="4096.000000",shard="0"} 32)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="8192.000000",shard="0"} 35)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="16384.000000",shard="0"} 37)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="32768.000000",shard="0"} 40)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="65536.000000",shard="0"} 43)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="131072.000000",shard="0"} 45)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="262144.000000",shard="0"} 48)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="1000000.000000",shard="0"} 51)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="bogus",le="+Inf",shard="0"} 53)" "\n"
+    );
+}
+
+SEASTAR_TEST_CASE(test_summary_label_named_quantile) {
+    // A real label literally named "quantile" is kept alongside the synthetic
+    // bucket-bound quantile=, same rationale as test_histogram_label_named_le.
+    test_config cfg{data_type::SUMMARY};
+    cfg.labels_per_metric = 0;
+    sm::label quantile_label{"quantile"};
+    cfg.extra_label = quantile_label("bogus");
+    return prometheus_test_fixture::run_metrics_test(cfg, {},
+        R"(# HELP seastar_group_1_metric_0 metric_0)" "\n"
+        R"(# TYPE seastar_group_1_metric_0 summary)" "\n"
+        R"(seastar_group_1_metric_0_sum{quantile="bogus",shard="0"} 6.42072e+06)" "\n"
+        R"(seastar_group_1_metric_0_count{quantile="bogus",shard="0"} 53)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="2.000000",shard="0"} 3)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="4.000000",shard="0"} 6)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="8.000000",shard="0"} 8)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="16.000000",shard="0"} 11)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="32.000000",shard="0"} 14)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="64.000000",shard="0"} 16)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="128.000000",shard="0"} 19)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="256.000000",shard="0"} 22)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="512.000000",shard="0"} 24)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="1024.000000",shard="0"} 27)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="2048.000000",shard="0"} 30)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="4096.000000",shard="0"} 32)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="8192.000000",shard="0"} 35)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="16384.000000",shard="0"} 37)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="32768.000000",shard="0"} 40)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="65536.000000",shard="0"} 43)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="131072.000000",shard="0"} 45)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="262144.000000",shard="0"} 48)" "\n"
+        R"(seastar_group_1_metric_0{quantile="bogus",quantile="1000000.000000",shard="0"} 51)" "\n"
+    );
+}
+
+SEASTAR_TEST_CASE(test_summary_with_ordinary_label) {
+    // An ordinary (non-reserved) label must survive make_summary() and appear
+    // on every series, alongside the synthetic quantile= label.
+    test_config cfg{data_type::SUMMARY};
+    return prometheus_test_fixture::run_metrics_test(cfg, {},
+        R"(# HELP seastar_group_1_metric_0 metric_0)" "\n"
+        R"(# TYPE seastar_group_1_metric_0 summary)" "\n"
+        R"(seastar_group_1_metric_0_sum{label-0="label-0-0",shard="0"} 6.42072e+06)" "\n"
+        R"(seastar_group_1_metric_0_count{label-0="label-0-0",shard="0"} 53)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="2.000000",shard="0"} 3)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="4.000000",shard="0"} 6)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="8.000000",shard="0"} 8)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="16.000000",shard="0"} 11)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="32.000000",shard="0"} 14)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="64.000000",shard="0"} 16)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="128.000000",shard="0"} 19)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="256.000000",shard="0"} 22)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="512.000000",shard="0"} 24)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="1024.000000",shard="0"} 27)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="2048.000000",shard="0"} 30)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="4096.000000",shard="0"} 32)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="8192.000000",shard="0"} 35)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="16384.000000",shard="0"} 37)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="32768.000000",shard="0"} 40)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="65536.000000",shard="0"} 43)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="131072.000000",shard="0"} 45)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="262144.000000",shard="0"} 48)" "\n"
+        R"(seastar_group_1_metric_0{label-0="label-0-0",quantile="1000000.000000",shard="0"} 51)" "\n"
     );
 }
 
