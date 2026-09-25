@@ -112,8 +112,6 @@ module;
 #include <seastar/core/scattered_message.hh>
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/scheduling_specific.hh>
-#include <seastar/core/scollectd.hh>
-#include <seastar/core/scollectd_api.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/sharded.hh>
@@ -847,18 +845,6 @@ using seastar::rpc::streaming_domain_type;
 using seastar::rpc::timeout_error;
 using seastar::rpc::tuple;
 using seastar::rpc::unknown_verb_error;
-
-}
-
-export namespace seastar::scollectd {
-
-using seastar::scollectd::collectd_value;
-using seastar::scollectd::data_type;
-using seastar::scollectd::enable;
-using seastar::scollectd::get_collectd_ids;
-using seastar::scollectd::get_collectd_value;
-using seastar::scollectd::is_enabled;
-using seastar::scollectd::type_instance_id;
 
 }
 
