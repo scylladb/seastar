@@ -24,11 +24,13 @@
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/prometheus.hh>
+#include <seastar/core/sleep.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/util/closeable.hh>
 
 #include "core/prometheus-impl.hh"
 #include "memory-data-sink.hh"
+#include "gunzip.hh"
 
 #include <sstream>
 #include <string_view>
@@ -173,27 +175,121 @@ struct prometheus_test_fixture {
 
         test_metrics.add_group(fmt::format("group-{}", 1), defs);
 
-        using access = prometheus::details::test_access;
-
-        std::stringstream ss;
-        output_stream<char> out{data_sink{std::make_unique<testing::memory_data_sink_impl>(ss, 10)}};
         auto filter = test_conf.filter.value_or(always_true);
         auto family_filter = test_conf.family_filter.value_or([](std::string_view) { return true; });
-        co_await access{}.write_body(config,
-            sp::details::write_body_args{
+        auto args = [&] (std::optional<sp::details::filter_key> cache_key, sp::details::compression_type compression = sp::details::compression_type::none) {
+            return sp::details::write_body_args{
                 .filter = filter,
                 .family_filter = family_filter,
                 .use_protobuf_format = false,
                 .show_help = test_conf.show_help,
-                .enable_aggregation = test_conf.aggregation_mode != aggr_mode::NO_AGGR
-            },
-            std::move(out));
+                .enable_aggregation = test_conf.aggregation_mode != aggr_mode::NO_AGGR,
+                .cache_key = std::move(cache_key),
+                .compression = compression,
+            };
+        };
+        auto check = [&] (std::string_view what, sstring actual) {
+            BOOST_REQUIRE_MESSAGE(expected == actual,
+                fmt::format("{}: actual output doesn't match expected\nexpected output:\n{}\nactual output:\n{}",
+                what, expected, actual));
+        };
 
-        BOOST_REQUIRE_MESSAGE(expected == ss.str(),
-            fmt::format("actual output doesn't match expected\nexpected output:\n{}\nactual output:\n{}",
-            expected, ss.str()));
+        using access = prometheus::details::test_access;
+        access::clear_cache();
+
+        // Without caching
+        check("uncached", co_await scrape(config, args(std::nullopt)));
+        BOOST_REQUIRE_EQUAL(access::cache_stats().entries, 0);
+
+        // With caching: the first request builds the template, the
+        // following ones use it
+        check("cache miss", co_await scrape(config, args(sp::details::filter_key{})));
+        for (int i = 0; i < 2; ++i) {
+            check("cache hit", co_await scrape(config, args(sp::details::filter_key{})));
+        }
+        auto stats = access::cache_stats();
+        BOOST_REQUIRE_EQUAL(stats.builds, 2);
+        BOOST_REQUIRE_EQUAL(stats.hits, 2);
+        BOOST_REQUIRE_EQUAL(stats.invalidations, 0);
+        BOOST_REQUIRE_EQUAL(stats.entries, 1);
+
+        // Compressed, with and without caching
+        auto gzip = sp::details::compression_type::gzip;
+        check("gzip uncached", normalize(co_await scrape_gzip(config, args(std::nullopt, gzip))));
+        for (int i = 0; i < 3; ++i) {
+            check("gzip", normalize(co_await scrape_gzip(config, args(sp::details::filter_key{}, gzip))));
+        }
+        stats = access::cache_stats();
+        BOOST_REQUIRE_EQUAL(stats.builds, 4);
+        BOOST_REQUIRE_EQUAL(stats.hits, 4);
+        BOOST_REQUIRE_EQUAL(stats.invalidations, 0);
+        BOOST_REQUIRE_EQUAL(stats.entries, 2);
+    }
+
+    // Returns the decompressed output
+    static seastar::future<sstring> scrape_gzip(prometheus::config config, sp::details::write_body_args args) {
+        auto compressed = co_await scrape(config, std::move(args));
+        co_return sstring(gunzip(compressed.data(), compressed.size()));
+    }
+
+    // Converts the decompressed gzip output to the uncompressed output, by
+    // dropping the padding of values.
+    static sstring normalize(std::string_view s) {
+        std::string out;
+        while (!s.empty()) {
+            auto eol = s.find('\n');
+            BOOST_REQUIRE(eol != std::string_view::npos);
+            auto line = s.substr(0, eol + 1);
+            s.remove_prefix(eol + 1);
+            if (line.starts_with("#")) {
+                out += line;
+            } else {
+                auto brace = line.rfind('}');
+                BOOST_REQUIRE(brace != std::string_view::npos);
+                auto value = line.find_first_not_of(' ', brace + 1);
+                BOOST_REQUIRE(value != std::string_view::npos);
+                out += line.substr(0, brace + 2);
+                out += line.substr(value);
+            }
+        }
+        return sstring(out);
+    }
+
+    static sp::details::text_cache_stats cache_stats() {
+        return sp::details::test_access::cache_stats();
+    }
+    static void clear_cache() {
+        sp::details::test_access::clear_cache();
+    }
+    static void set_cache_ttl(std::chrono::milliseconds ttl) {
+        sp::details::test_access::set_cache_ttl(ttl);
+    }
+    static const void* cached_template() {
+        return sp::details::test_access::cached_template();
+    }
+    static void set_numa_node_mapping(std::optional<std::vector<unsigned>> mapping) {
+        sp::details::test_access::set_numa_node_mapping(std::move(mapping));
+    }
+
+    static seastar::future<sstring> scrape(prometheus::config config, sp::details::write_body_args args) {
+        std::stringstream ss;
+        output_stream<char> out{data_sink{std::make_unique<testing::memory_data_sink_impl>(ss, 10)}};
+        co_await prometheus::details::test_access{}.write_body(config, std::move(args), std::move(out));
+        co_return sstring(ss.str());
     }
 };
+
+// Arguments for a request without filters
+static sp::details::write_body_args all_metrics(std::optional<sp::details::filter_key> cache_key = sp::details::filter_key{}) {
+    return {
+        .filter = always_true,
+        .family_filter = [](std::string_view) { return true; },
+        .use_protobuf_format = false,
+        .show_help = false,
+        .enable_aggregation = true,
+        .cache_key = std::move(cache_key),
+    };
+}
 
 SEASTAR_TEST_CASE(test_basic_counter) {
     test_config cfg{data_type::COUNTER};
@@ -851,3 +947,421 @@ SEASTAR_TEST_CASE(test_family_filter_mixed_prefixed_and_unprefixed) {
     );
 }
 
+
+// Tests of the text representation template cache
+
+static seastar::future<> reset_metrics() {
+    co_await smp::invoke_on_all([] {
+        remove_existing_metrics();
+        prometheus_test_fixture::clear_cache();
+    });
+}
+
+SEASTAR_TEST_CASE(test_cache_values_change) {
+    co_await reset_metrics();
+    double value = 1;
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        sm::make_gauge("gauge", sm::description("gauge"), [&value] { return value; }),
+    });
+
+    auto expected = [] (std::string_view v) {
+        return fmt::format("# TYPE seastar_cache_gauge gauge\nseastar_cache_gauge{{shard=\"0\"}} {}\n", v);
+    };
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected("1.000000"));
+    value = -12345.5;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected("-12345.500000"));
+    value = std::numeric_limits<double>::quiet_NaN();
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected("nan"));
+
+    auto stats = prometheus_test_fixture::cache_stats();
+    BOOST_REQUIRE_EQUAL(stats.builds, 1);
+    BOOST_REQUIRE_EQUAL(stats.hits, 2);
+}
+
+SEASTAR_TEST_CASE(test_cache_counter_not_representable) {
+    co_await reset_metrics();
+    uint64_t value = 7;
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        sm::make_counter("counter", sm::description("counter"), [&value] { return value; }),
+    });
+
+    auto expected = [] (std::string_view v) {
+        return fmt::format("# TYPE seastar_cache_counter counter\nseastar_cache_counter{{shard=\"0\"}} {}\n", v);
+    };
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected("7"));
+    value = std::numeric_limits<uint64_t>::max();
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected("NaN"));
+    value = 8;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected("8"));
+    BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().builds, 1);
+}
+
+SEASTAR_TEST_CASE(test_cache_invalidated_by_shape_change) {
+    co_await reset_metrics();
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        sm::make_gauge("a", sm::description("a"), [] { return 1; }),
+    });
+    auto a = "# TYPE seastar_cache_a gauge\nseastar_cache_a{shard=\"0\"} 1.000000\n"s;
+    auto b = "# TYPE seastar_cache_b gauge\nseastar_cache_b{shard=\"0\"} 2.000000\n"s;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), a);
+
+    {
+        sm::metric_groups more;
+        more.add_group("cache", {
+            sm::make_gauge("b", sm::description("b"), [] { return 2; }),
+        });
+        BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), a + b);
+        BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().builds, 2);
+    }
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), a);
+    BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().builds, 3);
+
+    // A metric added on another shard changes the shape too
+    auto other = (this_shard_id() + 1) % this_smp_shard_count();
+    if (other != this_shard_id()) {
+        co_await smp::submit_to(other, [] {
+            static thread_local std::optional<sm::metric_groups> more;
+            more.emplace();
+            more->add_group("cache", {
+                sm::make_gauge("c", sm::description("c"), [] { return 3; }),
+            });
+        });
+        auto out = co_await prometheus_test_fixture::scrape({}, all_metrics());
+        BOOST_REQUIRE_NE(out.find("seastar_cache_c"), sstring::npos);
+        BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().builds, 4);
+        co_await smp::submit_to(other, [] {
+            remove_existing_metrics();
+        });
+    }
+
+    // Different keys have different templates. Templates of older shapes
+    // are kept until they expire, so only the new one is counted.
+    auto entries = prometheus_test_fixture::cache_stats().entries;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics(sp::details::filter_key{.names = {{"other", true}}})), a);
+    BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().entries, entries + 1);
+}
+
+SEASTAR_TEST_CASE(test_cache_skip_when_empty) {
+    co_await reset_metrics();
+    uint64_t value = 0;
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        sm::make_counter("counter", [&value] { return value; }, sm::description("counter"))
+            .set_skip_when_empty(true),
+        sm::make_counter("counter", [&value] { return value + 1; }, sm::description("counter"), {sm::label("l")("x")}),
+    });
+
+    auto only_second = [] (uint64_t v) {
+        return fmt::format("# TYPE seastar_cache_counter counter\n"
+                           "seastar_cache_counter{{l=\"x\",shard=\"0\"}} {}\n", v);
+    };
+    auto both = [] (uint64_t v) {
+        return fmt::format("# TYPE seastar_cache_counter counter\n"
+                           "seastar_cache_counter{{l=\"x\",shard=\"0\"}} {}\n"
+                           "seastar_cache_counter{{shard=\"0\"}} {}\n", v + 1, v);
+    };
+    // Metrics which were never used aren't reported
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), only_second(1));
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), only_second(1));
+    // Using a metric changes the shape
+    value = 5;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), both(5));
+    // From then on, it's reported even when empty
+    value = 0;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), both(0));
+    auto stats = prometheus_test_fixture::cache_stats();
+    BOOST_REQUIRE_EQUAL(stats.builds, 2);
+    BOOST_REQUIRE_EQUAL(stats.hits, 2);
+}
+
+SEASTAR_TEST_CASE(test_cache_skip_when_empty_family) {
+    co_await reset_metrics();
+    uint64_t value = 0;
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        sm::make_counter("counter", [&value] { return value; }, sm::description("counter"))
+            .set_skip_when_empty(true),
+    });
+
+    // A family whose metrics were never used isn't reported
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), "");
+    value = 5;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()),
+        "# TYPE seastar_cache_counter counter\nseastar_cache_counter{shard=\"0\"} 5\n");
+    value = 0;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()),
+        "# TYPE seastar_cache_counter counter\nseastar_cache_counter{shard=\"0\"} 0\n");
+    BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().builds, 2);
+}
+
+SEASTAR_TEST_CASE(test_cache_summary_sum_and_count) {
+    co_await reset_metrics();
+    sm::histogram h;
+    h.buckets = {{3, 0.5}};
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        make_summary("summary", sm::description("summary"), [&h] { return h; }),
+    });
+    auto quantile = "seastar_cache_summary{quantile=\"0.500000\",shard=\"0\"} 3\n"s;
+    auto header = "# TYPE seastar_cache_summary summary\n"s;
+    // A zero sum and count aren't reported
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), header + quantile);
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), header + quantile);
+    BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().invalidations, 0);
+    // Non-zero ones invalidate the template, and are then reported even if zero
+    h.sample_sum = 2;
+    h.sample_count = 1;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()),
+        header + "seastar_cache_summary_sum{shard=\"0\"} 2\nseastar_cache_summary_count{shard=\"0\"} 1\n" + quantile);
+    h.sample_sum = 0;
+    h.sample_count = 0;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()),
+        header + "seastar_cache_summary_sum{shard=\"0\"} 0\nseastar_cache_summary_count{shard=\"0\"} 0\n" + quantile);
+    auto stats = prometheus_test_fixture::cache_stats();
+    BOOST_REQUIRE_EQUAL(stats.invalidations, 1);
+    BOOST_REQUIRE_EQUAL(stats.builds, 2);
+}
+
+SEASTAR_TEST_CASE(test_cache_histogram_buckets_change) {
+    co_await reset_metrics();
+    sm::histogram h;
+    h.sample_count = 2;
+    h.sample_sum = 3;
+    h.buckets = {{1, 1.0}, {2, 2.0}};
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        sm::make_histogram("histogram", sm::description("histogram"), [&h] { return h; }),
+    });
+
+    auto expected = [&h] {
+        auto s = fmt::format("# TYPE seastar_cache_histogram histogram\n"
+                             "seastar_cache_histogram_sum{{shard=\"0\"}} {:g}\n"
+                             "seastar_cache_histogram_count{{shard=\"0\"}} {}\n", h.sample_sum, h.sample_count);
+        for (auto& b : h.buckets) {
+            s += fmt::format("seastar_cache_histogram_bucket{{le=\"{:f}\",shard=\"0\"}} {}\n", b.upper_bound, b.count);
+        }
+        s += fmt::format("seastar_cache_histogram_bucket{{le=\"+Inf\",shard=\"0\"}} {}\n", h.sample_count);
+        return s;
+    };
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected());
+    h.buckets[1].count = 4;
+    h.sample_count = 4;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected());
+    BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().invalidations, 0);
+
+    // Different upper bounds invalidate the template
+    h.buckets[1].upper_bound = 3;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected());
+    // As does a different number of buckets
+    h.buckets.push_back({5, 10});
+    h.sample_count = 5;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected());
+    auto stats = prometheus_test_fixture::cache_stats();
+    BOOST_REQUIRE_EQUAL(stats.invalidations, 2);
+    BOOST_REQUIRE_EQUAL(stats.builds, 3);
+    BOOST_REQUIRE_EQUAL(stats.hits, 1);
+}
+
+SEASTAR_TEST_CASE(test_cache_expiry) {
+    co_await reset_metrics();
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        sm::make_gauge("gauge", sm::description("gauge"), [] { return 1; }),
+    });
+    prometheus_test_fixture::set_cache_ttl(std::chrono::milliseconds(100));
+    co_await prometheus_test_fixture::scrape({}, all_metrics());
+    // Using the template keeps it from expiring
+    for (int i = 0; i < 10; ++i) {
+        co_await seastar::sleep(std::chrono::milliseconds(30));
+        co_await prometheus_test_fixture::scrape({}, all_metrics());
+    }
+    BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().builds, 1);
+    // Unused, it expires
+    co_await seastar::sleep(std::chrono::milliseconds(300));
+    co_await prometheus_test_fixture::scrape({}, all_metrics());
+    prometheus_test_fixture::set_cache_ttl(std::chrono::minutes(5));
+    auto stats = prometheus_test_fixture::cache_stats();
+    BOOST_REQUIRE_EQUAL(stats.builds, 2);
+    BOOST_REQUIRE_EQUAL(stats.hits, 10);
+    BOOST_REQUIRE_EQUAL(stats.entries, 1);
+}
+
+SEASTAR_TEST_CASE(test_cache_aggregation) {
+    co_await reset_metrics();
+    uint64_t v1 = 1, v2 = 0;
+    sm::metric_groups metrics;
+    sm::label l("l");
+    metrics.add_group("cache", {
+        sm::make_counter("counter", [&v1] { return v1; }, sm::description("counter"), {l("a")}).aggregate({l}),
+        sm::make_counter("counter", [&v2] { return v2; }, sm::description("counter"), {l("b")})
+            .aggregate({l}).set_skip_when_empty(true),
+    });
+    auto expected = [] (uint64_t v) {
+        return fmt::format("# TYPE seastar_cache_counter counter\nseastar_cache_counter{{shard=\"0\"}} {}\n", v);
+    };
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected(1));
+    v2 = 10;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected(11));
+    v2 = 0;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected(1));
+    BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().builds, 2);
+}
+
+SEASTAR_TEST_CASE(test_cache_shared_between_shards) {
+    co_await reset_metrics();
+    double value = 1;
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        sm::make_gauge("gauge", sm::description("gauge"), [&value] { return value; }),
+    });
+    auto expected = co_await prometheus_test_fixture::scrape({}, all_metrics());
+    BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().builds, 1);
+
+    // All other shards got the template, and use it
+    co_await smp::invoke_on_others([expected] () -> future<> {
+        BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().entries, 1);
+        BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected);
+        auto stats = prometheus_test_fixture::cache_stats();
+        BOOST_REQUIRE_EQUAL(stats.builds, 0);
+        BOOST_REQUIRE_EQUAL(stats.hits, 1);
+    });
+
+    // A template built by another shard is shared with this one
+    co_await reset_metrics();
+    sm::metric_groups more;
+    more.add_group("cache", {
+        sm::make_gauge("gauge", sm::description("gauge"), [&value] { return value; }),
+    });
+    auto other = (this_shard_id() + 1) % this_smp_shard_count();
+    expected = co_await smp::submit_to(other, [] {
+        return prometheus_test_fixture::scrape({}, all_metrics());
+    });
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape({}, all_metrics()), expected);
+    auto stats = prometheus_test_fixture::cache_stats();
+    BOOST_REQUIRE_EQUAL(stats.builds, other == this_shard_id() ? 1 : 0);
+}
+
+SEASTAR_TEST_CASE(test_cache_shared_per_numa_node) {
+    co_await reset_metrics();
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        sm::make_gauge("gauge", sm::description("gauge"), [] { return 1; }),
+    });
+    // Pretend that shards alternate between two NUMA nodes
+    std::vector<unsigned> mapping;
+    for (unsigned shard = 0; shard < this_smp_shard_count(); ++shard) {
+        mapping.push_back(shard % 2);
+    }
+    prometheus_test_fixture::set_numa_node_mapping(mapping);
+    auto expected = co_await prometheus_test_fixture::scrape({}, all_metrics());
+    prometheus_test_fixture::set_numa_node_mapping(std::nullopt);
+
+    std::vector<const void*> templates;
+    for (unsigned shard = 0; shard < this_smp_shard_count(); ++shard) {
+        templates.push_back(co_await smp::submit_to(shard, [] () -> future<const void*> {
+            BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().entries, 1);
+            auto t = prometheus_test_fixture::cached_template();
+            // Each shard's copy works
+            co_await prometheus_test_fixture::scrape({}, all_metrics());
+            BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().builds, this_shard_id() == 0 ? 1 : 0);
+            co_return t;
+        }));
+    }
+    for (unsigned shard = 0; shard < this_smp_shard_count(); ++shard) {
+        // Shards on the same node share one copy, and each node has its own
+        BOOST_REQUIRE_EQUAL(templates[shard], templates[shard % 2]);
+        if (shard % 2) {
+            BOOST_REQUIRE_NE(templates[shard], templates[0]);
+        }
+    }
+}
+
+static sp::details::write_body_args all_metrics_gzip(std::optional<sp::details::filter_key> cache_key = sp::details::filter_key{}) {
+    auto args = all_metrics(std::move(cache_key));
+    args.compression = sp::details::compression_type::gzip;
+    return args;
+}
+
+SEASTAR_TEST_CASE(test_cache_gzip_skip_when_empty) {
+    co_await reset_metrics();
+    uint64_t value = 0;
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        sm::make_counter("counter", [&value] { return value; }, sm::description("counter"))
+            .set_skip_when_empty(true),
+    });
+
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()), "");
+    value = 5;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()),
+        "# TYPE seastar_cache_counter counter\n"
+        "seastar_cache_counter{shard=\"0\"}    5\n");
+    value = 0;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()),
+        "# TYPE seastar_cache_counter counter\n"
+        "seastar_cache_counter{shard=\"0\"}    0\n");
+    auto stats = prometheus_test_fixture::cache_stats();
+    BOOST_REQUIRE_EQUAL(stats.builds, 2);
+    BOOST_REQUIRE_EQUAL(stats.hits, 1);
+}
+
+SEASTAR_TEST_CASE(test_cache_gzip_value_growth) {
+    co_await reset_metrics();
+    double value = 1;
+    sm::metric_groups metrics;
+    metrics.add_group("cache", {
+        sm::make_gauge("gauge", sm::description("gauge"), [&value] { return value; }),
+    });
+    auto expected = [] (std::string_view padded) {
+        return fmt::format("# TYPE seastar_cache_gauge gauge\nseastar_cache_gauge{{shard=\"0\"}} {}\n", padded);
+    };
+    // The hole is 2 characters wider than the value it's built from
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()), expected("  1.000000"));
+    value = -10;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()), expected("-10.000000"));
+    value = std::numeric_limits<double>::infinity();
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()), expected("       inf"));
+    BOOST_REQUIRE_EQUAL(prometheus_test_fixture::cache_stats().builds, 1);
+
+    // A value too wide for its hole rebuilds the template
+    value = 12345;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()), expected("  12345.000000"));
+    value = 99999;
+    BOOST_REQUIRE_EQUAL(co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip()), expected("  99999.000000"));
+    auto stats = prometheus_test_fixture::cache_stats();
+    BOOST_REQUIRE_EQUAL(stats.builds, 2);
+    BOOST_REQUIRE_EQUAL(stats.invalidations, 1);
+    BOOST_REQUIRE_EQUAL(stats.hits, 3);
+}
+
+SEASTAR_TEST_CASE(test_cache_gzip_large) {
+    // Enough output for LZ77 matches to span many holes and exceed the
+    // deflate window
+    co_await reset_metrics();
+    std::vector<uint64_t> values(5000);
+    sm::metric_groups metrics;
+    std::vector<sm::metric_definition> defs;
+    sm::label l("label");
+    for (size_t i = 0; i < values.size(); ++i) {
+        values[i] = i;
+        defs.push_back(sm::make_counter(fmt::format("counter_{}", i % 7), [&values, i] { return values[i]; },
+                sm::description("counter"), {l(fmt::format("value-{}", i))}).set_skip_when_empty(i % 3 == 0));
+    }
+    metrics.add_group("cache", defs);
+    for (int round = 0; round < 3; ++round) {
+        auto text = co_await prometheus_test_fixture::scrape({}, all_metrics());
+        auto gzip = co_await prometheus_test_fixture::scrape_gzip({}, all_metrics_gzip());
+        BOOST_REQUIRE_EQUAL(prometheus_test_fixture::normalize(gzip), text);
+        for (size_t i = 0; i < values.size(); ++i) {
+            values[i] = (values[i] * 7 + round) % 1000;
+        }
+    }
+    // The text and gzip templates are built in the first round, and again
+    // in the third, when counter 0 (with skip_when_empty) is first used
+    auto stats = prometheus_test_fixture::cache_stats();
+    BOOST_REQUIRE_EQUAL(stats.builds, 4);
+    BOOST_REQUIRE_EQUAL(stats.hits + stats.invalidations, 2);
+}

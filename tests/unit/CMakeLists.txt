@@ -574,12 +574,21 @@ seastar_add_test (source_location
 seastar_add_test (shared_token_bucket
   SOURCES shared_token_bucket_test.cc)
 
+find_package (ZLIB REQUIRED)
+
+seastar_add_test (gzip_template
+  KIND BOOST
+  SOURCES gzip_template_test.cc
+  LIBRARIES ZLIB::ZLIB)
+
 seastar_add_test (prometheus_text
-  SOURCES prometheus_text_test.cc)
+  SOURCES prometheus_text_test.cc
+  LIBRARIES ZLIB::ZLIB)
 
 seastar_add_test (prometheus_http
   SOURCES
-    prometheus_http_test.cc)
+    prometheus_http_test.cc
+  LIBRARIES ZLIB::ZLIB)
 
 function(seastar_add_certgen name)
   cmake_parse_arguments(CERT

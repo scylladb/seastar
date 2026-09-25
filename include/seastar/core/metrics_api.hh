@@ -194,6 +194,9 @@ struct metric_info {
     internalized_labels_ref original_labels;
     bool enabled;
     skip_when_empty should_skip_when_empty;
+    // Whether the metric was ever seen non-empty. A metric with
+    // should_skip_when_empty is reported only once it has been.
+    bool was_used = false;
 };
 
 class internalized_holder {
@@ -434,6 +437,8 @@ using metric_values = std::deque<value_vector>;
 struct values_copy {
     shared_ptr<metric_metadata> metadata;
     metric_values values;
+    /// The shape generation of \c metadata, see impl::generation().
+    uint64_t generation = 0;
 };
 
 struct config {
@@ -446,9 +451,13 @@ class impl {
     value_map _value_map;
     config _config;
     bool _dirty = true;
+    uint64_t _generation = 0;
     shared_ptr<metric_metadata> _metadata;
     std::set<sstring> _labels;
     std::vector<std::deque<metric_function>> _current_metrics;
+    // Metrics with skip_when_empty which were never used, so aren't
+    // reported, and are polled to find out when they are.
+    std::vector<register_ref> _unused_metrics;
     std::vector<relabel_config> _relabel_configs;
     std::vector<metric_family_config> _metric_family_configs;
     internalized_set _internalized_labels;
@@ -480,8 +489,32 @@ public:
 
     void update_metrics_if_needed();
 
+    /*!
+     * \brief Starts reporting unused skip_when_empty metrics which became used
+     *
+     * A metric with skip_when_empty isn't reported until its value is first
+     * non-empty; from then on, it's always reported (even if empty again).
+     * This polls the metrics which weren't reported yet, and adds those
+     * that became non-empty to the metadata.
+     */
+    void update_used_metrics();
+
     void dirty() {
         _dirty = true;
+    }
+
+    /*!
+     * \brief The generation of the metrics' shape on this shard
+     *
+     * The shape is everything reported about the metrics except their
+     * values: which metrics exist and are enabled, their labels, and
+     * their families' metadata (including the aggregation labels).
+     * The generation changes whenever the shape changes, and the
+     * same generation always refers to the same shape.
+     */
+    uint64_t generation() {
+        update_metrics_if_needed();
+        return _generation;
     }
 
     const std::set<sstring>& get_labels() const noexcept {
