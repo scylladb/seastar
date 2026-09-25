@@ -62,7 +62,7 @@ struct io_queue_for_tests {
     }
 
     future<> enqueue(scheduling_group sg, size_t req_size) {
-        return queue.queue_request(internal::priority_class(sg),
+        return queue.queue_request(sg,
             internal::io_direction_and_length(internal::io_direction_and_length::read_idx, req_size),
             internal::io_request::make_read(0, 0, nullptr, req_size, false),
             nullptr, {}).discard_result();
