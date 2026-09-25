@@ -33,6 +33,8 @@
 #include <seastar/core/queue.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/metrics.hh>
+#include <ranges>
+
 #include <seastar/http/httpd.hh>
 #include <seastar/http/internal/content_source.hh>
 #include <seastar/http/reply.hh>
@@ -135,7 +137,7 @@ void connection::on_new_connection() {
 
 future<> connection::read() {
     return do_until([this] {return _done;}, [this] {
-        return read_one();
+        return read_one().finally([this] { _reading_request = false; });
     }).then_wrapped([this] (future<> f) {
         // swallow error
         if (f.failed()) {
@@ -202,6 +204,10 @@ future<> connection::read_one() {
             return make_ready_future<>();
         }
         ++_server._requests_served;
+        // From here until this request has been answered the connection has one in
+        // flight, which stop_reading() must not cut off. read() clears it, since that is
+        // where a request cycle ends however it ends.
+        _reading_request = true;
         std::unique_ptr<http::request> req = _parser.get_parsed_request();
 
         req->_server_address = this->_server_addr;
@@ -271,7 +277,11 @@ future<> connection::read_one() {
                     return _replies.not_full().then([this, req = std::move(req)] () mutable {
                         return generate_reply(std::move(req));
                     }).then([this, &content_stream](bool done) {
-                        _done = done;
+                        // Or-ed rather than assigned: stop_reading() may have set it
+                        // while this request was in flight, and a keep-alive request
+                        // reports false, which would put the connection back to waiting
+                        // for another one - and leave whoever is draining it waiting too.
+                        _done = _done || done;
                         // If the handler did not read the entire request
                         // content, this connection cannot be reused so we
                         // need to close it (via "_done = true"). But we can't
@@ -348,6 +358,20 @@ future<> connection::prepare() {
 void connection::shutdown() {
     _fd.shutdown_input();
     _fd.shutdown_output();
+}
+
+void connection::stop_reading() {
+    // Ends the keep-alive loop once the request in flight, if any, has been answered.
+    _done = true;
+    if (_reading_request) {
+        // A request is still arriving. Shutting the socket down now would fail the read
+        // of its body, which is the opposite of draining it: the loop will end by itself
+        // once this request has been answered.
+        return;
+    }
+    // Idle between requests, which means it is parked in read() and would stay there
+    // until its client sent something or gave up. Wake it.
+    _fd.shutdown_input();
 }
 
 output_stream<char>& connection::out() {
@@ -450,12 +474,159 @@ void http_server::set_request_scheduling_group(scheduling_group sg) {
 
 future<> http_server::listen(socket_address addr, listen_options lo,
             server_credentials_ptr listener_credentials) {
-    if (listener_credentials) {
-        _listeners.push_back(seastar::tls::listen(listener_credentials, addr, lo));
-    } else {
-        _listeners.push_back(seastar::listen(addr, lo));
+    try {
+        return listen(bind_listening_socket(addr, lo, listener_credentials),
+                listener_credentials != nullptr);
+    } catch (...) {
+        return current_exception_as_future<>();
     }
-    return do_accepts(_listeners.size() - 1, listener_credentials != nullptr);
+}
+
+listener_entry& http_server::add_listener(server_socket&& ss, bool tls) {
+    // The address actually bound, rather than the one asked for: a listener asked for
+    // port 0 is known by the port it was given.
+    auto bound = ss.local_address();
+    // Bound, but not accepting: that starts when somebody serves it.
+    return _listeners.emplace_back(std::move(ss), bound, tls, _next_listener_index++);
+}
+
+server_socket http_server::bind_listening_socket(socket_address addr, listen_options lo,
+        server_credentials_ptr credentials) {
+    return credentials ? seastar::tls::listen(credentials, addr, lo) : seastar::listen(addr, lo);
+}
+
+future<listener> http_server::bind(socket_address addr, listen_options lo,
+        server_credentials_ptr credentials) {
+    try {
+        return bind(bind_listening_socket(addr, lo, credentials), credentials != nullptr);
+    } catch (...) {
+        return current_exception_as_future<listener>();
+    }
+}
+
+future<listener> http_server::bind(server_socket&& ss, bool tls) {
+    return make_ready_future<listener>(listener(*this, add_listener(std::move(ss), tls)));
+}
+
+void http_server::drop_listener(listener_entry& listener) {
+    // Nothing has been accepted on it, so there is nothing to drain and nothing holding a
+    // reference: giving the address up is closing the socket.
+    _listeners.remove_if([&listener] (const listener_entry& e) { return &e == &listener; });
+}
+
+socket_address listeners_compat_view::entry::local_address() const noexcept {
+    return _entry->addr;
+}
+
+size_t listeners_compat_view::size() const noexcept {
+    return _server->_listeners.size();
+}
+
+bool listeners_compat_view::empty() const noexcept {
+    return _server->_listeners.empty();
+}
+
+listeners_compat_view::entry listeners_compat_view::at(size_t i) const {
+    if (i >= size()) {
+        throw std::out_of_range(seastar::format("no listener {}", i));
+    }
+    return entry(*std::next(_server->_listeners.begin(), i));
+}
+
+listeners_compat_view::entry listeners_compat_view::operator[](size_t i) const {
+    return at(i);
+}
+
+listeners_compat_view::entry listeners_compat_view::front() const {
+    return at(0);
+}
+
+listeners_compat_view::entry listeners_compat_view::back() const {
+    return at(size() - 1);
+}
+
+void listeners_compat_view::push_back(server_socket&& ss) {
+    _server->add_listener(std::move(ss), false);
+}
+
+void listeners_compat_view::emplace_back(server_socket&& ss) {
+    push_back(std::move(ss));
+}
+
+listener& listener::operator=(listener&& other) noexcept {
+    if (this != &other) {
+        // Release what this one holds rather than destroying it: calling the destructor
+        // would end its lifetime, and the assignments below would then be writing to an
+        // object that no longer exists.
+        if (_entry) {
+            _server->drop_listener(*_entry);
+        }
+        _server = std::exchange(other._server, nullptr);
+        _entry = std::exchange(other._entry, nullptr);
+    }
+    return *this;
+}
+
+listener::~listener() {
+    if (_entry) {
+        _server->drop_listener(*_entry);
+    }
+}
+
+socket_address listener::address() const noexcept {
+    return _entry->addr;
+}
+
+future<> listener::serve(abort_source& as) {
+    auto& entry = *std::exchange(_entry, nullptr);
+    auto& server = *std::exchange(_server, nullptr);
+    server.start_accepting(entry, entry.tls);
+    return server.serve_until_aborted(entry, as);
+}
+
+future<> http_server::serve_until_aborted(listener_entry& listener, abort_source& as) {
+    // Taken before anything can resolve it. Waiting on this rather than on the removal
+    // itself is what lets stopping the whole server finish this future too.
+    auto removed = listener.removed.get_shared_future();
+
+    auto subscription = as.subscribe([this, &listener] () noexcept {
+        // Fire and forget: what the caller waits on is `removed`, which the removal
+        // resolves. Held by the server's task gate so that it cannot outlive the server.
+        (void)try_with_gate(_task_gate, [this, &listener] {
+            return remove_listener(listener);
+        }).handle_exception([] (std::exception_ptr) {});
+    });
+    if (!subscription) {
+        // Already aborted before we got here.
+        co_await remove_listener(listener);
+    }
+    co_await std::move(removed);
+}
+
+future<> http_server::remove_listener(listener_entry& listener) {
+    if (listener.stopping) {
+        // Already being removed, or the whole server is stopping and will see to it.
+        co_return;
+    }
+    stop_accepting(listener);
+    co_await std::move(listener.accept_loop);
+    co_await drain_connections_of(listener);
+    report_removed(listener);
+    // The entry outlives this only as far as the iterator: nothing holds a reference to
+    // it any more, since the accept loop has finished and its connections are gone.
+    _listeners.remove_if([&listener] (const listener_entry& e) { return &e == &listener; });
+}
+
+void http_server::stop_accepting(listener_entry& listener) {
+    // The flag goes up before the abort, so that the accept loop reads the abort as being
+    // asked to stop rather than as a failure to log and carry on from.
+    listener.stopping = true;
+    listener.socket.abort_accept();
+}
+
+listener_entry* http_server::listener_at(int which) {
+    auto it = std::ranges::find(_listeners, size_t(which), &listener_entry::index);
+    return it == _listeners.end() ? nullptr : &*it;
 }
 
 future<> http_server::listen(socket_address addr, listen_options lo) {
@@ -474,44 +645,102 @@ future<> http_server::listen(socket_address addr) {
     lo.reuse_address = true;
     return listen(addr, lo);
 }
+
+future<> http_server::listen(server_socket&& ss, bool tls) {
+    // A listener that lives until the server stops is one served against the server's
+    // own abort_source, so there is one way a listener ends rather than two. Its end of
+    // that is kept for stop() to wait on.
+    return bind(std::move(ss), tls).then([this] (listener l) {
+        _listening.push_back(l.serve(_stop));
+    });
+}
+
+future<> http_server::drain_connections_of(listener_entry& listener) {
+    for (auto&& conn : _connections) {
+        if (conn._listener == &listener) {
+            conn.stop_reading();
+        }
+    }
+    // Every connection accepted on this listener holds its gate, so closing it is
+    // exactly "once the last of them has finished".
+    co_await listener.connections_gate.close();
+}
+
+std::vector<socket_address> http_server::listening_addresses() const {
+    return _listeners | std::views::transform(&listener_entry::addr) | std::ranges::to<std::vector>();
+}
+
 future<> http_server::stop() {
     future<> tasks_done = _task_gate.close();
     for (auto&& l : _listeners) {
-        l.abort_accept();
+        stop_accepting(l);
     }
     for (auto&& c : _connections) {
         c.shutdown();
     }
-    return tasks_done;
+    co_await std::move(tasks_done);
+    // Every listener has stopped and its connections are gone, so the listeners that
+    // listen() created can end now. The entries themselves are kept rather than erased:
+    // a serve() that has not woken up yet holds a reference to its own, and a stopped
+    // server never serves again.
+    _stop.request_abort();
+    for (auto&& l : _listeners) {
+        report_removed(l);
+    }
+    co_await when_all(_listening.begin(), _listening.end()).discard_result();
+}
+
+void http_server::report_removed(listener_entry& listener) {
+    if (std::exchange(listener.removal_reported, true)) {
+        return;
+    }
+    listener.removed.set_value();
 }
 
 // This is a named class member coroutine, so that 'this', 'which' and 'tls'
 // live safely in the coroutine frame, therefore `accept_loop()` can safely suspend
 // at `co_await do_accept_one()`.
-future<> http_server::accept_loop(int which, bool tls) {
-    while (!_task_gate.is_closed()) {
+future<> http_server::run_accept_loop(listener_entry& listener, bool tls) {
+    while (!_task_gate.is_closed() && !listener.stopping) {
         try {
-            co_await do_accept_one(which, tls);
+            co_await do_accept_one(listener, tls);
         } catch (const gate_closed_exception&) {
             co_return;
         } catch (const std::system_error& e) {
+            if (listener.stopping) {
+                // The abort that removing this listener asked for, rather than a failure.
+                co_return;
+            }
             // We expect a ECONNABORTED when http_server::stop is called,
             // no point in warning about that.
             if (e.code().value() != ECONNABORTED) {
                 hlogger.error("accept failed: {}", e);
             }
         } catch (...) {
+            if (listener.stopping) {
+                co_return;
+            }
             hlogger.error("accept failed: {}", seastar::formattable(std::current_exception()));
         }
     }
 }
 
-future<> http_server::do_accepts(int which, bool tls) {
-    (void)try_with_gate(_task_gate, [this, which, tls] {
-        return accept_loop(which, tls);
-    }).handle_exception_type([which, tls] (const gate_closed_exception& e) {
-        hlogger.warn("In http_server::do_accepts(), try_with_gate(which={}, tls={}): {}", which, tls, e.what());
+void http_server::start_accepting(listener_entry& listener, bool tls) {
+    // Kept rather than detached, so that this listener's loop can be waited for on its
+    // own rather than through the server's task gate.
+    listener.accept_loop = try_with_gate(_task_gate, [this, &listener, tls] {
+        return run_accept_loop(listener, tls);
+    }).handle_exception_type([addr = listener.addr] (const gate_closed_exception& e) {
+        hlogger.warn("In http_server::start_accepting({}): {}", addr, e.what());
     });
+}
+
+future<> http_server::do_accepts(int which, bool tls) {
+    auto* listener = listener_at(which);
+    if (!listener) {
+        return make_exception_future<>(std::out_of_range(seastar::format("no listener {}", which)));
+    }
+    start_accepting(*listener, tls);
     return make_ready_future<>();
 }
 
@@ -519,8 +748,16 @@ future<> http_server::do_accepts(int which){
     return do_accepts(which, _credentials != nullptr);
 }
 
-future<> http_server::do_accept_one(int which, bool tls) {
-    auto ar = co_await _listeners[which].accept();
+future<> http_server::accept_loop(int which, bool tls) {
+    auto* listener = listener_at(which);
+    if (!listener) {
+        return make_exception_future<>(std::out_of_range(seastar::format("no listener {}", which)));
+    }
+    return run_accept_loop(*listener, tls);
+}
+
+future<> http_server::do_accept_one(listener_entry& listener, bool tls) {
+    auto ar = co_await listener.socket.accept();
     if (_keepalive_params) {
         ar.connection.set_keepalive(true);
         ar.connection.set_keepalive_parameters(_keepalive_params.value());
@@ -530,18 +767,27 @@ future<> http_server::do_accept_one(int which, bool tls) {
     // lambda would be destroyed while its frame is still running.
     (void)try_with_gate(_task_gate,
             [this, conn_fd = std::move(ar.connection),
-             remote_address = std::move(ar.remote_address), tls]() mutable {
-        return do_process_connection(std::move(conn_fd), std::move(remote_address), tls);
+             remote_address = std::move(ar.remote_address), tls,
+             // Held for as long as this connection is being served, so that removing the
+             // listener it arrived on waits for it.
+             &listener, listener_hold = listener.connections_gate.hold()]() mutable {
+        return do_process_connection(std::move(conn_fd), std::move(remote_address), tls,
+                listener, std::move(listener_hold));
     }).handle_exception_type([] (const gate_closed_exception& e) {});
 }
 
 // Named member coroutine for per-connection processing, called from the
 // non-coroutine lambda in try_with_gate inside do_accept_one(). Parameters
 // are passed by value so they live safely in the coroutine frame.
-future<> http_server::do_process_connection(connected_socket conn_fd, socket_address remote_address, bool tls) {
+future<> http_server::do_process_connection(connected_socket conn_fd, socket_address remote_address,
+        bool tls, listener_entry& listener, gate::holder listener_hold) {
     auto local_address = conn_fd.local_address();
     auto conn = std::make_unique<connection>(*this, std::move(conn_fd),
             std::move(remote_address), std::move(local_address), tls);
+    // Which listener this connection arrived on, so that removing that listener can find
+    // it. Not its address: a wildcard listener and the proxy protocol both make the two
+    // disagree.
+    conn->_listener = &listener;
     try {
         co_await conn->prepare();
     } catch (...) {
