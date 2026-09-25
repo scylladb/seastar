@@ -1,0 +1,97 @@
+# Place this file in the scylladb/seastar repo at:
+#   .github/workflows/trigger-scylla-gating.yaml
+#
+# Triggers the scylla next-gating pipeline (RELENG-31) on a seastar PR, on demand,
+# so we learn about scylla/seastar integration breakage before the seastar change
+# merges. The Jenkins job (scylla-master/job/seastar-ci) checks out scylla master,
+# swaps in this PR's merge ref for the seastar submodule, runs full next-gating,
+# and reports a commit status back onto this PR.
+#
+# Comment syntax (on the seastar PR):
+#   @scylladbbot trigger-ci                  -> gate against scylla master
+#   @scylladbbot trigger-ci <scylla-sha>      -> gate against a specific scylla commit
+# Only comments from users with write access or above (OWNER/MEMBER/COLLABORATOR)
+# are honored.
+#
+# Can also be run manually via workflow_dispatch, passing a PR number and
+# optionally a scylla SHA, for testing.
+#
+# Requires repo secrets: JENKINS_USERNAME, JENKINS_TOKEN, SLACK_BOT_TOKEN.
+name: Trigger scylla next-gating
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'seastar PR number to test against scylla master'
+        required: true
+        type: string
+      scylla_sha:
+        description: 'Optional scylla commit SHA to gate against (defaults to scylla master)'
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  trigger-jenkins:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.issue.pull_request != null &&
+        contains(github.event.comment.body, '@scylladbbot trigger-ci') &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+      )
+    steps:
+      - name: Trigger Jenkins Job
+        env:
+          JENKINS_USER: ${{ secrets.JENKINS_USERNAME }}
+          JENKINS_API_TOKEN: ${{ secrets.JENKINS_TOKEN }}
+          JENKINS_URL: "https://jenkins.scylladb.com"
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          JOB_NAME: "scylla-master/job/seastar-ci"
+          PR_NUMBER: ${{ github.event.issue.number || inputs.pr_number }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          INPUT_SCYLLA_SHA: ${{ inputs.scylla_sha }}
+        run: |
+          # Pick the SHA from workflow_dispatch input, or parse it out of the
+          # comment (the token right after "trigger-ci"). Validate as hex so an
+          # arbitrary comment can't smuggle extra curl/build parameters through.
+          candidate="$INPUT_SCYLLA_SHA"
+          if [ -z "$candidate" ]; then
+            candidate=$(echo "$COMMENT_BODY" | grep -oE 'trigger-ci[[:space:]]+[0-9a-fA-F]{7,40}' | awk '{print $2}' | head -n1)
+          fi
+          SCYLLA_SHA=""
+          if [[ "$candidate" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+            SCYLLA_SHA="$candidate"
+          fi
+
+          echo "Triggering Jenkins job $JOB_NAME for seastar PR #$PR_NUMBER${SCYLLA_SHA:+ against scylla SHA $SCYLLA_SHA}"
+
+          curl_args=(--fail --user "$JENKINS_USER:$JENKINS_API_TOKEN"
+                      --data-urlencode "PR_NUMBER=$PR_NUMBER")
+          if [ -n "$SCYLLA_SHA" ]; then
+            curl_args+=(--data-urlencode "SCYLLA_SHA=$SCYLLA_SHA")
+          fi
+
+          if ! curl -X POST "$JENKINS_URL/job/$JOB_NAME/buildWithParameters" \
+                "${curl_args[@]}" -i -v; then
+            echo "Error: Jenkins job trigger failed"
+
+            # Notify releng so a dropped trigger doesn't go unnoticed
+            curl -X POST -H 'Content-type: application/json' \
+              -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+              --data "$(jq -n \
+                --arg channel '#releng-team' \
+                --arg text "🚨 @here '${JOB_NAME}' failed to be triggered for seastar PR #${PR_NUMBER}, please check https://github.com/${REPO}/actions/runs/${RUN_ID} for more details" \
+                --arg icon ':warning:' \
+                '{channel: $channel, text: $text, icon_emoji: $icon}')" \
+              https://slack.com/api/chat.postMessage
+
+            exit 1
+          fi
