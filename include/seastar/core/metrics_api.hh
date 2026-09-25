@@ -358,6 +358,42 @@ public:
 using value_map = std::map<sstring, metric_family>;
 
 /*!
+ * \brief build the prometheus aggregate-by-labels key for a label set.
+ *
+ * Concatenates the labels() entries not in aggregate_labels as "name\nvalue\n".
+ * Shared by metric_series_metadata's cache and prometheus::label_key so both
+ * produce identical keys.
+ */
+inline sstring build_aggregation_key(const labels_type& labels, const std::vector<std::string>& aggregate_labels) {
+    sstring key;
+    for (auto& [lkey, lvalue] : labels) {
+        if (std::find(aggregate_labels.begin(), aggregate_labels.end(), lkey) == aggregate_labels.end()) {
+            key += lkey;
+            key += "\n";
+            key += lvalue.value();
+            key += "\n";
+        }
+    }
+    return key;
+}
+
+/*!
+ * \brief identify which aggregate_labels configuration a cached aggregation key was built from.
+ *
+ * The scrape-wide aggregate_labels list is picked from one shard's family metadata
+ * (metric_family_iterator) while series metadata (and its cache) comes from every shard,
+ * so a per-series cache can be stale relative to the current scrape's config. This hash
+ * lets consumers cheaply detect that mismatch instead of comparing the full vectors.
+ */
+inline size_t hash_aggregate_labels(const std::vector<std::string>& aggregate_labels) {
+    size_t h = 0;
+    for (auto& l : aggregate_labels) {
+        boost::hash_combine(h, std::hash<std::string>{}(l));
+    }
+    return h;
+}
+
+/*!
  * \brief Subset of the per series metadata that is shared via get_values to other shards.
  *
  * Allows omitting metadata that is already stored elsewhere or not needed by
@@ -370,11 +406,35 @@ class metric_series_metadata {
     // metric name separately. metric_family_info only stores the merged and
     // filtered name so we have to duplicate it here.
     metric_id _id;
+    // Cache for the prometheus aggregate-by-labels feature: labels() with aggregate_labels
+    // removed, precomputed once when metadata is rebuilt instead of on every scrape.
+    // Heap-allocated so non-aggregated series (the common case) pay only a null pointer.
+    struct aggregation_cache {
+        sstring aggregation_key;
+        size_t aggregation_key_hash = 0;
+        // hash of the aggregate_labels list this key was built from; lets a consumer
+        // detect a stale cache from a different (e.g. other shard's) configuration.
+        size_t config_hash = 0;
+    };
+    std::unique_ptr<aggregation_cache> _aggregation_cache;
     skip_when_empty _should_skip_when_empty;
+
+    void compute_aggregation_cache(const std::vector<std::string>& aggregate_labels) {
+        if (aggregate_labels.empty()) {
+            return;
+        }
+        auto cache = std::make_unique<aggregation_cache>();
+        cache->aggregation_key = build_aggregation_key(_id.labels(), aggregate_labels);
+        cache->aggregation_key_hash = std::hash<std::string_view>{}(std::string_view(cache->aggregation_key));
+        cache->config_hash = hash_aggregate_labels(aggregate_labels);
+        _aggregation_cache = std::move(cache);
+    }
 public:
     metric_series_metadata() = default;
-    metric_series_metadata(metric_id id, skip_when_empty should_skip_when_empty)
+    metric_series_metadata(metric_id id, skip_when_empty should_skip_when_empty,
+            const std::vector<std::string>& aggregate_labels)
         : _id(std::move(id)), _should_skip_when_empty(should_skip_when_empty) {
+        compute_aggregation_cache(aggregate_labels);
     }
 
     metric_series_metadata(const metric_series_metadata&) = delete;
@@ -397,6 +457,30 @@ public:
 
     group_name_type name() const {
         return _id.name();
+    }
+
+    // True once compute_aggregation_cache() has populated a cache, i.e. this series'
+    // family had non-empty aggregate_labels as of the last metadata rebuild. Callers
+    // that can race a cross-shard aggregate_labels change should check this, and that
+    // aggregation_key_config_hash() matches the current scrape's config, before
+    // calling the accessors below rather than assume it's always set and current.
+    bool has_aggregation_cache() const {
+        return static_cast<bool>(_aggregation_cache);
+    }
+
+    // Only valid when has_aggregation_cache() is true.
+    const sstring& aggregation_key() const {
+        return _aggregation_cache->aggregation_key;
+    }
+
+    size_t aggregation_key_hash() const {
+        return _aggregation_cache->aggregation_key_hash;
+    }
+
+    // hash of the aggregate_labels list the cached key was built from. Only valid
+    // when has_aggregation_cache() is true.
+    size_t aggregation_key_config_hash() const {
+        return _aggregation_cache->config_hash;
     }
 };
 
