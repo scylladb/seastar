@@ -22,10 +22,13 @@
 #pragma once
 
 #include <seastar/http/chunk_parsers.hh>
+#include <seastar/core/format.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/http/common.hh>
 #include <seastar/http/exception.hh>
+
+#include <system_error>
 
 namespace seastar {
 
@@ -47,15 +50,16 @@ class content_length_source_impl : public data_source_impl {
      */
     size_t _builtin_remaining_bytes = 0;
     size_t& _remaining_bytes;
+    size_t _length;
 public:
     content_length_source_impl(input_stream<char>& inp, size_t length, size_t& remaining)
-        : _inp(inp), _remaining_bytes(remaining)
+        : _inp(inp), _remaining_bytes(remaining), _length(length)
     {
         _remaining_bytes = length;
     }
 
     content_length_source_impl(input_stream<char>& inp, size_t length)
-        : _inp(inp), _builtin_remaining_bytes(length), _remaining_bytes(_builtin_remaining_bytes) {
+        : _inp(inp), _builtin_remaining_bytes(length), _remaining_bytes(_builtin_remaining_bytes), _length(length) {
     }
 
     virtual future<temporary_buffer<char>> get() override {
@@ -63,8 +67,16 @@ public:
             return make_ready_future<temporary_buffer<char>>();
         }
         return _inp.read_up_to(_remaining_bytes).then([this] (temporary_buffer<char> tmp_buf) {
+            if (tmp_buf.empty()) {
+                // read_up_to() asked for a non-zero amount, so an empty buffer is
+                // end of stream and the body is not over yet. Answering it as a
+                // clean end of stream hands the reader a silently short body.
+                return make_exception_future<temporary_buffer<char>>(std::system_error(
+                        std::make_error_code(std::errc::protocol_error),
+                        format("Body ended with {} of its {} bytes undelivered", _remaining_bytes, _length)));
+            }
             _remaining_bytes -= tmp_buf.size();
-            return tmp_buf;
+            return make_ready_future<temporary_buffer<char>>(std::move(tmp_buf));
         });
     }
 
@@ -129,10 +141,16 @@ class chunked_source_impl : public data_source_impl {
         }
 
         future<consumption_result_type> operator()(temporary_buffer<char> data) {
-            if (_buf.size() || _end_of_request || data.empty()) {
-                // return if we have already read some content (_buf.size()), we have already reached the end of the chunked request (_end_of_request),
-                // or the underlying stream reached eof (data.empty())
+            if (_buf.size() || _end_of_request) {
+                // return if we have already read some content (_buf.size()), or we have
+                // already reached the end of the chunked request (_end_of_request)
                 return make_ready_future<consumption_result_type>(stop_consuming(std::move(data)));
+            }
+            if (data.empty()) {
+                // consume() only hands over an empty buffer at end of stream, and the
+                // terminating chunk has not been seen, so the body was cut short.
+                return make_exception_future<consumption_result_type>(std::system_error(
+                        std::make_error_code(std::errc::protocol_error), "Chunked body ended before its last chunk"));
             }
             switch (_ps) {
             // "data" buffer is non-empty

@@ -663,10 +663,15 @@ public:
                     size_t count = 0;
                     while (more) {
                         write_request(output).get();
-                        size_t body_size = response_body_size(input);
                         if (std::get<bool>(tests[count])) {
-                            BOOST_REQUIRE_EQUAL(body_size, std::get<size_t>(tests[count]));
+                            BOOST_REQUIRE_EQUAL(response_body_size(input), std::get<size_t>(tests[count]));
                         } else {
+                            // The handler throws part way through the body, so the last
+                            // chunk never arrives and the response stream says so instead
+                            // of passing the cut-off body off as a complete one.
+                            BOOST_REQUIRE_EXCEPTION(response_body_size(input), std::system_error, [] (const std::system_error& e) {
+                                return e.code() == std::errc::protocol_error;
+                            });
                             BOOST_REQUIRE_EQUAL(input.eof(), true);
                             more = false;
                         }
@@ -1076,6 +1081,78 @@ SEASTAR_TEST_CASE(test_client_response_eof) {
     });
 }
 
+SEASTAR_TEST_CASE(test_client_response_body_ends_early) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        future<> server = ss.accept().then([] (accept_result ar) {
+            return seastar::async([sk = std::move(ar.connection)] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                output_stream<char> out = sk.output();
+                out.write(format("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n", 128)).get();
+                out.write(sstring(64, 'a')).get(); // half the body, then hang up
+                out.flush().get();
+                out.close().get();
+            });
+        });
+
+        future<> client = seastar::async([&lcf] {
+            auto cln = http::client(std::make_unique<loopback_http_factory>(lcf), 1, http::client::retry_requests::no);
+            auto req = http::request::make("GET", "test", "/test");
+            BOOST_REQUIRE_EXCEPTION(cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
+                return seastar::async([in = std::move(in)] () mutable {
+                    auto close = deferred_close(in);
+                    util::read_entire_stream_contiguous(in).get();
+                });
+            }, http::reply::status_type::ok).get(), std::system_error, [] (const std::system_error& e) {
+                return e.code() == std::errc::protocol_error;
+            });
+
+            cln.close().get();
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_client_chunked_body_ends_early) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        future<> server = ss.accept().then([] (accept_result ar) {
+            return seastar::async([sk = std::move(ar.connection)] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                output_stream<char> out = sk.output();
+                out.write(sstring("HTTP/1.1 200 OK\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n")).get();
+                // One whole chunk, then a second one that never arrives in full and
+                // no terminating chunk at all.
+                out.write(sstring("4\r\nabcd\r\n4\r\nab")).get();
+                out.flush().get();
+                out.close().get();
+            });
+        });
+
+        future<> client = seastar::async([&lcf] {
+            auto cln = http::client(std::make_unique<loopback_http_factory>(lcf), 1, http::client::retry_requests::no);
+            auto req = http::request::make("GET", "test", "/test");
+            BOOST_REQUIRE_EXCEPTION(cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
+                return seastar::async([in = std::move(in)] () mutable {
+                    auto close = deferred_close(in);
+                    util::read_entire_stream_contiguous(in).get();
+                });
+            }, http::reply::status_type::ok).get(), std::system_error, [] (const std::system_error& e) {
+                return e.code() == std::errc::protocol_error;
+            });
+
+            cln.close().get();
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_client_head_empty_body) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);
@@ -1105,6 +1182,43 @@ SEASTAR_TEST_CASE(test_client_head_empty_body) {
             }).get();
 
             cln.close().get();
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
+// A 304 may report the length a 200 would have carried and still carry no body
+// of its own, so the length says nothing about what is on the connection.
+SEASTAR_TEST_CASE(test_client_bodyless_reply_with_content_length) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        future<> server = ss.accept().then([] (accept_result ar) {
+            return seastar::async([sk = std::move(ar.connection)] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                output_stream<char> out = sk.output();
+                out.write(format("HTTP/1.1 304 Not Modified\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n", 1234)).get();
+                out.flush().get();
+                out.close().get();
+            });
+        });
+
+        future<> client = seastar::async([&lcf] {
+            auto cln = http::client(std::make_unique<loopback_http_factory>(lcf), 1, http::client::retry_requests::no);
+            auto req = http::request::make("GET", "test", "/test");
+            bool handled = false;
+            cln.make_request(std::move(req), [&handled] (const http::reply& rep, input_stream<char>&& in) {
+                return seastar::async([&handled, &rep, in = std::move(in)] () mutable {
+                    auto close = deferred_close(in);
+                    BOOST_REQUIRE_EQUAL(rep.content_length, 1234);
+                    BOOST_REQUIRE(in.read().get().empty());
+                    handled = true;
+                });
+            }, http::reply::status_type::not_modified).get();
+            cln.close().get();
+            BOOST_REQUIRE(handled);
         });
 
         when_all(std::move(client), std::move(server)).discard_result().get();
@@ -1386,6 +1500,82 @@ SEASTAR_TEST_CASE(test_client_retry_request) {
             }, http::reply::status_type::ok).get();
             cln.close().get();
             BOOST_REQUIRE(got_response);
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
+// The handler leaves the body unread, and the peer that would have received an
+// error reply is the one that went away, so the only thing a truncated request
+// body decides is that the connection cannot be reused.
+SEASTAR_TEST_CASE(test_request_body_ends_early) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        server.set_content_streaming(true);
+        loopback_socket_impl lsi(lcf);
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+
+        future<> client = seastar::async([&lsi] {
+            connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get();
+            input_stream<char> input(c_socket.input());
+            output_stream<char> output(c_socket.output());
+            // None of the declared body arrives, so the probe below reads straight
+            // to end of stream with all 32 bytes still owed.
+            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nContent-Length: 32\r\n\r\n")).get();
+            output.flush().get();
+            output.close().get();
+            input.close().get();
+        });
+
+        auto handler = new json_test_handler(json::stream_object("hello"));
+        server._routes.put(GET, "/test", handler);
+        server.do_accepts(0).get();
+
+        client.get();
+        // Without the guard the read fails with a std::system_error, which is not a
+        // base_exception, so it escapes the error-reply path and is counted here.
+        BOOST_REQUIRE_EQUAL(server.read_errors(), 0u);
+        server.stop().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_client_retry_body_ends_early) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        auto write_reply = [] (accept_result ar, size_t body) {
+            return seastar::async([sk = std::move(ar.connection), body] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                output_stream<char> out = sk.output();
+                out.write(format("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n", 128)).get();
+                out.write(sstring(body, 'a')).get();
+                out.flush().get();
+                out.close().get();
+            });
+        };
+        future<> server = ss.accept().then([write_reply] (accept_result ar) {
+            return write_reply(std::move(ar), 64); // half the declared body, then hang up
+        }).then([&ss, write_reply] {
+            return ss.accept().then([write_reply] (accept_result ar) {
+                return write_reply(std::move(ar), 128); // the retry gets it whole
+            });
+        });
+
+        future<> client = seastar::async([&lcf] {
+            auto cln = http::client(std::make_unique<loopback_http_factory>(lcf), 2, http::client::retry_requests::yes);
+            auto req = http::request::make("GET", "test", "/test");
+            size_t got = 0;
+            cln.make_request(std::move(req), [&got] (const http::reply& rep, input_stream<char>&& in) {
+                return seastar::async([&got, in = std::move(in)] () mutable {
+                    auto close = deferred_close(in);
+                    got = util::read_entire_stream_contiguous(in).get().size();
+                });
+            }, http::reply::status_type::ok).get();
+            cln.close().get();
+            BOOST_REQUIRE_EQUAL(got, 128);
         });
 
         when_all(std::move(client), std::move(server)).discard_result().get();

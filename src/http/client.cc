@@ -392,7 +392,7 @@ public:
     skip_body_source(reply& rep) {
         // nothing to consume here
         rep.left_content_length = 0;
-        http_log.trace("Skipping HEAD reply body");
+        http_log.trace("Skipping bodyless reply");
     }
 
     virtual future<temporary_buffer<char>> skip(uint64_t n) override {
@@ -404,6 +404,17 @@ public:
     }
 };
 
+// RFC 9110 6.4.1 and 15.4.5: a 1xx, a 204 and a 304 carry no body whatever
+// Content-Length says, and neither does the answer to a HEAD. Reading one would
+// take the bytes of the next reply on the connection for this one's body.
+static input_stream<char> make_body_stream(connection& con, const request& req, reply& rep) {
+    if (req._method == "HEAD" || reply::classify_status(rep._status) == reply::status_class::informational
+            || rep._status == reply::status_type::no_content || rep._status == reply::status_type::not_modified) {
+        return input_stream<char>(data_source(std::make_unique<skip_body_source>(rep)));
+    }
+    return con.in(rep);
+}
+
 future<> client::do_make_request(connection& con, const request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) {
     auto sub = as ? as->subscribe([&con] () noexcept { con.shutdown(); }) : std::nullopt;
     return con.do_make_request(req).then([this, &con, &req, &handle, expected] (connection::reply_ptr reply) mutable {
@@ -413,7 +424,7 @@ future<> client::do_make_request(connection& con, const request& req, reply_hand
                 return make_exception_future<>(httpd::unexpected_status_error(rep._status));
             }
 
-            return do_with(con.in(rep), [reply = std::move(reply)] (auto& in) mutable {
+            return do_with(make_body_stream(con, req, rep), [reply = std::move(reply)] (auto& in) mutable {
                 return util::read_entire_stream_contiguous(in).then([reply = std::move(reply)] (auto message) {
                     http_log.debug("request finished with {}: {}", reply->_status, message);
                     return make_exception_future<>(httpd::unexpected_status_error(reply->_status));
@@ -421,7 +432,7 @@ future<> client::do_make_request(connection& con, const request& req, reply_hand
             });
         }
 
-        auto in = req._method != "HEAD" ? con.in(rep) : input_stream<char>(data_source(std::make_unique<skip_body_source>(rep)));
+        auto in = make_body_stream(con, req, rep);
         return handle(rep, std::move(in)).then([this, reply = std::move(reply), &con] {
             if (reply->left_content_length > 0) {
                 auto bytes_left = reply->left_content_length;
