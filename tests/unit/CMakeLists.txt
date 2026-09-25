@@ -29,6 +29,16 @@ set (Seastar_UNIT_TEST_SMP
   STRING
   "Run unit tests with this many cores.")
 
+# Caps memory each test process reserves via `--memory`, instead of seastar's
+# auto-detection (hwloc / cgroup / sysconf) grabbing most of the host's RAM.
+# Empty falls back to auto-detection. 512M: even 1G triggered genuine ENOMEM
+# on the Alpine CI job; may need further tuning against real CI numbers.
+set (Seastar_UNIT_TEST_MEM
+  "512M"
+  CACHE
+  STRING
+  "Run unit tests with this much memory (e.g. 1G). Empty means auto-detect.")
+
 # Check if the compiler supports -fsanitize=fuzzer (compile and link)
 include (CheckCXXSourceCompiles)
 include (CMakePushCheckState)
@@ -62,7 +72,8 @@ endif ()
 #   [SOURCES source1 source2 ... sourcen]
 #   [WORKING_DIRECTORY dir]
 #   [LIBRARIES library1 library2 ... libraryn]
-#   [RUN_ARGS arg1 arg2 ... argn])
+#   [RUN_ARGS arg1 arg2 ... argn]
+#   [MEM value])
 #
 # There are four kinds of test we support (the KIND parameter):
 #
@@ -81,6 +92,9 @@ endif ()
 #
 # WORKING_DIRECTORY can be optionally provided to choose where the test is executed.
 #
+# MEM overrides Seastar_UNIT_TEST_MEM for this test only (SEASTAR tests), e.g. for a test
+# with unusually large memory needs. Empty/omitted falls back to Seastar_UNIT_TEST_MEM.
+#
 # If LIBRARIES is provided along with SOURCES, then the executable is additionally linked with these libraries.
 #
 # RUN_ARGS are optional additional arguments to pass to the executable. For SEASTAR tests, these come after `--`. For
@@ -96,7 +110,7 @@ function (seastar_add_test name)
 
   cmake_parse_arguments (parsed_args
     ""
-    "WORKING_DIRECTORY;KIND"
+    "WORKING_DIRECTORY;KIND;MEM"
     "RUN_ARGS;SOURCES;LIBRARIES;DEPENDS"
     ${ARGN})
 
@@ -133,6 +147,13 @@ function (seastar_add_test name)
       endif ()
 
       list (APPEND args -- -c ${Seastar_UNIT_TEST_SMP})
+      set (test_mem "${Seastar_UNIT_TEST_MEM}")
+      if (parsed_args_MEM)
+        set (test_mem "${parsed_args_MEM}")
+      endif ()
+      if (NOT (test_mem STREQUAL ""))
+        list (APPEND args --memory ${test_mem})
+      endif ()
     elseif (parsed_args_KIND STREQUAL "BOOST")
       list (APPEND libraries
         Boost::unit_test_framework
@@ -263,6 +284,11 @@ function (seastar_add_app_test name)
     "RUN_ARGS;SOURCES;LIBRARIES"
     ${ARGN})
 
+  set (mem_args "")
+  if (NOT (Seastar_UNIT_TEST_MEM STREQUAL ""))
+    set (mem_args --memory ${Seastar_UNIT_TEST_MEM})
+  endif ()
+
   seastar_add_test (${name}
     KIND CUSTOM
     SOURCES ${parsed_args_SOURCES}
@@ -271,6 +297,7 @@ function (seastar_add_app_test name)
       ${parsed_args_LIBRARIES}
     RUN_ARGS
       -c ${Seastar_UNIT_TEST_SMP}
+      ${mem_args}
       ${parsed_args_RUN_ARGS})
 endfunction ()
 
@@ -499,7 +526,10 @@ seastar_add_test (request_parser
 seastar_add_test (rpc
   SOURCES
     loopback_socket.hh
-    rpc_test.cc)
+    rpc_test.cc
+  # LZ4 compressor sub-tests need more than the default cap; even this 2G
+  # override has hit genuine ENOMEM on the Alpine job, may need re-tuning.
+  MEM 2G)
 
 seastar_add_test (semaphore
   SOURCES
@@ -851,7 +881,9 @@ seastar_add_test (tls
   DEPENDS tls_files testcrt othercrt mtls_certs https_server
   SOURCES tls_test.cc
   LIBRARIES Boost::filesystem
-  WORKING_DIRECTORY ${Seastar_BINARY_DIR})
+  WORKING_DIRECTORY ${Seastar_BINARY_DIR}
+  # Exercising every crypto provider needs more than the default cap.
+  MEM 2G)
 
 # Re-run an existing test against one named crypto provider. The test binary
 # is reused via CUSTOM rather than compiled a second time, so the extra run
