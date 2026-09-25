@@ -551,7 +551,7 @@ std::vector<io_request::part> io_request::split_iovec(size_t max_length) {
         }
 
         auto req = sub_req_iovec(pos, vecs);
-        parts.push_back({ std::move(req), max_length, std::move(vecs) });
+        parts.push_back({ std::move(req), max_length, std::exchange(vecs, {}) });
         pos += max_length;
         remaining = max_length;
     }
