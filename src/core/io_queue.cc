@@ -1205,10 +1205,10 @@ void io_queue::cancel_request(queued_io_request& req) noexcept {
 void io_queue::complete_cancelled_request(queued_io_request& req) noexcept {
 }
 
-io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {
+io_queue::clock_type::time_point io_queue::next_pending_aio() noexcept {
     clock_type::time_point next = clock_type::time_point::max();
 
-    for (const auto& s : _streams) {
+    for (auto& s : _streams) {
         clock_type::time_point n = s.next_pending_aio();
         if (n < next) {
             next = std::move(n);
@@ -1317,19 +1317,14 @@ auto io_queue::stream::reap_pending_capacity() noexcept -> reap_result {
     return result;
 }
 
-io_queue::clock_type::time_point io_queue::stream::next_pending_aio() const noexcept {
+io_queue::clock_type::time_point io_queue::stream::next_pending_aio() noexcept {
     if (_pending.cap) {
-        /*
-         * We expect the disk to release the ticket within some time,
-         * but it's ... OK if it doesn't -- the pending wait still
-         * needs the head rover value to be ahead of the needed value.
-         *
-         * It may happen that the capacity gets released before we think
-         * it will, in this case we will wait for the full value again,
-         * which's sub-optimal. The expectation is that we think disk
-         * works faster, than it really does.
-         */
-        auto over = out.capacity_deficiency(_pending.head);
+        auto* ent = fq.top();
+        if (!ent) {
+            return clock_type::time_point::max();
+        }
+        auto head = _pending.head - _pending.cap + std::min(_pending.cap, ent->capacity());
+        auto over = out.capacity_deficiency(head);
         auto ticks = out.capacity_duration(over);
         return std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::microseconds>(ticks);
     }
