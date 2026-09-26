@@ -120,6 +120,28 @@ struct io_queue_for_tests {
         return queue._streams[0].fq;
     }
 
+    struct pending_waits {
+        std::chrono::duration<double, std::milli> first_request;
+        std::chrono::duration<double, std::milli> full_reservation;
+    };
+
+    pending_waits reserve_queued_capacity() {
+        auto& stream = queue._streams[0];
+        // Use up the initial burst allowance, as earlier I/O would.
+        stream.out.replenish_capacity(io_queue::clock_type::now());
+        stream.out.grab_capacity(stream.out.maximum_capacity());
+        queue.poll_io_queue();
+        auto* first = stream.fq.top();
+        SEASTAR_ASSERT(first != nullptr);
+        SEASTAR_ASSERT(stream._pending.cap == stream.fq.queued_capacity());
+        return {stream.out.capacity_duration(first->capacity()),
+                stream.out.capacity_duration(stream.out.capacity_deficiency(stream._pending.head))};
+    }
+
+    io_queue::clock_type::time_point next_pending_aio() {
+        return queue.next_pending_aio();
+    }
+
     bool is_class_registered(internal::priority_class pc) const noexcept {
         return queue._priority_classes.size() > pc.id() && (queue._priority_classes[pc.id()] != nullptr);
     }
@@ -147,6 +169,50 @@ SEASTAR_THREAD_TEST_CASE(test_basic_flow) {
     });
 
     f.get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_pending_io_wakes_for_first_request) {
+    internal::disk_config_params disk_config(1);
+    internal::disk_params disk;
+    disk.read_bytes_rate = 1ul << 30;
+    disk.write_bytes_rate = 1ul << 30;
+    disk.read_req_rate = 1000;
+    disk.write_req_rate = 1000;
+    auto io_config = disk_config.generate_config(disk, 0, 1);
+    io_config.mountpoint = "pending-first-request";
+    io_config.rate_limit_duration = std::chrono::milliseconds(100);
+    io_queue_for_tests tio(io_config);
+    tio.kicker.cancel();
+
+    constexpr size_t request_size = 4096;
+    std::vector<future<size_t>> requests;
+    for (unsigned i = 0; i < 8; ++i) {
+        requests.push_back(tio.queue_request(get_default_pc(),
+                internal::io_direction_and_length(internal::io_direction_and_length::write_idx, request_size),
+                internal::io_request::make_write(0, i * request_size, nullptr, request_size, false),
+                nullptr, {}));
+    }
+
+    auto waits = tio.reserve_queued_capacity();
+    BOOST_REQUIRE(waits.full_reservation > waits.first_request * 4);
+    auto wakeup = tio.next_pending_aio();
+    auto after = io_queue::clock_type::now();
+    BOOST_CHECK(wakeup <= after + waits.first_request * 2);
+
+    for (unsigned i = 0; i < 100 && !std::all_of(requests.begin(), requests.end(),
+            [] (const auto& request) { return request.available(); }); ++i) {
+        tio.kick();
+        tio.queue.poll_io_queue();
+        tio.sink.drain([] (const internal::io_request& req, io_completion* desc) -> bool {
+            desc->complete_with(req.as<internal::io_request::operation::write>().size);
+            return true;
+        });
+        seastar::sleep(std::chrono::milliseconds(1)).get();
+    }
+    for (auto& request : requests) {
+        BOOST_REQUIRE(request.available());
+        BOOST_CHECK_EQUAL(request.get(), request_size);
+    }
 }
 
 enum class part_flaw { none, partial, error };
