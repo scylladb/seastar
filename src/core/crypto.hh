@@ -112,8 +112,12 @@ crypto_provider& provider();
 
 /// \brief Install the process-wide crypto provider.
 ///
-/// Must be called exactly once, before any call to provider().
-/// Ownership is transferred to the crypto subsystem.
+/// Must be called before any call to provider(). Ownership is
+/// transferred to the crypto subsystem. Thread-safe: only the first
+/// call installs \p p; later calls (e.g. from additional seastar
+/// instances in the same process) discard \p p if it uses the same
+/// TLS backend as the installed provider, and throw
+/// std::runtime_error otherwise.
 void set_provider(std::unique_ptr<crypto_provider> p);
 
 #ifdef SEASTAR_HAVE_GNUTLS
