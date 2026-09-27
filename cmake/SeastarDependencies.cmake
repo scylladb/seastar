@@ -82,6 +82,12 @@ macro (seastar_find_dependencies)
       "c-ares ${c-ares_VERSION} is not supported. "
       "Seastar requires c-ares version <1.33 or >=1.34.1 ")
   endif ()
+  if (c-ares_VERSION VERSION_GREATER_EQUAL 1.34.7 AND c-ares_VERSION VERSION_LESS_EQUAL 1.34.8)
+    message (FATAL_ERROR
+      "c-ares ${c-ares_VERSION} is not supported: it silently freezes DNS "
+      "lookups (https://github.com/scylladb/seastar/issues/3697). Build with "
+      "./configure.py --cook c-ares to use a known-good version ")
+  endif ()
 
   if (Seastar_DPDK)
     seastar_find_dep (dpdk)

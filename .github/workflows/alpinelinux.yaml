@@ -22,11 +22,12 @@ jobs:
       run: |
         apk update
         apk add --no-cache   \
+          bash               \
           boost-dev          \
           bsd-compat-headers \
-          c-ares-dev         \
           cmake              \
           crypto++-dev       \
+          flock              \
           gcc                \
           g++                \
           fmt-dev            \
@@ -38,6 +39,8 @@ jobs:
           liburing-dev       \
           lksctp-tools-dev   \
           lz4-dev            \
+          make               \
+          meson              \
           numactl-dev        \
           openssl            \
           openssl-dev        \
@@ -45,6 +48,7 @@ jobs:
           py3-yaml           \
           ragel              \
           samurai            \
+          stow               \
           util-linux-dev     \
           valgrind-dev       \
           xfsprogs-dev       \
@@ -52,8 +56,10 @@ jobs:
 
     - name: Configure build
       run: |
-        cmake -B build -G Ninja            \
-         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        # cooking.sh resolves -d with realpath before creating it, and busybox
+        # realpath fails on a path that does not exist yet.
+        mkdir -p build
+        ./cooking.sh -i c-ares -d build -t RelWithDebInfo -- \
          -DSeastar_LTTNG=OFF               \
          -DSeastar_DOCS=OFF
 
