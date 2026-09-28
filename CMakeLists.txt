@@ -317,6 +317,10 @@ option (Seastar_IO_URING
   "Enable io_uring support."
   ON)
 
+option (Seastar_ASSUME_C_ARES_DNS_FREEZE_FIXED
+  "Accept c-ares 1.34.7 and 1.34.8, which are otherwise rejected for freezing DNS lookups. Enable only when building against a copy of c-ares patched with the fix (https://github.com/scylladb/seastar/issues/3697)."
+  OFF)
+
 set (Seastar_JENKINS
   ""
   CACHE
