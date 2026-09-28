@@ -59,24 +59,35 @@ using namespace seastar;
 // Right now this class is used by the posix_server_socket_impl, but it could be used by any other.
 class conntrack {
     class load_balancer {
-        std::vector<unsigned> _cpu_load;
+        std::unique_ptr<std::atomic<unsigned>[]> _cpu_load;
     public:
-        load_balancer() : _cpu_load(size_t(this_smp_shard_count()), 0) {}
+        load_balancer() : _cpu_load(new std::atomic<unsigned>[this_smp_shard_count()]()) {}
         void closed_cpu(shard_id cpu) {
-            _cpu_load[cpu]--;
+            _cpu_load[cpu].fetch_sub(1, std::memory_order_relaxed);
         }
         shard_id next_cpu() {
             // FIXME: The naive algorithm will just round robin the connections around the shards.
             // A more complex version can keep track of the amount of activity in each connection,
             // and use that information.
-            auto min_el = std::min_element(_cpu_load.begin(), _cpu_load.end());
-            auto cpu = shard_id(std::distance(_cpu_load.begin(), min_el));
-            _cpu_load[cpu]++;
-            return cpu;
+            unsigned min_val = std::numeric_limits<unsigned>::max();
+            shard_id min_cpu = 0;
+            unsigned count = this_smp_shard_count();
+            for (shard_id i = 0; i < count; ++i) {
+                unsigned val = _cpu_load[i].load(std::memory_order_relaxed);
+                if (val < min_val) {
+                    min_val = val;
+                    min_cpu = i;
+                }
+            }
+            _cpu_load[min_cpu].fetch_add(1, std::memory_order_relaxed);
+            return min_cpu;
         }
         shard_id force_cpu(shard_id cpu) {
-            _cpu_load[cpu]++;
+            _cpu_load[cpu].fetch_add(1, std::memory_order_relaxed);
             return cpu;
+        }
+        std::atomic<unsigned>* cpu_load_array() const {
+            return _cpu_load.get();
         }
     };
 
@@ -86,14 +97,14 @@ class conntrack {
     }
 public:
     class handle {
-        shard_id _host_cpu;
         shard_id _target_cpu;
+        std::atomic<unsigned>* _cpu_load_array;
         foreign_ptr<lw_shared_ptr<load_balancer>> _lb;
     public:
-        handle() : _lb(nullptr) {}
+        handle() : _cpu_load_array(nullptr), _lb(nullptr) {}
         handle(shard_id cpu, lw_shared_ptr<load_balancer> lb)
-            : _host_cpu(this_shard_id())
-            , _target_cpu(cpu)
+            : _target_cpu(cpu)
+            , _cpu_load_array(lb->cpu_load_array())
             , _lb(make_foreign(std::move(lb))) {}
 
         handle(const handle&) = delete;
@@ -104,10 +115,9 @@ public:
             if (!_lb) {
                 return;
             }
-            // FIXME: future is discarded
-            (void)smp::submit_to(_host_cpu, [cpu = _target_cpu, lb = std::move(_lb)] {
-                lb->closed_cpu(cpu);
-            });
+            if (_cpu_load_array) {
+                _cpu_load_array[_target_cpu].fetch_sub(1, std::memory_order_relaxed);
+            }
         }
         shard_id cpu() {
             return _target_cpu;
