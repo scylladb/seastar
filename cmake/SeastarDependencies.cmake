@@ -83,10 +83,20 @@ macro (seastar_find_dependencies)
       "Seastar requires c-ares version <1.33 or >=1.34.1 ")
   endif ()
   if (c-ares_VERSION VERSION_GREATER_EQUAL 1.34.7 AND c-ares_VERSION VERSION_LESS_EQUAL 1.34.8)
-    message (FATAL_ERROR
-      "c-ares ${c-ares_VERSION} is not supported: it silently freezes DNS "
-      "lookups (https://github.com/scylladb/seastar/issues/3697). Build with "
-      "./configure.py --cook c-ares to use a known-good version ")
+    # A patched build still reports the release's version, so there is no way
+    # to tell it apart from the broken one; let the builder vouch for it.
+    if (Seastar_ASSUME_C_ARES_DNS_FREEZE_FIXED)
+      message (STATUS
+        "Accepting c-ares ${c-ares_VERSION} on the assumption that it is patched "
+        "(Seastar_ASSUME_C_ARES_DNS_FREEZE_FIXED is set)")
+    else ()
+      message (FATAL_ERROR
+        "c-ares ${c-ares_VERSION} is not supported: it silently freezes DNS "
+        "lookups (https://github.com/scylladb/seastar/issues/3697). Build with "
+        "./configure.py --cook c-ares to use a known-good version, or, if this "
+        "c-ares is patched with the fix, set "
+        "-DSeastar_ASSUME_C_ARES_DNS_FREEZE_FIXED=ON ")
+    endif ()
   endif ()
 
   if (Seastar_DPDK)
