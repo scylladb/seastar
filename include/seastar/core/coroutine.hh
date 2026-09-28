@@ -69,6 +69,36 @@ execute_involving_handle_destruction_in_await_suspend(task* tsk) noexcept {
 #endif
 }
 
+// Defined in reactor.cc; declared here to avoid pulling in the heavy
+// reactor.hh from this widely-included header.
+void set_current_task(task* t);
+
+// Transfer control from a just-completed coroutine to the task waiting on it.
+//
+// `self` is the handle of the completing coroutine; its frame is destroyed here
+// (the frame is self-owned, so it must dispose of itself before transferring).
+// If the waiter is itself a coroutine in the current scheduling group and the
+// task quota is not depleted, resume it directly via symmetric transfer,
+// bypassing the reactor's task queue; the returned handle is then resumed by the
+// coroutine machinery as a tail call. Otherwise fall back to scheduling the
+// waiter through the reactor and return the no-op handle.
+inline std::coroutine_handle<> coroutine_return_to_waiter(task* waiter, std::coroutine_handle<> self) noexcept {
+    if (waiter) {
+        void* addr = waiter->to_coroutine_handle_address();
+        if (addr && waiter->group() == current_scheduling_group() && !need_preempt()) {
+            // The reactor's current-task pointer still refers to `self`, whose
+            // frame we are about to destroy; repoint it at the waiter so that
+            // e.g. stall backtraces taken while the waiter runs stay valid.
+            set_current_task(waiter);
+            self.destroy();
+            return std::coroutine_handle<>::from_address(addr);
+        }
+        schedule(waiter);
+    }
+    self.destroy();
+    return std::noop_coroutine();
+}
+
 class coroutine_allocators {
 public:
     static void* operator new(size_t size) {
@@ -90,6 +120,28 @@ class coroutine_traits_base {
 public:
     class promise_type final : public seastar::task, public coroutine_allocators {
         seastar::promise<T> _promise;
+        // Task waiting for this coroutine to complete, captured out of _promise
+        // before its state is made ready so that the regular ready path does not
+        // schedule it; final_suspend() then resumes it via symmetric transfer or
+        // schedules it explicitly. See final_awaiter.
+        task* _waiter = nullptr;
+
+        // Remove the waiting task from _promise without scheduling it, so that
+        // setting the promise's value below leaves the waiter to be resumed by
+        // final_suspend(). Call this on synchronous completion paths, just before
+        // the value or exception is set. It must not be used on paths that resolve
+        // the promise asynchronously (e.g. forward_to()), which need the regular
+        // scheduling machinery to remain in charge of the waiter.
+        void capture_waiter() noexcept { _waiter = _promise.take_waiting_task(); }
+
+        struct final_awaiter {
+            task* waiter;
+            bool await_ready() const noexcept { return false; }
+            std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> h) noexcept {
+                return coroutine_return_to_waiter(waiter, h);
+            }
+            void await_resume() noexcept {}
+        };
     public:
         promise_type() = default;
         promise_type(promise_type&&) = delete;
@@ -98,35 +150,49 @@ public:
 #if SEASTAR_API_LEVEL < 10
         template<typename U>
         void return_value(U&& value) {
+            capture_waiter();
             _promise.set_value(std::forward<U>(value));
         }
 
         [[deprecated("Forwarding coroutine returns are deprecated as too dangerous. Use 'co_return co_await ...' until explicit syntax is available.")]]
         void return_value(future<T>&& fut) noexcept {
+            // Asynchronous resolution: leave the waiter attached to _promise so
+            // that forward_to()'s completion resumes it through the reactor.
             fut.forward_to(std::move(_promise));
         }
 #else
         // this non-templated version only exists to support co_returning a braced-init-list
         void return_value(T&& value) noexcept {
+            capture_waiter();
             _promise.set_value(std::forward<T>(value));
         }
 
         template<typename U>
         requires std::is_convertible_v<U&&, T>
         void return_value(U&& value) noexcept {
+            capture_waiter();
             _promise.set_value(std::forward<U>(value));
         }
 #endif
 
         void return_value(coroutine::exception ce) noexcept {
+            capture_waiter();
             _promise.set_exception(std::move(ce.eptr));
         }
 
+        // Called by the exception/try_future awaiters, which resolve the promise
+        // and destroy the frame directly without reaching final_suspend(). It must
+        // therefore leave the waiter attached so the regular ready path schedules
+        // it; do not capture_waiter() here.
+        //
+        // As a result these paths do not use symmetric transfer; extending them to
+        // do so (in particular try_future) is left to a later change.
         void set_exception(std::exception_ptr&& eptr) noexcept {
             _promise.set_exception(std::move(eptr));
         }
 
         void unhandled_exception() noexcept {
+            capture_waiter();
             _promise.set_exception(std::current_exception());
         }
 
@@ -135,7 +201,7 @@ public:
         }
 
         std::suspend_never initial_suspend() noexcept { return { }; }
-        std::suspend_never final_suspend() noexcept { return { }; }
+        final_awaiter final_suspend() noexcept { return final_awaiter{_waiter}; }
 
         virtual void run_and_dispose() noexcept override {
             auto handle = std::coroutine_handle<promise_type>::from_promise(*this);
@@ -143,6 +209,10 @@ public:
         }
 
         task* waiting_task() noexcept override { return _promise.waiting_task(); }
+
+        void* to_coroutine_handle_address() noexcept override {
+            return std::coroutine_handle<promise_type>::from_promise(*this).address();
+        }
 
         scheduling_group set_scheduling_group(scheduling_group sg) noexcept {
             return std::exchange(this->_sg, sg);
@@ -155,20 +225,42 @@ class coroutine_traits_base<> {
 public:
    class promise_type final : public seastar::task, public coroutine_allocators {
         seastar::promise<> _promise;
+        // See the equivalent members in coroutine_traits_base<T>::promise_type.
+        task* _waiter = nullptr;
+
+        void capture_waiter() noexcept { _waiter = _promise.take_waiting_task(); }
+
+        struct final_awaiter {
+            task* waiter;
+            bool await_ready() const noexcept { return false; }
+            std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> h) noexcept {
+                return coroutine_return_to_waiter(waiter, h);
+            }
+            void await_resume() noexcept {}
+        };
     public:
         promise_type() = default;
         promise_type(promise_type&&) = delete;
         promise_type(const promise_type&) = delete;
 
         void return_void() noexcept {
+            capture_waiter();
             _promise.set_value();
         }
 
+        // Called by the exception/try_future awaiters, which resolve the promise
+        // and destroy the frame directly without reaching final_suspend(). It must
+        // therefore leave the waiter attached so the regular ready path schedules
+        // it; do not capture_waiter() here.
+        //
+        // As a result these paths do not use symmetric transfer; extending them to
+        // do so (in particular try_future) is left to a later change.
         void set_exception(std::exception_ptr&& eptr) noexcept {
             _promise.set_exception(std::move(eptr));
         }
 
         void unhandled_exception() noexcept {
+            capture_waiter();
             _promise.set_exception(std::current_exception());
         }
 
@@ -177,7 +269,7 @@ public:
         }
 
         std::suspend_never initial_suspend() noexcept { return { }; }
-        std::suspend_never final_suspend() noexcept { return { }; }
+        final_awaiter final_suspend() noexcept { return final_awaiter{_waiter}; }
 
         virtual void run_and_dispose() noexcept override {
             auto handle = std::coroutine_handle<promise_type>::from_promise(*this);
@@ -185,6 +277,10 @@ public:
         }
 
         task* waiting_task() noexcept override { return _promise.waiting_task(); }
+
+        void* to_coroutine_handle_address() noexcept override {
+            return std::coroutine_handle<promise_type>::from_promise(*this).address();
+        }
 
         scheduling_group set_scheduling_group(scheduling_group new_sg) noexcept {
             return task::set_scheduling_group(new_sg);
