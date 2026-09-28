@@ -216,9 +216,15 @@ class Metrics:
 
 
 class TestPrometheus(unittest.TestCase):
+    # The base class runs against an exporter with the default connection
+    # load balancing, which in practice serves every scrape from shard 0 -
+    # the shard the metrics are registered on. See
+    # TestPrometheusNonMetricsShard for the variant where the serving
+    # shard holds no metrics state.
     exporter_path = None
     exporter_process = None
     exporter_config = None
+    serve_on_shard: Optional[int] = None
     port = 10001
     prometheus = None
     prometheus_scrape_interval = 15
@@ -229,6 +235,8 @@ class TestPrometheus(unittest.TestCase):
                 '--port', f'{cls.port}',
                 '--conf', cls.exporter_config,
                 '--smp=2']
+        if cls.serve_on_shard is not None:
+            args += ['--serve-on-shard', f'{cls.serve_on_shard}']
         cls.exporter_process = subprocess.Popen(args,
                                                 stdout=subprocess.PIPE,
                                                 stderr=subprocess.DEVNULL,
@@ -374,6 +382,15 @@ class TestPrometheus(unittest.TestCase):
                                          metric_name,
                                          metric_type)
             self.assertEqual(res, e.value)
+
+
+class TestPrometheusNonMetricsShard(TestPrometheus):
+    # Serve every scrape from a shard other than the one the metrics,
+    # their labels and the family configs are registered on (shard 0),
+    # so results that depend on the serving shard fail instead of
+    # passing by accident.
+    serve_on_shard = 1
+    port = 10002
 
 
 if __name__ == '__main__':

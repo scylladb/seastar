@@ -134,6 +134,7 @@ int main(int ac, char** av) {
         ("listen", bpo::value<sstring>()->default_value("0.0.0.0"), "address to start Prometheus server on")
         ("port", bpo::value<uint16_t>()->default_value(9180), "Prometheus port")
         ("conf", bpo::value<sstring>()->default_value("./conf.yaml"), "config with jobs and options")
+        ("serve-on-shard", bpo::value<unsigned>(), "pin serving HTTP connections to this shard; lets tests scrape from a shard other than the one the metrics are registered on")
     ;
     httpd::http_server_control prometheus_server;
 
@@ -178,7 +179,13 @@ int main(int ac, char** av) {
             prometheus::config pctx;
             pctx.allow_protobuf = true;
             prometheus::start(prometheus_server, pctx).get();
-            prometheus_server.listen(socket_address{listen, port}).handle_exception([] (auto ep) {
+            listen_options lo;
+            // matches what the listen_options-less http_server::listen() overload does
+            lo.reuse_address = true;
+            if (opts.count("serve-on-shard")) {
+                lo.set_fixed_cpu(opts["serve-on-shard"].as<unsigned>());
+            }
+            prometheus_server.listen(socket_address{listen, port}, lo).handle_exception([] (auto ep) {
                 return make_exception_future<>(ep);
             }).get();
 
