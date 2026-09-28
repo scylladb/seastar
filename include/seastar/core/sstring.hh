@@ -237,6 +237,10 @@ public:
     }
 
     size_t find(char_type t, size_t pos = 0) const noexcept {
+        if (pos >= size()) {
+            return npos;
+        }
+
         const char_type* it = str() + pos;
         const char_type* end = str() + size();
         while (it < end) {

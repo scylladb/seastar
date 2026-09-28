@@ -90,6 +90,30 @@ BOOST_AUTO_TEST_CASE(test_find_sstring_compatible) {
     check_find("abcde", "", 6);
 }
 
+BOOST_AUTO_TEST_CASE(test_find_char_sstring_compatible) {
+    auto check_find = [](const char* s1, char c, size_t pos) {
+        const auto xpos_ss = sstring(s1).find(c, pos);
+        const auto xpos_std = std::string(s1).find(c, pos);
+
+        // verify that std::string really has the same behavior as we just tested for sstring
+        if (xpos_ss == sstring::npos) {  // sstring::npos may not equal std::string::npos ?
+            BOOST_REQUIRE_EQUAL(xpos_std, std::string::npos);
+        } else {
+            BOOST_REQUIRE_EQUAL(xpos_ss, xpos_std);
+        }
+    };
+
+    // pos at or past the end must not find anything, in particular npos must not
+    // wrap around and make the search start before the beginning of the buffer
+    for (const char* s : {"", "xyzabc", "xyzabc0123456789_this_one_is_heap_allocated"}) {
+        check_find(s, 'a', 0);
+        check_find(s, 'a', sstring(s).size());
+        check_find(s, 'a', sstring(s).size() + 1);
+        check_find(s, 'a', sstring::npos);
+        check_find(s, 'x', sstring::npos);
+    }
+}
+
 BOOST_AUTO_TEST_CASE(test_not_find_sstring) {
     BOOST_REQUIRE_EQUAL(sstring("abcde").find('x'), sstring::npos);
 }
