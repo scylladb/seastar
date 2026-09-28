@@ -22,6 +22,7 @@
 #include <seastar/core/iostream.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <functional>
+#include <numeric>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -298,6 +299,63 @@ static void run_sequence(const std::string& data,
 
     BOOST_REQUIRE_MESSAGE(!src.called_after_eof(),
         "data_source::get() was called after returning EOF: " << ctx);
+}
+
+// Verify that data_source_impl::skip(n), when n equals the exact number of
+// remaining bytes, does NOT call get() after the source has returned EOF.
+//
+// The concern: skip() loops calling get() to consume and discard buffers.
+// If it skips exactly to EOF, the last get() might return the EOF sentinel
+// (empty buffer), consuming it.  A subsequent get() from outside skip()
+// would then be calling get() a second time after EOF, which violates the
+// data_source_impl contract.
+SEASTAR_THREAD_TEST_CASE(test_data_source_skip_to_eof) {
+    auto test = [](std::vector<size_t> chunk_sizes) {
+        const size_t total = std::accumulate(chunk_sizes.begin(),
+                                              chunk_sizes.end(), size_t(0));
+        std::vector<temporary_buffer<char>> bufs;
+        for (size_t sz : chunk_sizes) {
+            temporary_buffer<char> buf(sz);
+            std::fill_n(buf.get_write(), sz, 'x');
+            bufs.push_back(std::move(buf));
+        }
+
+        auto* raw = new tracking_data_source_impl(std::move(bufs));
+        auto& tracker = *raw;
+        auto ds = data_source(std::unique_ptr<data_source_impl>(raw));
+
+        // Skip exactly to EOF.
+        auto leftover = ds.skip(total).get();
+
+        // The leftover should be empty (we skipped all data).
+        BOOST_REQUIRE_MESSAGE(leftover.empty(),
+            "skip(total) should return an empty buffer when skipping to exact EOF");
+
+        // Key assertion: skip() must not have consumed the EOF sentinel.
+        BOOST_REQUIRE_MESSAGE(!tracker.called_after_eof(),
+            "data_source_impl::skip() called get() after EOF was returned");
+
+        // Now call get() once — this should be the FIRST EOF return.
+        auto eof_buf = ds.get().get();
+        BOOST_REQUIRE(eof_buf.empty());
+        BOOST_REQUIRE_MESSAGE(!tracker.called_after_eof(),
+            "First get() after skip-to-EOF triggered called_after_eof");
+
+        ds.close().get();
+    };
+
+    // Empty stream: skip(0) should be a no-op, but the current
+    // implementation unconditionally calls get(), consuming the EOF
+    // sentinel and then throwing "premature end of stream".
+    test({});
+
+    test({8});
+    test({4, 4});
+    test({3, 3, 2});
+    test({1, 1, 1, 1, 1, 1, 1, 1});
+    test({7, 1});
+    test({1, 7});
+    test({2, 3, 3});
 }
 
 // Iterates over all compositions of TOTAL_DATA with parts 1..MAX_SOURCE_CHUNK
