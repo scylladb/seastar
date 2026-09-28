@@ -80,6 +80,44 @@ std::unordered_map<sstring, sstring>& deprecated_query_parameters(http::request&
 }
 #pragma GCC diagnostic pop
 
+// Covers scylladb/seastar#3312: a sharded server has one accept queue, owned by
+// the main shard.  Check the update reaches it and that a proxy shard rejects it.
+SEASTAR_TEST_CASE(test_sharded_server_set_listen_backlog) {
+    return seastar::async([] {
+        http_server_control control;
+        control.start("test-listen-backlog").get();
+        auto stop_control = deferred_stop(control);
+
+        listen_options lo;
+        lo.reuse_address = true;
+        lo.listen_backlog = 1111;
+        control.listen(socket_address(ipv4_addr("127.0.0.1", 0)), lo).get();
+
+        control.set_listen_backlog(1888).get();
+
+        auto backlog = control.server().invoke_on(0, [] (http_server& server) {
+            return http_server_tester::listeners(server)[0].get_listen_backlog();
+        }).get();
+        BOOST_REQUIRE_EQUAL(backlog, 1888);
+
+        // A shard that does not own the listening socket cannot serve the
+        // update, and says so instead of silently accepting a value that would
+        // never take effect.
+        if (smp::count > 1) {
+            BOOST_REQUIRE_EXCEPTION(control.server().invoke_on(1, [] (http_server& server) {
+                server.set_listen_backlog(1999);
+            }).get(), std::system_error, [] (const std::system_error& e) {
+                return e.code() == std::error_code(EOPNOTSUPP, std::system_category());
+            });
+            // ... and it does not claim to know the value either.
+            auto proxy_backlog = control.server().invoke_on(1, [] (http_server& server) {
+                return http_server_tester::listeners(server)[0].get_listen_backlog();
+            }).get();
+            BOOST_REQUIRE_EQUAL(proxy_backlog, -1);
+        }
+    });
+}
+
 SEASTAR_TEST_CASE(test_reply)
 {
     http::reply r;
