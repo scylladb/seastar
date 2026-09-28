@@ -1,0 +1,43 @@
+name: Perftune unit tests
+
+on:
+  pull_request:
+    paths:
+      - scripts/perftune.py
+      - scripts/tests/perftune/**
+      - scripts/pyproject.toml
+
+  push:
+    branches:
+      - master
+    paths:
+      - scripts/perftune.py
+      - scripts/tests/perftune/**
+      - scripts/pyproject.toml
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+    working-directory: scripts
+
+jobs:
+  all:
+    if: github.repository_owner == 'scylladb'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt -y update && apt -y install python3-pip hwloc
+          pip3 install -r tests/perftune/requirements.txt --break-system-packages
+
+      - name: Run tests
+        run: python3 -m pytest -vv

@@ -1,3 +1,10 @@
 [tool.black]
 line-length = 100
 skip-string-normalization = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests/perftune"]
+addopts = "--cov=perftune --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["perftune"]
