@@ -217,3 +217,89 @@ BOOST_AUTO_TEST_CASE(test_nullptr_compare) {
     BOOST_REQUIRE(lptr != nullptr);
     BOOST_REQUIRE(nullptr != lptr);
 }
+
+static int nodes_destroyed = 0;
+
+template <template <typename> class Ptr>
+struct counted_node {
+    Ptr<counted_node> next;
+    int value;
+    explicit counted_node(int v) noexcept : value(v) {}
+    ~counted_node() { ++nodes_destroyed; }
+};
+
+// head = head->next drops the last reference to *head, which destroys the
+// next member it is being assigned from, so reading it afterwards is a
+// use-after-free. Three nodes, so that the tail is there to check too.
+template <typename Make, typename Advance>
+static void do_test_assign_from_own_member(Make make, Advance advance) {
+    nodes_destroyed = 0;
+
+    auto head = make(1);
+    head->next = make(2);
+    head->next->next = make(3);
+
+    advance(head);
+
+    BOOST_REQUIRE_EQUAL(nodes_destroyed, 1);
+    BOOST_REQUIRE_EQUAL(head->value, 2);
+    BOOST_REQUIRE_EQUAL(head->next->value, 3);
+
+    head = nullptr;
+    BOOST_REQUIRE_EQUAL(nodes_destroyed, 3);
+}
+
+BOOST_AUTO_TEST_CASE(test_lw_shared_ptr_assign_from_own_member) {
+    auto make = [](int v) { return make_lw_shared<counted_node<lw_shared_ptr>>(v); };
+    do_test_assign_from_own_member(make, [](auto& head) { head = head->next; });
+    do_test_assign_from_own_member(make, [](auto& head) { head = std::move(head->next); });
+}
+
+BOOST_AUTO_TEST_CASE(test_shared_ptr_assign_from_own_member) {
+    auto make = [](int v) { return make_shared<counted_node<shared_ptr>>(v); };
+    do_test_assign_from_own_member(make, [](auto& head) { head = head->next; });
+    do_test_assign_from_own_member(make, [](auto& head) { head = std::move(head->next); });
+}
+
+// The converting operator=(shared_ptr<U>) has the same problem. Reach it by
+// holding the node through a base class, so that assigning the node pointer
+// to it picks the converting overload.
+struct conv_node;
+
+struct conv_base {
+    virtual ~conv_base() = default;
+    virtual shared_ptr<conv_node>& get_next() noexcept = 0;
+    virtual int get_value() const noexcept = 0;
+};
+
+struct conv_node : conv_base {
+    shared_ptr<conv_node> next;
+    int value;
+    explicit conv_node(int v) noexcept : value(v) {}
+    ~conv_node() { ++nodes_destroyed; }
+    shared_ptr<conv_node>& get_next() noexcept override { return next; }
+    int get_value() const noexcept override { return value; }
+};
+
+template <typename Advance>
+static void do_test_converting_assign_from_own_member(Advance advance) {
+    nodes_destroyed = 0;
+
+    shared_ptr<conv_base> head = make_shared<conv_node>(1);
+    head->get_next() = make_shared<conv_node>(2);
+    head->get_next()->next = make_shared<conv_node>(3);
+
+    advance(head);
+
+    BOOST_REQUIRE_EQUAL(nodes_destroyed, 1);
+    BOOST_REQUIRE_EQUAL(head->get_value(), 2);
+    BOOST_REQUIRE_EQUAL(head->get_next()->value, 3);
+
+    head = nullptr;
+    BOOST_REQUIRE_EQUAL(nodes_destroyed, 3);
+}
+
+BOOST_AUTO_TEST_CASE(test_shared_ptr_converting_assign_from_own_member) {
+    do_test_converting_assign_from_own_member([](auto& head) { head = head->get_next(); });
+    do_test_converting_assign_from_own_member([](auto& head) { head = std::move(head->get_next()); });
+}
