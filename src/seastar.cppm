@@ -944,6 +944,7 @@ export namespace seastar::http {
 export namespace seastar::httpd {
 
 using seastar::httpd::path_description;
+using seastar::httpd::bad_request_exception;
 using seastar::httpd::bad_param_exception;
 using seastar::httpd::server_error_exception;
 using seastar::httpd::not_found_exception;
