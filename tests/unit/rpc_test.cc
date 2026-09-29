@@ -2091,6 +2091,34 @@ SEASTAR_THREAD_TEST_CASE(test_stream_send_after_stream_close) {
     }).get();
 }
 
+// A source must still yield EOS if the peer closed the connection right after sending it.
+SEASTAR_THREAD_TEST_CASE(test_stream_source_eos_after_peer_close) {
+    using namespace std::chrono_literals;
+    rpc_test_config cfg;
+    cfg.server_options.streaming_domain = rpc::streaming_domain_type(92);
+    rpc_test_env<>::do_with_thread(cfg, [] (rpc_test_env<>& env, test_rpc_proto::client& c) {
+        future<> server_done = make_ready_future<>();
+        env.register_handler(1, [&server_done] (rpc::source<int> source) {
+            auto sink = source.make_sink<serializer, sstring>();
+            server_done = seastar::async([source, sink] () mutable {
+                while (source().get()) {
+                }
+                // Both halves closed: the server closes the connection.
+                sink.close().get();
+            });
+            return sink;
+        }).get();
+        auto call = env.proto().make_client<rpc::source<sstring> (rpc::sink<int>)>(1);
+        auto sink = c.make_stream_sink<serializer, int>(env.make_socket()).get();
+        auto source = call(c, sink).get();
+        sink.close().get();
+        server_done.get();
+        // Let the client loop see the EOF before the source is read.
+        seastar::sleep(100ms).get();
+        BOOST_REQUIRE(!source().get());
+    }).get();
+}
+
 SEASTAR_TEST_CASE(test_timeout_cancel) {
     rpc::client_options co;
     co.send_timeout_data = true;

@@ -588,6 +588,7 @@ future<> connection::handle_stream_frame() {
             _error = true;
             return make_ready_future<>();
         }
+        _stream_eos_received |= data->size == -1U;
         return stream_process_incoming(std::move(*data));
     });
 }
@@ -1059,7 +1060,7 @@ future<> client::loop(client_options ops, const socket_address& addr, const sock
             }
         }
     }
-    if (is_stream() && (ep || _error)) {
+    if (is_stream() && (ep || _error) && !_stream_eos_received) {
         _stream_queue.abort(std::make_exception_ptr(stream_closed()));
     }
     _error = true;
@@ -1284,7 +1285,7 @@ future<> server::connection::process() {
             format("server{} connection dropped", is_stream() ? " stream" : "").c_str(), ep);
     }
     _connected->fd.shutdown_input();
-    if (is_stream() && (ep || _error)) {
+    if (is_stream() && (ep || _error) && !_stream_eos_received) {
         _stream_queue.abort(std::make_exception_ptr(stream_closed()));
     }
     _error = true;
