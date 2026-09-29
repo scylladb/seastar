@@ -32,6 +32,7 @@
 #include "tmpdir.hh"
 #include <boost/dll.hpp>
 #include <seastar/core/thread.hh>
+#include <seastar/core/with_scheduling_group.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/http/json_path.hh>
 #include <seastar/http/response_parser.hh>
@@ -1115,6 +1116,39 @@ SEASTAR_TEST_CASE(test_client_response_eof) {
         });
 
         when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
+// #3711
+SEASTAR_TEST_CASE(test_client_pooled_connection_outlives_scheduling_group) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        future<> server = ss.accept().then([] (accept_result ar) {
+            return seastar::async([sk = std::move(ar.connection)] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                output_stream<char> out = sk.output();
+                out.write(sstring("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n")).get();
+                out.flush().get();
+                while (!in.read().get().empty()) {}
+                out.close().get();
+            });
+        });
+
+        auto sg = create_scheduling_group("http_client_sg", 100).get();
+        auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
+        with_scheduling_group(sg, [&cln] {
+            auto req = http::request::make("GET", "test", "/test");
+            return cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
+                BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::ok);
+                return make_ready_future<>();
+            });
+        }).get();
+        destroy_scheduling_group(sg).get();
+
+        cln.close().get();
+        server.get();
     });
 }
 
