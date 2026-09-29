@@ -31,7 +31,7 @@
 
 /*!
  * \file metrics_api.hh
- * \brief header file for metric API layer (like prometheus or collectd)
+ * \brief header file for metric API layer (like prometheus)
  *
  *
  *
@@ -366,15 +366,12 @@ using value_map = std::map<sstring, metric_family>;
  * Not copyable to allow for safely sharing internalized data.
  */
 class metric_series_metadata {
-    // prom backend only needs the label from here but scollectd needs group and
-    // metric name separately. metric_family_info only stores the merged and
-    // filtered name so we have to duplicate it here.
-    metric_id _id;
+    internalized_labels_ref _labels;
     skip_when_empty _should_skip_when_empty;
 public:
     metric_series_metadata() = default;
-    metric_series_metadata(metric_id id, skip_when_empty should_skip_when_empty)
-        : _id(std::move(id)), _should_skip_when_empty(should_skip_when_empty) {
+    metric_series_metadata(internalized_labels_ref labels, skip_when_empty should_skip_when_empty)
+        : _labels(std::move(labels)), _should_skip_when_empty(should_skip_when_empty) {
     }
 
     metric_series_metadata(const metric_series_metadata&) = delete;
@@ -384,19 +381,11 @@ public:
     metric_series_metadata& operator=(metric_series_metadata&&) noexcept = default;
 
     const labels_type& labels() const {
-      return _id.labels();
+        return *_labels;
     }
 
     skip_when_empty should_skip_when_empty() const {
         return _should_skip_when_empty;
-    }
-
-    group_name_type group_name() const {
-        return _id.group_name();
-    }
-
-    group_name_type name() const {
-        return _id.name();
     }
 };
 
@@ -531,6 +520,15 @@ struct options : public program_options::option_group {
     ///
     /// If not set, the local hostname will be used.
     program_options::value<std::string> metrics_hostname;
+    /// \deprecated The collectd backend has been removed. The option is
+    /// still accepted, and enabling it only logs a warning.
+    program_options::value<bool> collectd;
+    /// \deprecated Accepted and ignored, see \ref collectd.
+    program_options::value<std::string> collectd_address;
+    /// \deprecated Accepted and ignored, see \ref collectd.
+    program_options::value<unsigned> collectd_poll_period;
+    /// \deprecated Accepted and ignored, see \ref collectd.
+    program_options::value<std::string> collectd_hostname;
 
     options(program_options::option_group* parent_group);
 };

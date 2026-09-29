@@ -106,10 +106,21 @@ options::options(program_options::option_group* parent_group)
     : program_options::option_group(parent_group, "Metrics options")
     , metrics_hostname(*this, "metrics-hostname", get_hostname(),
             "set the hostname used by the metrics, if not set, the local hostname will be used")
+    , collectd(*this, "collectd", false,
+            "deprecated and ignored, the collectd backend has been removed")
+    , collectd_address(*this, "collectd-address", std::nullopt,
+            "deprecated and ignored, the collectd backend has been removed")
+    , collectd_poll_period(*this, "collectd-poll-period", std::nullopt,
+            "deprecated and ignored, the collectd backend has been removed")
+    , collectd_hostname(*this, "collectd-hostname", std::nullopt,
+            "deprecated and ignored, the collectd backend has been removed")
 {
 }
 
 future<> configure(const options& opts) {
+    if (opts.collectd.get_value()) {
+        seastar_logger.warn("--collectd is ignored, the collectd metrics backend is no longer available");
+    }
     impl::config c;
     c.hostname = opts.metrics_hostname.get_value();
     return smp::invoke_on_all([c] {
@@ -214,8 +225,7 @@ namespace impl {
 
 namespace {
 /*
- * true if a label value needs escaping under prometheus rules, invalid characters in
- * prometheus are also invalid in scollectd
+ * true if a label value needs escaping under prometheus rules
  */
 inline bool label_needs_escaping(std::string_view value) {
     // newline, " and \ need to be escaped
@@ -479,7 +489,7 @@ void impl::update_metrics_if_needed() {
             _current_metrics[i].clear();
             for (auto&& m : mf.second) {
                 if (m.second && m.second->is_enabled()) {
-                    metrics.emplace_back(m.second->info().id, m.second->info().should_skip_when_empty);
+                    metrics.emplace_back(m.second->info().id.internalized_labels(), m.second->info().should_skip_when_empty);
                     _current_metrics[i].emplace_back(m.second->get_function());
                 }
             }
