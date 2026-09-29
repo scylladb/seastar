@@ -1231,7 +1231,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
                 // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=83268
                 auto c = shared_from_this();
                 return respond(-msg_id, std::move(data), timeout, std::nullopt).then([c = std::move(c), permit = std::move(permit)] {});
-            });
+            }).handle_exception([] (std::exception_ptr) { /* connection is closing; nobody to reply to */ });
         } catch(gate_closed_exception&) {/* ignore */}
     });
 }
@@ -1260,7 +1260,8 @@ future<> server::connection::process() {
                 }
                 auto h = get_server()._proto.get_handler(type);
                 if (!h) {
-                    co_await send_unknown_verb_reply(timeout, msg_id, type);
+                    // Like a normal handler, drop the reply if it times out waiting for resources.
+                    co_await send_unknown_verb_reply(timeout, msg_id, type).handle_exception_type([] (semaphore_timed_out&) {});
                     continue;
                 }
 

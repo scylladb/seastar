@@ -504,6 +504,27 @@ SEASTAR_TEST_CASE(test_message_to_big) {
     });
 }
 
+// An unknown-verb reply that can't be sent because the connection was
+// aborted meanwhile must not leave an abandoned failed future behind.
+SEASTAR_TEST_CASE(test_unknown_verb_reply_on_aborted_connection) {
+    using namespace std::chrono_literals;
+    rpc_test_config cfg;
+    // Room for verb 1's request, but not also for the unknown-verb reply.
+    cfg.resource_limits = {0, 1, 30};
+    return rpc_test_env<>::do_with_thread(cfg, [] (rpc_test_env<>& env, test_rpc_proto::client& c) {
+        env.register_handler(1, [] (rpc::client_info& cinfo, int) {
+            // Keep the resources while the unknown-verb reply waits for them.
+            return sleep(100ms).then([&cinfo] {
+                cinfo.server.abort_connection(cinfo.conn_id);
+            });
+        }).get();
+        auto f1 = env.proto().make_client<void (int)>(1)(c, 0);
+        auto f2 = env.proto().make_client<void ()>(2)(c);
+        BOOST_REQUIRE_THROW(f1.get(), rpc::closed_error);
+        BOOST_REQUIRE_THROW(f2.get(), rpc::closed_error);
+    });
+}
+
 SEASTAR_TEST_CASE(test_rpc_remote_verb_error) {
     rpc_test_config cfg;
     return rpc_test_env<>::do_with_thread(cfg, [] (rpc_test_env<>& env) {
