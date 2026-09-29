@@ -520,6 +520,15 @@ struct options : public program_options::option_group {
     ///
     /// If not set, the local hostname will be used.
     program_options::value<std::string> metrics_hostname;
+    /// \deprecated The collectd backend has been removed. The option is
+    /// still accepted, and enabling it only logs a warning.
+    program_options::value<bool> collectd;
+    /// \deprecated Accepted and ignored, see \ref collectd.
+    program_options::value<std::string> collectd_address;
+    /// \deprecated Accepted and ignored, see \ref collectd.
+    program_options::value<unsigned> collectd_poll_period;
+    /// \deprecated Accepted and ignored, see \ref collectd.
+    program_options::value<std::string> collectd_hostname;
 
     options(program_options::option_group* parent_group);
 };
