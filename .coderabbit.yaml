@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    # Review rules shared with other agents (Claude Code, Copilot, Codex) as an
+    # Agent Skill; CodeRabbit doesn't discover skills, so point it at them.
+    filePatterns:
+      - .agents/skills/seastar-review/SKILL.md
