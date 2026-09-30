@@ -4,29 +4,40 @@
 
 ## Theory of operation
 
-The framework performs each test in several runs. During a run the microbenchmark code is executed in a loop and the average time of an iteration is computed. The shown results are median, median absolute deviation, maximum and minimum value of all the runs.
+The framework performs each test in several runs. During a run the microbenchmark code is executed in a loop and the average time of an iteration is computed. The `runtime` column shows the median of these per-run averages, followed by their median absolute deviation as a percentage of the median. `iters` is the average number of iterations per run, and `allocs`, `tasks`, `inst` and `cycles` are the median number of memory allocations, tasks executed, instructions retired and CPU cycles per iteration. `overhead` is described in [Overhead column](#overhead-column). The minimum and maximum runtime over all the runs are reported only in the JSON output (`--json-output`).
 
 ```
 single run iterations:    0
 single run duration:      1.000s
 number of runs:           5
+number of cores:          1
+random seed:              1
+start/stop overhead:      1.832µs (2.913µs)
 
-test                            iterations      median         mad         min         max
-combined.one_row                    745336   691.218ns     0.175ns   689.073ns   696.476ns
-combined.single_active                7871    85.271us    76.185ns    85.145us   108.316us
+test                              iters            runtime     allocs      tasks       inst     cycles   overhead
+chain.then_value               28731456    28.75ns ± 1.25%      1.031      1.062     466.93      151.5      0.000
+parallel_for_each.suspend_10   37326290    26.54ns ± 0.48%      1.300      1.300     430.61      139.7      0.000
 ```
 
 `perf-tests` allows limiting the number of iterations or the duration of each run. In the latter case there is an additional dry run used to estimate how many iterations can be run in the specified time. The measured runs are limited by that number of iterations. This means that there is no overhead caused by timers and that each run consists of the same number of iterations.
 
 ### Flags
 
-* `-i <n>` or `--iterations <n>` – limits the number of iterations in each run to no more than `n` (0 for unlimited)
-* `-d <t>` or `--duration <t>` – limits the duration of each run to no more than `t` seconds (0 for unlimited)
-* `-r <n>` or `--runs <n>` – the number of runs of each test to execute
-* `-t <regexs>` or `--tests <regexs>` – executes only tests which names match any regular expression in a comma-separated list `regexs`
-* `--list` – lists all available tests
-* `--overhead-threshold <percent>` – warn if measurement overhead exceeds this percentage (default: 10)
-* `--fail-on-high-overhead` – fail the test run if any test exceeds the overhead threshold
+* `-i <n>` or `--iterations <n>` - limits the number of iterations in each run to no more than `n` (0 for unlimited)
+* `-d <t>` or `--duration <t>` - limits the duration of each run to no more than `t` seconds (0 for unlimited)
+* `-r <n>` or `--runs <n>` - the number of runs of each test to execute
+* `-t <regex>` or `--test <regex>` - executes only tests whose full name, `<group>.<name>`, matches the regular expression `regex`. The whole name must match, so a group is selected with e.g. `-t 'example\..*'`. Can be given more than once, in which case a test is executed if it matches any of the expressions. If no test matches, a warning is printed and the run fails
+* `--list` - lists all available tests
+* `--overhead-threshold <ratio>` - warn if the measurement overhead of a test exceeds this fraction of its runtime (default: 0.1, i.e. 10%)
+* `--fail-on-high-overhead` - fail the test run if any test exceeds the overhead threshold
+* `--no-perf-counters` - do not read the hardware performance counters, so `inst` and `cycles` are reported as 0. This is useful when running the benchmark under perf which will capture its own counters (to avoid multiplexing). This also makes starting and stopping the timers much cheaper (see [Measurement overhead](#measurement-overhead))
+* `-S <n>` or `--random-seed <n>` - seeds `seastar::testing::local_random_engine` with `n` plus the shard id on each shard. 0, the default, picks a random seed. The seed used is printed in the output header
+* `--parameter <name>=<value>` - sets a test-specific parameter, which tests read with `perf_tests::get_parameter("<name>")`. Can be given more than once. A parameter that is not set reads as an empty string
+* `--no-stdout` - do not print the configuration and results to standard output, e.g. when only `--json-output` or `--md-output` is wanted
+* `--json-output <file>` - also write the results to `file` as JSON. For each test this includes the `median`, `mad`, `min` and `max` of the runtime per iteration, in nanoseconds
+* `--md-output <file>` - also write the results to `file` as a Markdown table, or to standard output if `file` is `-`
+* `--columns <names>` - comma-separated list of the columns to include in the text and Markdown output (`iters`, `runtime`, `allocs`, `tasks`, `inst`, `cycles`, `overhead`), or `all` (the default)
+* `--mad-columns <names>` - comma-separated list of the columns that also show the median absolute deviation, as a percentage of the median, or `all` (default: `runtime`)
 
 ## Example usage
 
@@ -63,7 +74,7 @@ protected:
     data_set _ds1;
     data_set _ds2;
 private:
-    static data_set perpare_data_set();
+    static data_set prepare_data_set();
 public:
     example()
         : _ds1(prepare_data_set())
@@ -89,7 +100,7 @@ PERF_TEST_F(example, fixture2)
 Even with fixtures it may be necessary to do some costly initialization during each iteration. Its impact can be reduced by specifying the exact part of the test that should be measured using functions `perf_tests::start_measuring_time()` and `perf_tests::stop_measuring_time()`.
 
 ```c++
-PERF_TEST(example, custom_time_measurement2)
+PERF_TEST(example, custom_time_measurement1)
 {
     auto data = prepare_data();
     perf_tests::start_measuring_time();
@@ -115,13 +126,13 @@ If you do _not_ use these manual methods, the overhead is very low (a few instru
 
 ##### Overhead column
 
-The framework tracks and reports the estimated measurement overhead as a percentage in the `overhead` column. This is calculated by:
+The framework tracks and reports the estimated measurement overhead in the `overhead` column, as a fraction of the measured runtime (so `0.100` means 10%). This is calculated by:
 
 1. Calibrating the cost of a single `start_measuring_time()`/`stop_measuring_time()` pair at startup
 2. Counting how many times these functions are called during each test run
-3. Computing `overhead% = (call_count × cost_per_call) / measured_runtime × 100`
+3. Computing `overhead = (call_count × cost_per_call) / measured_runtime` for each run; the column shows the median over the runs
 
-A high overhead percentage (e.g., >10%) indicates that the timing instrumentation is consuming a significant portion of the measured time, which reduces the accuracy of the results. This typically happens when:
+A high overhead (e.g., above 0.1, or 10%) indicates that the timing instrumentation is consuming a significant portion of the measured time, which reduces the accuracy of the results. This typically happens when:
 - The timed region is very short (comparable to the ~1μs overhead)
 - `start_measuring_time()`/`stop_measuring_time()` are called many times with little work between them
 
@@ -137,4 +148,4 @@ By default, a warning is printed if any test has median overhead exceeding 10%:
 WARNING: test 'example.my_test' has high measurement overhead: 15.2% (threshold: 10.0%)
 ```
 
-You can adjust the threshold with `--overhead-threshold <percent>`, or fail the test run entirely when overhead is too high with `--fail-on-high-overhead`.
+You can adjust the threshold with `--overhead-threshold <ratio>` (e.g., `--overhead-threshold 0.2` for 20%), or fail the test run entirely when overhead is too high with `--fail-on-high-overhead`.
