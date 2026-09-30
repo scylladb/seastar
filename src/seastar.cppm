@@ -41,11 +41,10 @@
 
 module;
 
-#include <seastar/util/std-compat.hh>
-#include <seastar/core/abortable_fifo.hh>
 #include <seastar/core/abort_on_ebadf.hh>
 #include <seastar/core/abort_on_expiry.hh>
 #include <seastar/core/abort_source.hh>
+#include <seastar/core/abortable_fifo.hh>
 #include <seastar/core/alien.hh>
 #include <seastar/core/align.hh>
 #include <seastar/core/aligned_buffer.hh>
@@ -68,20 +67,20 @@ module;
 #include <seastar/core/execution_stage.hh>
 #include <seastar/core/expiring_fifo.hh>
 #include <seastar/core/fair_queue.hh>
-#include <seastar/core/file.hh>
 #include <seastar/core/file-types.hh>
+#include <seastar/core/file.hh>
 #include <seastar/core/fsnotify.hh>
 #include <seastar/core/fsqual.hh>
 #include <seastar/core/fstream.hh>
-#include <seastar/core/future.hh>
 #include <seastar/core/future-util.hh>
+#include <seastar/core/future.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/core/idle_cpu_handler.hh>
-#include <seastar/core/iostream.hh>
-#include <seastar/core/iostream-impl.hh>
 #include <seastar/core/io_intent.hh>
-#include <seastar/core/io_queue.hh>
 #include <seastar/core/io_priority_class.hh>
+#include <seastar/core/io_queue.hh>
+#include <seastar/core/iostream-impl.hh>
+#include <seastar/core/iostream.hh>
 #include <seastar/core/layered_file.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/lowres_clock.hh>
@@ -132,8 +131,8 @@ module;
 #include <seastar/core/smp.hh>
 #include <seastar/core/smp_options.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/stream.hh>
 #include <seastar/core/stall_sampler.hh>
+#include <seastar/core/stream.hh>
 #include <seastar/core/task.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/thread.hh>
@@ -149,6 +148,58 @@ module;
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/with_timeout.hh>
 
+#include <seastar/coroutine/all.hh>
+#include <seastar/coroutine/as_future.hh>
+#include <seastar/coroutine/exception.hh>
+#include <seastar/coroutine/generator.hh>
+#include <seastar/coroutine/maybe_yield.hh>
+#include <seastar/coroutine/parallel_for_each.hh>
+#include <seastar/coroutine/switch_to.hh>
+#include <seastar/coroutine/try_future.hh>
+
+#include <seastar/http/api_docs.hh>
+#include <seastar/http/client.hh>
+#include <seastar/http/common.hh>
+#include <seastar/http/connection_factory.hh>
+#include <seastar/http/exception.hh>
+#include <seastar/http/file_handler.hh>
+#include <seastar/http/function_handlers.hh>
+#include <seastar/http/httpd.hh>
+#include <seastar/http/json_path.hh>
+#include <seastar/http/reply.hh>
+#include <seastar/http/request.hh>
+#include <seastar/http/response_parser.hh>
+#include <seastar/http/retry_strategy.hh>
+#include <seastar/http/routes.hh>
+#include <seastar/http/transformers.hh>
+#include <seastar/http/url.hh>
+
+#include <seastar/json/formatter.hh>
+#include <seastar/json/json_elements.hh>
+
+#include <seastar/net/api.hh>
+#include <seastar/net/arp.hh>
+#include <seastar/net/byteorder.hh>
+#include <seastar/net/dns.hh>
+#include <seastar/net/inet_address.hh>
+#include <seastar/net/ip.hh>
+#include <seastar/net/ip_checksum.hh>
+#include <seastar/net/ipv4_address.hh>
+#include <seastar/net/native-stack.hh>
+#include <seastar/net/packet.hh>
+#include <seastar/net/posix-stack.hh>
+#include <seastar/net/socket_defs.hh>
+#include <seastar/net/tcp.hh>
+#include <seastar/net/tls.hh>
+#include <seastar/net/udp.hh>
+#include <seastar/net/unix_address.hh>
+
+#include <seastar/rpc/lz4_compressor.hh>
+#include <seastar/rpc/lz4_fragmented_compressor.hh>
+#include <seastar/rpc/multi_algo_compressor_factory.hh>
+#include <seastar/rpc/rpc.hh>
+#include <seastar/rpc/rpc_types.hh>
+
 #include <seastar/util/alloc_failure_injector.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/bool_class.hh>
@@ -160,70 +211,18 @@ module;
 #include <seastar/util/lazy.hh>
 #include <seastar/util/log-cli.hh>
 #include <seastar/util/log.hh>
+#include <seastar/util/memory-data-sink.hh>
+#include <seastar/util/memory-data-source.hh>
+#include <seastar/util/memory_diagnostics.hh>
 #include <seastar/util/noncopyable_function.hh>
-#include <seastar/util/program-options.hh>
 #include <seastar/util/optimized_optional.hh>
 #include <seastar/util/print_safe.hh>
 #include <seastar/util/process.hh>
+#include <seastar/util/program-options.hh>
 #include <seastar/util/read_first_line.hh>
 #include <seastar/util/short_streams.hh>
+#include <seastar/util/std-compat.hh>
 #include <seastar/util/tmp_file.hh>
-#include <seastar/util/memory-data-source.hh>
-#include <seastar/util/memory-data-sink.hh>
-#include <seastar/util/memory_diagnostics.hh>
-
-#include <seastar/net/arp.hh>
-#include <seastar/net/packet.hh>
-#include <seastar/net/api.hh>
-#include <seastar/net/dns.hh>
-#include <seastar/net/ip_checksum.hh>
-#include <seastar/net/inet_address.hh>
-#include <seastar/net/ip.hh>
-#include <seastar/net/ipv4_address.hh>
-#include <seastar/net/native-stack.hh>
-#include <seastar/net/posix-stack.hh>
-#include <seastar/net/socket_defs.hh>
-#include <seastar/net/tcp.hh>
-#include <seastar/net/udp.hh>
-#include <seastar/net/tls.hh>
-#include <seastar/net/unix_address.hh>
-
-#include <seastar/net/byteorder.hh>
-
-#include <seastar/http/common.hh>
-#include <seastar/http/client.hh>
-#include <seastar/http/connection_factory.hh>
-#include <seastar/http/exception.hh>
-#include <seastar/http/file_handler.hh>
-#include <seastar/http/function_handlers.hh>
-#include <seastar/http/httpd.hh>
-#include <seastar/http/api_docs.hh>
-#include <seastar/http/json_path.hh>
-#include <seastar/http/reply.hh>
-#include <seastar/http/response_parser.hh>
-#include <seastar/http/request.hh>
-#include <seastar/http/retry_strategy.hh>
-#include <seastar/http/routes.hh>
-#include <seastar/http/transformers.hh>
-#include <seastar/http/url.hh>
-
-#include <seastar/json/formatter.hh>
-#include <seastar/json/json_elements.hh>
-
-#include <seastar/rpc/rpc.hh>
-#include <seastar/rpc/rpc_types.hh>
-#include <seastar/rpc/lz4_compressor.hh>
-#include <seastar/rpc/lz4_fragmented_compressor.hh>
-#include <seastar/rpc/multi_algo_compressor_factory.hh>
-
-#include <seastar/coroutine/all.hh>
-#include <seastar/coroutine/as_future.hh>
-#include <seastar/coroutine/exception.hh>
-#include <seastar/coroutine/generator.hh>
-#include <seastar/coroutine/maybe_yield.hh>
-#include <seastar/coroutine/parallel_for_each.hh>
-#include <seastar/coroutine/switch_to.hh>
-#include <seastar/coroutine/try_future.hh>
 
 export module seastar;
 
@@ -637,7 +636,10 @@ export namespace seastar::httpd {
 
 using seastar::httpd::api_registry_builder;
 using seastar::httpd::api_registry_builder20;
+using seastar::httpd::bad_param_exception;
+using seastar::httpd::bad_request_exception;
 using seastar::httpd::base_exception;
+using seastar::httpd::const_req;
 using seastar::httpd::content_replace;
 using seastar::httpd::directory_handler;
 using seastar::httpd::file_handler;
@@ -650,25 +652,25 @@ using seastar::httpd::http_server;
 using seastar::httpd::http_server_control;
 using seastar::httpd::http_server_tester;
 using seastar::httpd::json_request_function;
+using seastar::httpd::not_found_exception;
 using seastar::httpd::operation_type;
+using seastar::httpd::path_description;
 using seastar::httpd::routes;
+using seastar::httpd::server_error_exception;
 using seastar::httpd::type2str;
 using seastar::httpd::unexpected_status_error;
 using seastar::httpd::url;
 
 }
 
-export namespace seastar::internal {
-
-
-}
-
 export namespace seastar::json {
 
+using seastar::json::date_time;
 using seastar::json::formatter;
 using seastar::json::json_base;
 using seastar::json::json_chunked_list;
 using seastar::json::json_element;
+using seastar::json::json_list;
 using seastar::json::json_return_type;
 using seastar::json::json_void;
 using seastar::json::jsonable;
@@ -912,29 +914,6 @@ export namespace fmt {
 
 template <>
 struct formatter<std::exception_ptr>;
-
-}
-
-export namespace seastar::json {
-
-using seastar::json::json_list;
-using seastar::json::date_time;
-
-}
-
-export namespace seastar::http {
-
-
-}
-
-export namespace seastar::httpd {
-
-using seastar::httpd::path_description;
-using seastar::httpd::bad_request_exception;
-using seastar::httpd::bad_param_exception;
-using seastar::httpd::server_error_exception;
-using seastar::httpd::not_found_exception;
-using seastar::httpd::const_req;
 
 }
 
