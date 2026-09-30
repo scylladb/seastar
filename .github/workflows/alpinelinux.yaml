@@ -68,5 +68,10 @@ jobs:
         cmake --build build
 
     - name: Run unit tests
+      env:
+        # By default each test takes all memory except a reserve, so it fails
+        # at startup with "Out of memory" whenever the runner has less free
+        # memory than expected. A fixed size does not depend on the runner.
+        SEASTAR_OPTIONS: --memory 2G
       run: |
         ctest --test-dir build --output-on-failure
