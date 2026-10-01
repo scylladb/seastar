@@ -121,7 +121,7 @@ private:
         };
         enum class grab_result { ok, stop, again };
 
-        clock_type::time_point next_pending_aio() const noexcept;
+        clock_type::time_point next_pending_aio() noexcept;
         reap_result reap_pending_capacity() noexcept;
         grab_result grab_capacity(capacity_t cap, reap_result& available);
 
@@ -211,7 +211,7 @@ public:
     // Dispatch requests that are pending in the I/O queue
     void poll_io_queue();
 
-    clock_type::time_point next_pending_aio() const noexcept;
+    clock_type::time_point next_pending_aio() noexcept;
     fair_queue_entry::capacity_t request_capacity(internal::io_direction_and_length dnl) const noexcept;
 
     sstring mountpoint() const;
