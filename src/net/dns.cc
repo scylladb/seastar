@@ -256,23 +256,15 @@ private:
         int avail = 0;
         int pending = 0;
         bool closed = false;
+        bool failed = false;
 
-        sock_entry(sock_entry&& e)
-            : typ(e.typ)
-            , avail(e.avail)
-        {
-            e.typ = type::none;
-            switch (typ) {
-            case type::tcp:
-                new (&tcp) tcp_entry(std::move(e.tcp));
-                break;
-            case type::udp:
-                new (&udp) udp_entry(std::move(e.udp));
-                break;
-            default:
-                break;
-            }
+        // Fails every later read, and marks the socket readable so that
+        // c-ares reads.
+        void mark_failed() noexcept {
+            failed = true;
+            avail |= POLLIN;
         }
+
         sock_entry(connected_socket s)
             : tcp(tcp_entry{std::move(s)})
             , typ(type::tcp)
@@ -1100,22 +1092,36 @@ dns_resolver::impl::release(ares_socket_t fd) {
     _gate.leave();
 }
 
+// The operation failed, so there is nothing to wait for and c-ares must give
+// up on the server. Ignore the code a std::system_error carries: EAGAIN,
+// EINPROGRESS or EINTR would make c-ares wait or call connect again, and any
+// other code acts like EIO. Log the error instead.
+static int fail_socket_call(std::exception_ptr ex, std::string_view operation, ares_socket_t fd) noexcept {
+    dns_log.debug("{} {} failed: {}", operation, fd, seastar::formattable(ex));
+    errno = EIO;
+    return -1;
+}
+
 ares_socket_t
 dns_resolver::impl::do_socket(int af, int type, int protocol) {
     if (_closed) {
         return -1;
     }
     int fd = next_fd();
-    switch (type) {
-    case SOCK_STREAM:
-        _sockets.emplace(fd, connected_socket());
-        dns_log.trace("Created tcp socket {}", fd);
-        break;
-    case SOCK_DGRAM:
-        _sockets.emplace(fd, _stack.make_unbound_datagram_channel(AF_INET));
-        dns_log.trace("Created udp socket {}", fd);
-        break;
-    default: return -1;
+    try {
+        switch (type) {
+        case SOCK_STREAM:
+            _sockets.emplace(fd, connected_socket());
+            dns_log.trace("Created tcp socket {}", fd);
+            break;
+        case SOCK_DGRAM:
+            _sockets.emplace(fd, _stack.make_unbound_datagram_channel(AF_INET));
+            dns_log.trace("Created udp socket {}", fd);
+            break;
+        default: return -1;
+        }
+    } catch (...) {
+        return fail_socket_call(std::current_exception(), "Create socket", fd);
     }
     return fd;
 }
@@ -1212,6 +1218,9 @@ dns_resolver::impl::do_connect(ares_socket_t fd, const sockaddr * addr, socklen_
                 errno = EWOULDBLOCK;
                 return -1;
             }
+            if (f.failed()) {
+                return fail_socket_call(f.get_exception(), "Connect", fd);
+            }
             e.tcp.socket = f.get();
             break;
         }
@@ -1225,7 +1234,7 @@ dns_resolver::impl::do_connect(ares_socket_t fd, const sockaddr * addr, socklen_
         }
         return 0;
     } catch (...) {
-        return -1;
+        return fail_socket_call(std::current_exception(), "Connect", fd);
     }
 }
 
@@ -1237,6 +1246,10 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
     try {
         auto& e = get_socket_entry(fd);
         dns_log.trace("Read {}({})", fd, int(e.typ));
+        if (e.failed) {
+            errno = EIO;
+            return -1;
+        }
         // check if we're already reading.
         if (!(e.avail & POLLIN)) {
             dns_log.trace("Read already pending {}", fd);
@@ -1274,6 +1287,7 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
                             e.tcp.indata = std::move(buf);
                         } catch (...) {
                             dns_log.debug("Read {} failed: {}", fd, seastar::formattable(std::current_exception()));
+                            e.mark_failed();
                         }
                         e.avail |= POLLIN; // always reset state
                         me->poll_sockets();
@@ -1283,14 +1297,10 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
                     return -1;
                 }
 
-                try {
-                    tcp.indata = f.get();
-                } catch (std::system_error& e) {
-                    errno = e.code().value();
-                    return -1;
-                } catch (...) {
-                    return -1;
+                if (f.failed()) {
+                    return fail_socket_call(f.get_exception(), "Read", fd);
                 }
+                tcp.indata = f.get();
                 if (tcp.indata.empty()) {
                     dns_log.trace("Read {}: connection closed by peer", fd);
                     return 0;
@@ -1347,6 +1357,7 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
                             e.avail |= POLLIN;
                         } catch (...) {
                             dns_log.debug("Read {} failed: {}", fd, seastar::formattable(std::current_exception()));
+                            e.mark_failed();
                         }
                         me->poll_sockets();
                         me->release(fd);
@@ -1355,29 +1366,22 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
                     return -1;
                 }
 
-                try {
-                    udp.in = f.get();
-                    continue; // loop will take care of data
-                } catch (std::system_error& e) {
-                    errno = e.code().value();
-                    return -1;
-                } catch (...) {
+                if (f.failed()) {
+                    return fail_socket_call(f.get_exception(), "Read", fd);
                 }
-                return -1;
+                udp.in = f.get();
+                continue; // loop will take care of data
             }
             default:
                 return -1;
             }
         }
     } catch (...) {
+        return fail_socket_call(std::current_exception(), "Read", fd);
     }
-    return -1;
 }
 
 ssize_t dns_resolver::impl::do_send_tcp(sock_entry& e, send_packet_t p, size_t bytes, ares_socket_t fd) {
-    if (!e.tcp.out) {
-        e.tcp.out = e.tcp.socket.output(0).detach();
-    }
     auto f = e.tcp.out->put(std::move(p));
 
     if (!f.available()) {
@@ -1390,6 +1394,7 @@ ssize_t dns_resolver::impl::do_send_tcp(sock_entry& e, send_packet_t p, size_t b
                 dns_log.trace("Send {}. {} bytes sent.", fd, bytes);
             } catch (...) {
                 dns_log.debug("Send {} failed: {}", fd, seastar::formattable(std::current_exception()));
+                e.mark_failed();
             }
             e.avail |= POLLOUT;
             me->poll_sockets();
@@ -1404,13 +1409,7 @@ ssize_t dns_resolver::impl::do_send_tcp(sock_entry& e, send_packet_t p, size_t b
     release(fd);
 
     if (f.failed()) {
-        try {
-            f.get();
-        } catch (std::system_error& e) {
-            errno = e.code().value();
-        } catch (...) {
-        }
-        return -1;
+        return fail_socket_call(f.get_exception(), "Send", fd);
     }
 
     return bytes;
@@ -1432,19 +1431,20 @@ ssize_t dns_resolver::impl::do_send_udp(sock_entry& e, send_packet_t p, size_t b
     if (e.udp.f.available()) {
         // if we have a fast-fail, give error.
         if (e.udp.f.failed()) {
-            try {
-                e.udp.f.get();
-            } catch (std::system_error& e) {
-                errno = e.code().value();
-            } catch (...) {
-            }
+            auto ex = e.udp.f.get_exception();
             e.udp.f = make_ready_future<>();
-            return -1;
+            return fail_socket_call(std::move(ex), "Send", fd);
         }
     } else {
-        // ensure that no exception from channel.send is left uncaught
-        e.udp.f = e.udp.f.handle_exception_type([](std::system_error const& e){
-            dns_log.warn("UDP send exception: {}", e.what());
+        // The chain above releases fd before this continuation runs.
+        use(fd);
+        e.udp.f = e.udp.f.then_wrapped([me = shared_from_this(), &e, fd](future<> f) {
+            if (f.failed()) {
+                dns_log.warn("UDP send exception: {}", seastar::formattable(f.get_exception()));
+                e.mark_failed();
+                me->poll_sockets();
+            }
+            me->release(fd);
         });
     }
     // c-ares does _not_ use non-blocking retry for udp sockets. We just pretend
@@ -1491,9 +1491,14 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
                 return -1;
             }
 
-            if (e.typ == type::tcp && !e.tcp.socket) {
-                errno = ENOTCONN;
-                return -1;
+            if (e.typ == type::tcp) {
+                if (!e.tcp.socket) {
+                    errno = ENOTCONN;
+                    return -1;
+                }
+                if (!e.tcp.out) {
+                    e.tcp.out = e.tcp.socket.output(0).detach();
+                }
             }
 
 #if ARES_VERSION >= 0x012200
@@ -1519,8 +1524,8 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
                 return -1;
             }
     } catch (...) {
+        return fail_socket_call(std::current_exception(), "Send", fd);
     }
-    return -1;
 }
 
 ares_socket_t
