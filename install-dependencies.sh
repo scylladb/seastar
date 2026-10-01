@@ -86,6 +86,7 @@ debian_packages=(
     babeltrace2
     valgrind
     xfslibs-dev
+    zlib1g-dev
     "${debian_transitive[@]}"
 )
 
@@ -122,6 +123,7 @@ redhat_packages=(
     valgrind-devel
     xfsprogs-devel
     yaml-cpp-devel
+    zlib-devel
     "${redhat_transitive[@]}"
 )
 
@@ -248,6 +250,7 @@ opensuse_packages=(
     stow
     xfsprogs-devel
     yaml-cpp-devel
+    zlib-devel
 )
 
 case "$ID" in

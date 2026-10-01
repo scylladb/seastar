@@ -29,6 +29,7 @@
 using namespace seastar;
 
 #include <ranges>
+#include <zlib.h>
 #include <stdexcept>
 
 namespace sm = seastar::metrics;
@@ -100,6 +101,63 @@ public:
         : data_sink(std::make_unique<counting_data_sink_impl>(32000)) {}
 };
 
+// Compresses the data with zlib, as an HTTP server that gzips responses
+// would
+struct gzip_data_sink_impl : public data_sink_impl {
+    z_stream zs{};
+    std::vector<char> out = std::vector<char>(64 * 1024);
+
+    explicit gzip_data_sink_impl(int level) {
+        if (deflateInit2(&zs, level, Z_DEFLATED, 16 + MAX_WBITS, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
+            throw std::runtime_error("deflateInit2");
+        }
+    }
+    ~gzip_data_sink_impl() {
+        deflateEnd(&zs);
+    }
+
+    void compress(const char* data, size_t size, int flush) {
+        zs.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(data));
+        zs.avail_in = size;
+        do {
+            zs.next_out = reinterpret_cast<Bytef*>(out.data());
+            zs.avail_out = out.size();
+            deflate(&zs, flush);
+        } while (zs.avail_out == 0);
+    }
+
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        for (auto& b : bufs) {
+            compress(b.get(), b.size(), Z_NO_FLUSH);
+        }
+        return make_ready_future<>();
+    }
+#else
+    virtual future<> put(net::packet data) override {
+        abort();
+    }
+
+    virtual future<> put(temporary_buffer<char> buf) override {
+        compress(buf.get(), buf.size(), Z_NO_FLUSH);
+        return make_ready_future<>();
+    }
+#endif
+
+    virtual future<> flush() override {
+        return make_ready_future<>();
+    }
+
+    virtual future<> close() override {
+        compress(nullptr, 0, Z_FINISH);
+        return make_ready_future<>();
+    }
+
+    virtual size_t buffer_size() const noexcept override {
+        return 32000;
+    }
+};
+
 
 namespace seastar::prometheus::details {
 
@@ -112,6 +170,12 @@ struct metrics_perf_fixture {
     const int histo_buckets = histo_type{}.find_bucket_index(-1) + 1;
 
     const filter_t always_true = [](auto& mi){ return true; };
+
+    // If set, the output is compressed by zlib with this level
+    std::optional<int> zlib_level;
+    // The text template cache key; if unset, a template is built per request
+    std::optional<filter_key> cache_key = filter_key{};
+    compression_type compression = compression_type::none;
 
     template <typename COUNTER_TYPE = double>
     seastar::future<size_t> run_metrics_bench(
@@ -189,18 +253,29 @@ struct metrics_perf_fixture {
 
         constexpr int iterations = 100;
 
-        perf_tests::start_measuring_time();
-        for ([[maybe_unused]] auto _: irange(iterations)) {
-            output_stream<char> out{counting_data_sink{}};
+        auto request = [&] () -> future<> {
+            output_stream<char> out = zlib_level
+                ? output_stream<char>(data_sink(std::make_unique<gzip_data_sink_impl>(*zlib_level)))
+                : output_stream<char>(counting_data_sink{});
             co_await access{}.write_body(config,
                 write_body_args{
                     .filter = always_true,
                     .family_filter = family_filter,
                     .use_protobuf_format = use_protobuf,
                     .show_help = true,
-                    .enable_aggregation = enable_aggregation
+                    .enable_aggregation = enable_aggregation,
+                    .cache_key = cache_key,
+                    .compression = compression,
                 },
                 std::move(out));
+        };
+
+        // Warm up, so that templates are built outside the measurement
+        co_await request();
+
+        perf_tests::start_measuring_time();
+        for ([[maybe_unused]] auto _: irange(iterations)) {
+            co_await request();
         }
         perf_tests::stop_measuring_time();
 
@@ -272,6 +347,75 @@ PERF_TEST_CN(metrics_perf_fixture, test_histogram_protobuf) {
 
 PERF_TEST_CN(metrics_perf_fixture, test_histogram_aggr) {
     co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM, true);
+}
+
+// The _uncached variants build the text template for every request
+
+PERF_TEST_CN(metrics_perf_fixture, test_large_families_int_uncached) {
+    cache_key = std::nullopt;
+    co_return co_await run_metrics_bench<size_t>(1, 1, 10000, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_uncached) {
+    cache_key = std::nullopt;
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_histogram_uncached) {
+    cache_key = std::nullopt;
+    co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM);
+}
+
+// The _gzip variants render from pre-compressed templates
+
+PERF_TEST_CN(metrics_perf_fixture, test_large_families_int_gzip) {
+    compression = compression_type::gzip;
+    co_return co_await run_metrics_bench<size_t>(1, 1, 10000, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_gzip) {
+    compression = compression_type::gzip;
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_gzip_uncached) {
+    compression = compression_type::gzip;
+    cache_key = std::nullopt;
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_histogram_gzip) {
+    compression = compression_type::gzip;
+    co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM);
+}
+
+// The _zlib variants compress the text with zlib at the given level, as a
+// compressing HTTP server would
+
+PERF_TEST_CN(metrics_perf_fixture, test_large_families_int_zlib1) {
+    zlib_level = 1;
+    co_return co_await run_metrics_bench<size_t>(1, 1, 10000, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_zlib1) {
+    zlib_level = 1;
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_zlib6) {
+    zlib_level = 6;
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_uncached_zlib1) {
+    cache_key = std::nullopt;
+    zlib_level = 1;
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_histogram_zlib1) {
+    zlib_level = 1;
+    co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM);
 }
 
 PERF_TEST_CN(metrics_perf_fixture, test_name_filter_exact_match) {
