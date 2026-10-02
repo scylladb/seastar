@@ -301,6 +301,8 @@ protected:
 
     std::unordered_map<connection_id, xshard_connection_ptr> _streams;
     queue<rcv_buf> _stream_queue = queue<rcv_buf>(max_queued_stream_buffers);
+    // The peer's EOS marker is queued; aborting the queue would drop it.
+    bool _stream_eos_received = false;
     semaphore _stream_sem = semaphore(max_stream_buffers_memory);
     bool _sink_closed = true;
     bool _source_closed = true;
