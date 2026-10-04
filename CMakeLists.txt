@@ -438,7 +438,6 @@ seastar_find_dependencies ()
 find_package (ragel 6.10 REQUIRED)
 find_package (Threads REQUIRED)
 find_package (PthreadSetName REQUIRED)
-find_package (Valgrind REQUIRED)
 
 cmake_dependent_option (Seastar_LOGGER_COMPILE_TIME_FMT
   "Enable the compile-time {fmt} check when formatting logging messages" ON
@@ -939,16 +938,6 @@ target_link_libraries (seastar
     ucontext::ucontext
     yaml-cpp::yaml-cpp
     Threads::Threads)
-if (CMAKE_VERSION VERSION_GREATER_EQUAL 3.26)
-  target_link_libraries (seastar
-    PRIVATE
-      "$<BUILD_LOCAL_INTERFACE:Valgrind::valgrind>")
-else ()
-  target_link_libraries (seastar
-    PRIVATE
-      "$<BUILD_INTERFACE:Valgrind::valgrind>")
-endif ()
-
 if (Seastar_DPDK)
   target_link_libraries (seastar
     PRIVATE
@@ -978,10 +967,6 @@ if (CMAKE_BUILD_TYPE STREQUAL "Fuzz")
     PUBLIC Sanitizers::fuzzer)
 endif ()
 
-# We only need valgrind to find uninitialized memory uses, so disable
-# the leak sanitizer.
-# To test with valgrind run "ctest -T memcheck"
-set( MEMORYCHECK_COMMAND_OPTIONS "--error-exitcode=1 --leak-check=no --trace-children=yes" )
 include (CTest)
 
 #

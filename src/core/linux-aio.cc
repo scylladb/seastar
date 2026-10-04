@@ -28,7 +28,6 @@
 #include <seastar/core/internal/fmt.hh>
 #include <unistd.h>
 #include <sys/syscall.h>
-#include <valgrind/valgrind.h>
 
 #include <seastar/core/internal/linux-aio.hh>
 #include <seastar/util/read_first_line.hh>
@@ -59,7 +58,7 @@ static linux_aio_ring* to_ring(aio_context_t io_context) {
 }
 
 static bool usable(const linux_aio_ring* ring) {
-    return ring->magic == 0xa10a10a1 && ring->incompat_features == 0 && !RUNNING_ON_VALGRIND;
+    return ring->magic == 0xa10a10a1 && ring->incompat_features == 0;
 }
 
 int io_setup(int nr_events, aio_context_t* io_context) {

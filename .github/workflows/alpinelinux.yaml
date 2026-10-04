@@ -50,7 +50,6 @@ jobs:
           samurai            \
           stow               \
           util-linux-dev     \
-          valgrind-dev       \
           xfsprogs-dev       \
           yaml-cpp-dev
 
