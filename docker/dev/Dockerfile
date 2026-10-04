@@ -15,6 +15,10 @@ RUN --mount=type=bind,source=./install-dependencies.sh,target=/install-dependenc
     gcc-15 \
     g++-15 \
     pandoc \
+    git \
+    ccache \
+    sccache \
+    ca-certificates \
     && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-16 16 \
     && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-16 16 \
     && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-15 15 \
