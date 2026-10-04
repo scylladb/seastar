@@ -28,6 +28,7 @@
 #include <random>
 #include <span>
 #include <system_error>
+#include <type_traits>
 #include <seastar/core/internal/md5.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/queue.hh>
@@ -44,6 +45,20 @@
 namespace seastar {
 
 using namespace std::chrono_literals;
+
+namespace internal {
+
+template <typename InetTraits, typename = void>
+struct tcp_clock_type {
+    using type = lowres_clock;
+};
+
+template <typename InetTraits>
+struct tcp_clock_type<InetTraits, std::void_t<typename InetTraits::tcp_clock_type>> {
+    using type = typename InetTraits::tcp_clock_type;
+};
+
+}
 
 namespace net {
 
@@ -297,7 +312,7 @@ private:
     class tcb;
 
     class tcb : public enable_lw_shared_from_this<tcb> {
-        using clock_type = lowres_clock;
+        using clock_type = typename internal::tcp_clock_type<InetTraits>::type;
         static constexpr tcp_state CLOSED         = tcp_state::CLOSED;
         static constexpr tcp_state LISTEN         = tcp_state::LISTEN;
         static constexpr tcp_state SYN_SENT       = tcp_state::SYN_SENT;
@@ -383,7 +398,7 @@ private:
             size_t max_receive_buf_size = 3737600;
         } _rcv;
         tcp_option _option;
-        timer<lowres_clock> _delayed_ack;
+        timer<clock_type> _delayed_ack;
         // Retransmission timeout
         std::chrono::milliseconds _rto{1000};
         std::chrono::milliseconds _persist_time_out{1000};
@@ -392,8 +407,8 @@ private:
         // Clock granularity
         static constexpr std::chrono::milliseconds _rto_clk_granularity{1};
         static constexpr uint16_t _max_nr_retransmit{5};
-        timer<lowres_clock> _retransmit;
-        timer<lowres_clock> _persist;
+        timer<clock_type> _retransmit;
+        timer<clock_type> _persist;
         uint16_t _nr_full_seg_received = 0;
         struct isn_secret {
             // 512 bits secretkey for ISN generating
