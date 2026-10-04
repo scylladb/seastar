@@ -53,8 +53,9 @@ HERE = pathlib.Path(__file__).parent
 TESTS_YAML = HERE / "tests.yaml"
 
 # Compilers are named with the version suffix that matches the Ubuntu
-# package binary (clang-21, g++-16, ...). install-build-env.sh installs
-# the corresponding apt package and derives CC from CPP. We cover the
+# package binary (clang-21, g++-16, ...). configure-build.sh derives CC
+# from CPP. Each must be installed in the toolchain image built from
+# docker/dev/Dockerfile, which test.yaml runs in. We cover the
 # last two major releases of each toolchain per compatibility.md.
 CLANG_VERSIONS: list[int] = [21, 22]
 GCC_VERSIONS:   list[int] = [15, 16]
