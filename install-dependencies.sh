@@ -84,7 +84,6 @@ debian_packages=(
     liblttng-ust-dev
     lttng-tools
     babeltrace2
-    valgrind
     xfslibs-dev
     "${debian_transitive[@]}"
 )
@@ -119,7 +118,6 @@ redhat_packages=(
     lttng-ust-devel
     lttng-tools
     babeltrace2
-    valgrind-devel
     xfsprogs-devel
     yaml-cpp-devel
     "${redhat_transitive[@]}"
@@ -135,7 +133,6 @@ fedora_packages=(
     libubsan
     ninja-build
     ragel
-    valgrind-devel
 )
 
 centos7_packages=(
@@ -208,7 +205,6 @@ arch_packages=(
     python3
     ragel
     stow
-    valgrind
     xfsprogs
     yaml-cpp
 )

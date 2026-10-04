@@ -30,7 +30,6 @@
 #include <setjmp.h>
 #endif
 #include <stdint.h>
-#include <valgrind/valgrind.h>
 #include <exception>
 #include <utility>
 #include <atomic>
@@ -227,8 +226,6 @@ thread_context::~thread_context() {
     _all_threads.erase(_all_threads.iterator_to(*this));
 }
 
-thread_context::stack_deleter::stack_deleter(int valgrind_id) : valgrind_id(valgrind_id) {}
-
 thread_context::stack_holder
 thread_context::make_stack(size_t stack_size) {
 #ifdef SEASTAR_THREAD_STACK_GUARDS
@@ -241,8 +238,7 @@ thread_context::make_stack(size_t stack_size) {
     if (mem == nullptr) {
         throw std::bad_alloc();
     }
-    int valgrind_id = VALGRIND_STACK_REGISTER(mem, reinterpret_cast<char*>(mem) + stack_size);
-    auto stack = stack_holder(new (mem) char[stack_size], stack_deleter(valgrind_id));
+    auto stack = stack_holder(new (mem) char[stack_size]);
 #ifdef SEASTAR_ASAN_ENABLED
     // Avoid ASAN false positive due to garbage on stack
     std::memset(stack.get(), 0, stack_size);
@@ -257,7 +253,6 @@ thread_context::make_stack(size_t stack_size) {
 }
 
 void thread_context::stack_deleter::operator()(char* ptr) const noexcept {
-    VALGRIND_STACK_DEREGISTER(valgrind_id);
     free(ptr);
 }
 
