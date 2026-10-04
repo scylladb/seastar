@@ -96,6 +96,9 @@ class connection : public boost::intrusive::list_base_hook<> {
     // null element marks eof
     queue<std::unique_ptr<http::reply>> _replies { 10 };
     bool _done = false;
+    // Whether a request is being read from this connection: from its first byte until
+    // the last byte of its body.
+    bool _reading_request = false;
     const bool _tls;
 public:
     connection(http_server& server, connected_socket&& fd, bool tls)
@@ -127,6 +130,8 @@ public:
     void shutdown();
     future<> read();
     future<> read_one();
+    // The request being read has been read in full.
+    void request_read();
     future<> respond();
     future<> do_response_loop();
 

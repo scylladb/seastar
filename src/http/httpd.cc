@@ -137,7 +137,9 @@ void connection::on_new_connection() {
 
 future<> connection::read() {
     return do_until([this] {return _done;}, [this] {
-        return read_one();
+        // A request that ended before it was read in full - a malformed one, or one
+        // whose read failed - is no longer being read either.
+        return read_one().finally([this] { _reading_request = false; });
     }).then_wrapped([this] (future<> f) {
         // swallow error
         if (f.failed()) {
@@ -198,7 +200,14 @@ void connection::generate_error_reply_and_close(std::unique_ptr<http::request> r
 future<> connection::read_one() {
     _parser.init();
     _parser.set_size_limit(_server.get_request_size_limit());
-    return _read_buf.consume(_parser).then([this] () mutable {
+    return _read_buf.consume([this] (temporary_buffer<char> buf) {
+        // A request is being read from its first byte, rather than from when its
+        // headers have been parsed: a client may be partway through sending them.
+        if (!buf.empty()) {
+            _reading_request = true;
+        }
+        return _parser(std::move(buf));
+    }).then([this] () mutable {
         if (_parser.eof()) {
             _done = true;
             return make_ready_future<>();
@@ -269,7 +278,12 @@ future<> connection::read_one() {
 
         return maybe_reply_continue().then([this] (std::unique_ptr<http::request> req) {
             return do_with(make_content_stream(req.get(), _read_buf), sstring(req->_version), std::move(req), [this] (input_stream<char>& content_stream, sstring& version, std::unique_ptr<http::request>& req) {
-                return set_request_content(std::move(req), &content_stream, _server.get_content_streaming()).then([this, &content_stream] (std::unique_ptr<http::request> req) {
+                bool streaming = _server.get_content_streaming();
+                return set_request_content(std::move(req), &content_stream, streaming).then([this, &content_stream, streaming] (std::unique_ptr<http::request> req) {
+                    if (!streaming) {
+                        // The body was read before the handler was called.
+                        request_read();
+                    }
                     return _replies.not_full().then([this, req = std::move(req)] () mutable {
                         return generate_reply(std::move(req));
                     }).then([this, &content_stream](bool done) {
@@ -293,6 +307,9 @@ future<> connection::read_one() {
                             if (!f.get().empty()) {
                                 _done = true;
                             }
+                            // The handler streamed the body, and has returned: whatever
+                            // it left unread will not be read.
+                            request_read();
                         });
                     });
                 }).handle_exception_type([this, &version] (const base_exception& e) mutable {
@@ -350,6 +367,10 @@ future<> connection::prepare() {
 void connection::shutdown() {
     _fd.shutdown_input();
     _fd.shutdown_output();
+}
+
+void connection::request_read() {
+    _reading_request = false;
 }
 
 output_stream<char>& connection::out() {
