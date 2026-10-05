@@ -25,6 +25,9 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/util/shared_token_bucket.hh>
 
+#include <atomic>
+#include <thread>
+
 using namespace seastar;
 using namespace std::chrono_literals;
 
@@ -69,5 +72,34 @@ SEASTAR_TEST_CASE(test_basic_capped_loop) {
     tb.replenish(manual_clock::now());
     BOOST_REQUIRE(tb.deficiency(th) == 0);
 
+    return make_ready_future<>();
+}
+
+// With no other replenisher, every replenish that accrues tokens must land.
+// A concurrent grab writes the cache line that holds the replenish timestamp,
+// which on LL/SC targets (aarch64 without LSE) makes a weak CAS fail without
+// any other writer of the timestamp, and so drop the replenish.
+SEASTAR_TEST_CASE(test_replenish_not_lost_under_concurrent_grab) {
+    using clock = std::chrono::steady_clock;
+    alignas(64) internal::shared_token_bucket<uint64_t, std::ratio<1>, internal::capped_release::no, clock> tb(1'000'000, 1'000'000, 1, false);
+
+    std::atomic<bool> stop{false};
+    std::thread grabber([&] {
+        while (!stop.load(std::memory_order_relaxed)) {
+            tb.grab(0);
+        }
+    });
+
+    auto ts = tb.replenished_ts();
+    unsigned lost = 0;
+    for (int i = 0; i < 1'000'000; ++i) {
+        ts += 1ms;
+        tb.replenish(ts);
+        lost += tb.replenished_ts() != ts;
+    }
+    stop.store(true, std::memory_order_relaxed);
+    grabber.join();
+
+    BOOST_REQUIRE_EQUAL(lost, 0u);
     return make_ready_future<>();
 }
