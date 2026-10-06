@@ -453,6 +453,18 @@ static void check_finally_exception(std::exception_ptr ex) {
       // convert to the concrete type nested_exception
       std::rethrow_exception(ex);
   } catch (seastar::nested_exception& ex) {
+    // {fmt}'s own std::exception formatter renders the concrete object via
+    // what(), which names `outer`. Since seastar::nested_exception derives from
+    // std::nested_exception, {fmt} 12.2.1 additionally follows the single nested
+    // pointer (`inner`) and appends it, reproducing the full chain much like our
+    // own formatter above; earlier {fmt} stops at what().
+#if FMT_VERSION >= 120201
+    BOOST_REQUIRE_EQUAL(fmt::format("{}", ex),
+        "seastar::nested_exception (while cleaning up after foo): bar");
+#else
+    BOOST_REQUIRE_EQUAL(fmt::format("{}", ex),
+        "seastar::nested_exception (while cleaning up after foo)");
+#endif
     try {
         std::rethrow_exception(ex.inner);
     } catch (test_exception& inner) {
