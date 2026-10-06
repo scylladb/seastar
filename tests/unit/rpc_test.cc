@@ -504,6 +504,27 @@ SEASTAR_TEST_CASE(test_message_to_big) {
     });
 }
 
+// An unknown-verb reply that can't be sent because the connection was
+// aborted meanwhile must not leave an abandoned failed future behind.
+SEASTAR_TEST_CASE(test_unknown_verb_reply_on_aborted_connection) {
+    using namespace std::chrono_literals;
+    rpc_test_config cfg;
+    // Room for verb 1's request, but not also for the unknown-verb reply.
+    cfg.resource_limits = {0, 1, 30};
+    return rpc_test_env<>::do_with_thread(cfg, [] (rpc_test_env<>& env, test_rpc_proto::client& c) {
+        env.register_handler(1, [] (rpc::client_info& cinfo, int) {
+            // Keep the resources while the unknown-verb reply waits for them.
+            return sleep(100ms).then([&cinfo] {
+                cinfo.server.abort_connection(cinfo.conn_id);
+            });
+        }).get();
+        auto f1 = env.proto().make_client<void (int)>(1)(c, 0);
+        auto f2 = env.proto().make_client<void ()>(2)(c);
+        BOOST_REQUIRE_THROW(f1.get(), rpc::closed_error);
+        BOOST_REQUIRE_THROW(f2.get(), rpc::closed_error);
+    });
+}
+
 SEASTAR_TEST_CASE(test_rpc_remote_verb_error) {
     rpc_test_config cfg;
     return rpc_test_env<>::do_with_thread(cfg, [] (rpc_test_env<>& env) {
@@ -2067,6 +2088,34 @@ SEASTAR_THREAD_TEST_CASE(test_stream_send_after_stream_close) {
         // Dropping sink and source now destroys the connection.  Without the
         // fix, and with the above write still in flight, this is where
         // ~output_stream() asserts on the pending batch flush.
+    }).get();
+}
+
+// A source must still yield EOS if the peer closed the connection right after sending it.
+SEASTAR_THREAD_TEST_CASE(test_stream_source_eos_after_peer_close) {
+    using namespace std::chrono_literals;
+    rpc_test_config cfg;
+    cfg.server_options.streaming_domain = rpc::streaming_domain_type(92);
+    rpc_test_env<>::do_with_thread(cfg, [] (rpc_test_env<>& env, test_rpc_proto::client& c) {
+        future<> server_done = make_ready_future<>();
+        env.register_handler(1, [&server_done] (rpc::source<int> source) {
+            auto sink = source.make_sink<serializer, sstring>();
+            server_done = seastar::async([source, sink] () mutable {
+                while (source().get()) {
+                }
+                // Both halves closed: the server closes the connection.
+                sink.close().get();
+            });
+            return sink;
+        }).get();
+        auto call = env.proto().make_client<rpc::source<sstring> (rpc::sink<int>)>(1);
+        auto sink = c.make_stream_sink<serializer, int>(env.make_socket()).get();
+        auto source = call(c, sink).get();
+        sink.close().get();
+        server_done.get();
+        // Let the client loop see the EOF before the source is read.
+        seastar::sleep(100ms).get();
+        BOOST_REQUIRE(!source().get());
     }).get();
 }
 
