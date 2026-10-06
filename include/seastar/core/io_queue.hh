@@ -56,7 +56,6 @@ using shard_id = unsigned;
 using stream_id = unsigned;
 
 class io_desc_read_write;
-class queued_io_request;
 class io_group;
 
 using io_group_ptr = std::shared_ptr<io_group>;
@@ -204,8 +203,8 @@ public:
     future<size_t> submit_io_write(size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
 
     void submit_request(io_desc_read_write* desc, internal::io_request req) noexcept;
-    void cancel_request(queued_io_request& req) noexcept;
-    void complete_cancelled_request(queued_io_request& req) noexcept;
+    void cancel_request(io_desc_read_write& req) noexcept;
+    void complete_cancelled_request(io_desc_read_write& req) noexcept;
     void complete_request(io_desc_read_write& desc, std::chrono::duration<double> delay) noexcept;
 
     // Dispatch requests that are pending in the I/O queue
