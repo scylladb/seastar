@@ -794,6 +794,18 @@ impl::metric_definition_impl make_summary(metric_name_type name,
     return internal::make_collected_definition(std::move(name), {impl::data_type::SUMMARY, "summary"}, c, std::move(proj), std::move(d), std::move(labels));
 }
 
+/*!
+ * \brief create a summary metric with labels.
+ *
+ * Summaries are a different kind of histograms. It reports in quantiles.
+ * For example, the p99 and p95 latencies.
+ */
+template<typename T>
+impl::metric_definition_impl make_summary(metric_name_type name,
+        description d, std::vector<label_instance> labels, T&& val) {
+    return  {name, {impl::data_type::SUMMARY, "summary"}, make_function(std::forward<T>(val), impl::data_type::SUMMARY), d, std::move(labels)};
+}
+
 
 /*!
  * \brief create a total_bytes metric.
