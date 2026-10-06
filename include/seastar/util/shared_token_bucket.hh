@@ -214,5 +214,346 @@ public:
     }
 };
 
+/*
+ * A token bucket where each competing class accumulates its proportional share
+ * of tokens independently, based on its shares relative to the total.
+ *
+ * The global state holds a monotonically increasing `tokens_generated` counter
+ * that any shard can advance by calling replenish(). Each class has shard-local
+ * state and computes its token allocation lazily as:
+ *
+ *   gain = (tokens_generated - last_seen) * class_shares / total_shares
+ *
+ * This means a "stuck" shard that doesn't poll for a while simply catches up
+ * to its burst cap when it wakes up, without being starved by other shards.
+ * Conversely, a fast-polling shard cannot grab tokens that belong to other
+ * classes — each class's share is computed independently from the shared clock.
+ *
+ * Architecture:
+ *
+ *                     +-------------------------------+
+ *                     |   shard_aware_token_bucket    |
+ *                     |                               |
+ *                     |  _rate                        | <-- tokens per second
+ *                     |  _tokens_generated (atomic)   | <-- replenish() advances this
+ *                     |  _total_shares     (atomic)   | <-- sum of all active consumers
+ *                     |  _tau_tokens                  | <-- forgiveness window
+ *                     +---------------+---------------+
+ *                                     |
+ *              +----------------------+----------------------------+
+ *              |                                                   |
+ *    +---------v-----------------+                       +---------v--------+
+ *    | local_publisher (shard 0) |                       | local_publisher  |
+ *    |                           |                       |    (shard 1)     |
+ *    |  _pending                 | <-- accumulated       +--+----------+---+
+ *    |                           |     delta-shares         |          |
+ *    |  flush()                  | <-- commits           consumer  consumer
+ *    |                           |     _pending to
+ *    +--+-------------------+----+     _total_shares
+ *       |                   |          in one atomic RMW
+ *       |                   |
+ *  +----v-----------+  +----v-----------+
+ *  | consumer       |  | consumer       |
+ *  |                |  +----------------+
+ *  |                |
+ *  |  _shares       | <-- weight in the proportional split
+ *  |  _last_seen    | <-- snapshot of _tokens_generated at previous accrued()
+ *  |  accrued()     | <-- returns (generated - _last_seen) * _shares / total_shares
+ *  |  activate()    | <-- adds _shares to _total_shares via publisher
+ *  |  deactivate()  | <-- removes _shares from _total_shares via publisher
+ *  +----------------+
+ *
+ * Per-poll data flow (one shard):
+ *
+ *  1. replenish(now) -- any shard may advance _tokens_generated based on
+ *     elapsed time; concurrent calls are serialized via CAS.
+ *
+ *  2. local_publisher::flush() -- commits locally batched share deltas to
+ *     the global _total_shares in a single atomic fetch-and-add.
+ *
+ *  3. consumer::accrued() -- each consumer computes its token gain since the
+ *     last call as (generated - _last_seen) * _shares / total_shares, then
+ *     updates _last_seen. The result is a plain token value returned to the
+ *     caller (io_queue's dispatch_root) for redistribution.
+ *
+ *  4. activate/deactivate -- when a class becomes active or idle, its shares
+ *     are added to or removed from _pending in the local_publisher, to be
+ *     committed on the next flush().
+ */
+template <typename T, typename Period, typename Clock = std::chrono::steady_clock>
+requires std::is_nothrow_copy_constructible_v<T> && supports_wrapping_arithmetics<T>
+class shard_aware_token_bucket {
+    using rate_resolution = std::chrono::duration<double, Period>;
+
+    T _rate;
+    const T _burst_limit;
+    const T _threshold;
+    const T _tau_tokens;
+    // Monotonically increasing counter of tokens produced globally.
+    // replenish() converts elapsed wall-clock time into tokens and
+    // advances this via atomic fetch-add. Consumers read it in
+    // accrued() and compute their per-class share of the delta
+    // relative to their own _last_seen snapshot (see consumer below).
+    std::atomic<T> _tokens_generated{0};
+    std::atomic<typename Clock::time_point> _last_replenished;
+    std::atomic<T> _total_shares{0};
+
+    static constexpr rate_resolution max_delta = std::chrono::duration_cast<rate_resolution>(std::chrono::hours(1));
+
+    T accumulated_in(typename Clock::duration delta) const noexcept {
+        auto d = std::min(std::chrono::duration_cast<rate_resolution>(delta), max_delta);
+        return T(std::round(_rate * d.count()));
+    }
+
+public:
+    static constexpr T max_rate = std::numeric_limits<T>::max() / 2 / max_delta.count();
+
+    template <typename Rep, typename Per>
+    static auto rate_cast(const std::chrono::duration<Rep, Per> d) noexcept {
+        return std::chrono::duration_cast<rate_resolution>(d);
+    }
+
+    rate_resolution duration_for(T tokens) const noexcept {
+        return rate_resolution(double(tokens) / _rate);
+    }
+
+    T rate() const noexcept { return _rate; }
+    T limit() const noexcept { return _burst_limit; }
+    T threshold() const noexcept { return _threshold; }
+    T total_shares() const noexcept { return _total_shares.load(std::memory_order_relaxed); }
+    T tokens_generated() const noexcept { return _tokens_generated.load(std::memory_order_relaxed); }
+
+    T tau_tokens() const noexcept { return _tau_tokens; }
+
+    shard_aware_token_bucket(T rate, T burst_limit, T threshold,
+                              bool add_replenish_offset = true,
+                              typename Clock::duration tau = {}) noexcept
+        : _rate(std::min(rate, max_rate))
+        , _burst_limit(burst_limit)
+        , _threshold(std::clamp(threshold, T(1), burst_limit))
+        , _tau_tokens(accumulated_in(tau))
+        , _last_replenished(Clock::now() - std::chrono::hours(add_replenish_offset ? 24 : 0))
+    {}
+
+    /*
+     * Advance the global token counter based on elapsed time.
+     * Only one shard succeeds per threshold window via CAS on _last_replenished.
+     */
+    void replenish(typename Clock::time_point now) noexcept {
+        auto ts = _last_replenished.load(std::memory_order_relaxed);
+        if (now <= ts) {
+            return;
+        }
+        auto extra = accumulated_in(now - ts);
+        if (extra >= _threshold) {
+            if (!_last_replenished.compare_exchange_strong(ts, now)) {
+                return;
+            }
+            _tokens_generated.fetch_add(extra, std::memory_order_relaxed);
+        }
+    }
+
+    /*
+     * A shard-local token pouch. Carries a number of currently-available
+     * tokens and enforces a burst cap on top-ups. Has no ties to the bucket
+     * or to any particular token source: it is fed via refill(amount) from
+     * whatever source the owner chooses (typically either consumer::accrued()
+     * for a direct draw from the global bucket, or a raw amount passed down
+     * from a parent entity redistributing its own drained tokens).
+     */
+    class tokens {
+        T _available{0};
+        T _burst_limit;
+
+    public:
+        explicit tokens(T burst_limit) noexcept : _burst_limit(burst_limit) {}
+
+        /*
+         * Add amount tokens to the pouch, saturating at burst_limit.
+         * Returns any overflow that could not be absorbed.
+         */
+        T refill(T amount) noexcept {
+            auto sum = _available + amount;
+            if (sum > _burst_limit) {
+                _available = _burst_limit;
+                return sum - _burst_limit;
+            }
+            _available = sum;
+            return T(0);
+        }
+
+        /*
+         * Consume cost tokens. Returns true and deducts if enough are available.
+         */
+        bool try_consume(T cost) noexcept {
+            if (_available >= cost) {
+                _available -= cost;
+                return true;
+            }
+            return false;
+        }
+
+        /* Empty the pouch and return what was in it (for redistribution). */
+        T drain() noexcept {
+            return std::exchange(_available, T(0));
+        }
+
+        T available() const noexcept { return _available; }
+        bool full() const noexcept { return _available >= _burst_limit; }
+    };
+
+    /*
+     * Per-shard accumulator for pending contributions to _total_shares.
+     *
+     * A consumer's activate()/deactivate()/update_shares() no longer RMW the
+     * shared _total_shares atomic directly; instead they add a signed delta
+     * to a local_publisher's shard-local _pending counter (plain integer
+     * arithmetic, no cacheline contention).  Once per poll the owner calls
+     * flush(), which turns the whole pending delta into a single atomic RMW
+     * on the shared cacheline regardless of how many consumers flipped or
+     * how many times they flipped.
+     */
+    class local_publisher {
+        shard_aware_token_bucket& _bucket;
+        std::make_signed_t<T> _pending{0};
+
+    public:
+        explicit local_publisher(shard_aware_token_bucket& bucket) noexcept
+            : _bucket(bucket) {}
+
+        local_publisher(const local_publisher&) = delete;
+        local_publisher(local_publisher&&) = delete;
+
+        shard_aware_token_bucket& bucket() const noexcept { return _bucket; }
+
+        void apply(std::make_signed_t<T> delta) noexcept { _pending += delta; }
+
+        /* Commit accumulated delta to the shared _total_shares atomic. */
+        void flush() noexcept {
+            if (_pending == 0) {
+                return;
+            }
+            if (_pending > 0) {
+                _bucket._total_shares.fetch_add(T(_pending), std::memory_order_relaxed);
+            } else {
+                _bucket._total_shares.fetch_sub(T(-_pending), std::memory_order_relaxed);
+            }
+            _pending = 0;
+        }
+    };
+
+    /*
+     * Per-class, shard-local share/generation bookkeeping. Not thread-safe on
+     * its own; intended to be owned and accessed by a single shard.
+     *
+     * A class starts inactive and does not contribute to total_shares until
+     * activate() is called. Call activate() when the class first has pending
+     * requests, and deactivate() when it becomes idle again.
+     *
+     * Tokens generated for this consumer are not kept here; use accrued() to
+     * compute them and feed the result into an externally-owned tokens pouch.
+     */
+    class consumer {
+        local_publisher& _publisher;
+        T _shares;
+        // Per-consumer watermark into _tokens_generated (see above).
+        // accrued() computes gain as (generated - _last_seen) * _shares
+        // / total_shares, then advances _last_seen to generated. On
+        // re-activation after idle, _last_seen is clamped so the class
+        // receives at most tau_tokens worth of catch-up credit.
+        T _last_seen;
+        bool _active{false};
+
+        shard_aware_token_bucket& bucket() const noexcept { return _publisher.bucket(); }
+
+    public:
+        consumer(local_publisher& publisher, T shares) noexcept
+            : _publisher(publisher)
+            , _shares(shares)
+            , _last_seen(publisher.bucket()._tokens_generated.load(std::memory_order_relaxed))
+        {}
+
+        consumer(const consumer&) = delete;
+        consumer(consumer&&) = delete;
+
+        ~consumer() {
+            if (_active) {
+                deactivate();
+            }
+        }
+
+        /*
+         * Mark this class as actively competing for tokens.  The contribution
+         * to total_shares is accumulated into the publisher's pending delta
+         * and flushed to the shared atomic by the owner once per poll.
+         *
+         * On re-activation after idle, the class receives credit for at most
+         * tau_tokens worth of global generation (the forgiveness window). This
+         * allows briefly-idle classes to burst on return without granting
+         * unbounded catch-up to long-idle ones.
+         */
+        void activate() noexcept {
+            SEASTAR_ASSERT(!_active);
+            _active = true;
+            auto& b = bucket();
+            auto gen = b._tokens_generated.load(std::memory_order_relaxed);
+            auto tau = b._tau_tokens;
+            if (tau > 0 && gen >= tau) {
+                _last_seen = std::max(_last_seen, gen - tau);
+            } else if (tau == 0) {
+                _last_seen = gen;
+            }
+            _publisher.apply(std::make_signed_t<T>(_shares));
+        }
+
+        /* Remove this class from active competition. */
+        void deactivate() noexcept {
+            SEASTAR_ASSERT(_active);
+            _active = false;
+            _publisher.apply(-std::make_signed_t<T>(_shares));
+        }
+
+        bool is_active() const noexcept { return _active; }
+
+        /*
+         * Return the number of tokens proportionally produced for this consumer
+         * since the previous call (or since construction / reactivation), and
+         * advance the internal watermark. The caller is expected to feed the
+         * result into a tokens pouch via tokens::refill().
+         *
+         * The caller must have flushed the shard's local_publisher at least
+         * once in this poll before calling accrued(), so that _total_shares
+         * reflects the full shard-local active set.
+         *
+         * Fairness is preserved by the proportional gain formula; no capping
+         * is applied here -- the pouch's burst_limit caps accumulation.
+         */
+        T accrued() noexcept {
+            auto& b = bucket();
+            auto gen = b._tokens_generated.load(std::memory_order_relaxed);
+            auto delta = gen - _last_seen;
+            if (delta == 0) {
+                return T(0);
+            }
+            _last_seen = gen;
+            auto total = b._total_shares.load(std::memory_order_relaxed);
+            if (total == 0) {
+                return T(0);
+            }
+            return T(double(delta) * _shares / total);
+        }
+
+        /* Update shares.  The difference is accumulated into the publisher. */
+        void update_shares(T new_shares) noexcept {
+            if (_active) {
+                _publisher.apply(std::make_signed_t<T>(new_shares) - std::make_signed_t<T>(_shares));
+            }
+            _shares = new_shares;
+        }
+
+        T shares() const noexcept { return _shares; }
+    };
+};
+
 } // internal namespace
 } // seastar namespace
