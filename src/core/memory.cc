@@ -179,6 +179,7 @@ numa_layout
 merge(numa_layout one, numa_layout two) {
     // There's no chance to merge, so just concatenate
     one.ranges.insert(one.ranges.end(), two.ranges.begin(), two.ranges.end());
+    one.total_memory += two.total_memory;
     return one;
 }
 
@@ -2048,7 +2049,11 @@ configure(std::vector<resource::memory> m, bool mbind,
         }
         pos += x.bytes;
     }
+    ret_layout.total_memory = total;
     return ret_layout;
+}
+
+void internal::set_shard_layout(const internal::numa_layout&) {
 }
 
 statistics stats() {
@@ -2825,14 +2830,26 @@ internal::numa_layout
 configure(std::vector<resource::memory> m, bool mbind,
         bool transparent_hugepages,
         std::optional<std::string> hugepages_path) {
-    return {};
+    internal::numa_layout layout;
+    for (auto&& x : m) {
+        layout.total_memory += x.bytes;
+    }
+    return layout;
+}
+
+static thread_local size_t shard_memory = size_t(1) << 30;
+
+void internal::set_shard_layout(const internal::numa_layout& layout) {
+    if (layout.total_memory) {
+        shard_memory = layout.total_memory;
+    }
 }
 
 void configure_minimal()
 {}
 
 statistics stats() {
-    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0, 0, 0, 0, 0, 0};
+    return statistics{0, 0, 0, shard_memory, shard_memory, 0, 0, 0, 0, 0, 0, 0};
 }
 
 size_t free_memory() {
