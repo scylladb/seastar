@@ -149,4 +149,10 @@ SEASTAR_THREAD_TEST_CASE(tcp_receive_window_trimming) {
     BOOST_REQUIRE(shutdown.available());
     shutdown.get();
     BOOST_REQUIRE_EQUAL(conn.read().len(), 0u);
+
+    // Complete the close while the TCP stack and wire are still alive.
+    conn.close_write();
+    auto fin = take(inet);
+    BOOST_REQUIRE(fin.f_fin && fin.f_ack);
+    inject(stack, port, remote + 1, fin.seq + 1, ACK);
 }
