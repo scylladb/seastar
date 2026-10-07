@@ -319,17 +319,20 @@ public:
         }
 #pragma GCC diagnostic pop
     }
+    // The assignment operators take the new reference before dropping the
+    // old one: x may be owned by the object *this points to (as in
+    // `p = p->next`), so releasing *this first could destroy x.
     lw_shared_ptr& operator=(const lw_shared_ptr& x) noexcept {
         if (_p != x._p) {
-            this->~lw_shared_ptr();
-            new (this) lw_shared_ptr(x);
+            lw_shared_ptr tmp(x);
+            std::swap(_p, tmp._p);
         }
         return *this;
     }
     lw_shared_ptr& operator=(lw_shared_ptr&& x) noexcept {
         if (_p != x._p) {
-            this->~lw_shared_ptr();
-            new (this) lw_shared_ptr(std::move(x));
+            lw_shared_ptr tmp(std::move(x));
+            std::swap(_p, tmp._p);
         }
         return *this;
     }
@@ -512,6 +515,10 @@ private:
             ++_b->count;
         }
     }
+    void swap_with(shared_ptr& x) noexcept {
+        std::swap(_b, x._b);
+        std::swap(_p, x._p);
+    }
 public:
     using element_type = T;
 
@@ -555,17 +562,20 @@ public:
         }
 #pragma GCC diagnostic pop
     }
+    // The assignment operators take the new reference before dropping the
+    // old one: x may be owned by the object *this points to (as in
+    // `p = p->next`), so releasing *this first could destroy x.
     shared_ptr& operator=(const shared_ptr& x) noexcept {
         if (this != &x) {
-            this->~shared_ptr();
-            new (this) shared_ptr(x);
+            shared_ptr tmp(x);
+            swap_with(tmp);
         }
         return *this;
     }
     shared_ptr& operator=(shared_ptr&& x) noexcept {
         if (this != &x) {
-            this->~shared_ptr();
-            new (this) shared_ptr(std::move(x));
+            shared_ptr tmp(std::move(x));
+            swap_with(tmp);
         }
         return *this;
     }
@@ -575,16 +585,16 @@ public:
     template <std::derived_from<T> U>
     shared_ptr& operator=(const shared_ptr<U>& x) noexcept {
         if (*this != x) {
-            this->~shared_ptr();
-            new (this) shared_ptr(x);
+            shared_ptr tmp(x);
+            swap_with(tmp);
         }
         return *this;
     }
     template <std::derived_from<T> U>
     shared_ptr& operator=(shared_ptr<U>&& x) noexcept {
         if (*this != x) {
-            this->~shared_ptr();
-            new (this) shared_ptr(std::move(x));
+            shared_ptr tmp(std::move(x));
+            swap_with(tmp);
         }
         return *this;
     }
