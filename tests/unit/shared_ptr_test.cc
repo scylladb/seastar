@@ -217,3 +217,82 @@ BOOST_AUTO_TEST_CASE(test_nullptr_compare) {
     BOOST_REQUIRE(lptr != nullptr);
     BOOST_REQUIRE(nullptr != lptr);
 }
+
+// A list node whose sole owner is assigned from the node's own `next`, as in
+// a traversal `p = p->next`: the assignment must take its reference to the
+// incoming node before it drops the last reference to the current one, which
+// owns the pointer being read.
+template <template <typename> class Ptr>
+struct list_node {
+    static inline int destroyed = 0;
+    Ptr<list_node> next;
+    ~list_node() {
+        ++destroyed;
+    }
+};
+
+template <template <typename> class Ptr, typename Make>
+static void do_test_assign_from_member_of_pointee(Make make) {
+    using node = list_node<Ptr>;
+    Ptr<node> p = make();
+    p->next = make();
+    p->next->next = make();
+    node::destroyed = 0;
+
+    p = p->next;
+    BOOST_REQUIRE_EQUAL(node::destroyed, 1);
+    BOOST_REQUIRE_EQUAL(p.use_count(), 1);
+    BOOST_REQUIRE(p->next);
+
+    p = std::move(p->next);
+    BOOST_REQUIRE_EQUAL(node::destroyed, 2);
+    BOOST_REQUIRE_EQUAL(p.use_count(), 1);
+    BOOST_REQUIRE(!p->next);
+
+    p = nullptr;
+    BOOST_REQUIRE_EQUAL(node::destroyed, 3);
+}
+
+BOOST_AUTO_TEST_CASE(test_lw_shared_ptr_assign_from_member_of_pointee) {
+    do_test_assign_from_member_of_pointee<lw_shared_ptr>([] {
+        return make_lw_shared<list_node<lw_shared_ptr>>();
+    });
+}
+
+BOOST_AUTO_TEST_CASE(test_shared_ptr_assign_from_member_of_pointee) {
+    do_test_assign_from_member_of_pointee<shared_ptr>([] {
+        return seastar::make_shared<list_node<shared_ptr>>();
+    });
+}
+
+struct derived_list_node;
+
+struct base_list_node {
+    static inline int destroyed = 0;
+    shared_ptr<derived_list_node> next;
+    virtual ~base_list_node() {
+        ++destroyed;
+    }
+};
+
+struct derived_list_node : base_list_node {};
+
+BOOST_AUTO_TEST_CASE(test_shared_ptr_converting_assign_from_member_of_pointee) {
+    shared_ptr<base_list_node> p = seastar::make_shared<derived_list_node>();
+    p->next = seastar::make_shared<derived_list_node>();
+    p->next->next = seastar::make_shared<derived_list_node>();
+    base_list_node::destroyed = 0;
+
+    p = p->next;
+    BOOST_REQUIRE_EQUAL(base_list_node::destroyed, 1);
+    BOOST_REQUIRE_EQUAL(p.use_count(), 1);
+    BOOST_REQUIRE(p->next);
+
+    p = std::move(p->next);
+    BOOST_REQUIRE_EQUAL(base_list_node::destroyed, 2);
+    BOOST_REQUIRE_EQUAL(p.use_count(), 1);
+    BOOST_REQUIRE(!p->next);
+
+    p = nullptr;
+    BOOST_REQUIRE_EQUAL(base_list_node::destroyed, 3);
+}
