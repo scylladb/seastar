@@ -1296,6 +1296,69 @@ SEASTAR_TEST_CASE(test_client_bodyless_reply_with_content_length) {
     });
 }
 
+// Reads a request head, returning false if the client hangs up first.
+static bool read_http_request_head(input_stream<char>& in) {
+    sstring req;
+    while (!req.ends_with("\r\n\r\n")) {
+        auto r = in.read().get();
+        if (r.empty()) {
+            return false;
+        }
+        req += sstring(r.get(), r.size());
+    }
+    return true;
+}
+
+// Serve up to two requests on one connection, answering the first with
+// `first_reply` and the second with a plain 200 whose body is "second".
+static future<> serve_two_replies(server_socket& ss, sstring first_reply) {
+    return ss.accept().then([first_reply = std::move(first_reply)] (accept_result ar) {
+        return seastar::async([first_reply, sk = std::move(ar.connection)] () mutable {
+            input_stream<char> in = sk.input();
+            output_stream<char> out = sk.output();
+            if (read_http_request_head(in)) {
+                out.write(first_reply).get();
+                out.flush().get();
+            }
+            if (read_http_request_head(in)) {
+                out.write(sstring("HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nsecond")).get();
+                out.flush().get();
+            }
+            out.close().get();
+        });
+    });
+}
+
+static sstring get_body(http::client& cln) {
+    sstring body;
+    cln.make_request(http::request::make("GET", "test", "/test"), [&body] (const http::reply& rep, input_stream<char>&& in) {
+        return seastar::async([&body, in = std::move(in)] () mutable {
+            auto close = deferred_close(in);
+            body = util::read_entire_stream_contiguous(in).get();
+        });
+    }, http::reply::status_type::ok).get();
+    return body;
+}
+
+// An obs-fold replaces the line break with a space (RFC 9112 5.2), so a
+// Transfer-Encoding folded onto its own continuation line is still chunked.
+SEASTAR_TEST_CASE(test_client_folded_transfer_encoding) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        future<> server = serve_two_replies(ss, "HTTP/1.1 200 OK\r\nTransfer-Encoding:\r\n chunked\r\n\r\n5\r\nfirst\r\n0\r\n\r\n");
+
+        future<> client = seastar::async([&lcf] {
+            auto cln = http::client(std::make_unique<loopback_http_factory>(lcf), 1, http::client::retry_requests::no);
+            auto close = deferred_close(cln);
+            BOOST_REQUIRE_EQUAL(get_body(cln), "first");
+            BOOST_REQUIRE_EQUAL(get_body(cln), "second");
+        });
+
+        when_all_succeed(std::move(client), std::move(server)).get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_client_retry_nested) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);
