@@ -263,6 +263,12 @@ public:
 
         auto it = _headers.find("Connection");
         if (_version == "1.0") {
+            // RFC 9112 6.1: Transfer-Encoding in an HTTP/1.0 request means
+            // its framing may be faulty, so the connection is closed after
+            // responding.
+            if (_headers.contains("Transfer-Encoding")) {
+                return false;
+            }
             return it != _headers.end()
                  && seastar::internal::case_insensitive_cmp()(it->second, "keep-alive");
         } else { // HTTP/1.1
