@@ -20,6 +20,7 @@
  */
 
 #include "loopback_socket.hh"
+#include "gunzip.hh"
 
 #include <seastar/core/metrics.hh>
 #include <seastar/core/prometheus.hh>
@@ -49,12 +50,22 @@ public:
 };
 
 // Issue a GET to `path` and return the full response body as a string.
-std::string get_metrics_body(loopback_connection_factory& lcf, const sstring& path) {
+// If accept_encoding is given, it's sent as the Accept-Encoding header, and
+// the response's Content-Encoding is stored in content_encoding.
+std::string get_metrics_body(loopback_connection_factory& lcf, const sstring& path,
+        std::optional<sstring> accept_encoding = std::nullopt, sstring* content_encoding = nullptr) {
     auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
     std::string body;
-    cln.make_request(http::request::make("GET", "test", path),
-        [&body] (const http::reply& rep, input_stream<char>&& in) {
+    auto req = http::request::make("GET", "test", path);
+    if (accept_encoding) {
+        req._headers["Accept-Encoding"] = *accept_encoding;
+    }
+    cln.make_request(std::move(req),
+        [&body, content_encoding] (const http::reply& rep, input_stream<char>&& in) {
             BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::ok);
+            if (content_encoding) {
+                *content_encoding = rep.get_header("Content-Encoding");
+            }
             return seastar::async([&body, in = std::move(in)] () mutable {
                 body = util::read_entire_stream_contiguous(in).get();
                 in.close().get();
@@ -168,6 +179,51 @@ SEASTAR_TEST_CASE(test_prometheus_multiple_name_filters) {
             // Should NOT contain beta
             BOOST_REQUIRE_MESSAGE(!std::ranges::search(resp_str, "seastar_test_metric_beta"sv),
                 fmt::format("should NOT contain metric_beta\nResponse: {}\n", resp_str));
+        });
+
+        server.do_accepts(0).get();
+
+        client.get();
+        server.stop().get();
+    });
+}
+
+// Test that the text representation is gzip compressed when accepted
+SEASTAR_TEST_CASE(test_prometheus_gzip) {
+    metrics::metric_groups test_metrics;
+    test_metrics.add_group("test", {
+        metrics::make_gauge("metric_alpha", [] { return 1; }, metrics::description{"alpha metric"}),
+        metrics::make_gauge("metric_beta", [] { return 2; }, metrics::description{"beta metric"}),
+    });
+
+    co_await seastar::async([] {
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+        prometheus::config ctx;
+        add_prometheus_routes(server, ctx).get();
+
+        future<> client = seastar::async([&lcf] {
+            auto path = "/metrics?__name__=test_metric_alpha"s;
+            auto plain = get_metrics_body(lcf, path);
+            BOOST_REQUIRE(std::ranges::search(plain, "seastar_test_metric_alpha{shard=\"0\"} 1.000000\n"sv));
+            BOOST_REQUIRE(!std::ranges::search(plain, "beta"sv));
+
+            for (auto accept : {"gzip", "deflate, gzip;q=0.5", "*", "x-gzip", "GZIP", "*;q=0, gzip", "gzip;q=0, x-gzip"}) {
+                sstring encoding;
+                auto body = get_metrics_body(lcf, path, accept, &encoding);
+                BOOST_REQUIRE_EQUAL(encoding, "gzip");
+                auto text = gunzip(body.data(), body.size());
+                BOOST_REQUIRE_MESSAGE(std::ranges::search(text, "seastar_test_metric_alpha{shard=\"0\"}   1.000000\n"sv),
+                        fmt::format("Accept-Encoding: {}\nResponse: {}\n", accept, text));
+                BOOST_REQUIRE(!std::ranges::search(text, "beta"sv));
+            }
+            for (auto accept : {"deflate", "gzip;q=0", "gzip; q=0.000", "identity", "*, gzip;q=0", "*;q=0"}) {
+                sstring encoding;
+                auto body = get_metrics_body(lcf, path, accept, &encoding);
+                BOOST_REQUIRE_EQUAL(encoding, "");
+                BOOST_REQUIRE_EQUAL(body, plain);
+            }
         });
 
         server.do_accepts(0).get();

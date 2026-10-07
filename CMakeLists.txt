@@ -745,6 +745,8 @@ add_library (seastar
   src/core/fstream.cc
   src/core/future.cc
   src/core/future-util.cc
+  src/core/gzip-template.cc
+  src/core/gzip-template.hh
   src/core/linux-aio.cc
   src/core/memory.cc
   src/core/metrics.cc
