@@ -54,8 +54,8 @@ struct label_key {
     }
 
     void construct(const metrics::impl::labels_type& labels, const label_list& aggr_labels) {
-        auto k = metrics::impl::build_aggregation_key(labels, aggr_labels);
-        key.assign(k.data(), k.size());
+        key.clear();
+        metrics::impl::append_aggregation_key(key, labels, aggr_labels);
         hash = std::hash<std::string_view>{}(std::string_view(key));
     }
 

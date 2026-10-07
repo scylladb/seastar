@@ -484,12 +484,17 @@ void impl::update_metrics_if_needed() {
         mt.reserve(_value_map.size());
         _current_metrics.resize(_value_map.size());
         size_t i = 0;
+        aggregation_key_interner aggregation_keys;
         for (auto&& mf : _value_map) {
             metric_metadata_fifo metrics;
             _current_metrics[i].clear();
+            const auto& aggregate_labels = mf.second.info().aggregate_labels;
+            const size_t aggregate_labels_hash = hash_aggregate_labels(aggregate_labels);
             for (auto&& m : mf.second) {
                 if (m.second && m.second->is_enabled()) {
-                    metrics.emplace_back(m.second->info().id.internalized_labels(), m.second->info().should_skip_when_empty, mf.second.info().aggregate_labels);
+                    const auto& labels = m.second->info().id.internalized_labels();
+                    metrics.emplace_back(labels, m.second->info().should_skip_when_empty,
+                            aggregation_keys.intern(*labels, aggregate_labels, aggregate_labels_hash));
                     _current_metrics[i].emplace_back(m.second->get_function());
                 }
             }

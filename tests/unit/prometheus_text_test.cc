@@ -820,7 +820,8 @@ BOOST_AUTO_TEST_CASE(test_aggregation_cache_stale_config_not_trusted) {
     auto labels_ref = make_lw_shared<const mi::labels_type>(labels);
 
     // Cache built as if this shard's family metadata still had the OLD config ({"shard"}).
-    mi::metric_series_metadata stale(labels_ref, sm::skip_when_empty::no, {"shard"});
+    mi::aggregation_key_interner interner;
+    mi::metric_series_metadata stale(labels_ref, sm::skip_when_empty::no, interner.intern(labels, {"shard"}));
     BOOST_REQUIRE(stale.has_aggregation_cache());
 
     // The scrape driving this add() call aggregates by "extra" instead.
