@@ -1359,6 +1359,30 @@ SEASTAR_TEST_CASE(test_client_folded_transfer_encoding) {
     });
 }
 
+// The client cannot find the end of a body in a transfer coding it does not
+// decode, so it fails the request rather than misread the connection.
+static void test_client_unsupported_transfer_encoding(sstring reply_head) {
+    loopback_connection_factory lcf(1);
+    auto ss = lcf.get_server_socket();
+    future<> server = serve_two_replies(ss, reply_head + "5\r\nfirst\r\n0\r\n\r\n");
+
+    future<> client = seastar::async([&lcf] {
+        auto cln = http::client(std::make_unique<loopback_http_factory>(lcf), 1, http::client::retry_requests::no);
+        auto close = deferred_close(cln);
+        BOOST_REQUIRE_THROW(get_body(cln), httpd::response_parsing_exception);
+    });
+
+    when_all_succeed(std::move(client), std::move(server)).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_client_coded_transfer_encoding) {
+    test_client_unsupported_transfer_encoding("HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n");
+}
+
+SEASTAR_THREAD_TEST_CASE(test_client_repeated_transfer_encoding) {
+    test_client_unsupported_transfer_encoding("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n");
+}
+
 SEASTAR_TEST_CASE(test_client_retry_nested) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);
