@@ -142,8 +142,9 @@ public:
      * extentions
      *
      * \throws httpd::response_parsing_exception if the reply's Transfer-Encoding
-     *         is anything other than "chunked", since the end of the body
-     *         cannot be found then
+     *         is anything other than "chunked", or it has no Transfer-Encoding
+     *         and its Content-Length is not a single decimal number, since
+     *         the end of the body cannot be found then
      *
      */
     input_stream<char> in(reply& rep);

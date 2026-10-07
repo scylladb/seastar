@@ -192,6 +192,9 @@ input_stream<char> connection::in(reply& rep) {
         // ends, so the rest of the connection cannot be read either.
         throw httpd::response_parsing_exception(format("Unsupported Transfer-Encoding: \"{}\"", te->second));
     }
+    if (auto cl = rep._headers.find("Content-Length"); cl != rep._headers.end() && !http::internal::parse_content_length(cl->second)) {
+        throw httpd::response_parsing_exception(format("Invalid Content-Length: \"{}\"", cl->second));
+    }
 
     return input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(_read_buf, rep.content_length, rep.left_content_length)));
 }

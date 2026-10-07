@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include <optional>
+#include <string_view>
 #include <unordered_map>
 
 #include <seastar/core/sstring.hh>
@@ -36,6 +38,10 @@ output_stream<char> make_http_chunked_output_stream(output_stream<char>& out);
 // @param bytes_written after the stream is closed, it is updated with the
 //        actual number of bytes written.
 output_stream<char> make_http_content_length_output_stream(output_stream<char>& out, size_t total_len, size_t& bytes_written);
+// Parses a Content-Length field value, which RFC 9110 8.6 defines as one or
+// more decimal digits. Anything else, including the comma separated list that
+// repeated Content-Length fields are combined into, yields std::nullopt.
+std::optional<size_t> parse_content_length(std::string_view value) noexcept;
 } // internal namespace
 } // http namespace
 

@@ -33,6 +33,7 @@
 #include <seastar/core/queue.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/metrics.hh>
+#include <seastar/http/common.hh>
 #include <seastar/http/httpd.hh>
 #include <seastar/http/internal/content_source.hh>
 #include <seastar/http/reply.hh>
@@ -233,9 +234,16 @@ future<> connection::read_one() {
             return make_ready_future<>();
         }
 
+        if (auto cl = req->_headers.find("Content-Length"); cl != req->_headers.end()) {
+            auto length = http::internal::parse_content_length(cl->second);
+            if (!length) {
+                generate_error_reply_and_close(std::move(req), http::reply::status_type::bad_request, "Invalid Content-Length header");
+                return make_ready_future<>();
+            }
+            req->content_length = *length;
+        }
+
         size_t content_length_limit = _server.get_content_length_limit();
-        sstring length_header = req->get_header("Content-Length");
-        req->content_length = strtol(length_header.c_str(), nullptr, 10);
 
         if (req->content_length > content_length_limit) {
             auto msg = format("Content length limit ({}) exceeded: {}", content_length_limit, req->content_length);
