@@ -1956,6 +1956,16 @@ private:
                     }
                     break;
             }
+
+            // When the server verifies client certificates, OpenSSL fails
+            // the handshake of a client offering a session to resume unless
+            // a session id context is set. Sessions are resumed only from
+            // tickets sealed with these credentials' keys, so a fixed context
+            // is enough.
+            static constexpr unsigned char session_id_context[] = "seastar";
+            if (1 != SSL_CTX_set_session_id_context(ssl_ctx.get(), session_id_context, sizeof(session_id_context) - 1)) {
+                throw make_openssl_error("Failed to set session id context");
+            }
         } else {
             // Enable peer verification on the client side so that OpenSSL
             // rejects untrusted server certificates during the handshake,
