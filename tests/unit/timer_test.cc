@@ -27,6 +27,7 @@
 #include <seastar/core/print.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sleep.hh>
+#include <seastar/core/with_timeout.hh>
 #include <seastar/util/later.hh>
 #include <chrono>
 #include <iostream>
@@ -158,4 +159,64 @@ SEASTAR_THREAD_TEST_CASE(test_highres_periodic_cancel_in_callback) {
 
     BOOST_REQUIRE(t1_fired);
     BOOST_REQUIRE(t2_fired);
+}
+
+// A relative deadline too far away to represent saturates at
+// time_point::max(), i.e. the timer never fires, rather than overflowing to a
+// time in the past.
+template <typename Clock>
+void test_timer_arm_huge_duration() {
+    using duration = typename timer<Clock>::duration;
+    using time_point = typename timer<Clock>::time_point;
+    bool fired = false;
+    auto set_fired = [&] { fired = true; };
+
+    timer<Clock> t1(set_fired);
+    t1.arm(duration::max());
+    BOOST_REQUIRE(t1.get_timeout() == time_point::max());
+
+    timer<Clock> t2(set_fired);
+    t2.arm(duration::max() - 1h);
+    BOOST_REQUIRE(t2.get_timeout() == time_point::max());
+
+    timer<Clock> t3(set_fired);
+    t3.arm_periodic(duration::max());
+    BOOST_REQUIRE(t3.get_timeout() == time_point::max());
+
+    timer<Clock> t4(set_fired);
+    t4.rearm_periodic(duration::max());
+    BOOST_REQUIRE(t4.get_timeout() == time_point::max());
+
+    sleep(100ms).get();
+    BOOST_REQUIRE(!fired);
+    BOOST_REQUIRE(t1.armed() && t2.armed() && t3.armed() && t4.armed());
+}
+
+SEASTAR_THREAD_TEST_CASE(test_timer_arm_huge_duration_steady) {
+    test_timer_arm_huge_duration<steady_clock_type>();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_timer_arm_huge_duration_lowres) {
+    test_timer_arm_huge_duration<lowres_clock>();
+}
+
+// Nor may such a timer hold up the other timers of its clock. The wait is
+// bounded on the other clock, since this one's timers may be stuck.
+template <typename Clock, typename OtherClock>
+void test_timer_huge_duration_other_timers_fire() {
+    timer<Clock> huge([] {});
+    huge.arm(timer<Clock>::duration::max());
+
+    promise<> fired;
+    timer<Clock> t([&fired] { fired.set_value(); });
+    t.arm(10ms);
+    with_timeout(OtherClock::now() + 5s, fired.get_future()).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_timer_huge_duration_other_timers_fire_steady) {
+    test_timer_huge_duration_other_timers_fire<steady_clock_type, lowres_clock>();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_timer_huge_duration_other_timers_fire_lowres) {
+    test_timer_huge_duration_other_timers_fire<lowres_clock, steady_clock_type>();
 }
