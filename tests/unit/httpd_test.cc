@@ -1383,6 +1383,20 @@ SEASTAR_THREAD_TEST_CASE(test_client_repeated_transfer_encoding) {
     test_client_unsupported_transfer_encoding("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n");
 }
 
+SEASTAR_THREAD_TEST_CASE(test_client_invalid_content_length) {
+    loopback_connection_factory lcf(1);
+    auto ss = lcf.get_server_socket();
+    future<> server = serve_two_replies(ss, "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 6\r\n\r\nfirst");
+
+    future<> client = seastar::async([&lcf] {
+        auto cln = http::client(std::make_unique<loopback_http_factory>(lcf), 1, http::client::retry_requests::no);
+        auto close = deferred_close(cln);
+        BOOST_REQUIRE_THROW(get_body(cln), httpd::response_parsing_exception);
+    });
+
+    when_all_succeed(std::move(client), std::move(server)).get();
+}
+
 SEASTAR_TEST_CASE(test_client_retry_nested) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);
@@ -2291,6 +2305,18 @@ SEASTAR_TEST_CASE(test_conflicting_transfer_encoding_and_content_length) {
             "0\r\n\r\n"
         }, {"400 Bad Request", "Connection: close", "Conflicting Transfer-Encoding and Content-Length headers"}, false, new echo_string_handler());
     });
+}
+
+// A Content-Length that is not a single decimal number leaves the end of the
+// body unknown, so the request is rejected rather than framed by a guess that
+// a proxy in front of the server may not share.
+SEASTAR_TEST_CASE(test_invalid_content_length) {
+    for (auto cl : {"Content-Length: 5\r\nContent-Length: 50", "Content-Length: 5, 5", "Content-Length: 5abc",
+                    "Content-Length: -5", "Content-Length: +5", "Content-Length:", "Content-Length: 99999999999999999999999"}) {
+        co_await check_http_reply({
+            format("GET /test HTTP/1.1\r\nHost: test\r\n{}\r\n\r\nhello", cl),
+        }, {"400 Bad Request", "Connection: close", "Invalid Content-Length header"}, false, new echo_string_handler(), {"hello"});
+    }
 }
 
 SEASTAR_TEST_CASE(test_close_response) {
