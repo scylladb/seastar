@@ -677,7 +677,7 @@ void timer<Clock>::arm(time_point until, std::optional<duration> period) noexcep
 template <typename Clock>
 inline
 void timer<Clock>::readd_periodic() noexcept {
-    arm_state(Clock::now() + _period.value(), {_period.value()});
+    arm_state(internal::saturating_add(Clock::now(), _period.value()), {_period.value()});
     engine().queue_timer(this);
 }
 
