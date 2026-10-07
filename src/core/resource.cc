@@ -30,7 +30,9 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <limits>
+#include <optional>
 #include <filesystem>
+#include <map>
 #include <unordered_map>
 #include <seastar/core/internal/fmt.hh>
 #include <seastar/util/assert.hh>
@@ -384,7 +386,7 @@ struct distribute_objects {
 };
 
 static io_queue_topology
-allocate_io_queues(hwloc_topology_t topology, const std::vector<cpu>& cpus, const std::unordered_map<unsigned, hwloc_obj_t>& cpu_to_node, unsigned num_io_groups, unsigned& last_node_idx) {
+allocate_io_queues(const std::vector<cpu>& cpus, const std::unordered_map<unsigned, hwloc_obj_t>& cpu_to_node, unsigned num_io_groups, unsigned& last_node_idx) {
     auto node_of_shard = [&cpus, &cpu_to_node] (unsigned shard) {
         auto node = cpu_to_node.at(cpus[shard].cpu_id);
         return hwloc_bitmap_first(node->nodeset);
@@ -425,36 +427,64 @@ allocate_io_queues(hwloc_topology_t topology, const std::vector<cpu>& cpus, cons
         num_io_groups = cpus.size();
     }
 
-    auto find_shard = [&cpus] (unsigned cpu_id) {
-        auto idx = 0u;
-        for (auto& c: cpus) {
-            if (c.cpu_id == cpu_id) {
-                return idx;
-            }
-            idx++;
+    // Decide how many IO groups each node gets, looking only at the shards that
+    // were actually booted (see the numa_nodes comment above). Every node with
+    // shards gets a group first, larger nodes first if there are fewer groups
+    // than nodes. Each further group goes to the node with the most shards per
+    // group, and a node never gets more groups than it has shards.
+    std::map<unsigned, unsigned> node_groups;
+    for (auto& [node_id, shards] : numa_nodes) {
+        node_groups.emplace(node_id, 0);
+    }
+    // Returns true if the candidate node deserves the next IO group more than the current one
+    auto is_better = [&numa_nodes, &node_groups] (unsigned candidate, unsigned current) {
+        auto c_groups = node_groups.at(candidate);
+        auto c_shards = numa_nodes.at(candidate).size();
+        auto cur_groups = node_groups.at(current);
+        auto cur_shards = numa_nodes.at(current).size();
+        if (c_groups == 0 && cur_groups == 0) {
+            // Among nodes without a group, the larger wins
+            return c_shards > cur_shards;
         }
-        SEASTAR_ASSERT(0);
+        // The node with more shards per group wins. A node without a group
+        // always beats one with a group, since every node has shards.
+        return c_shards * cur_groups > cur_shards * c_groups;
     };
+    for (unsigned g = 0; g < num_io_groups; g++) {
+        std::optional<unsigned> best;
+        for (auto& [node_id, groups] : node_groups) {
+            if (groups == numa_nodes.at(node_id).size()) {
+                continue;
+            }
+            if (!best || is_better(node_id, *best)) {
+                best = node_id;
+            }
+        }
+        // num_io_groups <= cpus.size(), so some node always has room left
+        SEASTAR_ASSERT(best);
+        node_groups.at(*best)++;
+    }
 
-    auto cpu_sets = distribute_objects(topology, num_io_groups);
     ret.queues.resize(cpus.size());
     unsigned nr_groups = 0;
 
-    // First step: distribute the IO queues given the information returned in cpu_sets.
-    // If there is one IO queue per processor, only this loop will be executed.
+    // First step: pick the coordinators of each node's IO groups, spread evenly
+    // over the node's shards. If there is one IO queue per processor, only this
+    // loop will be executed.
     std::unordered_map<unsigned, std::vector<unsigned>> node_coordinators;
-    for (auto&& cs : cpu_sets()) {
-        auto io_coordinator = find_shard(hwloc_bitmap_first(cs));
-        unsigned group_idx = nr_groups++;
-        ret.shard_to_group[io_coordinator] = group_idx;
-        ret.shards_in_group[group_idx]++;
-
-        auto node_id = node_of_shard(io_coordinator);
-        if (node_coordinators.count(node_id) == 0) {
-            node_coordinators.emplace(node_id, std::vector<unsigned>());
+    for (auto& [node_id, groups] : node_groups) {
+        if (groups == 0) {
+            continue;
         }
-        node_coordinators.at(node_id).push_back(io_coordinator);
-        numa_nodes[node_id].erase(io_coordinator);
+        auto shards = std::vector<unsigned>(numa_nodes.at(node_id).begin(), numa_nodes.at(node_id).end());
+        for (unsigned g = 0; g < groups; g++) {
+            auto io_coordinator = shards[g * shards.size() / groups];
+            unsigned group_idx = nr_groups++;
+            ret.shard_to_group[io_coordinator] = group_idx;
+            ret.shards_in_group[group_idx]++;
+            node_coordinators[node_id].push_back(io_coordinator);
+            numa_nodes[node_id].erase(io_coordinator);
+        }
     }
 
     ret.groups.resize(nr_groups);
@@ -701,7 +731,7 @@ resources allocate(configuration& c) {
 
     unsigned last_node_idx = 0;
     for (auto q : c.io_queues) {
-        ret.ioq_topology.emplace(q, allocate_io_queues(topology, ret.cpus, cpu_to_node, c.num_io_groups, last_node_idx));
+        ret.ioq_topology.emplace(q, allocate_io_queues(ret.cpus, cpu_to_node, c.num_io_groups, last_node_idx));
     }
 
     ret.numa_node_id_to_cpuset = numa_node_id_to_cpuset(topology);
