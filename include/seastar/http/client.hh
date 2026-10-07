@@ -141,6 +141,10 @@ public:
      * finished, the reply can be additionally updated with trailing headers and chunk
      * extentions
      *
+     * \throws httpd::response_parsing_exception if the reply's Transfer-Encoding
+     *         is anything other than "chunked", since the end of the body
+     *         cannot be found then
+     *
      */
     input_stream<char> in(reply& rep);
 

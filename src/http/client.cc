@@ -184,8 +184,13 @@ future<reply> connection::make_request(request req) {
 }
 
 input_stream<char> connection::in(reply& rep) {
-    if (seastar::internal::case_insensitive_cmp()(rep.get_header("Transfer-Encoding"), "chunked")) {
-        return input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(_read_buf, rep.chunk_extensions, rep.trailing_headers, rep.left_content_length)));
+    if (auto te = rep._headers.find("Transfer-Encoding"); te != rep._headers.end()) {
+        if (seastar::internal::case_insensitive_cmp()(te->second, "chunked")) {
+            return input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(_read_buf, rep.chunk_extensions, rep.trailing_headers, rep.left_content_length)));
+        }
+        // Any other coding would have to be decoded to find where the body
+        // ends, so the rest of the connection cannot be read either.
+        throw httpd::response_parsing_exception(format("Unsupported Transfer-Encoding: \"{}\"", te->second));
     }
 
     return input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(_read_buf, rep.content_length, rep.left_content_length)));
