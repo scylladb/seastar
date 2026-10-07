@@ -196,10 +196,15 @@ namespace internal {
 template <typename T>
 struct lw_shared_ptr_accessors_esft {
     using concrete_type = std::remove_const_t<T>;
+    // to_value() and dispose() need T complete. The static_asserts say so
+    // explicitly, since include-what-you-use doesn't see it through the casts:
+    // https://github.com/include-what-you-use/include-what-you-use/issues/2136
     static T* to_value(lw_shared_ptr_counter_base* counter) {
+        static_assert(sizeof(T) > 0);
         return static_cast<T*>(counter);
     }
     static void dispose(lw_shared_ptr_counter_base* counter) {
+        static_assert(sizeof(T) > 0);
         dispose(static_cast<T*>(counter));
     }
     static void dispose(T* value_ptr) {
@@ -214,10 +219,15 @@ struct lw_shared_ptr_accessors_esft {
 template <typename T>
 struct lw_shared_ptr_accessors_no_esft {
     using concrete_type = lw_shared_ptr_no_esft<T>;
+    // to_value() and dispose() need T complete. The static_asserts say so
+    // explicitly, since include-what-you-use doesn't see it through the casts:
+    // https://github.com/include-what-you-use/include-what-you-use/issues/2136
     static T* to_value(lw_shared_ptr_counter_base* counter) {
+        static_assert(sizeof(T) > 0);
         return &static_cast<concrete_type*>(counter)->_value;
     }
     static void dispose(lw_shared_ptr_counter_base* counter) {
+        static_assert(sizeof(T) > 0);
         delete static_cast<concrete_type*>(counter);
     }
     static void dispose(T* value_ptr) {
