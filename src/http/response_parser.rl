@@ -73,11 +73,19 @@ action assign_field {
 }
 
 action extend_field  {
-    // RFC 7230, section 3.2.4.  Field Order:
-    // A server that receives an obs-fold in a request message that is not
-    // within a message/http container MUST either reject the message [...]
-    // or replace each received obs-fold with one or more SP octets [...]
-    _rsp->_headers[_field_name] += sstring(" ") + std::move(_value);
+    // RFC 9112, section 5.2.  Obsolete Line Folding:
+    // A user agent that receives an obs-fold in a response message that is
+    // not within a "message/http" container MUST replace each received
+    // obs-fold with one or more SP octets prior to interpreting the field
+    // value.
+    // A fold right after the colon leaves that SP leading the value, which
+    // is whitespace around the value rather than part of it, so it is not
+    // stored.
+    auto& field_value = _rsp->_headers[_field_name];
+    if (!field_value.empty()) {
+        field_value += " ";
+    }
+    field_value += _value;
 }
 
 action store_status {
