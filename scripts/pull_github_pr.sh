@@ -10,6 +10,25 @@
 
 set -e
 
+usage() {
+    echo "Usage: $0 <pull-request-number>"
+}
+
+while [[ "$1" == -* ]]; do
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option $1"
+            usage
+            exit 1
+            ;;
+    esac
+    shift
+done
+
 gh_hosts=~/.config/gh/hosts.yml
 FORCE="$2"
 
@@ -25,6 +44,7 @@ fi
 
 if [[ -z "$1" ]]; then
     echo Please provide a github pull request number
+    usage
     exit 1
 fi
 
