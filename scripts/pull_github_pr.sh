@@ -90,4 +90,6 @@ if [[ $nr_commits == 1 ]]; then
 else
     git merge --no-ff --log=1000 FETCH_HEAD -m "Merge '$PR_TITLE' from $USER_NAME" -m "${PR_DESCR}${closes}"
 fi
-git commit --amend # for a manual double-check
+# commentChar=auto keeps the editor's cleanup from eating lines of the pull
+# request description that start with a '#', e.g. markdown headings
+git -c core.commentChar=auto commit --amend # for a manual double-check
