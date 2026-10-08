@@ -2070,6 +2070,280 @@ SEASTAR_THREAD_TEST_CASE(test_stream_send_after_stream_close) {
     }).get();
 }
 
+// ---- frame batching ----
+
+namespace {
+
+// lz4 compressor that counts compress() calls, i.e. blobs sent.
+struct counting_compressor : public rpc::compressor {
+    std::unique_ptr<rpc::compressor> _delegate;
+    std::shared_ptr<int> _compress_calls;
+    explicit counting_compressor(std::shared_ptr<int> counter)
+        : _delegate(std::make_unique<rpc::lz4_fragmented_compressor>())
+        , _compress_calls(std::move(counter))
+    {}
+    rpc::snd_buf compress(size_t head_space, rpc::snd_buf data) override {
+        ++*_compress_calls;
+        return _delegate->compress(head_space, std::move(data));
+    }
+    rpc::rcv_buf decompress(rpc::rcv_buf data) override {
+        return _delegate->decompress(std::move(data));
+    }
+    sstring name() const override {
+        return "COUNTING";
+    }
+};
+
+struct counting_compressor_factory : public rpc::compressor::factory {
+    std::shared_ptr<int> compress_calls = std::make_shared<int>(0);
+    sstring _name = "COUNTING";
+    const sstring& supported() const override {
+        return _name;
+    }
+    std::unique_ptr<rpc::compressor> negotiate(sstring feature, bool is_server) const override {
+        if (feature == _name) {
+            return std::make_unique<counting_compressor>(compress_calls);
+        }
+        return nullptr;
+    }
+};
+
+// Shared config/options for the batching tests; callers may tweak them.
+std::pair<rpc_test_config, rpc::client_options> make_counting_rpc_config(
+        counting_compressor_factory& client_factory, counting_compressor_factory& server_factory) {
+    rpc::server_options so;
+    so.compressor_factory = &server_factory;
+    rpc::client_options co;
+    co.compressor_factory = &client_factory;
+    rpc_test_config cfg;
+    cfg.server_options = so;
+    return {cfg, co};
+}
+
+// Waits for all results, ignoring any exception.
+void drain_ignoring_errors(std::vector<future<int>>& results) {
+    for (auto& f : results) {
+        try {
+            (void)f.get();
+        } catch (...) {
+        }
+    }
+}
+
+} // anonymous namespace
+
+// Calls queued before the first sends are coalesced into one blob, including a no_wait call.
+SEASTAR_THREAD_TEST_CASE(test_rpc_batching_coalesces_compressed_frames) {
+    counting_compressor_factory client_factory, server_factory;
+    auto [cfg, co] = make_counting_rpc_config(client_factory, server_factory);
+    rpc_test_env<>::do_with_thread(cfg, co, [&] (rpc_test_env<>& env, test_rpc_proto::client& c1) {
+        std::atomic<int> one_way_calls = 0;
+        env.register_handler(1, [] (int x) { return make_ready_future<int>(x * 2); }).get();
+        env.register_handler(2, [&one_way_calls] (int) { one_way_calls++; return rpc::no_wait; }).get();
+        auto call = env.proto().make_client<int (int)>(1);
+        auto one_way = env.proto().make_client<rpc::no_wait_type (int)>(2);
+
+        constexpr int n = 10;
+        promise<> cont;
+        c1.suspend_for_testing(cont);
+        std::vector<future<int>> results;
+        results.reserve(n);
+        for (int i = 0; i < n; i++) {
+            results.push_back(call(c1, i));
+        }
+        auto one_way_done = one_way(c1, 42);
+        cont.set_value();
+        for (int i = 0; i < n; i++) {
+            BOOST_REQUIRE_EQUAL(results[i].get(), i * 2);
+        }
+        one_way_done.get();
+        BOOST_REQUIRE_EQUAL(one_way_calls.load(), 1);
+        // Everything fits within the caps, so one blob.
+        BOOST_REQUIRE_EQUAL(*client_factory.compress_calls, 1);
+    }).get();
+}
+
+// If either end lacks BATCH_FRAMES, each message goes in its own blob.
+SEASTAR_THREAD_TEST_CASE(test_rpc_batching_disabled_is_backward_compatible) {
+    counting_compressor_factory client_factory, server_factory;
+    auto [cfg, co] = make_counting_rpc_config(client_factory, server_factory);
+    cfg.server_options.batch_outgoing_frames = false; // pretend the server predates frame batching
+    rpc_test_env<>::do_with_thread(cfg, co, [&] (rpc_test_env<>& env, test_rpc_proto::client& c1) {
+        env.register_handler(1, [] (int x) { return make_ready_future<int>(x * 2); }).get();
+        auto call = env.proto().make_client<int (int)>(1);
+
+        constexpr int n = 10;
+        promise<> cont;
+        c1.suspend_for_testing(cont);
+        std::vector<future<int>> results;
+        results.reserve(n);
+        for (int i = 0; i < n; i++) {
+            results.push_back(call(c1, i));
+        }
+        cont.set_value();
+        for (int i = 0; i < n; i++) {
+            BOOST_REQUIRE_EQUAL(results[i].get(), i * 2);
+        }
+        BOOST_REQUIRE_EQUAL(*client_factory.compress_calls, n);
+    }).get();
+}
+
+// A message that expires while queued is dropped without breaking batching of the rest.
+SEASTAR_THREAD_TEST_CASE(test_rpc_batching_respects_timeouts) {
+    using namespace std::chrono_literals;
+    counting_compressor_factory client_factory, server_factory;
+    auto [cfg, co] = make_counting_rpc_config(client_factory, server_factory);
+    rpc_test_env<>::do_with_thread(cfg, co, [&] (rpc_test_env<>& env, test_rpc_proto::client& c1) {
+        env.register_handler(1, [] (int x) { return make_ready_future<int>(x * 2); }).get();
+        auto call = env.proto().make_client<int (int)>(1);
+
+        promise<> cont;
+        c1.suspend_for_testing(cont);
+        // f1 expires while suspended; f2 and f3 have no deadline.
+        auto f1 = call(c1, 10ms, 1);
+        auto f2 = call(c1, 2);
+        auto f3 = call(c1, 3);
+        seastar::sleep(200ms).get();
+        cont.set_value();
+        BOOST_REQUIRE_THROW(f1.get(), rpc::timeout_error);
+        BOOST_REQUIRE_EQUAL(f2.get(), 4);
+        BOOST_REQUIRE_EQUAL(f3.get(), 6);
+        // f1 is never sent; f2 and f3 share one blob.
+        BOOST_REQUIRE_EQUAL(*client_factory.compress_calls, 1);
+    }).get();
+}
+
+// The byte cap is hard; a message that alone exceeds it is still sent, alone.
+SEASTAR_THREAD_TEST_CASE(test_rpc_batching_byte_cap_is_hard) {
+    // Mirrors connection::max_batched_bytes (protected).
+    constexpr size_t max_batched_bytes = 128 * 1024;
+    counting_compressor_factory client_factory, server_factory;
+    auto [cfg, co] = make_counting_rpc_config(client_factory, server_factory);
+    rpc_test_env<>::do_with_thread(cfg, co, [&] (rpc_test_env<>& env, test_rpc_proto::client& c1) {
+        env.register_handler(1, [] (sstring s) { return make_ready_future<uint32_t>(uint32_t(s.size())); }).get();
+        auto call = env.proto().make_client<uint32_t (sstring)>(1);
+
+        sstring small = uninitialized_string(32);
+        std::fill(small.begin(), small.end(), 's');
+        sstring big = uninitialized_string(max_batched_bytes + 64 * 1024);
+        std::fill(big.begin(), big.end(), 'b');
+
+        promise<> cont;
+        c1.suspend_for_testing(cont);
+        // Queue: small, big (> cap alone), then 5 more smalls.
+        auto f_small0 = call(c1, small);
+        auto f_big = call(c1, big);
+        std::vector<future<uint32_t>> f_smalls;
+        for (int i = 0; i < 5; i++) {
+            f_smalls.push_back(call(c1, small));
+        }
+        cont.set_value();
+
+        BOOST_REQUIRE_EQUAL(f_small0.get(), small.size());
+        BOOST_REQUIRE_EQUAL(f_big.get(), big.size());
+        for (auto&& f : f_smalls) {
+            BOOST_REQUIRE_EQUAL(f.get(), small.size());
+        }
+        // First small solo, big alone, remaining 5 smalls in one blob.
+        BOOST_REQUIRE_EQUAL(*client_factory.compress_calls, 3);
+    }).get();
+}
+
+// Batched sink writes are flushed promptly by sink::flush() and arrive intact.
+SEASTAR_THREAD_TEST_CASE(test_rpc_batching_stream_flush) {
+    counting_compressor_factory client_factory, server_factory;
+    auto [cfg, co] = make_counting_rpc_config(client_factory, server_factory);
+    cfg.server_options.streaming_domain = rpc::streaming_domain_type(91);
+    rpc_test_env<>::do_with_thread(cfg, co, [&] (rpc_test_env<>& env, test_rpc_proto::client& c) {
+        constexpr int n = 30;
+        std::vector<int> received;
+        future<> server_done = make_ready_future<>();
+        env.register_handler(1, [&received, &server_done] (rpc::source<int> source) {
+            auto sink = source.make_sink<serializer, sstring>();
+            server_done = seastar::async([&received, source, sink] () mutable {
+                auto close_sink = deferred_close(sink);
+                // Drain until EOS so the source side can close before teardown.
+                for (;;) {
+                    auto data = source().get();
+                    if (!data) {
+                        break;
+                    }
+                    received.push_back(std::get<0>(*data));
+                }
+            });
+            return sink;
+        }).get();
+        auto call = env.proto().make_client<rpc::source<sstring> (rpc::sink<int>)>(1);
+        auto sink = c.make_stream_sink<serializer, int>(env.make_socket()).get();
+        auto source = call(c, sink).get();
+        (void)source;
+
+        for (int i = 0; i < n; i++) {
+            sink(i).get();
+        }
+        sink.flush().get();
+        // Sends EOS, ending the handler's read loop.
+        sink.close().get();
+        server_done.get();
+
+        BOOST_REQUIRE_EQUAL((int)received.size(), n);
+        for (int i = 0; i < n; i++) {
+            BOOST_REQUIRE_EQUAL(received[i], i);
+        }
+    }).get();
+}
+
+// Send failures mid-batch: every call resolves and teardown doesn't hang.
+SEASTAR_THREAD_TEST_CASE(test_rpc_batching_send_error_mid_batch) {
+    // limit=0 would fail the negotiation write itself.
+    for (int limit = 1; limit <= 6; limit++) {
+        counting_compressor_factory client_factory, server_factory;
+        auto [cfg, co] = make_counting_rpc_config(client_factory, server_factory);
+        rpc_loopback_error_injector::config ecfg;
+        ecfg.client_snd.limit = limit;
+        ecfg.client_snd.kind = loopback_error_injector::error::abort;
+        cfg.inject_error = ecfg;
+        rpc_test_env<>::do_with_thread(cfg, co, [&] (rpc_test_env<>& env, test_rpc_proto::client& c1) {
+            env.register_handler(1, [] (int x) { return make_ready_future<int>(x * 2); }).get();
+            auto call = env.proto().make_client<int (int)>(1);
+            promise<> cont;
+            c1.suspend_for_testing(cont);
+            std::vector<future<int>> results;
+            for (int i = 0; i < 8; i++) {
+                results.push_back(call(c1, i));
+            }
+            cont.set_value();
+            drain_ignoring_errors(results);
+        }).get();
+    }
+}
+
+// client::stop() racing with batch formation at various yield offsets must not hang.
+SEASTAR_THREAD_TEST_CASE(test_rpc_batching_stop_races_batch) {
+    for (int yields = 0; yields <= 5; yields++) {
+        counting_compressor_factory client_factory, server_factory;
+        auto [cfg, co] = make_counting_rpc_config(client_factory, server_factory);
+        rpc_test_env<>::do_with_thread(cfg, [&] (rpc_test_env<>& env) {
+            test_rpc_proto::client c1(env.proto(), co, env.make_socket(), ipv4_addr());
+            env.register_handler(1, [] (int x) { return make_ready_future<int>(x * 2); }).get();
+            auto call = env.proto().make_client<int (int)>(1);
+            BOOST_REQUIRE_EQUAL(call(c1, 21).get(), 42);
+            promise<> cont;
+            c1.suspend_for_testing(cont);
+            std::vector<future<int>> results;
+            for (int i = 0; i < 8; i++) {
+                results.push_back(call(c1, i));
+            }
+            cont.set_value();
+            for (int y = 0; y < yields; y++) {
+                seastar::yield().get();
+            }
+            c1.stop().get();
+            drain_ignoring_errors(results);
+        }).get();
+    }
+}
+
 SEASTAR_TEST_CASE(test_timeout_cancel) {
     rpc::client_options co;
     co.send_timeout_data = true;
