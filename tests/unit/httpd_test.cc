@@ -1397,6 +1397,34 @@ SEASTAR_THREAD_TEST_CASE(test_client_invalid_content_length) {
     when_all_succeed(std::move(client), std::move(server)).get();
 }
 
+// With neither Transfer-Encoding nor Content-Length, a response body runs
+// until the server closes the connection (RFC 9112 6.3).
+SEASTAR_THREAD_TEST_CASE(test_client_close_delimited_body) {
+    loopback_connection_factory lcf(1);
+    auto ss = lcf.get_server_socket();
+    future<> server = ss.accept().then([] (accept_result ar) {
+        return seastar::async([sk = std::move(ar.connection)] () mutable {
+            input_stream<char> in = sk.input();
+            output_stream<char> out = sk.output();
+            read_http_request_head(in);
+            out.write(sstring("HTTP/1.1 200 OK\r\n\r\nhello, ")).get();
+            out.flush().get();
+            out.write(sstring("world")).get();
+            out.flush().get();
+            out.close().get();
+        });
+    });
+
+    future<> client = seastar::async([&lcf] {
+        auto cln = http::client(std::make_unique<loopback_http_factory>(lcf), 1, http::client::retry_requests::no);
+        auto close = deferred_close(cln);
+        BOOST_REQUIRE_EQUAL(get_body(cln), "hello, world");
+        BOOST_REQUIRE_EQUAL(cln.idle_connections_nr(), 0);
+    });
+
+    when_all_succeed(std::move(client), std::move(server)).get();
+}
+
 SEASTAR_TEST_CASE(test_client_retry_nested) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);
