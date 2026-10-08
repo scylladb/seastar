@@ -2206,6 +2206,54 @@ SEASTAR_TEST_CASE(test_conflicting_transfer_encoding_and_content_length) {
     });
 }
 
+// RFC 9112 6.1: Transfer-Encoding in an HTTP/1.0 request means its framing
+// may be faulty, so the server closes the connection after responding, even
+// though the client asked to keep it alive.
+SEASTAR_TEST_CASE(test_http10_transfer_encoding_closes_connection) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        loopback_socket_impl lsi(lcf);
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+        future<> client = seastar::async([&lsi] {
+            connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get();
+            input_stream<char> input(c_socket.input());
+            output_stream<char> output(c_socket.output());
+
+            output.write(sstring(
+                "GET /test HTTP/1.0\r\nHost: test\r\nConnection: Keep-Alive\r\nTransfer-Encoding: chunked\r\n\r\n"
+                "5\r\nhello\r\n0\r\n\r\n"
+                "GET /test HTTP/1.0\r\nHost: test\r\nConnection: Keep-Alive\r\nContent-Length: 6\r\n\r\nsecond")).get();
+            output.flush().get();
+
+            auto replies = [] (std::string_view resp) {
+                size_t n = 0;
+                for (auto pos = resp.find("200 OK"); pos != std::string_view::npos; pos = resp.find("200 OK", pos + 1)) {
+                    ++n;
+                }
+                return n;
+            };
+            sstring resp;
+            for (auto r = input.read().get(); !r.empty(); r = input.read().get()) {
+                resp += to_sstring(std::move(r));
+                BOOST_REQUIRE_MESSAGE(replies(resp) < 2, "second request was served: " << resp);
+            }
+            BOOST_REQUIRE_EQUAL(replies(resp), 1);
+            BOOST_REQUIRE_NE(resp.find("hello"), std::string::npos);
+            BOOST_REQUIRE_EQUAL(resp.find("Keep-Alive"), std::string::npos);
+
+            input.close().get();
+            output.close().get();
+        });
+
+        server._routes.put(GET, "/test", new echo_string_handler());
+        server.do_accepts(0).get();
+
+        client.get();
+        server.stop().get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_close_response) {
     return check_http_reply({
         "GET /test HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n"
