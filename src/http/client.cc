@@ -183,6 +183,24 @@ future<reply> connection::make_request(request req) {
     });
 }
 
+// The body of a response with neither Transfer-Encoding nor Content-Length,
+// which runs until the server closes the connection.
+class close_delimited_source : public data_source_impl {
+    input_stream<char>& _inp;
+public:
+    explicit close_delimited_source(input_stream<char>& inp) noexcept : _inp(inp) {}
+
+    virtual future<temporary_buffer<char>> get() override {
+        return _inp.read();
+    }
+
+    virtual future<temporary_buffer<char>> skip(uint64_t n) override {
+        return _inp.skip(n).then([] {
+            return temporary_buffer<char>();
+        });
+    }
+};
+
 input_stream<char> connection::in(reply& rep) {
     if (auto te = rep._headers.find("Transfer-Encoding"); te != rep._headers.end()) {
         if (seastar::internal::case_insensitive_cmp()(te->second, "chunked")) {
@@ -192,7 +210,14 @@ input_stream<char> connection::in(reply& rep) {
         // ends, so the rest of the connection cannot be read either.
         throw httpd::response_parsing_exception(format("Unsupported Transfer-Encoding: \"{}\"", te->second));
     }
-    if (auto cl = rep._headers.find("Content-Length"); cl != rep._headers.end() && !http::internal::parse_content_length(cl->second)) {
+    auto cl = rep._headers.find("Content-Length");
+    if (cl == rep._headers.end()) {
+        // RFC 9112 6.3: the body runs until the server closes the
+        // connection, which therefore cannot be reused.
+        _persistent = false;
+        return input_stream<char>(data_source(std::make_unique<close_delimited_source>(_read_buf)));
+    }
+    if (!http::internal::parse_content_length(cl->second)) {
         throw httpd::response_parsing_exception(format("Invalid Content-Length: \"{}\"", cl->second));
     }
 
