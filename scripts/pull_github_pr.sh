@@ -7,15 +7,26 @@
 # git checkout master
 # git pull
 # ./scripts/pull_github_pr.sh 6007
+#
+# By default a single-commit pull request is cherry-picked, while a
+# multi-commit one is merged with a merge commit. With --squash all the
+# commits of the pull request are squashed into a single commit that uses
+# the pull request cover letter (its title and description) as the message:
+#
+# ./scripts/pull_github_pr.sh --squash 6007
 
 set -e
 
 usage() {
-    echo "Usage: $0 <pull-request-number>"
+    echo "Usage: $0 [--squash] <pull-request-number>"
 }
 
+SQUASH=
 while [[ "$1" == -* ]]; do
     case "$1" in
+        --squash)
+            SQUASH=yes
+            ;;
         -h|--help)
             usage
             exit 0
@@ -94,7 +105,29 @@ nr_commits=$(git log --pretty=oneline HEAD..FETCH_HEAD | wc -l)
 
 closes="${NL}${NL}Closes ${PROJECT}#${PR_NUM}${NL}"
 
-if [[ $nr_commits == 1 ]]; then
+if [[ -n "$SQUASH" ]]; then
+    # Squash the whole pull request into a single commit, using the pull
+    # request cover letter as the commit message. The commit is attributed
+    # to the author of the pull request's first commit.
+    author="$(git log --format="format:%an <%ae>" HEAD..FETCH_HEAD | tail -1)"
+    # github serves the description with CRLF line endings, and reports an
+    # empty cover letter as a null
+    descr="${PR_DESCR//$'\r'/}"
+    [[ "$descr" == null ]] && descr=""
+    if ! git merge --squash FETCH_HEAD; then
+        echo "Squash failed. You are now in a subshell. Resolve the conflicts and git add them, but do not commit, then exit the subshell. To give up, run git merge --abort first"
+        bash
+        if [[ -n "$(git ls-files --unmerged)" ]]; then
+            echo "Conflicts are still unresolved"
+            exit 1
+        fi
+        if git diff --cached --quiet; then
+            echo "Nothing to commit"
+            exit 1
+        fi
+    fi
+    git commit --author="$author" -m "$PR_TITLE" -m "${descr}${closes}"
+elif [[ $nr_commits == 1 ]]; then
     commit=$(git log --pretty=oneline HEAD..FETCH_HEAD | awk '{print $1}')
     message="$(git log -1 "$commit" --format="format:%s%n%n%b")"
     if ! git cherry-pick "$commit"; then
