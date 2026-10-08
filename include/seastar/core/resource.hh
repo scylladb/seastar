@@ -93,6 +93,9 @@ struct configuration {
     unsigned num_io_groups;
     hwloc::internal::topology_holder topology;
     bool overcommit = false;
+    // If false, shards are not pinned to their cpus and may run on any NUMA
+    // node, so the machine topology (hwloc) is not consulted at all.
+    bool thread_affinity = true;
 };
 
 struct memory {
