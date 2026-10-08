@@ -343,7 +343,9 @@ BOOST_AUTO_TEST_CASE(test_compares_left_hand_not_string) {
 BOOST_AUTO_TEST_CASE(test_fmt) {
 #if FMT_VERSION >= FMT_VERSION_OPTIONAL_FORMAT
     // https://github.com/llvm/llvm-project/issues/68849
+#ifndef __cpp_lib_optional_range_support
     std::ignore = fmt::format("{}", std::optional(sstring{"hello"}));
+#endif
 #endif
     std::vector<sstring> strings;
     std::ignore = fmt::format("{}", strings);
