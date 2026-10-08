@@ -212,7 +212,7 @@ server_socket::~server_socket() {
 }
 
 future<accept_result> server_socket::accept() {
-    if (_aborted) {
+    if (_aborted || !_ssi) {
         return make_exception_future<accept_result>(std::system_error(ECONNABORTED, std::system_category()));
     }
     return _ssi->accept();
