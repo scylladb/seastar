@@ -36,6 +36,10 @@
 #include <ostream>
 #include <functional>
 #include <type_traits>
+#include <version>
+#ifdef __cpp_lib_format
+#include <format>
+#endif
 #include <seastar/core/internal/fmt.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/core/temporary_buffer.hh>
@@ -923,4 +927,17 @@ struct fmt::formatter<seastar::basic_sstring<char_type, Size, max_size, NulTermi
         return base::format(format_as_t{s.c_str(), s.size()}, ctx);
     }
 };
+
+#ifdef __cpp_lib_format
+
+// std::format() does not use the fmt::formatter above.  Without this
+// specialization, it would format basic_sstring as a range of characters,
+// e.g. ['a', 'b', 'c'] rather than abc.
+
+template <typename char_type, typename Size, Size max_size, bool NulTerminate>
+struct std::formatter<seastar::basic_sstring<char_type, Size, max_size, NulTerminate>, char_type>
+    : public std::formatter<std::basic_string_view<char_type>, char_type> {
+};
+
+#endif
 

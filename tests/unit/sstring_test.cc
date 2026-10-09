@@ -349,6 +349,26 @@ BOOST_AUTO_TEST_CASE(test_fmt) {
     std::ignore = fmt::format("{}", strings);
 }
 
+BOOST_AUTO_TEST_CASE(test_fmt_format) {
+    sstring s("abc");
+    BOOST_REQUIRE_EQUAL(fmt::format("{}", s), "abc");
+    BOOST_REQUIRE_EQUAL(fmt::format("{:>5}", s), "  abc");
+    BOOST_REQUIRE_EQUAL(fmt::format("{}", std::vector<sstring>{s, "d"}), R"(["abc", "d"])");
+}
+
+#ifdef __cpp_lib_format
+BOOST_AUTO_TEST_CASE(test_std_format) {
+    sstring s("abc");
+    BOOST_REQUIRE_EQUAL(std::format("{}", s), "abc");
+    BOOST_REQUIRE_EQUAL(std::format("{:>5}", s), "  abc");
+    BOOST_REQUIRE_EQUAL(std::format("{:.2}", s), "ab");
+#ifdef __cpp_lib_format_ranges
+    BOOST_REQUIRE_EQUAL(std::format("{:?}", s), R"("abc")");
+    BOOST_REQUIRE_EQUAL(std::format("{}", std::vector<sstring>{s, "d"}), R"(["abc", "d"])");
+#endif
+}
+#endif
+
 
 // A std::allocator lookalike, only to check that operator+ accepts a
 // std::basic_string with an allocator other than the default one.
