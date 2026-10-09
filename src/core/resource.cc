@@ -569,7 +569,13 @@ numa_node_id_to_cpuset(hwloc_topology_t topo) {
     return ret;
 }
 
+static resources allocate_without_topology(configuration& c);
+
 resources allocate(configuration& c) {
+    if (!c.thread_affinity) {
+        // Shards may run on any cpu, so NUMA placement is meaningless
+        return allocate_without_topology(c);
+    }
     auto topology = c.topology.get();
     auto bm = hwloc_bitmap_alloc();
     auto free_bm = defer([&] () noexcept { hwloc_bitmap_free(bm); });
@@ -747,54 +753,83 @@ unsigned nr_processing_units(configuration& c) {
 
 }
 
-#else
+#endif
 
 namespace seastar {
 
 namespace resource {
 
-// Without hwloc, we don't support tuning the number of IO queues. So each CPU gets their.
+// Without a topology, shards are split into num_io_groups contiguous ranges
+// of (nearly) equal size, regardless of NUMA nodes.
 static io_queue_topology
-allocate_io_queues(configuration c, std::vector<cpu> cpus) {
+allocate_io_queues_without_topology(const configuration& c, const std::vector<cpu>& cpus) {
     io_queue_topology ret;
 
     unsigned nr_cpus = unsigned(cpus.size());
+    unsigned num_io_groups = c.num_io_groups;
+    if (num_io_groups == 0) {
+        num_io_groups = 1;
+    } else if (num_io_groups > nr_cpus) {
+        fmt::print("Warning: number of IO queues ({:d}) greater than logical cores ({:d}). Adjusting downwards.\n", num_io_groups, nr_cpus);
+        num_io_groups = nr_cpus;
+    }
     ret.queues.resize(nr_cpus);
     ret.shard_to_group.resize(nr_cpus);
-    ret.shards_in_group.resize(1, 0);
-    ret.groups.resize(1);
+    ret.shards_in_group.resize(num_io_groups, 0);
+    ret.groups.resize(num_io_groups);
 
     for (unsigned shard = 0; shard < nr_cpus; ++shard) {
-        ret.shard_to_group[shard] = 0;
-        ret.shards_in_group[0]++;
+        auto group_idx = shard * num_io_groups / nr_cpus;
+        ret.shard_to_group[shard] = group_idx;
+        ret.shards_in_group[group_idx]++;
     }
     return ret;
 }
 
 
-resources allocate(configuration& c) {
+// Allocates resources without consulting the machine topology. Used when
+// hwloc is not available, or when shards are not pinned to their cpus and
+// so cannot benefit from NUMA locality anyway. All memory is reported as
+// belonging to NUMA node 0.
+static resources allocate_without_topology(configuration& c) {
     resources ret;
 
-    auto available_memory = get_machine_memory_from_sysconf();
-    auto mem = calculate_memory(c, available_memory);
     auto procs = c.cpus;
+    if (!c.overcommit && procs > c.cpu_set.size()) {
+        throw std::runtime_error(format("insufficient processing units: needed {} available {}", procs, c.cpu_set.size()));
+    }
+    auto available_memory = std::min<size_t>(get_machine_memory_from_sysconf(), cgroup::memory_limit());
+    auto mem = calculate_memory(c, available_memory);
     ret.cpus.reserve(procs);
     seastar::memory::internal::global_setup(procs);
     auto mem_per_proc = seastar::memory::internal::per_shard_memory(mem, procs);
-    for (auto cpuid : c.cpu_set) {
-        ret.cpus.push_back(cpu{cpuid, {{mem_per_proc, 0}}});
+    // With overcommit there may be more shards than cpus, so wrap around
+    auto cpu_it = c.cpu_set.begin();
+    for (unsigned i = 0; i < procs; ++i) {
+        if (cpu_it == c.cpu_set.end()) {
+            cpu_it = c.cpu_set.begin();
+        }
+        ret.cpus.push_back(cpu{*cpu_it++, {{mem_per_proc, 0}}});
     }
 
-    ret.ioq_topology.emplace(0, allocate_io_queues(c, ret.cpus));
+    for (auto q : c.io_queues) {
+        ret.ioq_topology.emplace(q, allocate_io_queues_without_topology(c, ret.cpus));
+    }
     return ret;
+}
+
+#ifndef SEASTAR_HAVE_HWLOC
+
+resources allocate(configuration& c) {
+    return allocate_without_topology(c);
 }
 
 unsigned nr_processing_units(configuration&) {
     return ::sysconf(_SC_NPROCESSORS_ONLN);
 }
 
-}
-
-}
-
 #endif
+
+}
+
+}
