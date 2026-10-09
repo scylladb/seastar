@@ -890,7 +890,11 @@ void performance_test::register_test(std::unique_ptr<performance_test> test)
     all_tests().emplace_back(std::move(test));
 }
 
-void run_all(const std::vector<std::string>& test_patterns, config& conf) {
+// Returns the tests selected by the -t patterns, in the order they run. A test
+// is selected if its full <group>.<name> matches any pattern, or if there are
+// no patterns. Prints a warning and throws if patterns are given but select
+// nothing.
+std::vector<performance_test*> select_tests(const std::vector<std::string>& test_patterns) {
     std::vector<std::regex> regexes;
     regexes.reserve(test_patterns.size());
     for (auto& pat : test_patterns) {
@@ -903,21 +907,28 @@ void run_all(const std::vector<std::string>& test_patterns, config& conf) {
         }
         return false;
     };
-    size_t max_name_column_length = 0;
-    size_t matched_count = 0;
+    std::vector<performance_test*> selected;
     for (auto& t : all_tests()) {
         if (match(t.get())) {
-            max_name_column_length = std::max(max_name_column_length, t->name().size());
-            ++matched_count;
+            selected.push_back(t.get());
         }
     }
-    if (!regexes.empty() && matched_count == 0) {
+    if (!regexes.empty() && selected.empty()) {
         fmt::print(stderr, "WARNING: no tests matched the given pattern(s):");
         for (auto& pat : test_patterns) {
             fmt::print(stderr, " '{}'", pat);
         }
         fmt::print(stderr, "\n");
         throw std::runtime_error("no tests matched the given pattern(s)");
+    }
+    return selected;
+}
+
+void run_all(const std::vector<std::string>& test_patterns, config& conf) {
+    auto tests = select_tests(test_patterns);
+    size_t max_name_column_length = 0;
+    for (auto t : tests) {
+        max_name_column_length = std::max(max_name_column_length, t->name().size());
     }
 
     for (auto p : parameters) {
@@ -929,10 +940,8 @@ void run_all(const std::vector<std::string>& test_patterns, config& conf) {
         rp->print_configuration(conf);
     }
     auto run_start = clock_type::now();
-    for (auto& t : all_tests()) {
-        if (match(t.get())) {
-            t->run(conf);
-        }
+    for (auto t : tests) {
+        t->run(conf);
     }
     auto total_duration = clock_type::now() - run_start;
     for (auto& rp : conf.printers) {
@@ -966,7 +975,7 @@ int main(int ac, char** av)
             "Either 'all' or comma-separated list of columns for which to show MAD as a percentage of median")
         ("columns", bpo::value<std::string>()->default_value("all"),
             "comma separated list of column (by name) to include in text/md output, or 'all'")
-        ("list", "list available tests")
+        ("list", "list available tests, filtered by -t if given")
         ("overhead-threshold", bpo::value<double>()->default_value(0.1),
             "warn if overhead exceeds this ratio (default: 0.1 = 10%)")
         ("fail-on-high-overhead", "fail the test run if any test exceeds the overhead threshold")
@@ -1008,8 +1017,10 @@ int main(int ac, char** av)
             }
 
             if (app.configuration().count("list")) {
+                // select first, so a -t that matches nothing prints nothing to stdout
+                auto tests = select_tests(tests_to_run);
                 fmt::print("available tests:\n");
-                for (auto&& t : all_tests()) {
+                for (auto t : tests) {
                     fmt::print("\t{}\n", t->name());
                 }
                 return;

@@ -27,7 +27,7 @@ parallel_for_each.suspend_10   37326290    26.54ns ± 0.48%      1.300      1.30
 * `-d <t>` or `--duration <t>` - limits the duration of each run to no more than `t` seconds (0 for unlimited)
 * `-r <n>` or `--runs <n>` - the number of runs of each test to execute
 * `-t <regex>` or `--test <regex>` - executes only tests whose full name, `<group>.<name>`, matches the regular expression `regex`. The whole name must match, so a group is selected with e.g. `-t 'example\..*'`. Can be given more than once, in which case a test is executed if it matches any of the expressions. If no test matches, a warning is printed and the run fails
-* `--list` - lists all available tests
+* `--list` - lists all tests (or all filtered by `-t` if specified)
 * `--overhead-threshold <ratio>` - warn if the measurement overhead of a test exceeds this fraction of its runtime (default: 0.1, i.e. 10%)
 * `--fail-on-high-overhead` - fail the test run if any test exceeds the overhead threshold
 * `--no-perf-counters` - do not read the hardware performance counters, so `inst` and `cycles` are reported as 0. This is useful when running the benchmark under perf which will capture its own counters (to avoid multiplexing). This also makes starting and stopping the timers much cheaper (see [Measurement overhead](#measurement-overhead))
