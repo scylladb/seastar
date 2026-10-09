@@ -25,6 +25,7 @@ parallel_for_each.suspend_10   37326290    26.54ns ± 0.48%      1.300      1.30
 
 * `-i <n>` or `--iterations <n>` - limits the number of iterations in each run to no more than `n` (0 for unlimited)
 * `-d <t>` or `--duration <t>` - limits the duration of each run to no more than `t` seconds (0 for unlimited)
+* `--iterations-from-file <file>` - sets the iterations in each run per test, from a JSON object mapping test names to counts, e.g. `{"group.test": 30000}`
 * `-r <n>` or `--runs <n>` - the number of runs of each test to execute
 * `-t <regex>` or `--test <regex>` - executes only tests whose full name, `<group>.<name>`, matches the regular expression `regex`. The whole name must match, so a group is selected with e.g. `-t 'example\..*'`. Can be given more than once, in which case a test is executed if it matches any of the expressions. If no test matches, a warning is printed and the run fails
 * `--list` - lists all available tests

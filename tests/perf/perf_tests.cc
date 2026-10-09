@@ -37,6 +37,7 @@ using namespace seastar;
 #include <array>
 
 #include <fmt/ostream.h>
+#include <yaml-cpp/yaml.h>
 
 #include <seastar/core/app-template.hh>
 #include <seastar/core/thread.hh>
@@ -305,7 +306,20 @@ struct config {
     unsigned random_seed = 0;
     double overhead_threshold = 0.1;  // warn if overhead exceeds this ratio (e.g., 0.1 = 10%)
     bool fail_on_high_overhead = false;  // fail the test run if overhead exceeds threshold
+    // --iterations-from-file, and the iterations in a single run of each test it lists
+    std::string iterations_file;
+    std::unordered_map<std::string, uint64_t> iterations_by_test;
 };
+
+// A test with an iteration count from --iterations-from-file runs its dry run
+// for up to this multiple of --duration, so the dry run normally completes the
+// count and acts as a warm-up, while a count that no longer fits the duration
+// is still capped.
+static constexpr unsigned file_iterations_duration_factor = 10;
+
+// A test with an iteration count from --iterations-from-file whose runs take
+// more than this factor longer or shorter than --duration gets a warning.
+static constexpr double file_iterations_drift_factor = 4;
 
 // absorbs a single metric across all runs and calculates summary statistics
 // on it
@@ -793,7 +807,21 @@ static std::FILE* maybe_open(const sstring& filename) {
 
 void performance_test::do_run(const config& conf)
 {
-    _max_single_run_iterations = conf.single_run_iterations;
+    auto iterations = conf.single_run_iterations;
+    auto dry_run_duration = conf.single_run_duration;
+    bool missing_from_file = false;
+    bool from_file = false;
+    if (!conf.iterations_file.empty()) {
+        if (auto it = conf.iterations_by_test.find(name()); it != conf.iterations_by_test.end()) {
+            iterations = it->second;
+            dry_run_duration *= file_iterations_duration_factor;
+            from_file = true;
+        } else {
+            missing_from_file = true;
+        }
+    }
+
+    _max_single_run_iterations = iterations;
     if (!_max_single_run_iterations) {
         _max_single_run_iterations = std::numeric_limits<uint64_t>::max();
     }
@@ -803,10 +831,10 @@ void performance_test::do_run(const config& conf)
     });
 
     // dry run, estimate the number of iterations
-    if (conf.single_run_duration.count()) {
+    if (dry_run_duration.count()) {
         // switch out of seastar thread
         yield().then([&] {
-            tmr.arm(conf.single_run_duration);
+            tmr.arm(dry_run_duration);
             return do_single_run().finally([&] {
                 tmr.cancel();
                 _max_single_run_iterations = _single_run_iterations;
@@ -814,15 +842,22 @@ void performance_test::do_run(const config& conf)
         }).get();
     }
 
+    if (missing_from_file) {
+        fmt::print("WARNING: test '{}' not found in iterations file {}, running {} iterations per run\n",
+                   name(), conf.iterations_file, _max_single_run_iterations.load());
+    }
+
     result r{conf.number_of_runs};
 
     uint64_t total_iterations = 0;
+    clock_type::duration total_run_time{0};
     for (auto i = 0u; i < conf.number_of_runs; i++) {
         // switch out of seastar thread
         yield().then([&] {
             _single_run_iterations = 0;
             return do_single_run().then([&] (run_result rr) {
                 clock_type::duration dt = rr.duration;
+                total_run_time += dt;
                 double ns = std::chrono::duration_cast<std::chrono::nanoseconds>(dt).count();
 
                 auto add = [this](auto& m, double value) {
@@ -844,6 +879,15 @@ void performance_test::do_run(const config& conf)
                 r.overhead.add(overhead_ratio, 1.0);  // already per-run, not per-iteration
             });
         }).get();
+    }
+
+    auto run_s = std::chrono::duration<double>(total_run_time).count() / conf.number_of_runs;
+    auto target_s = std::chrono::duration<double>(conf.single_run_duration).count();
+    if (from_file && target_s && (run_s > target_s * file_iterations_drift_factor
+                                  || run_s < target_s / file_iterations_drift_factor)) {
+        auto count = _max_single_run_iterations.load();
+        fmt::print("WARNING: test '{}' takes {:.3f}s per run of {} iterations, against --duration {:.3f}s, "
+                   "{} iterations would fit\n", name(), run_s, count, target_s, uint64_t(count * target_s / run_s));
     }
 
     r.test_name = name();
@@ -955,6 +999,9 @@ int main(int ac, char** av)
             "number of iterations in a single run")
         ("duration,d", bpo::value<double>()->default_value(1),
             "duration of a single run in seconds")
+        ("iterations-from-file", bpo::value<std::string>(),
+            "JSON file mapping test names to the number of iterations in a single run, "
+            "which overrides --iterations for the tests it lists")
         ("runs,r", bpo::value<size_t>()->default_value(5), "number of runs")
         ("test,t", bpo::value<std::vector<std::string>>(), "tests to execute")
         ("random-seed,S", bpo::value<unsigned>()->default_value(0),
@@ -989,6 +1036,12 @@ int main(int ac, char** av)
             conf.random_seed = app.configuration()["random-seed"].as<unsigned>();
             conf.overhead_threshold = app.configuration()["overhead-threshold"].as<double>();
             conf.fail_on_high_overhead = app.configuration().count("fail-on-high-overhead") > 0;
+            if (app.configuration().count("iterations-from-file")) {
+                conf.iterations_file = app.configuration()["iterations-from-file"].as<std::string>();
+                for (auto&& entry : YAML::LoadFile(conf.iterations_file)) {
+                    conf.iterations_by_test.emplace(entry.first.as<std::string>(), entry.second.as<uint64_t>());
+                }
+            }
 
             std::vector<std::string> tests_to_run;
             if (app.configuration().count("test")) {
