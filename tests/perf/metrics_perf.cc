@@ -117,7 +117,8 @@ struct metrics_perf_fixture {
     seastar::future<size_t> run_metrics_bench(
         size_t group_count, size_t families_per_group, size_t series_per_family, data_type type,
         bool enable_aggregation = false, bool use_protobuf = false,
-        family_filter_t family_filter = [](std::string_view) { return true; }) {
+        family_filter_t family_filter = [](std::string_view) { return true; },
+        size_t label_count = 0, size_t label_value_len = 0) {
         using namespace seastar;
         using namespace seastar::metrics;
 
@@ -159,6 +160,15 @@ struct metrics_perf_fixture {
                     auto l = label0;
 
                     std::vector<label_instance> labels{label0, label1, label2};
+                    if (label_count) {
+                        // label_count generated labels (replacing the 3 above), values padded to label_value_len
+                        labels.clear();
+                        for (auto n : irange(label_count)) {
+                            auto value = fmt::format("v{}_{}", n, label_id);
+                            value.resize(std::max(value.size(), label_value_len), 'x');
+                            labels.push_back(label(fmt::format("label_{:02}", n))(value));
+                        }
+                    }
 
                     auto impl = [&] {
                         if (type == data_type::COUNTER) {
@@ -272,6 +282,28 @@ PERF_TEST_CN(metrics_perf_fixture, test_histogram_protobuf) {
 
 PERF_TEST_CN(metrics_perf_fixture, test_histogram_aggr) {
     co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM, true);
+}
+
+// Histograms with a varying number of labels: the shared label body is
+// rendered once per histogram rather than once per bucket.
+PERF_TEST_CN(metrics_perf_fixture, test_histogram_1_label) {
+    co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM, false, false, [](std::string_view) { return true; }, 1, 0);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_histogram_5_labels) {
+    co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM, false, false, [](std::string_view) { return true; }, 5, 0);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_histogram_15_labels) {
+    co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM, false, false, [](std::string_view) { return true; }, 15, 0);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_histogram_5_labels_long_values) {
+    co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM, false, false, [](std::string_view) { return true; }, 5, 40);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_histogram_15_labels_long_values) {
+    co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM, false, false, [](std::string_view) { return true; }, 15, 40);
 }
 
 PERF_TEST_CN(metrics_perf_fixture, test_name_filter_exact_match) {
