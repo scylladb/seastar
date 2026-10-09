@@ -174,8 +174,8 @@ public:
         auto extra = accumulated_in(delta);
 
         if (extra >= _replenish_threshold) {
-            if (!_replenished.compare_exchange_weak(ts, ts + delta)) {
-                return; // next time or another shard
+            if (!_replenished.compare_exchange_strong(ts, ts + delta)) {
+                return; // another shard replenished
             }
 
             fetch_add(_rovers.head, std::min(extra, _rovers.max_extra(_replenish_limit)));
