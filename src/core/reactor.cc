@@ -3402,14 +3402,11 @@ int reactor::do_run() {
     poller sig_poller(std::make_unique<signal_pollfn>(*this));
 
     using namespace std::chrono_literals;
-    auto last_idle = _total_idle;
-    auto idle_start = now(), idle_end = idle_start;
-    _load_timer.set_callback([this, &last_idle, &idle_start, &idle_end] () mutable {
-        _total_idle += idle_end - idle_start;
+    _load_timer.set_callback([this, last_idle = sched_clock::duration(0)] () mutable {
+        update_idle();
         auto load = double((_total_idle - last_idle).count()) / double(std::chrono::duration_cast<sched_clock::duration>(1s).count());
         last_idle = _total_idle;
         load = std::min(load, 1.0);
-        idle_start = idle_end;
         _load -= _loads.back() / loads_size;
         _loads.pop_back();
         _loads.push_front(load);
@@ -3427,7 +3424,12 @@ int reactor::do_run() {
     auto r = sigaction(internal::cpu_stall_detector::signal_number(), &sa_block_notifier, nullptr);
     SEASTAR_ASSERT(r == 0);
 
-    bool idle = false;
+    // While the reactor is in a run of empty polls, when the run began, which
+    // decides when to sleep. Tasks end the idle period but not the run, so
+    // when the tasks a wakeup made runnable leave nothing else to do, the
+    // reactor sleeps again after one empty poll rather than polling for
+    // max_poll_time first.
+    std::optional<sched_clock::time_point> idle_poll_start;
 
     auto check_for_work = [this] () {
         return poll_once() || have_more_tasks();
@@ -3436,6 +3438,12 @@ int reactor::do_run() {
         return pure_poll_once() || have_more_tasks();
     };
     while (true) {
+        // Tasks can become runnable while idle without a poll reporting work,
+        // e.g. from the events that woke us or from a poller's last check
+        // before sleeping.
+        if (have_more_tasks()) {
+            end_idle();
+        }
         _cpu_sched.run_some_tasks();
         if (_stopped) {
             break;
@@ -3445,16 +3453,13 @@ int reactor::do_run() {
 
         lowres_clock::update(); // Don't delay expiring lowres timers
         if (check_for_work()) {
-            if (idle) {
-                _total_idle += idle_end - idle_start;
-                idle_start = idle_end;
-                idle = false;
-            }
+            end_idle();
+            idle_poll_start.reset();
         } else {
-            idle_end = now();
-            if (!idle) {
-                idle_start = idle_end;
-                idle = true;
+            auto t = now();
+            mark_idle(t);
+            if (!idle_poll_start) {
+                idle_poll_start = t;
             }
             bool go_to_sleep = true;
             try {
@@ -3468,7 +3473,7 @@ int reactor::do_run() {
             }
             if (go_to_sleep) {
                 internal::cpu_relax();
-                if (idle_end - idle_start > _cfg.max_poll_time) {
+                if (t - *idle_poll_start > _cfg.max_poll_time) {
                     if (pollers_enter_interrupt_mode()) {
                         // Turn off the task quota timer to avoid spurious wakeups
                         struct itimerspec zero_itimerspec = {};
@@ -3479,8 +3484,8 @@ int reactor::do_run() {
                         pollers_exit_interrupt_mode();
 
                         _cpu_stall_detector->end_sleep();
-                        // We may have slept for a while, so freshen idle_end
-                        idle_end = now();
+                        // We may have slept for a while, so freshen _idle_end
+                        mark_idle(now());
                         _task_quota_timer.timerfd_settime(0, task_quote_itimerspec);
                     }
                 }
@@ -5032,8 +5037,32 @@ steady_clock_type::duration reactor::total_idle_time() const {
     return _total_idle;
 }
 
+void reactor::mark_idle(sched_clock::time_point t) noexcept {
+    _idle_end = t;
+    if (!_idle_start) {
+        _idle_start = t;
+    }
+}
+
+void reactor::update_idle() noexcept {
+    if (_idle_start) {
+        _total_idle += _idle_end - *_idle_start;
+        _idle_start = _idle_end;
+    }
+}
+
+void reactor::end_idle() noexcept {
+    update_idle();
+    _idle_start.reset();
+}
+
 steady_clock_type::duration reactor::total_busy_time() const {
-    return now() - _start_time - _total_idle;
+    // Busy time is exported as a counter, so it must never decrease. While the
+    // reactor is idle it holds at its value from the start of the idle period.
+    // Ending the period adds at most the time elapsed since then to _total_idle,
+    // so the value can only go up from there.
+    auto end = _idle_start ? *_idle_start : now();
+    return end - _start_time - _total_idle;
 }
 
 steady_clock_type::duration reactor::total_awake_time() const {
