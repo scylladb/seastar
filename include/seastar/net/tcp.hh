@@ -28,6 +28,7 @@
 #include <random>
 #include <span>
 #include <system_error>
+#include <type_traits>
 #include <seastar/core/internal/md5.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/queue.hh>
@@ -44,6 +45,20 @@
 namespace seastar {
 
 using namespace std::chrono_literals;
+
+namespace internal {
+
+template <typename InetTraits, typename = void>
+struct tcp_clock_type {
+    using type = lowres_clock;
+};
+
+template <typename InetTraits>
+struct tcp_clock_type<InetTraits, std::void_t<typename InetTraits::tcp_clock_type>> {
+    using type = typename InetTraits::tcp_clock_type;
+};
+
+}
 
 namespace net {
 
@@ -297,7 +312,8 @@ private:
     class tcb;
 
     class tcb : public enable_lw_shared_from_this<tcb> {
-        using clock_type = lowres_clock;
+        using clock_type = typename internal::tcp_clock_type<InetTraits>::type;
+        enum class receive_data_cleanup { discard, preserve };
         static constexpr tcp_state CLOSED         = tcp_state::CLOSED;
         static constexpr tcp_state LISTEN         = tcp_state::LISTEN;
         static constexpr tcp_state SYN_SENT       = tcp_state::SYN_SENT;
@@ -383,7 +399,7 @@ private:
             size_t max_receive_buf_size = 3737600;
         } _rcv;
         tcp_option _option;
-        timer<lowres_clock> _delayed_ack;
+        timer<clock_type> _delayed_ack;
         // Retransmission timeout
         std::chrono::milliseconds _rto{1000};
         std::chrono::milliseconds _persist_time_out{1000};
@@ -392,8 +408,12 @@ private:
         // Clock granularity
         static constexpr std::chrono::milliseconds _rto_clk_granularity{1};
         static constexpr uint16_t _max_nr_retransmit{5};
-        timer<lowres_clock> _retransmit;
-        timer<lowres_clock> _persist;
+        timer<clock_type> _retransmit;
+        timer<clock_type> _persist;
+        // RFC 9293 defines MSL as two minutes; TIME_WAIT lasts twice MSL.
+        static constexpr std::chrono::seconds _msl{120};
+        static constexpr auto _time_wait_duration = 2 * _msl;
+        timer<clock_type> _time_wait;
         uint16_t _nr_full_seg_received = 0;
         struct isn_secret {
             // 512 bits secretkey for ISN generating
@@ -425,6 +445,7 @@ private:
         tcb(tcp& t, connid id);
         void input_handle_listen_state(tcp_hdr* th, packet p);
         void input_handle_syn_sent_state(tcp_hdr* th, packet p);
+        void input_handle_time_wait_state(tcp_hdr* th, packet p);
         void input_handle_other_state(tcp_hdr* th, packet p);
         void output_one(bool data_retransmit = false);
         future<> wait_for_data();
@@ -507,7 +528,8 @@ private:
         void fast_retransmit();
         void update_rto(clock_type::time_point tx_time);
         void update_cwnd(uint32_t acked_bytes);
-        void cleanup();
+        void clear_transmit_state();
+        void cleanup(receive_data_cleanup mode = receive_data_cleanup::discard);
         uint32_t can_send() {
             if (_snd.window_probe) {
                 return 1;
@@ -616,13 +638,18 @@ private:
             }
         }
         void do_time_wait() {
-            // FIXME: Implement TIME_WAIT state timer
             _state = TIME_WAIT;
-            cleanup();
+            clear_transmit_state();
+            _rcv.out_of_order.map.clear();
+            _time_wait.rearm(clock_type::now() + _time_wait_duration);
+            // Replace queued FINs and old ACKs with an ACK for the received FIN.
+            // An existing output request will pick up this new packet.
+            output_one();
+            output();
         }
-        void do_closed() {
+        void do_closed(receive_data_cleanup mode = receive_data_cleanup::discard) {
             _state = CLOSED;
-            cleanup();
+            cleanup(mode);
         }
         void do_setup_isn() {
             _snd.initial = get_isn();
@@ -938,10 +965,13 @@ void tcp<InetTraits>::received(packet p, ipaddr from, ipaddr to) {
         if (tcbp->state() == tcp_state::SYN_SENT) {
             // 3) In SYN_SENT State
             return tcbp->input_handle_syn_sent_state(&h, std::move(p));
+        } else if (tcbp->state() == tcp_state::TIME_WAIT) {
+            // 4) In TIME_WAIT State
+            return tcbp->input_handle_time_wait_state(&h, std::move(p));
         } else {
-            // 4) In other state, can be one of the following:
+            // 5) In other state, can be one of the following:
             // SYN_RECEIVED, ESTABLISHED, FIN_WAIT_1, FIN_WAIT_2
-            // CLOSE_WAIT, CLOSING, LAST_ACK, TIME_WAIT
+            // CLOSE_WAIT, CLOSING, LAST_ACK
             return tcbp->input_handle_other_state(&h, std::move(p));
         }
     }
@@ -976,7 +1006,12 @@ tcp<InetTraits>::tcb::tcb(tcp& t, connid id)
     , _foreign_port(id.foreign_port)
     , _delayed_ack([this] { _nr_full_seg_received = 0; output(); })
     , _retransmit([this] { retransmit(); })
-    , _persist([this] { persist(); }) {
+    , _persist([this] { persist(); })
+    , _time_wait([this] {
+        // Removing the table entry may release the last external reference.
+        auto self = this->shared_from_this();
+        do_closed(receive_data_cleanup::preserve);
+    }) {
 }
 
 template <typename InetTraits>
@@ -1218,6 +1253,76 @@ void tcp<InetTraits>::tcb::input_handle_syn_sent_state(tcp_hdr* th, packet p) {
 }
 
 template <typename InetTraits>
+void tcp<InetTraits>::tcb::input_handle_time_wait_state(tcp_hdr* th, packet p) {
+    p.trim_front(th->data_offset * 4);
+    auto payload_len = p.len();
+    // RFC 9293 §3.10.7.4
+    // Second step / RST:
+    if (th->f_rst) {
+        // silently drop the segment.
+        if (!segment_acceptable(th->seq, 0)) {
+            return;
+        }
+        // exactly matches the next expected sequence number (RCV.NXT)
+        // then endpoint must reset the connection
+        if (th->seq == _rcv.next) {
+            return do_closed();
+        }
+        // within the current receive window (send a challenge ACK)
+        return output();
+    }
+    // Third step / security (can be ignored for non-MLS implementations)
+
+    // Fourth step / SYN:
+    // RFC 5961 recommends: send a challenge ACK to the remote
+    if (th->f_syn) {
+        return output();
+    }
+
+    // Fifth step / TIME-WAIT:
+    // Acknowledge it, and restart the 2 MSL timeout.
+    if (th->f_fin && th->f_ack && th->ack <= _snd.next
+            && th->seq + int32_t(payload_len) + 1 == _rcv.next) {
+        _time_wait.rearm(clock_type::now() + _time_wait_duration);
+        return output();
+    }
+
+    auto seg_len = payload_len + unsigned(th->f_fin);
+    // First step / sequence number:
+    // an acknowledgment should be sent in reply
+    if (!segment_acceptable(th->seq, seg_len)) {
+        return output();
+    }
+    // Fifth step / ACK: if the ACK bit is off
+    if (!th->f_ack) {
+        return;
+    }
+    // Fifth step / ACK:
+    // All incoming segments whose ACK value doesn't satisfy the above
+    // condition MUST be discarded and an ACK sent back.
+    // FIXME: only the SND.NXT upper bound; no RFC 5961 §5.2 lower bound.
+    if (th->ack > _snd.next) {
+        return output();
+    }
+    // Sixth step / TIME-WAIT:
+    if (th->f_urg) {
+        // Ignore the URG.
+    }
+    // Seventh step / TIME-WAIT:
+    // since a FIN has been received from the remote
+    // side. Ignore the segment text.
+
+    // Eighth step / TIME-WAIT:
+    // advance RCV.NXT over the FIN, and send an acknowledgment for the FIN.
+    // Remain in the TIME-WAIT state. Restart the 2 MSL time-wait timeout.
+    if (th->f_fin && th->seq + int32_t(payload_len) == _rcv.next) {
+        _rcv.next += 1;
+        _time_wait.rearm(clock_type::now() + _time_wait_duration);
+        return output();
+    }
+}
+
+template <typename InetTraits>
 void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
     p.trim_front(th->data_offset * 4);
     bool do_output = false;
@@ -1273,7 +1378,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
             // TCB, and return.
             return do_reset();
         }
-        if (in_state(CLOSING | LAST_ACK | TIME_WAIT)) {
+        if (in_state(CLOSING | LAST_ACK)) {
             // If the RST bit is set then, enter the CLOSED state, delete the
             // TCB, and return.
             return do_closed();
@@ -1286,7 +1391,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
     // 4.4 fourth, check the SYN bit
     if (th->f_syn) {
         // SYN_RECEIVED, ESTABLISHED, FIN_WAIT_1, FIN_WAIT_2
-        // CLOSE_WAIT, CLOSING, LAST_ACK, TIME_WAIT
+        // CLOSE_WAIT, CLOSING, LAST_ACK
 
         // If the SYN is in the window it is an error, send a reset, any
         // outstanding RECEIVEs and SEND should receive "reset" responses,
@@ -1485,13 +1590,6 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
                 return do_closed();
             }
         }
-        // TIME_WAIT STATE
-        if (in_state(TIME_WAIT)) {
-            // The only thing that can arrive in this state is a
-            // retransmission of the remote FIN. Acknowledge it, and restart
-            // the 2 MSL timeout.
-            // TODO
-        }
     }
 
     // 4.6 sixth, check the URG bit
@@ -1525,7 +1623,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
                 do_output = should_send_ack(seg_len);
             }
         }
-    } else if (in_state(CLOSE_WAIT | CLOSING | LAST_ACK | TIME_WAIT)) {
+    } else if (in_state(CLOSE_WAIT | CLOSING | LAST_ACK)) {
         // This should not occur, since a FIN has been received from the
         // remote side. Ignore the segment text.
         return;
@@ -2058,14 +2156,29 @@ void tcp<InetTraits>::tcb::update_cwnd(uint32_t acked_bytes) {
 }
 
 template <typename InetTraits>
-void tcp<InetTraits>::tcb::cleanup() {
+void tcp<InetTraits>::tcb::clear_transmit_state() {
+    stop_retransmit_timer();
+    stop_persist_timer();
+    clear_delayed_ack();
+    _nr_full_seg_received = 0;
     _snd.unsent.clear();
     _snd.data.clear();
+    _snd.unsent_len = 0;
+    _snd.current_queue_space = 0;
+    _snd.window_probe = false;
+    _snd.zero_window_probing_out = 0;
+    _packetq.clear();
+}
+
+template <typename InetTraits>
+void tcp<InetTraits>::tcb::cleanup(receive_data_cleanup mode) {
+    clear_transmit_state();
+    _time_wait.cancel();
     _rcv.out_of_order.map.clear();
-    _rcv.data_size = 0;
-    _rcv.data.clear();
-    stop_retransmit_timer();
-    clear_delayed_ack();
+    if (mode == receive_data_cleanup::discard) {
+        _rcv.data_size = 0;
+        _rcv.data.clear();
+    }
     remove_from_tcbs();
 }
 
