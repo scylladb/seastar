@@ -95,6 +95,7 @@ public:
         fmt::print("supported called\n");
         return _name;
     }
+    using rpc::compressor::factory::negotiate;
     virtual std::unique_ptr<rpc::compressor> negotiate(sstring feature, bool is_server) const override {
         fmt::print("negotiate called with {}\n", feature);
         return feature == _name ? std::make_unique<rpc::lz4_compressor>() : nullptr;
