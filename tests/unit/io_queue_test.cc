@@ -907,6 +907,13 @@ struct bandwidth_measurement {
     }
 };
 
+// Bandwidth of both workloads over one window that spans both runs. Adding
+// their separate bandwidths overstates it: the workload measured later has the
+// other's share once the other stops, but each is divided by its own window.
+static size_t combined_bandwidth(const bandwidth_measurement& a, const bandwidth_measurement& b) {
+    return bandwidth_measurement{a.bytes + b.bytes, std::min(a.start, b.start), std::max(a.end, b.end)}.bandwidth();
+}
+
 // The measured bandwidth is a cumulative average since the start of the run, so
 // the initial burst is folded into it: over a one second window the burst
 // accounts for ~9% of the bytes seen, and it shrinks as 1/window from there. A
@@ -1049,7 +1056,7 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler) {
     BOOST_REQUIRE_LE(m0.bandwidth(), bandwidth + burst + bw_slack);
     BOOST_REQUIRE_LE(m1.bandwidth(), bandwidth + burst + bw_slack);
     // Both classes must not exceed the group bandwidth
-    BOOST_REQUIRE_LE(m0.bandwidth() + m1.bandwidth(), group_bandwidth + burst + bw_slack);
+    BOOST_REQUIRE_LE(combined_bandwidth(m0, m1), group_bandwidth + burst + bw_slack);
 
     drain.stop().get();
     destroy_scheduling_group(sg1).get();
@@ -1084,7 +1091,7 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_1_unlimited) {
     // Limited class must not exceed its personal bandwidth
     BOOST_REQUIRE_LE(m0.bandwidth(), bandwidth + burst + bw_slack);
     // Both classes must not exceed the group bandwidth
-    BOOST_REQUIRE_LE(m0.bandwidth() + m1.bandwidth(), group_bandwidth + burst + bw_slack);
+    BOOST_REQUIRE_LE(combined_bandwidth(m0, m1), group_bandwidth + burst + bw_slack);
 
     drain.stop().get();
     destroy_scheduling_group(sg1).get();
@@ -1124,7 +1131,7 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
     // Check that shares are roughly respected
     BOOST_REQUIRE_LE(float(bw0) / float(bw1), 4.05);
     BOOST_REQUIRE_GE(float(bw0) / float(bw1), 3.95);
-    BOOST_REQUIRE_LE(bw0 + bw1, bandwidth + burst + bw_slack);
+    BOOST_REQUIRE_LE(combined_bandwidth(m0, m1), bandwidth + burst + bw_slack);
 
     drain.stop().get();
     destroy_scheduling_group(sg1).get();
