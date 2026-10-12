@@ -473,6 +473,13 @@ private:
         bool merge_out_of_order();
         void insert_out_of_order(tcp_seq seq, packet p);
         void trim_receive_data_after_window();
+        struct trimmed_segment {
+            tcp_seq seq;
+            bool syn;
+            bool fin;
+        };
+        // The original segment must have passed segment_acceptable().
+        trimmed_segment trim_segment_to_window(const tcp_hdr& th, packet& payload) const;
         bool should_send_ack(uint16_t seg_len);
         void clear_delayed_ack() noexcept;
         packet get_transmit_packet();
@@ -1218,33 +1225,71 @@ void tcp<InetTraits>::tcb::input_handle_syn_sent_state(tcp_hdr* th, packet p) {
 }
 
 template <typename InetTraits>
+auto tcp<InetTraits>::tcb::trim_segment_to_window(const tcp_hdr& th, packet& payload) const
+        -> trimmed_segment {
+    trimmed_segment seg{th.seq, bool(th.f_syn), bool(th.f_fin)};
+    // Trim the left edge in sequence order: SYN, payload, FIN.
+    if (seg.seq < _rcv.next) {
+        auto trim = uint32_t(_rcv.next - seg.seq);
+        if (seg.syn) {
+            seg.syn = false;
+            seg.seq += 1;
+            --trim;
+        }
+        auto data_trim = std::min(trim, payload.len());
+        payload.trim_front(data_trim);
+        seg.seq += data_trim;
+        trim -= data_trim;
+        // skip existing FIN if RCV.NXT > fin_pos (same as trim > 0).
+        if (trim > 0 && seg.fin) {
+            seg.fin = false;
+            seg.seq += 1;
+        }
+    }
+
+    // Trim the right edge in reverse order: FIN, payload, SYN.
+    const auto window_end = _rcv.next + _rcv.window;
+    const auto segment_end = seg.seq + unsigned(seg.syn) + payload.len() + unsigned(seg.fin);
+    if (segment_end > window_end) {
+        auto trim = uint32_t(segment_end - window_end);
+        if (seg.fin) {
+            seg.fin = false;
+            --trim;
+        }
+        auto data_trim = std::min(trim, payload.len());
+        payload.trim_back(data_trim);
+        trim -= data_trim;
+        if (trim && seg.syn) {
+            seg.syn = false;
+        }
+    }
+    return seg;
+}
+
+template <typename InetTraits>
 void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
     p.trim_front(th->data_offset * 4);
     bool do_output = false;
     bool do_output_data = false;
-    tcp_seq seg_seq = th->seq;
     auto seg_ack = th->ack;
-    auto seg_len = p.len();
 
     // 4.1 first check sequence number
-    if (!segment_acceptable(seg_seq, seg_len)) {
+    const auto seq_len = p.len() + unsigned(th->f_syn) + unsigned(th->f_fin);
+    if (!segment_acceptable(th->seq, seq_len)) {
         //<SEQ=SND.NXT><ACK=RCV.NXT><CTL=ACK>
         return output();
     }
 
-    // In the following it is assumed that the segment is the idealized
-    // segment that begins at RCV.NXT and does not exceed the window.
-    if (seg_seq < _rcv.next) {
-        // ignore already acknowledged data
-        auto dup = std::min(uint32_t(_rcv.next - seg_seq), seg_len);
-        p.trim_front(dup);
-        seg_len -= dup;
-        seg_seq += dup;
-    }
-    // FIXME: We should trim data outside the right edge of the receive window as well
+    const auto seg = trim_segment_to_window(*th, p);
+    const auto seg_seq = seg.seq;
+    const auto payload_len = p.len();
 
     if (seg_seq != _rcv.next) {
-        insert_out_of_order(seg_seq, std::move(p));
+        // FIXME: Retain an out-of-order FIN and process it once the preceding
+        // data arrives. The payload merger does not preserve control bits.
+        if (payload_len) {
+            insert_out_of_order(seg_seq + unsigned(seg.syn), std::move(p));
+        }
         // A TCP receiver SHOULD send an immediate duplicate ACK
         // when an out-of-order segment arrives.
         return output();
@@ -1284,7 +1329,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
     // NOTE: Ignored for now
 
     // 4.4 fourth, check the SYN bit
-    if (th->f_syn) {
+    if (seg.syn) {
         // SYN_RECEIVED, ESTABLISHED, FIN_WAIT_1, FIN_WAIT_2
         // CLOSE_WAIT, CLOSING, LAST_ACK, TIME_WAIT
 
@@ -1404,7 +1449,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
                     exit_fast_recovery();
                     set_retransmit_timer();
                 }
-            } else if ((packets_out > 0) && !_snd.data.empty() && seg_len == 0 &&
+            } else if ((packets_out > 0) && !_snd.data.empty() && payload_len == 0 &&
                 th->f_fin == 0 && th->f_syn == 0 &&
                 th->ack == _snd.unacknowledged &&
                 uint32_t(th->window << _snd.window_scale) == _snd.window) {
@@ -1508,7 +1553,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
             // RCV.NXT and RCV.WND should not be reduced.
             _rcv.data_size += p.len();
             _rcv.data.push_back(std::move(p));
-            _rcv.next += seg_len;
+            _rcv.next += payload_len;
             auto merged = merge_out_of_order();
             _rcv.window = get_modified_receive_window_size();
             signal_data_received();
@@ -1522,7 +1567,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
                 // sequence space.
                 do_output = true;
             } else {
-                do_output = should_send_ack(seg_len);
+                do_output = should_send_ack(payload_len);
             }
         }
     } else if (in_state(CLOSE_WAIT | CLOSING | LAST_ACK | TIME_WAIT)) {
@@ -1532,18 +1577,18 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
     }
 
     // 4.8 eighth, check the FIN bit
-    if (th->f_fin) {
-        if (_fin_recvd_promise) {
-            _fin_recvd_promise->set_value();
-            _fin_recvd_promise.reset();
-        }
+    if (seg.fin) {
         if (in_state(CLOSED | LISTEN | SYN_SENT)) {
             // Do not process the FIN if the state is CLOSED, LISTEN or SYN-SENT
             // since the SEG.SEQ cannot be validated; drop the segment and return.
             return;
         }
-        auto fin_seq = seg_seq + seg_len;
+        const auto fin_seq = seg_seq + payload_len;
         if (fin_seq == _rcv.next) {
+            if (_fin_recvd_promise) {
+                _fin_recvd_promise->set_value();
+                _fin_recvd_promise.reset();
+            }
             _rcv.next = fin_seq + 1;
             signal_data_received();
 

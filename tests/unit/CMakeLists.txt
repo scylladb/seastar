@@ -559,6 +559,9 @@ seastar_add_test (scheduling_group
 seastar_add_test (scheduling_group_nesting
   SOURCES scheduling_group_nesting_test.cc)
 
+seastar_add_test (tcp
+  SOURCES tcp_test.cc)
+
 seastar_add_test (timer
   SOURCES timer_test.cc)
 
