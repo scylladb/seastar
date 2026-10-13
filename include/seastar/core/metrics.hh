@@ -133,6 +133,10 @@ public:
     const sstring& str() const {
         return _s;
     }
+    description& operator=(const sstring& s) {
+        _s = s;
+        return *this;
+    }
 private:
     sstring _s;
 };
