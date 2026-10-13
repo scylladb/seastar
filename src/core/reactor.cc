@@ -3444,6 +3444,7 @@ int reactor::do_run() {
         _polls++;
 
         lowres_clock::update(); // Don't delay expiring lowres timers
+        _prev_poll_start = std::exchange(_poll_start, sched_clock::time_point(lowres_clock::now().time_since_epoch()) - _total_sleep);
         if (check_for_work()) {
             if (idle) {
                 _total_idle += idle_end - idle_start;

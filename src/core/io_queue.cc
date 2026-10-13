@@ -440,6 +440,7 @@ public:
     fair_queue_entry::capacity_t capacity() const noexcept { return _fq_capacity; }
     stream_id stream() const noexcept { return _stream; }
     uint64_t polls() const noexcept { return _dispatched_polls; }
+    io_queue::clock_type::time_point dispatched_at() const noexcept { return _ts; }
 };
 
 class queued_io_request : private internal::io_request {
@@ -728,10 +729,13 @@ void
 io_queue::complete_request(io_desc_read_write& desc, std::chrono::duration<double> delay) noexcept {
     _requests_executing--;
     _requests_completed++;
-    // A failed request comes with no delay and does not count
+    // A failed request comes with no delay and does not count. The others
+    // count their time in the disk up to prev_poll_time() only: the rest of
+    // the delay may be the reactor's own, a long task or a stall.
     if (delay.count() > 0) {
+        auto in_disk = engine().prev_poll_time() - desc.dispatched_at();
         _completed_in_disk++;
-        _time_in_disk_us += std::chrono::duration_cast<std::chrono::microseconds>(delay).count();
+        _time_in_disk_us += std::max<int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(in_disk).count(), 0);
     }
 
     if (delay > _stall_threshold) {
