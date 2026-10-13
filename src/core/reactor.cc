@@ -3515,6 +3515,12 @@ int reactor::do_run() {
 
 bool
 reactor::pollers_enter_interrupt_mode() {
+    // The smp poller comes first and issues a system-wide memory barrier.
+    // If the backend can't sleep (aio in flight with --poll-aio), the reap
+    // poller would refuse anyway, so ask it first and skip the barrier.
+    if (!_backend->kernel_events_can_sleep()) {
+        return false;
+    }
     for (auto i = _pollers.begin(); i != _pollers.end(); ++i) {
         auto ok = (*i)->try_enter_interrupt_mode();
         if (!ok) {
