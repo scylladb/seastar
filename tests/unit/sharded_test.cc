@@ -26,6 +26,7 @@
 #include <seastar/core/smp.hh>
 #include <seastar/util/assert.hh>
 
+#include <atomic>
 #include <ranges>
 
 using namespace seastar;
@@ -169,6 +170,37 @@ SEASTAR_THREAD_TEST_CASE(failed_sharded_start_doesnt_hang) {
 
     seastar::sharded<fail_to_start> s;
     s.start().then_wrapped([] (auto&& fut) { fut.ignore_ready_future(); }).get();
+}
+
+// If constructing the service fails on just one shard, start() should stop
+// and destroy the instances it already constructed on the other shards, and
+// fail with the constructor's exception.
+SEASTAR_THREAD_TEST_CASE(failed_sharded_start_stops_started_instances) {
+    static std::atomic<unsigned> constructed;
+    static std::atomic<unsigned> stopped;
+    static std::atomic<unsigned> destroyed;
+    class fail_on_last_shard {
+    public:
+        fail_on_last_shard() {
+            if (this_shard_id() == this_smp_shard_count() - 1) {
+                throw std::runtime_error("fail_on_last_shard");
+            }
+            ++constructed;
+        }
+        ~fail_on_last_shard() { ++destroyed; }
+        future<> stop() {
+            ++stopped;
+            return make_ready_future<>();
+        }
+    };
+
+    seastar::sharded<fail_on_last_shard> s;
+    BOOST_REQUIRE_EXCEPTION(s.start().get(), std::runtime_error, [] (const std::runtime_error& e) {
+        return std::string_view(e.what()) == "fail_on_last_shard";
+    });
+    BOOST_REQUIRE_EQUAL(constructed.load(), this_smp_shard_count() - 1);
+    BOOST_REQUIRE_EQUAL(stopped.load(), this_smp_shard_count() - 1);
+    BOOST_REQUIRE_EQUAL(destroyed.load(), this_smp_shard_count() - 1);
 }
 
 class argument {
