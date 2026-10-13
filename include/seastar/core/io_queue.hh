@@ -145,6 +145,9 @@ private:
     uint64_t _prev_completed = 0;
     double _flow_ratio = 1.0;
 
+    // The correction of the disk's configured rates, as this queue applies it
+    double _rate_correction = 1.0;
+
     timer<lowres_clock> _averaging_decay_timer;
 
     const std::chrono::milliseconds _stall_threshold_min;
@@ -153,6 +156,7 @@ private:
 
     void update_flow_ratio() noexcept;
     void lower_stall_threshold() noexcept;
+    void update_rate_correction() noexcept;
 
     metrics::metric_groups _metric_groups;
 public:
@@ -385,7 +389,9 @@ public:
 
 class io_group {
 public:
-    explicit io_group(io_queue::config io_cfg, unsigned nr_queues);
+    // All groups of one disk share the correction of its configured rates,
+    // so each group after the first one is given any of the others as \p peer
+    explicit io_group(io_queue::config io_cfg, unsigned nr_queues, const io_group* peer = nullptr);
     ~io_group();
     struct priority_class_data;
     using priority_class_group_data = priority_class_data;
@@ -414,6 +420,8 @@ private:
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     util::spinlock _lock;
     const shard_id _allocated_on;
+    struct disk_state;
+    const std::shared_ptr<disk_state> _disk;
 
     static io_throttler::config configure_throttler(const io_queue::config& qcfg) noexcept;
     priority_class_data& find_or_create_class(scheduling_group sg);

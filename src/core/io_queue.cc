@@ -116,6 +116,14 @@ auto io_throttler::capacity_deficiency(capacity_t from) const noexcept -> capaci
     return _token_bucket.deficiency(from);
 }
 
+// What the groups of one disk share: the correction of the disk's configured
+// rates, a factor c in (0, 1]. Every queue of the disk makes its requests cost
+// 1/c times more than the configured rates say, as if those rates were c
+// times lower, so all groups of the disk scale down together.
+struct io_group::disk_state {
+    std::atomic<double> rate_correction = 1.0;
+};
+
 struct io_group::priority_class_data {
     priority_class_group_data* parent;
 
@@ -660,6 +668,12 @@ void io_queue::lower_stall_threshold() noexcept {
     _stall_threshold = std::max(_stall_threshold_min, new_threshold);
 }
 
+// Takes the disk's rate correction for the requests this queue prices until
+// the next tick
+void io_queue::update_rate_correction() noexcept {
+    _rate_correction = _group->_disk->rate_correction.load(std::memory_order_relaxed);
+}
+
 void
 io_queue::complete_request(io_desc_read_write& desc, std::chrono::duration<double> delay) noexcept {
     _requests_executing--;
@@ -688,6 +702,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     , _averaging_decay_timer([this] {
         update_flow_ratio();
         lower_stall_threshold();
+        update_rate_correction();
     })
     , _stall_threshold_min(std::max(get_config().stall_threshold, 1ms))
     , _stall_threshold(_stall_threshold_min)
@@ -734,9 +749,10 @@ std::chrono::duration<double> io_group::io_latency_goal() const noexcept {
     return _fgs.front().rate_limit_duration();
 }
 
-io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
+io_group::io_group(io_queue::config io_cfg, unsigned nr_queues, const io_group* peer)
     : _config(std::move(io_cfg))
     , _allocated_on(this_shard_id())
+    , _disk(peer ? peer->_disk : std::make_shared<disk_state>())
 {
     auto throttler_config = configure_throttler(_config);
     _fgs.emplace_back(throttler_config, nr_queues);
@@ -1009,12 +1025,15 @@ double internal::request_tokens(io_direction_and_length dnl, const io_queue::con
 fair_queue_entry::capacity_t io_queue::request_capacity(io_direction_and_length dnl) const noexcept {
     const auto& cfg = get_config();
     auto tokens = internal::request_tokens(dnl, cfg);
-    if (_flow_ratio <= cfg.flow_ratio_backpressure_threshold) {
+    // The flow ratio backpressure and the disk's rate correction both make
+    // requests cost more than the configured rates say, the stronger one wins
+    auto scale = std::max(_flow_ratio > cfg.flow_ratio_backpressure_threshold ? _flow_ratio : 1.0, 1.0 / _rate_correction);
+    if (scale == 1.0) {
         return _streams[request_stream(dnl)].out.tokens_capacity(tokens);
     }
 
     auto stream = request_stream(dnl);
-    auto cap = _streams[stream].out.tokens_capacity(tokens * _flow_ratio);
+    auto cap = _streams[stream].out.tokens_capacity(tokens * scale);
     auto max_cap = _streams[stream].out.maximum_capacity();
     return std::min(cap, max_cap);
 }
