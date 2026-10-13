@@ -358,6 +358,41 @@ struct memory_layout {
 // Supported only when seastar allocator is enabled.
 memory::memory_layout get_memory_layout();
 
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+/// \cond internal
+namespace internal {
+
+// Allocator introspection, used to write consistent snapshots of a shard's
+// memory (e.g. minidumps). Only with the seastar allocator.
+
+/// Where the calling shard keeps its page descriptors, one per page of its
+/// memory (see get_memory_layout()).
+struct page_map_info {
+    uintptr_t descriptors;   ///< address of the descriptor array; it lives inside the shard's memory
+    size_t descriptor_size;  ///< size of one descriptor in bytes
+    uintptr_t arena_start;   ///< start of the range reserved for the allocator (all shards and threads)
+    uintptr_t arena_end;     ///< end of that range
+};
+
+/// Returns the page map of the calling shard.
+page_map_info get_page_map() noexcept;
+
+/// What the descriptor of a span's first page says about the span.
+struct page_info {
+    bool free;                   ///< the span is free
+    uint32_t span_size;          ///< span length in pages, at least 1
+    bool small;                  ///< the span belongs to a small-object pool
+};
+
+/// Decodes the descriptor of the first page of a span. Only those are kept
+/// up to date: walk the map from page 0, moving by \c span_size. \c descriptor
+/// may point to a copy of the descriptor.
+page_info decode_page_descriptor(const void* descriptor) noexcept;
+
+}
+/// \endcond
+#endif
+
 /// Returns the size of free memory in bytes.
 size_t free_memory();
 
