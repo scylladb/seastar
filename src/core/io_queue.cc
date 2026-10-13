@@ -144,6 +144,7 @@ struct io_group::disk_state {
     double prev_latency = 0.0;
     unsigned probes = 0;
     unsigned room = 0;
+    bool warned = false;
 
     void regulate(const io_queue::config& cfg, io_queue::clock_type::time_point now) noexcept;
 };
@@ -197,6 +198,16 @@ void io_group::disk_state::regulate(const io_queue::config& cfg, io_queue::clock
     if (c != old) {
         io_log.debug("{}: rate correction {:.3f} -> {:.3f}, requests spent {:.2f}ms in the disk", cfg.mountpoint, old, c, latency * 1e3);
         rate_correction.store(c, std::memory_order_relaxed);
+    }
+    // A disk that keeps up with less than this share of its configured rates
+    // is reported once, until its correction is back at 1.0
+    constexpr double warning_level = 0.9;
+    if (c < warning_level && !warned) {
+        io_log.warn("Disk {} does not keep up with its configured rates (requests spend {:.1f}ms in it), they are corrected down to {:.0f}%",
+                cfg.mountpoint, latency * 1e3, c * 100);
+        warned = true;
+    } else if (c == 1.0) {
+        warned = false;
     }
 }
 
