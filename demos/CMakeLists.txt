@@ -165,3 +165,6 @@ if (Seastar_MODULE)
       CXX_STANDARD ${CMAKE_CXX_STANDARD}
       CXX_EXTENSIONS ON)
 endif ()
+
+seastar_add_demo (multi_node
+  SOURCES multi_node_demo.cc)
