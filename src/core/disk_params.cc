@@ -87,6 +87,7 @@ void disk_config_params::parse_config(const smp_options& smp_opts, const reactor
     _flow_ratio_backpressure_threshold = reactor_opts.io_flow_ratio_threshold.get_value();
     seastar_logger.debug("flow-ratio threshold: {}", _flow_ratio_backpressure_threshold);
     _stall_threshold = reactor_opts.io_completion_notify_ms.defaulted() ? std::chrono::milliseconds::max() : reactor_opts.io_completion_notify_ms.get_value() * 1ms;
+    _disk_latency_threshold = std::chrono::duration<double>(reactor_opts.io_disk_latency_threshold_ms.get_value() * 1e-3);
 
     if (smp_opts.num_io_groups) {
         _num_io_groups = smp_opts.num_io_groups.get_value();
@@ -199,6 +200,10 @@ struct io_queue::config disk_config_params::generate_config(const disk_params& p
     // be better to sacrifice some IO latency, but allow for larger concurrency
     cfg.block_count_limit_min = (64 << 10) >> io_queue::block_size_shift;
     cfg.stall_threshold = stall_threshold();
+    // A disk without configured rates has nothing to correct
+    if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
+        cfg.disk_latency_threshold = _disk_latency_threshold;
+    }
     cfg.physical_block_size = p.physical_block_size;
 
     return cfg;

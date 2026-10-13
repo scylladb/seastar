@@ -104,6 +104,11 @@ struct reactor_options : public program_options::option_group {
     ///
     /// Default: infinite (detection is OFF)
     program_options::value<unsigned> io_completion_notify_ms;
+    /// \brief Correct the configured rates of a disk down while requests spend
+    /// longer than this in it on average
+    ///
+    /// Default: 0, the correction is off
+    program_options::value<double> io_disk_latency_threshold_ms;
     /// \brief Maximum number of task backlog to allow.
     ///
     /// When the number of tasks grow above this, we stop polling (e.g. I/O)

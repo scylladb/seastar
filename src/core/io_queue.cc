@@ -120,9 +120,49 @@ auto io_throttler::capacity_deficiency(capacity_t from) const noexcept -> capaci
 // rates, a factor c in (0, 1]. Every queue of the disk makes its requests cost
 // 1/c times more than the configured rates say, as if those rates were c
 // times lower, so all groups of the disk scale down together.
+//
+// Every queue of the disk adds what it measured to the counters below once per
+// averaging tick. The queue that takes the lock when a period has passed runs
+// regulate(), the only writer of the correction.
 struct io_group::disk_state {
     std::atomic<double> rate_correction = 1.0;
+    std::atomic<uint64_t> completed = 0;
+    std::atomic<uint64_t> time_in_disk_us = 0;
+
+    util::spinlock lock;
+    io_queue::clock_type::time_point last_run = io_queue::clock_type::now();
+    double prev_latency = 0.0;
+
+    void regulate(const io_queue::config& cfg, io_queue::clock_type::time_point now) noexcept;
 };
+
+// Down every period while requests queue in the disk: above the threshold it
+// holds a deeper queue than the scheduler tolerates, and a time shorter than
+// in the previous period means it is already working that queue off.
+void io_group::disk_state::regulate(const io_queue::config& cfg, io_queue::clock_type::time_point now) noexcept {
+    if (now - last_run < cfg.rate_correction_period) {
+        return;
+    }
+    last_run = now;
+
+    auto nr = completed.exchange(0, std::memory_order_relaxed);
+    if (nr == 0) {
+        return;
+    }
+    const double threshold = cfg.disk_latency_threshold.count();
+    double latency = time_in_disk_us.exchange(0, std::memory_order_relaxed) * 1e-6 / nr;
+    double old = rate_correction.load(std::memory_order_relaxed);
+    double c = old;
+    if (latency > 2 * threshold || (latency > threshold && latency >= prev_latency)) {
+        c = std::max(c - cfg.rate_correction_step, cfg.rate_correction_min);
+    }
+    prev_latency = latency;
+
+    if (c != old) {
+        io_log.debug("{}: rate correction {:.3f} -> {:.3f}, requests spent {:.2f}ms in the disk", cfg.mountpoint, old, c, latency * 1e3);
+        rate_correction.store(c, std::memory_order_relaxed);
+    }
+}
 
 struct io_group::priority_class_data {
     priority_class_group_data* parent;
@@ -668,16 +708,31 @@ void io_queue::lower_stall_threshold() noexcept {
     _stall_threshold = std::max(_stall_threshold_min, new_threshold);
 }
 
-// Takes the disk's rate correction for the requests this queue prices until
-// the next tick
-void io_queue::update_rate_correction() noexcept {
-    _rate_correction = _group->_disk->rate_correction.load(std::memory_order_relaxed);
+// Adds this queue's measurements to the disk's, runs the regulator unless
+// another queue does, and takes the disk's correction until the next tick
+void io_queue::update_rate_correction(clock_type::time_point now) noexcept {
+    const auto& cfg = get_config();
+    auto& disk = *_group->_disk;
+    if (cfg.disk_latency_threshold.count() > 0) {
+        disk.completed.fetch_add(std::exchange(_completed_in_disk, 0), std::memory_order_relaxed);
+        disk.time_in_disk_us.fetch_add(std::exchange(_time_in_disk_us, 0), std::memory_order_relaxed);
+        if (disk.lock.try_lock()) {
+            disk.regulate(cfg, now);
+            disk.lock.unlock();
+        }
+    }
+    _rate_correction = disk.rate_correction.load(std::memory_order_relaxed);
 }
 
 void
 io_queue::complete_request(io_desc_read_write& desc, std::chrono::duration<double> delay) noexcept {
     _requests_executing--;
     _requests_completed++;
+    // A failed request comes with no delay and does not count
+    if (delay.count() > 0) {
+        _completed_in_disk++;
+        _time_in_disk_us += std::chrono::duration_cast<std::chrono::microseconds>(delay).count();
+    }
 
     if (delay > _stall_threshold) {
         _stall_threshold *= 2;
@@ -702,7 +757,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     , _averaging_decay_timer([this] {
         update_flow_ratio();
         lower_stall_threshold();
-        update_rate_correction();
+        update_rate_correction(clock_type::now());
     })
     , _stall_threshold_min(std::max(get_config().stall_threshold, 1ms))
     , _stall_threshold(_stall_threshold_min)

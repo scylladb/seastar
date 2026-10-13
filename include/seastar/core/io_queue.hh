@@ -145,8 +145,11 @@ private:
     uint64_t _prev_completed = 0;
     double _flow_ratio = 1.0;
 
-    // The correction of the disk's configured rates, as this queue applies it
+    // The correction of the disk's configured rates, as this queue applies it,
+    // and what this queue tells the disk's regulator once per tick
     double _rate_correction = 1.0;
+    uint64_t _completed_in_disk = 0;
+    uint64_t _time_in_disk_us = 0;
 
     timer<lowres_clock> _averaging_decay_timer;
 
@@ -156,7 +159,7 @@ private:
 
     void update_flow_ratio() noexcept;
     void lower_stall_threshold() noexcept;
-    void update_rate_correction() noexcept;
+    void update_rate_correction(clock_type::time_point now) noexcept;
 
     metrics::metric_groups _metric_groups;
 public:
@@ -191,6 +194,12 @@ public:
         std::chrono::microseconds tau = std::chrono::milliseconds(5);
         std::optional<uint32_t> physical_block_size; // Override for disks that lie about their physical block size
         bool with_metrics = true;
+        // Correcting the disk's configured rates from the time requests spend
+        // in it, see io_queue.cc; a zero disk_latency_threshold disables it
+        std::chrono::duration<double> disk_latency_threshold = std::chrono::duration<double>(0);
+        std::chrono::duration<double> rate_correction_period = std::chrono::seconds(1);
+        double rate_correction_step = 0.005;
+        double rate_correction_min = 0.1;
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);
