@@ -25,9 +25,11 @@
 #include <seastar/core/bitops.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/sampler.hh>
+#include <seastar/util/noncopyable_function.hh>
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -357,6 +359,39 @@ struct memory_layout {
 // Discover virtual address range used by the allocator on current shard.
 // Supported only when seastar allocator is enabled.
 memory::memory_layout get_memory_layout();
+
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+// Allocator introspection, only with the seastar allocator.
+
+/// The address range the allocator reserves for all shards and threads.
+/// Each shard's memory (see get_memory_layout()) lies inside it.
+struct arena_layout {
+    uintptr_t start;         ///< start of the range
+    uintptr_t end;           ///< end of the range
+};
+
+/// Returns the allocator's arena. It is fixed for the life of the process.
+arena_layout get_arena_layout() noexcept;
+
+/// Returns the page map of the calling shard: an array with a descriptor for
+/// each page of its memory (see get_memory_layout()). It lives inside the
+/// shard's memory.
+std::span<const std::byte> get_page_map() noexcept;
+
+/// A run of pages which the allocator handles as one unit.
+struct span_info {
+    size_t first_page;       ///< index of the span's first page in the shard's memory
+    size_t nr_pages;         ///< length of the span in pages, at least 1
+    bool free;               ///< the span is free
+    bool small;              ///< the span belongs to a small-object pool
+};
+
+/// Calls \c func for each span of \c map, in one pass; the spans cover all
+/// of the shard's memory. \c map might be the calling shard's live page map
+/// (see get_page_map()), or a copy of it taken on that shard between
+/// allocations. On the live map, \c func must not allocate or free.
+void for_each_span(std::span<const std::byte> map, noncopyable_function<void (const span_info&)> func);
+#endif
 
 /// Returns the size of free memory in bytes.
 size_t free_memory();

@@ -2070,6 +2070,35 @@ memory_layout get_memory_layout() {
     return cpu_mem.memory_layout();
 }
 
+arena_layout get_arena_layout() noexcept {
+    auto base = reinterpret_cast<uintptr_t>(mem_base());
+    return {base, base + mem_base_alloc};
+}
+
+std::span<const std::byte> get_page_map() noexcept {
+    return {reinterpret_cast<const std::byte*>(cpu_mem.pages), cpu_mem.nr_pages * sizeof(page)};
+}
+
+void for_each_span(std::span<const std::byte> map, noncopyable_function<void (const span_info&)> func) {
+    const size_t nr = map.size() / sizeof(page);
+    // Only the first and last page of a span are kept up to date, so the
+    // walk moves from one span's first page to the next one's.
+    for (size_t idx = 0; idx < nr;) {
+        page p;
+        // A copy of the map need not be aligned for page.
+        std::memcpy(&p, map.data() + idx * sizeof(page), sizeof(page));
+        // Page 0 stays allocated with no span size.
+        size_t n = std::clamp<size_t>(p.span_size, 1, nr - idx);
+        func(span_info{
+            .first_page = idx,
+            .nr_pages = n,
+            .free = p.free,
+            .small = !p.free && p.pool != nullptr, // a freed small span keeps its pool
+        });
+        idx += n;
+    }
+}
+
 size_t min_free_memory() {
     return cpu_mem.min_free_pages * page_size;
 }
