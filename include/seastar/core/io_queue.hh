@@ -146,10 +146,11 @@ private:
     double _flow_ratio = 1.0;
 
     // The correction of the disk's configured rates, as this queue applies it,
-    // and what this queue tells the disk's regulator once per tick
+    // and what this queue tells the disk's regulator
     double _rate_correction = 1.0;
     uint64_t _completed_in_disk = 0;
     uint64_t _time_in_disk_us = 0;
+    fair_queue_entry::capacity_t _sent = 0;
 
     timer<lowres_clock> _averaging_decay_timer;
 
@@ -198,6 +199,7 @@ public:
         // in it, see io_queue.cc; a zero disk_latency_threshold disables it
         std::chrono::duration<double> disk_latency_threshold = std::chrono::duration<double>(0);
         std::chrono::duration<double> rate_correction_period = std::chrono::seconds(1);
+        std::chrono::duration<double> rate_correction_cycle = std::chrono::seconds(30);
         double rate_correction_step = 0.005;
         double rate_correction_min = 0.1;
     };
@@ -431,6 +433,9 @@ private:
     const shard_id _allocated_on;
     struct disk_state;
     const std::shared_ptr<disk_state> _disk;
+    // How much of what its buckets let through this group sent, in _disk
+    struct budget_use;
+    budget_use* _budget_use = nullptr;
 
     static io_throttler::config configure_throttler(const io_queue::config& qcfg) noexcept;
     priority_class_data& find_or_create_class(scheduling_group sg);

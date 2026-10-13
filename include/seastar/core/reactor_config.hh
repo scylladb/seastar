@@ -107,6 +107,8 @@ struct reactor_options : public program_options::option_group {
     /// \brief Correct the configured rates of a disk down while requests spend
     /// longer than this in it on average
     ///
+    /// Set it to more than twice the time requests spend in the healthy disk
+    /// under load, or the correction does not come back up.
     /// Default: 0, the correction is off
     program_options::value<double> io_disk_latency_threshold_ms;
     /// \brief Maximum number of task backlog to allow.
