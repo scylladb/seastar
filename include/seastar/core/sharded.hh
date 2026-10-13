@@ -62,9 +62,33 @@ namespace internal {
 template <typename Func, typename... Param>
 auto unwrap_sharded_arg(sharded_parameter<Func, Param...> sp);
 
-using on_each_shard_func = std::function<future<> (unsigned shard)>;
+// The following functions implement the cross-shard parts of sharded<Service>'s
+// start(), stop() and invoke_on_all(). They are not templates: the work that
+// depends on the Service type (and on the arguments and functions passed to
+// these methods) is passed to them as std::function objects, or, when there
+// is no state to carry other than the sharded object, as plain function
+// pointers taking it as a void pointer (which is cheaper to compile). So the
+// cross-shard code - the calls to smp::submit_to() and the continuations
+// around them - is compiled once, instead of being instantiated again for
+// every Service type. This significantly reduces the time and memory needed
+// to compile code that uses many sharded services.
 
-future<> sharded_parallel_for_each(unsigned nr_shards, on_each_shard_func on_each_shard) noexcept(std::is_nothrow_move_constructible_v<on_each_shard_func>);
+// Runs a copy of func on each shard c in [0, nr_shards). The copy for each
+// shard is made on the calling shard before this function returns, and is
+// destroyed on the calling shard after shard c is done with it.
+future<> sharded_on_all_shards(unsigned nr_shards, smp_submit_to_options options, std::function<future<> ()> func) noexcept;
+
+// Runs start_one() on each shard like sharded_on_all_shards(), and if it
+// failed on any shard, calls stop(self) and then returns the failure (or
+// stop()'s failure, if stop() failed too).
+future<> sharded_start(unsigned nr_shards, std::function<future<> ()> start_one,
+        void* self, future<> (*stop)(void* self)) noexcept;
+
+// Runs stop_one(self) on each shard c in [0, nr_shards), then delete_one(self)
+// on each shard, and finally clear(self) on the calling shard. Fails if any
+// stop_one() or delete_one() failed.
+future<> sharded_stop(unsigned nr_shards, void* self, future<> (*stop_one)(void* self),
+        future<> (*delete_one)(void* self), void (*clear)(void* self)) noexcept;
 
 template <typename Service>
 class either_sharded_or_local {
@@ -205,11 +229,6 @@ private:
     template <typename T>
     requires (!std::is_base_of_v<peering_sharded_service<T>, T>)
     void set_container(T&) noexcept {
-    }
-
-    future<>
-    sharded_parallel_for_each(internal::on_each_shard_func func) noexcept(std::is_nothrow_move_constructible_v<internal::on_each_shard_func>) {
-        return internal::sharded_parallel_for_each(_instances.size(), std::move(func));
     }
 public:
     /// Constructs an empty \c sharded object.  No instances of the service are
@@ -616,23 +635,16 @@ future<>
 sharded<Service>::start(Args&&... args) noexcept {
   try {
     _instances.resize(this_smp_shard_count());
-    return sharded_parallel_for_each(
-        [this, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
-            return smp::submit_to(c, [this, args] () mutable {
-                _instances[this_shard_id()].service = std::apply([this] (Args... args) {
-                    return create_local_service(internal::unwrap_sharded_arg(std::forward<Args>(args))...);
-                }, args);
-            });
-    }).then_wrapped([this] (future<> f) {
-        try {
-            f.get();
+    return internal::sharded_start(_instances.size(),
+        [this, args = std::make_tuple(std::forward<Args>(args)...)] () mutable {
+            _instances[this_shard_id()].service = std::apply([this] (Args... args) {
+                return create_local_service(internal::unwrap_sharded_arg(std::forward<Args>(args))...);
+            }, args);
             return make_ready_future<>();
-        } catch (...) {
-            return this->stop().then([e = std::current_exception()] () mutable {
-                std::rethrow_exception(e);
-            });
-        }
-    });
+        },
+        this, [] (void* self) {
+            return static_cast<sharded*>(self)->stop();
+        });
   } catch (...) {
     return current_exception_as_future();
   }
@@ -708,27 +720,25 @@ template <typename Service>
 future<>
 sharded<Service>::stop() noexcept {
   try {
-    return sharded_parallel_for_each([this] (unsigned c) mutable {
-        return smp::submit_to(c, [this] () mutable {
-            auto inst = _instances[this_shard_id()].service;
+    return internal::sharded_stop(_instances.size(), this,
+        [] (void* self) {
+            auto inst = static_cast<sharded*>(self)->_instances[this_shard_id()].service;
             if (!inst) {
                 return make_ready_future<>();
             }
             return internal::stop_sharded_instance(*inst);
+        },
+        [] (void* self) {
+            auto& instance = static_cast<sharded*>(self)->_instances[this_shard_id()];
+            auto fut = instance.track_deletion();
+            instance.service = nullptr;
+            return fut;
+        },
+        [] (void* self) {
+            auto& instances = static_cast<sharded*>(self)->_instances;
+            instances.clear();
+            instances = std::vector<sharded<Service>::entry>();
         });
-    }).then_wrapped([this] (future<> fut) {
-        return sharded_parallel_for_each([this] (unsigned c) {
-            return smp::submit_to(c, [this] {
-                auto fut = _instances[this_shard_id()].track_deletion();
-                _instances[this_shard_id()].service = nullptr;
-                return fut;
-            });
-        }).finally([this, fut = std::move(fut)] () mutable {
-            _instances.clear();
-            _instances = std::vector<sharded<Service>::entry>();
-            return std::move(fut);
-        });
-    });
   } catch (...) {
     return current_exception_as_future();
   }
@@ -738,10 +748,8 @@ template <typename Service>
 future<>
 sharded<Service>::invoke_on_all(smp_submit_to_options options, std::function<future<> (Service&)> func) noexcept {
   try {
-    return sharded_parallel_for_each([this, options, func = std::move(func)] (unsigned c) {
-        return smp::submit_to(c, options, [this, func] {
-            return func(*get_local_service());
-        });
+    return internal::sharded_on_all_shards(_instances.size(), options, [this, func = std::move(func)] {
+        return func(*get_local_service());
     });
   } catch (...) {
     return current_exception_as_future();
@@ -765,11 +773,12 @@ requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>
 future<>
 sharded<Service>::invoke_on_all(smp_submit_to_options options, Func func, Args... args) noexcept {
   try {
-    return invoke_on_all(options, invoke_on_multiple_func_type([func = std::move(func), args = std::tuple(std::move(args)...)] (Service& service) mutable {
+    return internal::sharded_on_all_shards(_instances.size(), options, [this, func = std::move(func), args = std::tuple(std::move(args)...)] () mutable {
+        Service& service = *get_local_service();
         return std::apply([&service, &func] (Args&&... args) mutable {
             return futurize_apply(func, std::tuple_cat(std::forward_as_tuple(service), std::tuple(internal::unwrap_sharded_arg(std::forward<Args>(args))...)));
         }, std::move(args));
-    }));
+    });
   } catch (...) {
     return current_exception_as_future();
   }

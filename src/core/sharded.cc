@@ -31,8 +31,39 @@ namespace internal {
 
 
 future<>
-sharded_parallel_for_each(unsigned nr_shards, on_each_shard_func on_each_shard) noexcept(std::is_nothrow_move_constructible_v<on_each_shard_func>) {
-    return parallel_for_each(std::views::iota(0u, nr_shards), std::move(on_each_shard));
+sharded_on_all_shards(unsigned nr_shards, smp_submit_to_options options, std::function<future<> ()> func) noexcept {
+    // parallel_for_each() calls the lambda for every shard before returning,
+    // so all copies of func are made while func is still alive.
+    return parallel_for_each(std::views::iota(0u, nr_shards), [&func, options] (unsigned c) {
+        return smp::submit_to(c, options, [func] {
+            return func();
+        });
+    });
+}
+
+future<>
+sharded_start(unsigned nr_shards, std::function<future<> ()> start_one,
+        void* self, future<> (*stop)(void* self)) noexcept {
+    return sharded_on_all_shards(nr_shards, smp_submit_to_options{}, std::move(start_one)).handle_exception([self, stop] (std::exception_ptr e) {
+        return stop(self).then([e = std::move(e)] () mutable {
+            return seastar::make_exception_future<>(std::move(e));
+        });
+    });
+}
+
+future<>
+sharded_stop(unsigned nr_shards, void* self, future<> (*stop_one)(void* self),
+        future<> (*delete_one)(void* self), void (*clear)(void* self)) noexcept {
+    return sharded_on_all_shards(nr_shards, smp_submit_to_options{}, [self, stop_one] {
+        return stop_one(self);
+    }).then_wrapped([nr_shards, self, delete_one, clear] (future<> fut) {
+        return sharded_on_all_shards(nr_shards, smp_submit_to_options{}, [self, delete_one] {
+            return delete_one(self);
+        }).finally([self, clear, fut = std::move(fut)] () mutable {
+            clear(self);
+            return std::move(fut);
+        });
+    });
 }
 
 }
