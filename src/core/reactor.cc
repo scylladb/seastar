@@ -1086,11 +1086,16 @@ void reactor::sched_entity::set_shares(float shares) noexcept {
 void
 reactor::task_queue_group::account_runtime(reactor& r, sched_entity& tq, sched_clock::duration runtime) {
     if (runtime > (2 * r._cfg.task_quota)) {
-        r._stalls_histogram.add(runtime);
-        tq._time_spent_on_task_quota_violations += runtime - r._cfg.task_quota;
+        tq.account_task_quota_violation(r, runtime);
     }
     tq._vruntime += tq.to_vruntime(runtime);
     tq._runtime += runtime;
+}
+
+void
+reactor::task_queue::account_task_quota_violation(reactor& r, sched_clock::duration runtime) {
+    r._stalls_histogram.add(runtime);
+    _time_spent_on_task_quota_violations += runtime - r._cfg.task_quota;
 }
 
 
