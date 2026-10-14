@@ -60,6 +60,10 @@ metric_groups& metric_groups::add_group(const group_name_type& name, const std::
     _impl->add_group(name, l);
     return *this;
 }
+metric_groups& metric_groups::add_collect_hook(noncopyable_function<void() noexcept> hook) {
+    _impl->add_collect_hook(std::move(hook));
+    return *this;
+}
 metric_group::metric_group() noexcept = default;
 metric_group::~metric_group() = default;
 metric_group::metric_group(const group_name_type& name, std::initializer_list<metric_definition> l) {
@@ -349,6 +353,9 @@ metric_groups_impl::~metric_groups_impl() {
     for (const auto& i : _registration) {
         unregister_metric(i->info().id);
     }
+    for (auto hook : _collect_hooks) {
+        _impl->remove_collect_hook(hook);
+    }
 }
 
 internalized_labels_ref impl::internalize_labels(labels_type labels) {
@@ -389,6 +396,16 @@ metric_groups_impl& metric_groups_impl::add_group(group_name_type name, const st
     for (auto i = l.begin(); i != l.end(); ++i) {
         add_metric(name, *i);
     }
+    return *this;
+}
+
+metric_groups_impl& metric_groups_impl::add_collect_hook(noncopyable_function<void() noexcept> hook) {
+    if (_impl == nullptr) {
+        _impl = get_local_impl();
+    }
+    // Reserved first, so that a registered hook is always removed by the destructor.
+    _collect_hooks.reserve(_collect_hooks.size() + 1);
+    _collect_hooks.push_back(_impl->add_collect_hook(std::move(hook)));
     return *this;
 }
 
@@ -438,11 +455,26 @@ void unregister_metric(const metric_id & id) {
     get_local_impl()->remove_registration(id);
 }
 
+collect_hooks::iterator impl::add_collect_hook(noncopyable_function<void() noexcept> hook) {
+    return _collect_hooks.insert(_collect_hooks.end(), std::move(hook));
+}
+
+void impl::remove_collect_hook(collect_hooks::iterator hook) noexcept {
+    _collect_hooks.erase(hook);
+}
+
+void impl::run_collect_hooks() noexcept {
+    for (auto& hook : _collect_hooks) {
+        hook();
+    }
+}
+
 const value_map& get_value_map() {
     return get_local_impl()->get_value_map();
 }
 
 foreign_ptr<values_reference> get_values() {
+    get_local_impl()->run_collect_hooks();
     shared_ptr<values_copy> res_ref = ::seastar::make_shared<values_copy>();
     auto& res = *(res_ref.get());
     auto& mv = res.values;

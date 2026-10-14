@@ -258,6 +258,36 @@ SEASTAR_THREAD_TEST_CASE(test_metrics_family_aggregate) {
     sm::set_relabel_configs(rl1).get();
 }
 
+SEASTAR_THREAD_TEST_CASE(test_collect_hook) {
+    namespace sm = seastar::metrics;
+    int collections = 0;
+    std::vector<int> seen;
+    sm::metric_groups app_metrics;
+    app_metrics.add_collect_hook([&] () noexcept { ++collections; });
+    app_metrics.add_group("collect_hook", {
+        sm::make_gauge("first", sm::description("first"), [&] { seen.push_back(collections); return collections; }),
+        sm::make_gauge("second", sm::description("second"), [&] { seen.push_back(collections); return collections; }),
+    });
+    seastar::metrics::impl::get_values();
+    seastar::metrics::impl::get_values();
+    BOOST_CHECK_EQUAL(collections, 2);
+    BOOST_CHECK(seen == std::vector<int>({1, 1, 2, 2}));
+
+    int other_collections = 0;
+    {
+        sm::metric_groups other_metrics;
+        other_metrics.add_collect_hook([&] () noexcept { ++other_collections; });
+        seastar::metrics::impl::get_values();
+    }
+    seastar::metrics::impl::get_values();
+    BOOST_CHECK_EQUAL(other_collections, 1);
+    BOOST_CHECK_EQUAL(collections, 4);
+
+    app_metrics.clear();
+    seastar::metrics::impl::get_values();
+    BOOST_CHECK_EQUAL(collections, 4);
+}
+
 SEASTAR_THREAD_TEST_CASE(test_relabel_drop_label_prevent_runtime_conflicts) {
     using namespace seastar::metrics;
     namespace sm = seastar::metrics;

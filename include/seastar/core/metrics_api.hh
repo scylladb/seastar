@@ -27,6 +27,7 @@
 #include <boost/functional/hash.hpp>
 
 #include <deque>
+#include <list>
 #include <set>
 
 /*!
@@ -269,9 +270,11 @@ public:
 using register_ref = shared_ptr<registered_metric>;
 using metric_instances = std::map<internalized_holder, register_ref, std::less<>>;
 using metrics_registration = std::vector<register_ref>;
+using collect_hooks = std::list<noncopyable_function<void() noexcept>>;
 
 class metric_groups_impl : public metric_groups_def {
     metrics_registration _registration;
+    std::vector<collect_hooks::iterator> _collect_hooks;
     shared_ptr<impl> _impl; // keep impl alive while metrics are registered
 public:
     metric_groups_impl();
@@ -281,6 +284,7 @@ public:
     metric_groups_impl& add_metric(group_name_type name, const metric_definition& md);
     metric_groups_impl& add_group(group_name_type name, const std::initializer_list<metric_definition>& l);
     metric_groups_impl& add_group(group_name_type name, const std::vector<metric_definition>& l);
+    metric_groups_impl& add_collect_hook(noncopyable_function<void() noexcept> hook);
 };
 
 class metric_family {
@@ -441,6 +445,7 @@ class impl {
     std::vector<relabel_config> _relabel_configs;
     std::vector<metric_family_config> _metric_family_configs;
     internalized_set _internalized_labels;
+    collect_hooks _collect_hooks;
 public:
     value_map& get_value_map() {
         return _value_map;
@@ -453,6 +458,9 @@ public:
     register_ref add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels);
     internalized_labels_ref internalize_labels(labels_type labels);
     void remove_registration(const metric_id& id);
+    collect_hooks::iterator add_collect_hook(noncopyable_function<void() noexcept> hook);
+    void remove_collect_hook(collect_hooks::iterator hook) noexcept;
+    void run_collect_hooks() noexcept;
     future<> stop() {
         return make_ready_future<>();
     }

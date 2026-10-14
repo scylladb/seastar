@@ -25,6 +25,7 @@
 #include <vector>
 
 #include <seastar/core/sstring.hh>
+#include <seastar/util/noncopyable_function.hh>
 
 /*!
  * \file metrics_registration.hh
@@ -140,6 +141,32 @@ public:
      * _metrics.add_group("my group1", vec1).add_group("my group2", vec2);
      */
     metric_groups& add_group(const group_name_type& name, const std::vector<metric_definition>& l);
+
+    /*!
+     * \brief Add a function that runs once per collection of the metric values.
+     *
+     * Every collection of the values of this shard's metrics runs the hook first,
+     * before it evaluates any metric function. Metrics that derive their values
+     * from one snapshot of some state can let the hook take that snapshot, so it
+     * is taken once per collection instead of once per metric, and all of them
+     * report the same snapshot.
+     *
+     * For example:
+     *  _metrics.add_collect_hook([this] () noexcept { _status = _server.get_status(); });
+     *  _metrics.add_group("my_group", {
+     *      make_gauge("commit_index", [this] { return _status.commit_index; }, description("commit index")),
+     *      make_gauge("apply_index", [this] { return _status.apply_index; }, description("apply index")),
+     *  });
+     *
+     * The hook stays registered until this metric_groups is cleared or destroyed.
+     * It must not register or unregister metrics or hooks.
+     *
+     * The hook is noexcept, and an exception escaping it terminates the
+     * application. If taking the snapshot can fail, for example by running out
+     * of memory while copying a container, the hook should catch the error and
+     * keep the previous snapshot.
+     */
+    metric_groups& add_collect_hook(noncopyable_function<void() noexcept> hook);
 
     /*!
      * \brief clear all metrics groups registrations.
