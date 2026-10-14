@@ -32,6 +32,7 @@ namespace rpc {
         class factory: public rpc::compressor::factory {
         public:
             virtual const sstring& supported() const override;
+            using rpc::compressor::factory::negotiate;
             virtual std::unique_ptr<rpc::compressor> negotiate(sstring feature, bool is_server) const override;
         };
     public:
