@@ -285,11 +285,11 @@ private:
         sched_clock::duration _runtime = {};
         sched_clock::duration _waittime = {};
         sched_clock::duration _starvetime = {};
-        sched_clock::duration _time_spent_on_task_quota_violations = {};
 
         void set_shares(float shares) noexcept;
 
         virtual bool run_tasks() = 0;
+        virtual void account_task_quota_violation(reactor&, sched_clock::duration runtime) = 0;
         void wakeup();
         int64_t to_vruntime(sched_clock::duration runtime) const;
     };
@@ -305,7 +305,9 @@ private:
         static constexpr size_t shortname_size = 4;
         sstring _shortname;
         seastar::metrics::metric_groups _metrics;
+        sched_clock::duration _time_spent_on_task_quota_violations = {};
         virtual bool run_tasks() override;
+        virtual void account_task_quota_violation(reactor&, sched_clock::duration runtime) override;
         void rename(sstring new_name, sstring new_shortname);
     private:
         void register_stats();
@@ -321,6 +323,8 @@ private:
         unsigned _nr_children = 0;
 
         virtual bool run_tasks() override;
+        // Children account for their own overruns, so a run must not be counted twice.
+        virtual void account_task_quota_violation(reactor&, sched_clock::duration) override {}
         void run_some_tasks();
 
         bool active() const noexcept;

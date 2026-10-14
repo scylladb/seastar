@@ -33,6 +33,7 @@
 #include <seastar/core/when_all.hh>
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/metrics_api.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/util/later.hh>
 
@@ -90,6 +91,53 @@ SEASTAR_TEST_CASE(test_basic_ops) {
     BOOST_CHECK(ssg.index() == 1);
     BOOST_CHECK(ssg == l.sgroups[1]);
     co_await l.destroy();
+}
+
+static metrics::histogram reactor_stalls() {
+    const auto& values = metrics::impl::get_value_map();
+    auto mf = values.find("reactor_stalls");
+    if (mf == values.end()) {
+        return {};
+    }
+    BOOST_REQUIRE_EQUAL(mf->second.size(), 1);
+    return mf->second.begin()->second->get_function()().get_histogram();
+}
+
+static uint64_t stalls_longer_than(const metrics::histogram& h, std::chrono::microseconds duration) {
+    uint64_t shorter = 0;
+    for (const auto& b : h.buckets) {
+        if (b.upper_bound <= duration.count()) {
+            shorter = b.count;
+        }
+    }
+    return h.sample_count - shorter;
+}
+
+static future<uint64_t> long_stalls_in(scheduling_group sg) {
+    constexpr auto busy = std::chrono::milliseconds(50);
+    auto before = stalls_longer_than(reactor_stalls(), busy / 2);
+    co_await with_scheduling_group(sg, [busy] {
+        auto stop = std::chrono::steady_clock::now() + busy;
+        while (std::chrono::steady_clock::now() < stop) ;
+    });
+    co_return stalls_longer_than(reactor_stalls(), busy / 2) - before;
+}
+
+// Reproduces scylladb/seastar#3763
+SEASTAR_TEST_CASE(test_stall_in_nested_group_is_counted_once) {
+    auto ssg = co_await create_scheduling_supergroup(100);
+    auto flat = co_await create_scheduling_group("flat", "flat", 100);
+    auto nested = co_await create_scheduling_group("nested", "nstd", 100, ssg);
+
+    auto flat_stalls = co_await long_stalls_in(flat);
+    auto nested_stalls = co_await long_stalls_in(nested);
+
+    co_await destroy_scheduling_group(nested);
+    co_await destroy_scheduling_group(flat);
+    co_await destroy_scheduling_supergroup(ssg);
+
+    BOOST_REQUIRE_EQUAL(flat_stalls, 1);
+    BOOST_CHECK_EQUAL(nested_stalls, 1);
 }
 
 #ifndef SEASTAR_SHUFFLE_TASK_QUEUE
