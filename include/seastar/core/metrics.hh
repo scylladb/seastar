@@ -434,6 +434,7 @@ public:
     virtual metric_groups_def& add_metric(group_name_type name, const metric_definition& md) = 0;
     virtual metric_groups_def& add_group(group_name_type name, const std::initializer_list<metric_definition>& l) = 0;
     virtual metric_groups_def& add_group(group_name_type name, const std::vector<metric_definition>& l) = 0;
+    virtual metric_groups_def& add_collect_hook(noncopyable_function<void() noexcept> hook) = 0;
 };
 
 escaped_string shard();
