@@ -836,6 +836,15 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
                     sm::description("Ratio of dispatch rate to completion rate. Is expected to be 1.0+ growing larger on reactor stalls or (!) disk problems"),
                     { owner_l, mnt_l, group_l }),
         });
+        // The correction belongs to the disk, and every shard has a queue for
+        // every disk, so the queue of shard 0 exports it for the disk
+        if (this_shard_id() == 0) {
+            _metric_groups.add_group("io_queue", {
+                sm::make_gauge("rate_correction", [this] { return _group->_disk->rate_correction.load(std::memory_order_relaxed); },
+                        sm::description("Factor the configured rates of the disk are corrected by, 1.0 while the disk keeps up with them"),
+                        { mnt_l }),
+            });
+        }
     }
 }
 
