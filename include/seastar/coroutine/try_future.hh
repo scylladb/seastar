@@ -33,7 +33,7 @@ void try_future_resume_or_destroy_coroutine(seastar::future<T>& fut, seastar::ta
 
     if (fut.failed()) {
         hndl.promise().set_exception(std::move(fut).get_exception());
-        hndl.destroy();
+        finalize_and_destroy_coroutine(hndl);
     } else {
         set_current_task(promise_ptr);
         hndl.resume();
