@@ -366,6 +366,12 @@ private:
     // decrease it. See total_steal_time() for details.
     mutable sched_clock::duration _last_mono_steal{0};
     sched_clock::duration _total_idle{0};
+    // While the reactor is idle, the start of the part of the idle period not
+    // yet added to _total_idle.
+    std::optional<sched_clock::time_point> _idle_start;
+    // The last time the reactor was seen to be idle. When work turns up, the
+    // idle period ends here.
+    sched_clock::time_point _idle_end;
     sched_clock::duration _total_sleep{0};
     sched_clock::time_point _start_time = now();
     output_stream<char>::batch_flush_list_t _flush_batching;
@@ -389,6 +395,15 @@ private:
     void expire_manual_timers() noexcept;
     void start_aio_eventfd_loop();
     void stop_aio_eventfd_loop();
+    // Record that the reactor was idle at `t`, starting an idle period if
+    // none is open.
+    void mark_idle(sched_clock::time_point t) noexcept;
+    // Add the open idle period up to _idle_end to _total_idle, leaving it
+    // open from there. Does nothing when not idle.
+    void update_idle() noexcept;
+    // Add the open idle period up to _idle_end to _total_idle and close it.
+    // Does nothing when not idle.
+    void end_idle() noexcept;
 
     /**
      * Returns TRUE if all pollers allow blocking.
