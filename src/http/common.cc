@@ -20,6 +20,7 @@
  */
 
 
+#include <charconv>
 #include <memory>
 #include <utility>
 #include <numeric>
@@ -92,6 +93,16 @@ sstring type2str(operation_type type) {
 
 namespace http {
 namespace internal {
+
+std::optional<size_t> parse_content_length(std::string_view value) noexcept {
+    size_t length;
+    auto end = value.data() + value.size();
+    auto [ptr, ec] = std::from_chars(value.data(), end, length);
+    if (value.empty() || ec != std::errc() || ptr != end) {
+        return std::nullopt;
+    }
+    return length;
+}
 
 static constexpr size_t default_body_sink_buffer_size = 32000;
 
