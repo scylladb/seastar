@@ -308,6 +308,10 @@ seastar_add_test (allocator
   SOURCES allocator_test.cc
   RUN_ARGS ${allocator_test_args})
 
+seastar_add_test (memory_stats
+  SOURCES memory_stats_test.cc
+  RUN_ARGS -m 512M)
+
 seastar_add_app_test (alien
   SOURCES alien_test.cc)
 
