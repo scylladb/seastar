@@ -21,6 +21,7 @@
  */
 
 #include <stdlib.h>
+#include <algorithm>
 #include <random>
 
 #include <seastar/testing/random.hh>
@@ -53,7 +54,8 @@ SEASTAR_TEST_CASE(test_make_tmp_file) {
 }
 
 static temporary_buffer<char> get_init_buffer(file& f) {
-    auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), f.memory_dma_alignment());
+    auto size = std::max(f.memory_dma_alignment(), f.disk_write_dma_alignment());
+    auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), size);
     memset(buf.get_write(), 0, buf.size());
     return buf;
 }
@@ -288,7 +290,8 @@ SEASTAR_TEST_CASE(test_read_entire_file_contiguous) {
             file& f = tf.get_file();
             auto& eng = testing::local_random_engine;
             auto dist = std::uniform_int_distribution<unsigned>();
-            size_t size = f.memory_dma_alignment() * (1 + dist(eng) % 1000);
+            auto alignment = std::max(f.memory_dma_alignment(), f.disk_write_dma_alignment());
+            size_t size = alignment * (1 + dist(eng) % 1000);
             auto wbuf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), size);
             for (size_t i = 0; i < size; i++) {
                 static char chars[] = "abcdefghijklmnopqrstuvwxyz0123456789";
