@@ -3444,6 +3444,7 @@ int reactor::do_run() {
         _polls++;
 
         lowres_clock::update(); // Don't delay expiring lowres timers
+        _prev_poll_start = std::exchange(_poll_start, sched_clock::time_point(lowres_clock::now().time_since_epoch()) - _total_sleep);
         if (check_for_work()) {
             if (idle) {
                 _total_idle += idle_end - idle_start;
@@ -4039,6 +4040,7 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
     , io_latency_goal_ms(*this, "io-latency-goal-ms", {}, "Max time (ms) io operations must take (1.5 * task-quota-ms if not set)")
     , io_flow_ratio_threshold(*this, "io-flow-rate-threshold", 1.1, "Dispatch rate to completion rate threshold")
     , io_completion_notify_ms(*this, "io-completion-notify-ms", {}, "Threshold in milliseconds over which IO request completion is reported to logs")
+    , io_disk_latency_threshold_ms(*this, "io-disk-latency-threshold-ms", 0.0, "Correct a disk's configured rates down while requests spend longer than this (ms) in it on average, 0 disables; set it to more than twice their time in the healthy disk under load")
     , max_task_backlog(*this, "max-task-backlog", 1000, "Maximum number of task backlog to allow; above this we ignore I/O")
     , blocked_reactor_notify_ms(*this, "blocked-reactor-notify-ms", 25, "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
     , blocked_reactor_reports_per_minute(*this, "blocked-reactor-reports-per-minute", 5, "Maximum number of backtraces reported by stall detector per minute")
@@ -4714,7 +4716,9 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
                 auto& iog = io_info.groups[group_idx];
                 if (!iog) {
                     struct io_queue::config qcfg = disk_config.generate_config(q, io_info.groups.size());
-                    iog = std::make_shared<io_group>(std::move(qcfg), io_info.shards_in_group[group_idx]);
+                    auto peer = std::ranges::find_if(io_info.groups, [] (const auto& g) { return g != nullptr; });
+                    iog = std::make_shared<io_group>(std::move(qcfg), io_info.shards_in_group[group_idx],
+                            peer != io_info.groups.end() ? peer->get() : nullptr);
                     seastar_logger.debug("allocate {} IO group with {} queues, queue-id {}", group_idx, io_info.shards_in_group[group_idx], q);
                 }
                 group = iog;

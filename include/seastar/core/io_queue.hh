@@ -145,6 +145,13 @@ private:
     uint64_t _prev_completed = 0;
     double _flow_ratio = 1.0;
 
+    // The correction of the disk's configured rates, as this queue applies it,
+    // and what this queue tells the disk's regulator
+    double _rate_correction = 1.0;
+    uint64_t _completed_in_disk = 0;
+    uint64_t _time_in_disk_us = 0;
+    fair_queue_entry::capacity_t _sent = 0;
+
     timer<lowres_clock> _averaging_decay_timer;
 
     const std::chrono::milliseconds _stall_threshold_min;
@@ -153,6 +160,7 @@ private:
 
     void update_flow_ratio() noexcept;
     void lower_stall_threshold() noexcept;
+    void update_rate_correction(clock_type::time_point now) noexcept;
 
     metrics::metric_groups _metric_groups;
 public:
@@ -187,6 +195,13 @@ public:
         std::chrono::microseconds tau = std::chrono::milliseconds(5);
         std::optional<uint32_t> physical_block_size; // Override for disks that lie about their physical block size
         bool with_metrics = true;
+        // Correcting the disk's configured rates from the time requests spend
+        // in it, see io_queue.cc; a zero disk_latency_threshold disables it
+        std::chrono::duration<double> disk_latency_threshold = std::chrono::duration<double>(0);
+        std::chrono::duration<double> rate_correction_period = std::chrono::seconds(1);
+        std::chrono::duration<double> rate_correction_cycle = std::chrono::seconds(30);
+        double rate_correction_step = 0.005;
+        double rate_correction_min = 0.1;
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);
@@ -385,7 +400,9 @@ public:
 
 class io_group {
 public:
-    explicit io_group(io_queue::config io_cfg, unsigned nr_queues);
+    // All groups of one disk share the correction of its configured rates,
+    // so each group after the first one is given any of the others as \p peer
+    explicit io_group(io_queue::config io_cfg, unsigned nr_queues, const io_group* peer = nullptr);
     ~io_group();
     struct priority_class_data;
     using priority_class_group_data = priority_class_data;
@@ -414,6 +431,11 @@ private:
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     util::spinlock _lock;
     const shard_id _allocated_on;
+    struct disk_state;
+    const std::shared_ptr<disk_state> _disk;
+    // How much of what its buckets let through this group sent, in _disk
+    struct budget_use;
+    budget_use* _budget_use = nullptr;
 
     static io_throttler::config configure_throttler(const io_queue::config& qcfg) noexcept;
     priority_class_data& find_or_create_class(scheduling_group sg);
