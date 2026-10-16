@@ -104,8 +104,12 @@ seastar_add_test (http_client
 seastar_add_test (perf_tests
   SOURCES perf_tests_perf.cc)
 
+find_package (ZLIB REQUIRED)
+
 seastar_add_test (metrics
   SOURCES metrics_perf.cc)
+target_link_libraries (test_perf_metrics
+  PRIVATE ZLIB::ZLIB)
 
 if (Seastar_LTTNG)
   add_executable (test_perf_lttng_overhead lttng_overhead_perf.cc)
