@@ -205,10 +205,6 @@ private:
     template <std::invocable<connection&> Fn>
     auto with_connection(Fn&& fn, abort_source*);
 
-    template <typename Fn>
-    requires std::invocable<Fn, connection&>
-    auto with_new_connection(Fn&& fn, abort_source*);
-
     future<> maybe_retry_request(std::exception_ptr ex,
                                  unsigned retry_count,
                                  httpd::operation_type method,

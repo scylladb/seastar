@@ -324,16 +324,6 @@ auto client::with_connection(Fn&& fn, abort_source* as) {
     });
 }
 
-template <typename Fn>
-requires std::invocable<Fn, connection&>
-auto client::with_new_connection(Fn&& fn, abort_source* as) {
-    return make_connection(as).then([this, fn = std::move(fn)] (connection_ptr con) mutable {
-        return fn(*con).finally([this, con = std::move(con)] () mutable {
-            return put_connection(std::move(con));
-        });
-    });
-}
-
 future<> client::make_request(request&& req, reply_handler&& handle, std::optional<reply::status_type>&& expected, abort_source* as) {
     return do_with(std::move(req), std::move(handle), [this, expected, as](const request& req, reply_handler& handle) mutable {
         return make_request(req, handle, expected, as);
@@ -363,10 +353,9 @@ future<> client::maybe_retry_request(std::exception_ptr ex,
             return make_exception_future<>(std::move(ex));
         }
         ++_http_stats[method].retries;
-        return with_new_connection([this, &req, &handle, as, expected](connection& con) {
-                                       return do_make_request(con, req, handle, as, expected);
-                                   },
-                                   as).handle_exception([this, retry_count, method, &req, &handle, &strategy, as, expected](std::exception_ptr ex) {
+        return with_connection([this, &req, &handle, as, expected] (connection& con) {
+            return do_make_request(con, req, handle, as, expected);
+        }, as).handle_exception([this, retry_count, method, &req, &handle, &strategy, as, expected] (std::exception_ptr ex) {
             return maybe_retry_request(std::move(ex), retry_count + 1, method, req, handle, strategy, expected, as);
         });
     });
