@@ -53,41 +53,38 @@ struct label_key {
         construct(labels, aggr_labels);
     }
 
+    label_key(std::string key, size_t hash) : key(std::move(key)), hash(hash) {}
+
     void construct(const metrics::impl::labels_type& labels, const label_list& aggr_labels) {
         key.clear();
         metrics::impl::append_aggregation_key(key, labels, aggr_labels);
         hash = std::hash<std::string_view>{}(std::string_view(key));
     }
 
-    // Fast path: adopt a key/hash that was already computed once, e.g. by
-    // metrics::impl::metric_series_metadata when metadata was last rebuilt, instead of
-    // re-filtering labels and rebuilding the key string on every scrape.
-    void assign(std::string_view precomputed_key, size_t precomputed_hash) {
-        key.assign(precomputed_key);
-        hash = precomputed_hash;
-    }
-
-    bool operator==(const label_key& o) const noexcept {
-        return hash == o.hash && key == o.key;
-    }
-
     std::string key;
     size_t hash = 0;
 };
 
-} // namespace seastar::prometheus
+// Non-owning label_key: lets the map be probed with a key already cached on a series
+// (metric_series_metadata) without copying it into an owned string first.
+struct label_key_view {
+    std::string_view key;
+    size_t hash;
+};
 
-namespace std {
-template <>
-struct hash<seastar::prometheus::label_key> {
-    size_t operator()(const seastar::prometheus::label_key& lk) const noexcept {
-        return lk.hash;
+struct label_key_hash {
+    using is_transparent = void;
+    size_t operator()(const label_key& k) const noexcept { return k.hash; }
+    size_t operator()(const label_key_view& k) const noexcept { return k.hash; }
+};
+
+struct label_key_equal {
+    using is_transparent = void;
+    template <typename A, typename B>
+    bool operator()(const A& a, const B& b) const noexcept {
+        return a.hash == b.hash && std::string_view(a.key) == std::string_view(b.key);
     }
 };
-}
-
-
-namespace seastar::prometheus {
 
 /*!
  * \brief a helper class to aggregate metrics over labels
@@ -111,13 +108,22 @@ class metric_aggregate_by_labels {
 
 public:
     using label_list_type = std::vector<std::string>;
-    using map_type = std::unordered_map<label_key, labels_value>;
+    using map_type = std::unordered_map<label_key, labels_value, label_key_hash, label_key_equal>;
     const label_list_type& _labels_to_aggregate_by;
     // identifies this scrape's aggregate_labels config, to detect a per-series cache
     // built under a different (e.g. other shard's, mid-reconfiguration) config.
     size_t _labels_to_aggregate_by_hash;
     label_key scratch_key;
     map_type _values;
+
+    void add(const seastar::metrics::impl::metric_value& m, label_key_view key, const labels_type& input_labels) noexcept {
+        auto i = _values.find(key);
+        if (i == _values.end()) {
+            _values.emplace(label_key{std::string(key.key), key.hash}, labels_value{build_aggregated_labels(input_labels), m});
+        } else {
+            i->second.m += m;
+        }
+    }
 
     labels_type build_aggregated_labels(const labels_type& input_labels) const {
         labels_type labels;
@@ -144,12 +150,7 @@ public:
      */
     void add(const seastar::metrics::impl::metric_value& m, const labels_type& input_labels) noexcept {
         scratch_key.construct(input_labels, _labels_to_aggregate_by);
-        auto i = _values.find(scratch_key);
-        if (i == _values.end()) {
-            _values.emplace(scratch_key, labels_value{build_aggregated_labels(input_labels), m});
-        } else {
-            i->second.m += m;
-        }
+        add(m, label_key_view{scratch_key.key, scratch_key.hash}, input_labels);
     }
 
     /*!
@@ -157,26 +158,20 @@ public:
      *
      * Same as add() above, but uses the aggregation key already cached on value_info (see
      * metrics::impl::metric_series_metadata) instead of rebuilding it from the full label
-     * set on every call. The post-aggregation label set is only ever needed once per unique
-     * output group, so it's built here on a cache miss rather than cached per input series.
+     * set on every call. The cached key is looked up by reference; it is only copied into
+     * an owned map key on a miss, i.e. once per output group rather than once per series.
      * This is the path used by the prometheus scrape handlers; the label-based add() above
      * is kept for direct testing of this class and any other caller.
      */
     void add(const seastar::metrics::impl::metric_value& m, const seastar::metrics::impl::metric_series_metadata& value_info) noexcept {
         if (value_info.has_aggregation_cache() && value_info.aggregation_key_config_hash() == _labels_to_aggregate_by_hash) [[likely]] {
-            scratch_key.assign(value_info.aggregation_key(), value_info.aggregation_key_hash());
+            add(m, label_key_view{value_info.aggregation_key(), value_info.aggregation_key_hash()}, value_info.labels());
         } else {
             // Rare: either this shard's metadata hasn't picked up an aggregate_labels
             // change yet (no cache), or it rebuilt under a different config than the
             // one driving this scrape (stale cache, cross-shard reconfiguration race).
             // Recompute instead of trusting a cache that isn't there or doesn't match.
-            scratch_key.construct(value_info.labels(), _labels_to_aggregate_by);
-        }
-        auto i = _values.find(scratch_key);
-        if (i == _values.end()) {
-            _values.emplace(scratch_key, labels_value{build_aggregated_labels(value_info.labels()), m});
-        } else {
-            i->second.m += m;
+            add(m, value_info.labels());
         }
     }
     const auto& get_values() const noexcept {
