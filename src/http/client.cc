@@ -200,6 +200,13 @@ future<> connection::close() noexcept {
     // #2661. At least output stream close can fail with exception, because
     // the stream will do a flush. If connection never managed to send data, we
     // will throw again here. Need to suppress these exceptions.
+    //
+    // The input-shutdown waiter armed in the constructor completes on a peer
+    // FIN or on shutdown_input() (native close_read / posix SHUT_RD, and for
+    // TLS the underlying socket). Stream close alone does not do that on the
+    // native stack, so a retry freeing an idle keep-alive slot at
+    // max_connections would wait forever if the peer never closes its side.
+    _fd.shutdown_input();
     return when_all(_read_buf.close().handle_exception([](auto&&){}), _write_buf.close().handle_exception([](auto&&){})).discard_result().then([this] {
         auto la = _fd.local_address();
         return std::move(_closed).then([la = std::move(la)] {
@@ -263,6 +270,40 @@ future<client::connection_ptr> client::get_connection(abort_source* as) {
 
     _requests_queued.checkpoint();
     return make_connection(as);
+}
+
+future<client::connection_ptr> client::get_fresh_connection(abort_source* as) {
+    if (as != nullptr && as->abort_requested()) {
+        return make_exception_future<connection_ptr>(as->abort_requested_exception_ptr());
+    }
+
+    if (_nr_connections < _max_connections) {
+        _requests_queued.checkpoint();
+        return make_connection(as);
+    }
+
+    // The limit is full. Drop one idle socket instead of handing it to the
+    // retry: whatever made the previous attempt fail may have killed the rest
+    // of the pool too, and reading that only shows up on the next use.
+    if (!_pool.empty()) {
+        connection_ptr con = _pool.front().shared_from_this();
+        _pool.pop_front();
+        http_log.trace("closing idle http connection {} to free a retry slot", con->_fd.local_address());
+        return con->close().then_wrapped([this, as, con = std::move(con)] (future<>&&) mutable {
+            con = nullptr;
+            return get_fresh_connection(as);
+        });
+    }
+
+    auto sub = as ? as->subscribe([this] () noexcept { _wait_con.broadcast(); }) : std::nullopt;
+    _requests_queued++;
+    return _wait_con.wait().then([this, as, sub = std::move(sub)] {
+        _requests_queued--;
+        if (as != nullptr && as->abort_requested()) {
+            return make_exception_future<connection_ptr>(as->abort_requested_exception_ptr());
+        }
+        return get_fresh_connection(as);
+    });
 }
 
 future<client::connection_ptr> client::make_connection(abort_source* as) {
@@ -353,9 +394,11 @@ future<> client::maybe_retry_request(std::exception_ptr ex,
             return make_exception_future<>(std::move(ex));
         }
         ++_http_stats[method].retries;
-        return with_connection([this, &req, &handle, as, expected] (connection& con) {
-            return do_make_request(con, req, handle, as, expected);
-        }, as).handle_exception([this, retry_count, method, &req, &handle, &strategy, as, expected] (std::exception_ptr ex) {
+        return get_fresh_connection(as).then([this, &req, &handle, as, expected] (connection_ptr con) {
+            return do_make_request(*con, req, handle, as, expected).finally([this, con = std::move(con)] () mutable {
+                return put_connection(std::move(con));
+            });
+        }).handle_exception([this, retry_count, method, &req, &handle, &strategy, as, expected] (std::exception_ptr ex) {
             return maybe_retry_request(std::move(ex), retry_count + 1, method, req, handle, strategy, expected, as);
         });
     });
