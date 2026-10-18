@@ -90,6 +90,7 @@ struct test_config {
     aggr_mode aggregation_mode = aggr_mode::NO_AGGR;
     bool same_metric_name = false;
     std::optional<sm::label_instance> extra_label;
+    bool use_protobuf = false;
 };
 
 static constexpr uint64_t histo_min = 1, histo_max = 1000000;
@@ -111,6 +112,13 @@ struct prometheus_test_fixture {
     static constexpr size_t name_length = 10;
 
     static seastar::future<> run_metrics_test(test_config test_conf, prometheus::config config, std::string_view expected) {
+        auto actual = co_await render_metrics(test_conf, config);
+        BOOST_REQUIRE_MESSAGE(expected == actual,
+            fmt::format("actual output doesn't match expected\nexpected output:\n{}\nactual output:\n{}",
+            expected, actual));
+    }
+
+    static seastar::future<std::string> render_metrics(test_config test_conf, prometheus::config config) {
 
         co_await smp::invoke_on_all([] {
             remove_existing_metrics();
@@ -183,15 +191,13 @@ struct prometheus_test_fixture {
             sp::details::write_body_args{
                 .filter = filter,
                 .family_filter = family_filter,
-                .use_protobuf_format = false,
+                .use_protobuf_format = test_conf.use_protobuf,
                 .show_help = test_conf.show_help,
                 .enable_aggregation = test_conf.aggregation_mode != aggr_mode::NO_AGGR
             },
             std::move(out));
 
-        BOOST_REQUIRE_MESSAGE(expected == ss.str(),
-            fmt::format("actual output doesn't match expected\nexpected output:\n{}\nactual output:\n{}",
-            expected, ss.str()));
+        co_return ss.str();
     }
 };
 
@@ -421,6 +427,18 @@ SEASTAR_TEST_CASE(test_label_starting_with_double_underscore) {
         R"(# TYPE seastar_group_1_metric_0 counter)" "\n"
         R"(seastar_group_1_metric_0{label-0="label-0-0",shard="0"} 123)" "\n"
     );
+}
+
+SEASTAR_TEST_CASE(test_protobuf_label_starting_with_double_underscore) {
+    // The protobuf output must hide "__" labels like the text output does; names are raw bytes in it.
+    test_config cfg{data_type::COUNTER};
+    cfg.use_protobuf = true;
+    sm::label internal_label{"__internal"};
+    cfg.extra_label = internal_label("should_not_appear");
+    auto out = co_await prometheus_test_fixture::render_metrics(cfg, {});
+    BOOST_REQUIRE(out.find("label-0") != std::string::npos);
+    BOOST_REQUIRE(out.find("__internal") == std::string::npos);
+    BOOST_REQUIRE(out.find("should_not_appear") == std::string::npos);
 }
 
 
