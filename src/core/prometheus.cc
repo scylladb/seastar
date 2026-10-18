@@ -806,15 +806,20 @@ struct label_body {
     // Inline storage covers typical label sets; longer ones fall back to the heap and may throw.
     fmt::memory_buffer text;
     size_t insert_pos = std::string_view::npos;
+    // A registered label named like the synthetic one is replaced on bucket lines, not duplicated.
+    size_t replaced_len = 0;
 
     label_body(const labels_type& labels, const config& ctx, std::string_view extra_name) {
         for_each_label(labels, ctx, [&] (std::string_view key, std::string_view value, bool is_ctx) {
-            // 'labels' is sorted, so the first one after extra_name fixes the splice for every line.
-            // Strict '>': a registered label named exactly extra_name stays, the synthetic one follows it.
-            if (!is_ctx && insert_pos == std::string_view::npos && key > extra_name) {
+            // 'labels' is sorted, so the first one not before extra_name fixes the splice for every line.
+            if (!is_ctx && insert_pos == std::string_view::npos && key >= extra_name) {
                 insert_pos = text.size();
             }
+            auto start = text.size();
             fmt::format_to(std::back_inserter(text), FMT_COMPILE("{}=\"{}\","), key, value);
+            if (!is_ctx && key == extra_name) {
+                replaced_len = text.size() - start;
+            }
         });
         if (insert_pos == std::string_view::npos) {
             insert_pos = text.size();
@@ -841,7 +846,7 @@ static void write_series(buf_t& buf, std::string_view name, std::string_view suf
     if (!extra_name.empty()) {
         buf << text.substr(0, body.insert_pos);
         write_label(buf, extra_name, extra_value);
-        buf << text.substr(body.insert_pos);
+        buf << text.substr(body.insert_pos + body.replaced_len);
     } else {
         buf << text;
     }

@@ -322,8 +322,7 @@ SEASTAR_TEST_CASE(test_basic_summary) {
 }
 
 SEASTAR_TEST_CASE(test_histogram_label_named_le) {
-    // Pins existing behavior: a registered "le" is kept next to the synthetic one,
-    // a pre-existing quirk that Prometheus rejects as a duplicate label.
+    // A registered "le" would duplicate the synthetic one on bucket lines, which Prometheus rejects.
     test_config cfg{data_type::HISTOGRAM};
     cfg.labels_per_metric = 0;
     sm::label le_label{"le"};
@@ -333,31 +332,31 @@ SEASTAR_TEST_CASE(test_histogram_label_named_le) {
         R"(# TYPE seastar_group_1_metric_0 histogram)" "\n"
         R"(seastar_group_1_metric_0_sum{le="bogus",shard="0"} 6.42072e+06)" "\n"
         R"(seastar_group_1_metric_0_count{le="bogus",shard="0"} 53)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="2.000000",shard="0"} 3)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="4.000000",shard="0"} 6)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="8.000000",shard="0"} 8)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="16.000000",shard="0"} 11)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="32.000000",shard="0"} 14)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="64.000000",shard="0"} 16)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="128.000000",shard="0"} 19)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="256.000000",shard="0"} 22)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="512.000000",shard="0"} 24)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="1024.000000",shard="0"} 27)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="2048.000000",shard="0"} 30)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="4096.000000",shard="0"} 32)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="8192.000000",shard="0"} 35)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="16384.000000",shard="0"} 37)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="32768.000000",shard="0"} 40)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="65536.000000",shard="0"} 43)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="131072.000000",shard="0"} 45)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="262144.000000",shard="0"} 48)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="1000000.000000",shard="0"} 51)" "\n"
-        R"(seastar_group_1_metric_0_bucket{le="bogus",le="+Inf",shard="0"} 53)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="2.000000",shard="0"} 3)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="4.000000",shard="0"} 6)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="8.000000",shard="0"} 8)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="16.000000",shard="0"} 11)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="32.000000",shard="0"} 14)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="64.000000",shard="0"} 16)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="128.000000",shard="0"} 19)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="256.000000",shard="0"} 22)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="512.000000",shard="0"} 24)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="1024.000000",shard="0"} 27)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="2048.000000",shard="0"} 30)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="4096.000000",shard="0"} 32)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="8192.000000",shard="0"} 35)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="16384.000000",shard="0"} 37)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="32768.000000",shard="0"} 40)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="65536.000000",shard="0"} 43)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="131072.000000",shard="0"} 45)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="262144.000000",shard="0"} 48)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="1000000.000000",shard="0"} 51)" "\n"
+        R"(seastar_group_1_metric_0_bucket{le="+Inf",shard="0"} 53)" "\n"
     );
 }
 
 SEASTAR_TEST_CASE(test_summary_label_named_quantile) {
-    // Pins existing behavior, same as test_histogram_label_named_le.
+    // Same as test_histogram_label_named_le, for quantile=.
     test_config cfg{data_type::SUMMARY};
     cfg.labels_per_metric = 0;
     sm::label quantile_label{"quantile"};
@@ -367,25 +366,25 @@ SEASTAR_TEST_CASE(test_summary_label_named_quantile) {
         R"(# TYPE seastar_group_1_metric_0 summary)" "\n"
         R"(seastar_group_1_metric_0_sum{quantile="bogus",shard="0"} 6.42072e+06)" "\n"
         R"(seastar_group_1_metric_0_count{quantile="bogus",shard="0"} 53)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="2.000000",shard="0"} 3)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="4.000000",shard="0"} 6)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="8.000000",shard="0"} 8)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="16.000000",shard="0"} 11)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="32.000000",shard="0"} 14)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="64.000000",shard="0"} 16)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="128.000000",shard="0"} 19)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="256.000000",shard="0"} 22)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="512.000000",shard="0"} 24)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="1024.000000",shard="0"} 27)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="2048.000000",shard="0"} 30)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="4096.000000",shard="0"} 32)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="8192.000000",shard="0"} 35)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="16384.000000",shard="0"} 37)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="32768.000000",shard="0"} 40)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="65536.000000",shard="0"} 43)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="131072.000000",shard="0"} 45)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="262144.000000",shard="0"} 48)" "\n"
-        R"(seastar_group_1_metric_0{quantile="bogus",quantile="1000000.000000",shard="0"} 51)" "\n"
+        R"(seastar_group_1_metric_0{quantile="2.000000",shard="0"} 3)" "\n"
+        R"(seastar_group_1_metric_0{quantile="4.000000",shard="0"} 6)" "\n"
+        R"(seastar_group_1_metric_0{quantile="8.000000",shard="0"} 8)" "\n"
+        R"(seastar_group_1_metric_0{quantile="16.000000",shard="0"} 11)" "\n"
+        R"(seastar_group_1_metric_0{quantile="32.000000",shard="0"} 14)" "\n"
+        R"(seastar_group_1_metric_0{quantile="64.000000",shard="0"} 16)" "\n"
+        R"(seastar_group_1_metric_0{quantile="128.000000",shard="0"} 19)" "\n"
+        R"(seastar_group_1_metric_0{quantile="256.000000",shard="0"} 22)" "\n"
+        R"(seastar_group_1_metric_0{quantile="512.000000",shard="0"} 24)" "\n"
+        R"(seastar_group_1_metric_0{quantile="1024.000000",shard="0"} 27)" "\n"
+        R"(seastar_group_1_metric_0{quantile="2048.000000",shard="0"} 30)" "\n"
+        R"(seastar_group_1_metric_0{quantile="4096.000000",shard="0"} 32)" "\n"
+        R"(seastar_group_1_metric_0{quantile="8192.000000",shard="0"} 35)" "\n"
+        R"(seastar_group_1_metric_0{quantile="16384.000000",shard="0"} 37)" "\n"
+        R"(seastar_group_1_metric_0{quantile="32768.000000",shard="0"} 40)" "\n"
+        R"(seastar_group_1_metric_0{quantile="65536.000000",shard="0"} 43)" "\n"
+        R"(seastar_group_1_metric_0{quantile="131072.000000",shard="0"} 45)" "\n"
+        R"(seastar_group_1_metric_0{quantile="262144.000000",shard="0"} 48)" "\n"
+        R"(seastar_group_1_metric_0{quantile="1000000.000000",shard="0"} 51)" "\n"
     );
 }
 
