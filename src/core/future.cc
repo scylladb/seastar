@@ -151,15 +151,47 @@ void future_state_base::ignore() noexcept {
     }
 }
 
+static std::string describe_exception(const std::exception_ptr& e) noexcept {
+    try {
+        std::rethrow_exception(e);
+    } catch (const std::exception& ex) {
+        return ex.what();
+    } catch (...) {
+        return "unknown exception";
+    }
+}
+
 nested_exception::nested_exception(std::exception_ptr inner, std::exception_ptr outer) noexcept
-    : inner(std::move(inner)), outer(std::move(outer)) {}
+    : inner(std::move(inner)), outer(std::move(outer)) {
+    // The std::nested_exception base captures std::current_exception() in its
+    // constructor, which is not necessarily our `inner`. It exposes no setter,
+    // so make `inner` the current exception (by rethrowing it inside a handler)
+    // and copy-assign a freshly captured base, so that std::rethrow_if_nested()
+    // and {fmt} unwrap us to the original cause rather than stopping at what().
+    if (this->inner) {
+        try {
+            std::rethrow_exception(this->inner);
+        } catch (...) {
+            static_cast<std::nested_exception&>(*this) = std::nested_exception();
+        }
+    }
+    // {fmt} follows only the single std::nested_exception pointer (`inner`),
+    // which it appends after what(); render `outer` here so the full chain shows.
+    try {
+        _what = this->outer
+                ? "seastar::nested_exception (while cleaning up after " + describe_exception(this->outer) + ")"
+                : "seastar::nested_exception";
+    } catch (...) {
+        _what = "seastar::nested_exception";
+    }
+}
 
 nested_exception::nested_exception(nested_exception&&) noexcept = default;
 
 nested_exception::nested_exception(const nested_exception&) noexcept = default;
 
 const char* nested_exception::what() const noexcept {
-    return "seastar::nested_exception";
+    return _what.c_str();
 }
 
 [[noreturn]] void nested_exception::rethrow_nested() const {

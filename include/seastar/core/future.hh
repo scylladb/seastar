@@ -25,6 +25,7 @@
 #include <functional>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <source_location>
@@ -42,7 +43,15 @@
 
 namespace seastar {
 
-struct nested_exception : public std::exception {
+// Derives from std::nested_exception with its nested pointer set to \ref inner
+// (see the constructor), so that std::rethrow_if_nested() and {fmt}'s exception
+// formatter unwrap to the original cause. {fmt} follows only that single nested
+// pointer, so \ref what() additionally renders \ref outer (the exception that
+// was in flight while \ref inner was being handled); {fmt} appends \ref inner
+// after it, reproducing the full "<outer> ... <inner>" chain without duplication.
+class nested_exception : public std::exception, public std::nested_exception {
+    std::string _what;
+public:
     std::exception_ptr inner;
     std::exception_ptr outer;
     nested_exception(std::exception_ptr inner, std::exception_ptr outer) noexcept;
