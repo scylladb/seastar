@@ -1873,6 +1873,95 @@ SEASTAR_THREAD_TEST_CASE(test_compressor_empty_frames) {
     }).get();
 }
 
+// Test that RPC uses compress_async() and decompress_async(), that it tolerates
+// preemption inside them, and that it never runs two of the same kind concurrently
+// on one compressor.
+SEASTAR_THREAD_TEST_CASE(test_compressor_async) {
+    static const sstring compressor_name = "TEST_ASYNC";
+    struct stats {
+        unsigned compressions = 0;
+        unsigned decompressions = 0;
+    };
+    struct yielding_compressor : public rpc::compressor {
+        stats& _stats;
+        rpc::lz4_fragmented_compressor _delegate;
+        bool _compressing = false;
+        bool _decompressing = false;
+
+        yielding_compressor(stats& s) : _stats(s) {}
+        rpc::snd_buf compress(size_t head_space, rpc::snd_buf data) override {
+            BOOST_FAIL("RPC should use compress_async()");
+            abort();
+        }
+        rpc::rcv_buf decompress(rpc::rcv_buf data) override {
+            BOOST_FAIL("RPC should use decompress_async()");
+            abort();
+        }
+        future<rpc::snd_buf> compress_async(size_t head_space, rpc::snd_buf data) override {
+            BOOST_REQUIRE(!_compressing);
+            _compressing = true;
+            co_await yield();
+            auto ret = _delegate.compress(head_space, std::move(data));
+            co_await yield();
+            _compressing = false;
+            ++_stats.compressions;
+            co_return ret;
+        }
+        future<rpc::rcv_buf> decompress_async(rpc::rcv_buf data) override {
+            BOOST_REQUIRE(!_decompressing);
+            _decompressing = true;
+            co_await yield();
+            auto ret = _delegate.decompress(std::move(data));
+            co_await yield();
+            _decompressing = false;
+            ++_stats.decompressions;
+            co_return ret;
+        }
+        sstring name() const override {
+            return compressor_name;
+        }
+    };
+    struct factory : public rpc::compressor::factory {
+        stats& _stats;
+        factory(stats& s) : _stats(s) {}
+        const sstring& supported() const override {
+            return compressor_name;
+        }
+        std::unique_ptr<rpc::compressor> negotiate(sstring feature, bool is_server) const override {
+            if (feature == supported()) {
+                return std::make_unique<yielding_compressor>(_stats);
+            }
+            return nullptr;
+        }
+    };
+
+    stats server_stats;
+    stats client_stats;
+    factory server_factory{server_stats};
+    factory client_factory{client_stats};
+    rpc::server_options so{.compressor_factory = &server_factory};
+    rpc::client_options co{.compressor_factory = &client_factory};
+    rpc_test_config cfg;
+    cfg.server_options = so;
+
+    rpc_test_env<>::do_with_thread(cfg, co, [&] (rpc_test_env<>& env, test_rpc_proto::client& c) {
+        env.register_handler(1, [] (sstring x) { return x; }).get();
+        auto echo = env.proto().make_client<sstring (sstring)>(1);
+        constexpr int n_calls = 20;
+        std::vector<future<sstring>> replies;
+        for (int i = 0; i < n_calls; ++i) {
+            replies.push_back(echo(c, sstring(1000 * i, char('a' + i))));
+        }
+        for (int i = 0; i < n_calls; ++i) {
+            BOOST_REQUIRE_EQUAL(replies[i].get(), sstring(1000 * i, char('a' + i)));
+        }
+        BOOST_REQUIRE_GE(client_stats.compressions, n_calls);
+        BOOST_REQUIRE_GE(client_stats.decompressions, n_calls);
+        BOOST_REQUIRE_GE(server_stats.compressions, n_calls);
+        BOOST_REQUIRE_GE(server_stats.decompressions, n_calls);
+    }).get();
+}
+
 // Regression test for a stream connection being destroyed with a batch flush
 // pending on its write buffer, seen in the field as
 //
