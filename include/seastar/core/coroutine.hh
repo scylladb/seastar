@@ -215,7 +215,9 @@ public:
         }
     }
 
-    T await_resume() { return _future.get(); }
+    // The future is always available here, so skip get()'s wait() (which
+    // is only needed in a seastar::thread).
+    T await_resume() { return _future.get_available_state_ref().take(); }
 };
 
 template<bool CheckPreempt>
@@ -241,7 +243,7 @@ public:
         }
     }
 
-    void await_resume() { _future.get(); }
+    void await_resume() { _future.get_available_state_ref().take(); }
 };
 
 template<typename T>

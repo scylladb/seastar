@@ -548,8 +548,8 @@ protected:
     future_state_base(nested_exception_marker, future_state_base&& n, future_state_base&& old) noexcept;
     ~future_state_base() noexcept = default;
 
-    void rethrow_exception() &&;
-    void rethrow_exception() const&;
+    [[noreturn]] void rethrow_exception() &&;
+    [[noreturn]] void rethrow_exception() const&;
 
 public:
 
@@ -588,6 +588,8 @@ public:
 };
 
 namespace internal {
+template <bool CheckPreempt, typename T>
+struct awaiter;
 void report_failed_future(const std::exception_ptr& ex) noexcept;
 void report_failed_future(const future_state_base& state) noexcept;
 void report_failed_future(future_state_base::any&& state) noexcept;
@@ -1547,6 +1549,8 @@ private:
 
     template<typename... U>
     friend class shared_future;
+    template <bool, typename>
+    friend struct internal::awaiter;
 public:
     /// \brief The data type carried by the future.
     using value_type = internal::future_stored_type_t<T>;
