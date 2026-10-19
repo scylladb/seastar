@@ -136,14 +136,15 @@ static void log_exception(connection& c, log_level level, const char* log, std::
     c.get_logger()(c.peer_address(), level, std::string_view(formatted.data(), formatted.size()));
 }
 
-snd_buf connection::compress(snd_buf buf) {
+future<snd_buf> connection::compress(snd_buf buf) {
     if (_compressor) {
-        buf = _compressor->compress(4, std::move(buf));
-        static_assert(snd_buf::chunk_size >= 4, "send buffer chunk size is too small");
-        write_le<uint32_t>(buf.front().get_write(), buf.size - 4);
-        return buf;
+        return _compressor->compress_async(4, std::move(buf)).then([] (snd_buf buf) {
+            static_assert(snd_buf::chunk_size >= 4, "send buffer chunk size is too small");
+            write_le<uint32_t>(buf.front().get_write(), buf.size - 4);
+            return buf;
+        });
     }
-    return buf;
+    return make_ready_future<snd_buf>(std::move(buf));
 }
 
 future<> connection::send_buffer(snd_buf buf) {
@@ -182,8 +183,9 @@ future<> connection::send_entry(outgoing_entry& d) noexcept {
                 d.buf.size -= sizeof(uint64_t);
             }
         }
-        auto buf = compress(std::move(d.buf));
-        return send_buffer(std::move(buf)).then([this] {
+        return compress(std::move(d.buf)).then([this] (snd_buf buf) {
+            return send_buffer(std::move(buf));
+        }).then([this] {
             _stats.sent_messages++;
             return _connected->write_buf.flush();
         });
@@ -495,7 +497,7 @@ connection::read_frame_compressed(socket_address info, std::unique_ptr<compresso
                     _logger(info, format("unexpected eof on a {} while reading compressed data: expected {:d} got {:d}", FrameType::role(), size, compressed_data.size));
                     return make_ready_future<typename FrameType::return_type>(FrameType::empty_value());
                 }
-                auto eb = compressor->decompress(std::move(compressed_data));
+              return compressor->decompress_async(std::move(compressed_data)).then([this, info, &in, &compressor] (rcv_buf eb) {
                 if (eb.size == 0) {
                     // Empty frames might be sent as means of communication between the compressors, and should be skipped by the RPC layer.
                     // We skip the empty frame here. We recursively restart the function, as if the empty frame didn't happen.
@@ -506,6 +508,7 @@ connection::read_frame_compressed(socket_address info, std::unique_ptr<compresso
                 return do_with(std::move(source), [this, info] (input_stream<char>& in) {
                     return read_frame<FrameType>(info, in);
                 });
+              });
             });
         });
     } else {

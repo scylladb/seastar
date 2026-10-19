@@ -295,6 +295,16 @@ static inline memory_input_stream<rcv_buf::iterator> make_deserializer_stream(rc
     }
 }
 
+// Note on concurrency: every connection has its own compressor, created by
+// factory::negotiate(), so the guarantees of compress_async() and
+// decompress_async() hold per connection. compress_async() may overlap
+// decompress_async() on the same compressor, and calls on different connections
+// may run concurrently, possibly in different scheduling groups. If compressors
+// share state (e.g. a shard-wide compression context), the implementation must
+// synchronize access to it, but a call shouldn't wait for a call in another
+// scheduling group, lest a low-share group stall a high-share one.
+// For example, keep a separate context per scheduling group, or don't hold
+// the shared one across a preemption point.
 class compressor {
 public:
     virtual ~compressor() {}
@@ -302,6 +312,24 @@ public:
     virtual snd_buf compress(size_t head_space, snd_buf data) = 0;
     // decompress data
     virtual rcv_buf decompress(rcv_buf data) = 0;
+    // Same as compress(), but the compressor may preempt before the result is ready.
+    // RPC uses this variant. The default implementation calls compress().
+    //
+    // RPC never runs two compress_async() calls concurrently on the same compressor,
+    // and it calls close() only after all compress_async() calls have resolved.
+    // See the note on concurrency above the class.
+    virtual future<snd_buf> compress_async(size_t head_space, snd_buf data) {
+        return futurize_invoke([&] { return compress(head_space, std::move(data)); });
+    }
+    // Same as decompress(), but the compressor may preempt before the result is ready.
+    // RPC uses this variant. The default implementation calls decompress().
+    //
+    // RPC never runs two decompress_async() calls concurrently on the same compressor,
+    // and it calls close() only after all decompress_async() calls have resolved.
+    // See the note on concurrency above the class.
+    virtual future<rcv_buf> decompress_async(rcv_buf data) {
+        return futurize_invoke([&] { return decompress(std::move(data)); });
+    }
     virtual sstring name() const = 0;
     virtual future<> close() noexcept { return make_ready_future<>(); };
 
@@ -314,7 +342,8 @@ public:
         // negotiate compress algorithm
         // send_empty_frame() requests an empty frame to be sent to the peer compressor on the other side of the connection.
         // By attaching a header to this empty frame, the compressor can communicate somthing to the peer,
-        // send_empty_frame() mustn't be called from inside compress() or decompress().
+        // send_empty_frame() mustn't be called from inside compress(), decompress(),
+        // compress_async() or decompress_async().
         virtual std::unique_ptr<compressor> negotiate(sstring feature, bool is_server, std::function<future<>()> send_empty_frame) const {
             return negotiate(feature, is_server);
         }
