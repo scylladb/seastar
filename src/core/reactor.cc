@@ -575,7 +575,7 @@ future<size_t> pollable_fd_state::sendto(socket_address addr, const void* buf, s
 namespace internal {
 
 #ifdef SEASTAR_BUILD_SHARED_LIBS
-const preemption_monitor*& get_need_preempt_var() {
+const preemption_monitor*& get_need_preempt_var() noexcept {
     static preemption_monitor bootstrap_preemption_monitor;
     static thread_local const preemption_monitor* g_need_preempt = &bootstrap_preemption_monitor;
     return g_need_preempt;
