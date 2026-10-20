@@ -74,6 +74,8 @@ struct aio_general_context {
     // allocations
     std::deque<internal::linux_abi::iocb*> iocbs_backlog;
     void queue(internal::linux_abi::iocb* iocb);
+    // Drop a queued but not yet submitted iocb. No-op if it is not queued.
+    void remove(internal::linux_abi::iocb* iocb);
     // Submit queued iocbs until the queue is drained or io_submit() reports
     // EAGAIN. Returns the number submitted; unsubmitted iocbs remain queued.
     size_t flush();

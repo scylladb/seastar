@@ -19,6 +19,7 @@
  * Copyright 2019 ScyllaDB
  */
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -442,7 +443,9 @@ aio_general_context::~aio_general_context() {
 }
 
 void aio_general_context::queue(linux_abi::iocb* iocb) {
-    if (last < end) {
+    // Keep FIFO order: once anything is in the backlog, newer iocbs must go
+    // behind it even if remove() has since freed room in the array.
+    if (last < end && iocbs_backlog.empty()) {
         *last++ = iocb;
     } else {
         iocbs_backlog.push_back(iocb);
@@ -476,10 +479,12 @@ size_t aio_general_context::flush() {
 
     auto nr = begin - original_begin;
 
-    if (nr != 0 && begin == last) {
+    if (begin == last) {
         // If we have succesfully committed all iocbs (begin == last) then we
         // reset the pointers. Further at this point we move iocbs from the
         // backlog to the main `iocbs` array if there are any.
+        // Note that the pending range may also have been emptied by remove(),
+        // in which case nr == 0 but the backlog still needs to be refilled.
         // We only do this once `iocbs` is fully empty to get batching behaviour
         // and avoid degenarate cases where only one element gets submitted
         // which would result in excessive shifting of the elements in `iocbs`
@@ -495,6 +500,13 @@ size_t aio_general_context::flush() {
     }
 
     return nr;
+}
+
+void aio_general_context::remove(linux_abi::iocb* iocb) {
+    // Only [begin, last) and the backlog hold unsubmitted iocbs; entries
+    // before `begin` were already handed to the kernel, which copied them.
+    last = std::remove(begin, last, iocb);
+    std::erase(iocbs_backlog, iocb);
 }
 
 completion_with_iocb::completion_with_iocb(int fd, int events, void* user_data)
@@ -792,6 +804,14 @@ future<> reactor_backend_aio::poll_rdhup(pollable_fd_state& fd) {
 
 void reactor_backend_aio::forget(pollable_fd_state& fd) noexcept {
     auto* pfd = static_cast<aio_pollable_fd_state*>(&fd);
+    // A short flush may have left this fd's iocbs queued in userspace. They
+    // are embedded in pfd, so drop them from the queue before freeing it or a
+    // later flush() would hand io_submit() dangling pointers.
+    if (_polling_io.has_pending()) {
+        for (auto events : {POLLIN, POLLOUT, POLLRDHUP}) {
+            _polling_io.remove(pfd->get_iocb(events));
+        }
+    }
     delete pfd;
     // ?
 }
