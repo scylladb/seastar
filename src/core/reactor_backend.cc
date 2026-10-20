@@ -447,26 +447,26 @@ void aio_general_context::queue(linux_abi::iocb* iocb) {
 
 size_t aio_general_context::flush() {
     auto begin = iocbs.get();
-    using clock = std::chrono::steady_clock;
-    constexpr clock::time_point no_time_point = clock::time_point(clock::duration(0));
-    auto retry_until = no_time_point;
     while (begin != last) {
         auto r = io_submit(io_context, last - begin, begin);
         if (__builtin_expect(r > 0, true)) {
             begin += r;
             continue;
         }
-        // errno == EAGAIN is expected here. We don't explicitly assert that
-        // since the assert below prevents an endless loop for any reason.
-        if (retry_until == no_time_point) {
-            // allow retrying for 1 second
-            retry_until = clock::now() + 1s;
-        } else {
-            SEASTAR_ASSERT(clock::now() < retry_until);
-        }
+        // EAGAIN means the completion ring has no free slot. The kernel reserves
+        // one slot per in-flight iocb at io_submit() time and frees it only when
+        // userspace reaps the completion (see fs/aio.c get_reqs_available() and
+        // refill_reqs_available()). A poll on an idle fd never completes, so the
+        // number of in-flight polls is bounded by the number of open fds, not by
+        // the ring size, and retrying here can never succeed: nothing is reaped
+        // while we spin. Return a short flush instead and let the reactor reap
+        // completions; the remaining iocbs are submitted on a later flush.
+        // Move the unsubmitted entries to the front so more can be queued.
+        std::move(begin, last, iocbs.get());
+        break;
     }
-    auto nr = last - iocbs.get();
-    last = iocbs.get();
+    auto nr = begin - iocbs.get();
+    last -= nr;
     return nr;
 }
 
@@ -546,6 +546,11 @@ void preempt_io_context::request_preemption() {
     // monitored.
     _hrtimer_aio_completion.maybe_queue(_context);
     _context.flush();
+    // A short flush leaves the hrtimer iocb queued in userspace, so the aio
+    // ring cannot make need_preempt() true yet.
+    if (_context.has_pending()) {
+        return;
+    }
 
     // The kernel is not obliged to deliver the completion immediately, so wait for it
     while (!need_preempt()) {
@@ -671,6 +676,15 @@ void reactor_backend_aio::wait_and_process_events(const sigset_t* active_sigmask
     _hrtimer_poll_completion.maybe_queue(_polling_io);
     _smp_wakeup_aio_completion.maybe_queue(_polling_io);
     _polling_io.flush();
+    if (_polling_io.has_pending() && timeout != 0) {
+        // A short flush left iocbs queued in userspace. They can only be
+        // submitted after completions are reaped, and io_pgetevents() wakes us
+        // on any completion, so sleeping is fine. Bound the wait, though, in
+        // case the hrtimer or smp-wakeup poll is itself still unsubmitted and
+        // cannot wake us. Busy-polling here would pin the CPU for as long as
+        // the ring stays full.
+        timeout = 1;
+    }
     await_events(timeout, active_sigmask);
     _preempting_io.service_preempting_io(); // clear task quota timer
 }
