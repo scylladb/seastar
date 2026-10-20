@@ -32,6 +32,7 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/internal/io_request.hh>
 #include <seastar/core/lowres_clock.hh>
+#include <seastar/core/shard_id.hh>
 #include <seastar/util/spinlock.hh>
 #include <seastar/util/shared_token_bucket.hh>
 
@@ -52,7 +53,6 @@ namespace internal {
 class io_sink;
 }
 
-using shard_id = unsigned;
 using stream_id = unsigned;
 
 class io_desc_read_write;
