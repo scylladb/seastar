@@ -47,6 +47,7 @@
 #include <seastar/core/scheduling_specific.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/semaphore.hh>
+#include <seastar/core/shard_id.hh>
 #include <seastar/core/shared_mutex.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/temporary_buffer.hh>
@@ -77,8 +78,6 @@ struct statfs;
 struct _Unwind_Exception;
 
 namespace seastar {
-
-using shard_id = unsigned;
 
 namespace alien {
 class instance;
