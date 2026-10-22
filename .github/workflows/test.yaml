@@ -58,7 +58,10 @@ jobs:
     timeout-minutes: 60
     runs-on: ${{ inputs.arch == 'arm' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     container:
-      image: ubuntu:26.04
+      # A frozen toolchain, built from docker/dev/Dockerfile, so that a compiler
+      # or library update in the Ubuntu archive cannot break CI out of the blue.
+      # Moving to a newer toolchain is a deliberate change to this tag.
+      image: docker.io/scylladb/seastar-toolchain:2026-10-22
       # The io_uring backends need io_uring_setup(2), which the default docker
       # seccomp profile denies with EPERM. Without this the reactor detects no
       # io_uring support at all: it silently drops to linux-aio, and a job which
@@ -74,6 +77,8 @@ jobs:
           echo "test-args=${{ inputs.test-args }}"
           echo "reactor-backend=${{ inputs.reactor-backend }}"
 
+      # git is not part of the toolchain, and does not affect the build, so it
+      # need not be frozen.
       - name: Install git for checkout
         run: |
           apt-get update
@@ -89,7 +94,7 @@ jobs:
         with:
           key: ${{ inputs.compiler }}-${{ inputs.standard }}-${{ inputs.mode }}-${{ inputs.enables }}
 
-      - name: Install build environment
+      - name: Configure
         env:
           COMPILER: ${{ inputs.compiler }}
           ENABLES: ${{ inputs.enables }}
@@ -97,7 +102,7 @@ jobs:
           MODE: ${{ inputs.mode }}
           OPTIONS: ${{ inputs.options }}
           ENABLE_CCACHE: ${{ inputs.enable-ccache }}
-        run: .github/workflows/install-build-env.sh
+        run: .github/workflows/configure-build.sh
 
       - name: Build
         run: cmake --build build/${{inputs.mode}}
