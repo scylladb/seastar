@@ -537,6 +537,9 @@ seastar_add_test (epoll
   SOURCES epoll_test.cc
   RUN_ARGS --reactor-backend epoll)
 
+seastar_add_test (reactor
+  SOURCES reactor_test.cc)
+
 seastar_add_test (reactor_backend
   SOURCES reactor_backend_test.cc)
 
