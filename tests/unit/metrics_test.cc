@@ -37,6 +37,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/test_runner.hh>
+#include <memory>
 #include <ranges>
 
 SEASTAR_TEST_CASE(test_add_group) {
@@ -256,6 +257,90 @@ SEASTAR_THREAD_TEST_CASE(test_metrics_family_aggregate) {
     BOOST_CHECK_EQUAL(count, 4);
     std::vector<sm::relabel_config> rl1;
     sm::set_relabel_configs(rl1).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_collector) {
+    namespace sm = seastar::metrics;
+    struct snapshot {
+        int collection;
+        int doubled;
+        // Lets the test see whether the snapshot is still alive.
+        std::shared_ptr<int> token;
+    };
+    // Maps the name of each metric family of this test to the value of its single series.
+    auto collect = [] {
+        auto values = seastar::metrics::impl::get_values();
+        std::map<seastar::sstring, double> result;
+        for (size_t i = 0; i < values->metadata->size(); ++i) {
+            const auto& name = (*values->metadata)[i].mf.name;
+            if (name.starts_with("collector_")) {
+                result[name] = values->values[i][0].d();
+            }
+        }
+        return result;
+    };
+
+    int collections = 0;
+    auto token = std::make_shared<int>(0);
+    sm::metric_groups app_metrics;
+    auto c = sm::make_collector([&] { ++collections; return snapshot{collections, 2 * collections, token}; });
+    app_metrics.add_group("collector", {
+        sm::make_gauge("first", c, &snapshot::collection, sm::description("first")),
+        sm::make_gauge("second", c, [] (const snapshot& s) { return s.doubled; }, sm::description("second")),
+        sm::make_counter("third", c, &snapshot::collection, sm::description("third")),
+    });
+    auto values = collect();
+    BOOST_CHECK_EQUAL(collections, 1);
+    BOOST_CHECK_EQUAL(values["collector_first"], 1);
+    BOOST_CHECK_EQUAL(values["collector_second"], 2);
+    BOOST_CHECK_EQUAL(values["collector_third"], 1);
+    BOOST_CHECK_EQUAL(token.use_count(), 1);
+    values = collect();
+    BOOST_CHECK_EQUAL(collections, 2);
+    BOOST_CHECK_EQUAL(values["collector_first"], 2);
+    BOOST_CHECK_EQUAL(values["collector_second"], 4);
+    BOOST_CHECK_EQUAL(values["collector_third"], 2);
+
+    int disabled_collections = 0;
+    sm::metric_groups disabled_metrics;
+    auto disabled = sm::make_collector([&] { ++disabled_collections; return snapshot{}; });
+    disabled_metrics.add_group("collector", {
+        sm::make_gauge("disabled", disabled, &snapshot::collection, sm::description("disabled"))(false),
+    });
+    collect();
+    BOOST_CHECK_EQUAL(disabled_collections, 0);
+    BOOST_CHECK_EQUAL(collections, 3);
+
+    app_metrics.clear();
+    collect();
+    BOOST_CHECK_EQUAL(collections, 3);
+
+    bool fail_collect = false;
+    bool fail_read = false;
+    sm::metric_groups failing_metrics;
+    auto failing = sm::make_collector([&] {
+        if (fail_collect) {
+            throw std::runtime_error("injected collect failure");
+        }
+        return snapshot{0, 0, token};
+    });
+    failing_metrics.add_group("collector", {
+        sm::make_gauge("failing", failing, [&] (const snapshot& s) {
+            if (fail_read) {
+                throw std::runtime_error("injected read failure");
+            }
+            return s.collection;
+        }, sm::description("failing")),
+    });
+    fail_collect = true;
+    BOOST_CHECK_THROW(collect(), std::runtime_error);
+    fail_collect = false;
+    fail_read = true;
+    BOOST_CHECK_THROW(collect(), std::runtime_error);
+    BOOST_CHECK_EQUAL(token.use_count(), 1);
+    fail_read = false;
+    values = collect();
+    BOOST_CHECK_EQUAL(values["collector_failing"], 0);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_relabel_drop_label_prevent_runtime_conflicts) {
