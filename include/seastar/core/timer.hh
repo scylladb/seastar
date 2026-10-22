@@ -51,6 +51,22 @@ namespace seastar {
 
 using steady_clock_type = std::chrono::steady_clock;
 
+namespace internal {
+
+/// Returns `t + d`, clamped to the range of \c TimePoint instead of
+/// overflowing.
+template <typename TimePoint>
+constexpr TimePoint saturating_add(TimePoint t, typename TimePoint::duration d) noexcept {
+    if (d > TimePoint::duration::zero() && t > TimePoint::max() - d) {
+        return TimePoint::max();
+    }
+    if (d < TimePoint::duration::zero() && t < TimePoint::min() - d) {
+        return TimePoint::min();
+    }
+    return t + d;
+}
+
+}
 
 /// \addtogroup timers
 /// @{
@@ -173,16 +189,20 @@ public:
     /// implementation, this will result in an assertion failure. See
     /// rearm().
     ///
-    /// \param delta the time when the timer expires, relative to now
+    /// \param delta the time when the timer expires, relative to now. If the
+    ///        expiration time is beyond the range of \c time_point, the timer
+    ///        is armed at \c time_point::max(), so it never expires.
     void arm(duration delta) noexcept {
-        return arm(Clock::now() + delta);
+        return arm(internal::saturating_add(Clock::now(), delta));
     }
     /// Sets the timer expiration time, with automatic rearming
     ///
     /// \param delta the time when the timer expires, relative to now. The timer
-    ///        will also rearm automatically using the same delta time.
+    ///        will also rearm automatically using the same delta time. If the
+    ///        expiration time is beyond the range of \c time_point, the timer
+    ///        is armed at \c time_point::max(), so it never expires.
     void arm_periodic(duration delta) noexcept {
-        arm(Clock::now() + delta, {delta});
+        arm(internal::saturating_add(Clock::now(), delta), {delta});
     }
     /// Sets the timer expiration time, with automatic rearming.
     /// If the timer was already armed, it is canceled first.
