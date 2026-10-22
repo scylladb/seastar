@@ -242,6 +242,52 @@ thread::join() {
     return _context->_done.get_future();
 }
 
+/// \cond internal
+namespace internal {
+
+// The state of an async() call. Only the derived class async_work depends on
+// the function that async() runs; everything else, including run_async(),
+// depends only on its return type, so it is compiled once for each return
+// type instead of once for every function passed to async().
+template <typename ReturnType>
+struct async_work_base {
+    thread_attributes attr;
+    promise<ReturnType> pr{};
+    thread th{};
+    explicit async_work_base(thread_attributes a) : attr(std::move(a)) {}
+    virtual ~async_work_base() = default;
+    // Calls the function, in the thread, and forwards its result to pr.
+    virtual void run() = 0;
+};
+
+template <typename ReturnType, typename Func, typename... Args>
+struct async_work final : async_work_base<ReturnType> {
+    Func func;
+    std::tuple<Args...> args;
+    async_work(thread_attributes a, Func&& f, Args&&... as)
+        : async_work_base<ReturnType>(std::move(a)), func(std::forward<Func>(f)), args(std::forward<Args>(as)...) {}
+    void run() override {
+        futurize<ReturnType>::apply(std::move(func), std::move(args)).forward_to(std::move(this->pr));
+    }
+};
+
+// Runs wp->run() in a new thread, and returns its result.
+template <typename ReturnType>
+futurize_t<ReturnType>
+run_async(std::unique_ptr<async_work_base<ReturnType>> wp) {
+    auto* w = wp.get();
+    auto ret = w->pr.get_future();
+    w->th = thread(std::move(w->attr), [w] {
+        w->run();
+    });
+    return w->th.join().then([ret = std::move(ret)] () mutable {
+        return std::move(ret);
+    }).finally([wp = std::move(wp)] {});
+}
+
+}
+/// \endcond
+
 /// Executes a callable in a seastar thread.
 ///
 /// Runs a block of code in a threaded context,
@@ -270,24 +316,9 @@ inline
 futurize_t<std::invoke_result_t<Func, Args...>>
 async(thread_attributes attr, Func&& func, Args&&... args) noexcept {
     using return_type = std::invoke_result_t<Func, Args...>;
-    struct work {
-        thread_attributes attr;
-        Func func;
-        std::tuple<Args...> args;
-        promise<return_type> pr{};
-        thread th{};
-    };
-
     try {
-        auto wp = std::make_unique<work>(work{std::move(attr), std::forward<Func>(func), std::forward_as_tuple(std::forward<Args>(args)...)});
-        auto& w = *wp;
-        auto ret = w.pr.get_future();
-        w.th = thread(std::move(w.attr), [&w] {
-            futurize<return_type>::apply(std::move(w.func), std::move(w.args)).forward_to(std::move(w.pr));
-        });
-        return w.th.join().then([ret = std::move(ret)] () mutable {
-            return std::move(ret);
-        }).finally([wp = std::move(wp)] {});
+        return internal::run_async(std::unique_ptr<internal::async_work_base<return_type>>(
+                new internal::async_work<return_type, Func, Args...>(std::move(attr), std::forward<Func>(func), std::forward<Args>(args)...)));
     } catch (...) {
         return futurize<return_type>::make_exception_future(std::current_exception());
     }
