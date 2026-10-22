@@ -314,6 +314,33 @@ SEASTAR_THREAD_TEST_CASE(test_collector) {
     app_metrics.clear();
     collect();
     BOOST_CHECK_EQUAL(collections, 3);
+
+    bool fail_collect = false;
+    bool fail_read = false;
+    sm::metric_groups failing_metrics;
+    auto failing = sm::make_collector([&] {
+        if (fail_collect) {
+            throw std::runtime_error("injected collect failure");
+        }
+        return snapshot{0, 0, token};
+    });
+    failing_metrics.add_group("collector", {
+        sm::make_gauge("failing", failing, [&] (const snapshot& s) {
+            if (fail_read) {
+                throw std::runtime_error("injected read failure");
+            }
+            return s.collection;
+        }, sm::description("failing")),
+    });
+    fail_collect = true;
+    BOOST_CHECK_THROW(collect(), std::runtime_error);
+    fail_collect = false;
+    fail_read = true;
+    BOOST_CHECK_THROW(collect(), std::runtime_error);
+    BOOST_CHECK_EQUAL(token.use_count(), 1);
+    fail_read = false;
+    values = collect();
+    BOOST_CHECK_EQUAL(values["collector_failing"], 0);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_relabel_drop_label_prevent_runtime_conflicts) {
