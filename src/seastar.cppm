@@ -719,6 +719,7 @@ using seastar::memory::with_allocation_failures;
 
 export namespace seastar::metrics {
 
+using seastar::metrics::collector;
 using seastar::metrics::description;
 using seastar::metrics::double_registration;
 using seastar::metrics::get_relabel_configs;
@@ -726,6 +727,7 @@ using seastar::metrics::histogram;
 using seastar::metrics::histogram_bucket;
 using seastar::metrics::label;
 using seastar::metrics::label_instance;
+using seastar::metrics::make_collector;
 using seastar::metrics::make_counter;
 using seastar::metrics::make_current_bytes;
 using seastar::metrics::make_gauge;
