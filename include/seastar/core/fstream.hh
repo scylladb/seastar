@@ -113,16 +113,20 @@ struct file_output_stream_options {
 
 /// Create an output_stream for writing starting at the position zero of a
 /// newly created file.
-/// NOTE: flush() should be the last thing to be called on a file output stream.
-/// Closes the file if the stream creation fails.
+/// The file object should be moved into this function because the `output_stream` takes ownership
+/// of the file: the file object will be closed when closing the `output_stream`.
+///
+/// In case stream creation fails, the file will be closed and an exceptional future is returned.
 future<output_stream<char>> make_file_output_stream(
         file file,
         uint64_t buffer_size = 8192) noexcept;
 
 /// Create an output_stream for writing starting at the position zero of a
 /// newly created file.
-/// NOTE: flush() should be the last thing to be called on a file output stream.
-/// Closes the file if the stream creation fails.
+/// The file object should be moved into this function because the `output_stream` takes ownership
+/// of the file: the file object will be closed when closing the `output_stream`.
+///
+/// In case stream creation fails, the file will be closed and an exceptional future is returned.
 future<output_stream<char>> make_file_output_stream(
         file file,
         file_output_stream_options options) noexcept;

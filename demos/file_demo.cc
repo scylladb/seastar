@@ -26,17 +26,17 @@
 #include <limits>
 #include <random>
 
-#include <seastar/core/app-template.hh>
-
 #include <seastar/core/aligned_buffer.hh>
+#include <seastar/core/app-template.hh>
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/fstream.hh>
+#include <seastar/core/io_intent.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/core/seastar.hh>
+#include <seastar/core/sleep.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/temporary_buffer.hh>
-#include <seastar/core/loop.hh>
-#include <seastar/core/sleep.hh>
-#include <seastar/core/io_intent.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/tmp_file.hh>
@@ -109,8 +109,8 @@ future<> demo_with_file() {
     });
 }
 
-future<> demo_with_file_close_on_failure() {
-    fmt::print("\nDemonstrating with_file_close_on_failure():\n");
+future<> demo_make_file_output_stream() {
+    fmt::print("\nDemonstrating make_file_output_stream():\n");
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         auto rnd = std::mt19937(std::random_device()());
         auto dist = std::uniform_int_distribution<int>(0, std::numeric_limits<char>::max());
@@ -118,18 +118,17 @@ future<> demo_with_file_close_on_failure() {
         sstring meta_filename = (t.get_path() / "meta_file").native();
         sstring data_filename = (t.get_path() / "data_file").native();
 
-        // with_file_close_on_failure will close the opened file only if
-        // `make_file_output_stream` returns an error. Otherwise, in the error-free path,
-        // the opened file is moved to `file_output_stream` that in-turn closes it
-        // when the stream is closed.
-        auto make_output_stream = [] (std::string_view filename) {
-            return with_file_close_on_failure(open_file_dma(filename, open_flags::rw | open_flags::create), [] (file f) {
-                return make_file_output_stream(std::move(f), aligned_size);
-            });
+        auto make_output_stream = [] (std::string_view filename) -> future<output_stream<char>> {
+            file f = co_await open_file_dma(filename, open_flags::rw | open_flags::create);
+            co_return co_await make_file_output_stream(std::move(f), aligned_size);
+            // `make_file_output_stream` will close the opened file in case stream
+            // creation fails. Otherwise, in the error-free path, the opened file is
+            // moved to `file_output_stream` that in-turn closes it when the stream
+            // is closed.
         };
 
         // writes the buffer one byte at a time, to demonstrate output stream
-        auto write_to_stream = [] (output_stream<char>& o, const temporary_buffer<char>& wbuf) {
+        auto write_to_stream_and_close = [] (output_stream<char>& o, const temporary_buffer<char>& wbuf) {
             return seastar::do_for_each(wbuf, [&o] (char c) {
                 return o.write(&c, 1);
             }).finally([&o] {
@@ -143,22 +142,14 @@ future<> demo_with_file_close_on_failure() {
 
         // and write it to `meta_filename`
         fmt::print("  writing \"{}\" into {}\n", data_filename, meta_filename);
-
-        // with_file_close_on_failure will close the opened file only if
-        // `make_file_output_stream` returns an error. Otherwise, in the error-free path,
-        // the opened file is moved to `file_output_stream` that in-turn closes it
-        // when the stream is closed.
         output_stream<char> meta_out = make_output_stream(meta_filename).get();
-
-        write_to_stream(meta_out, wbuf).get();
+        write_to_stream_and_close(meta_out, wbuf).get();
 
         // now write some random data into data_filename
         fmt::print("  writing random data into {}\n", data_filename);
         std::generate(wbuf.get_write(), wbuf.get_write() + aligned_size, [&dist, &rnd] { return dist(rnd); });
-
         output_stream<char> data_out = make_output_stream(data_filename).get();
-
-        write_to_stream(data_out, wbuf).get();
+        write_to_stream_and_close(data_out, wbuf).get();
 
         // verify the data via meta_filename
         fmt::print("  verifying data...\n");
@@ -243,7 +234,7 @@ int main(int ac, char** av) {
         auto&& config = app.configuration();
         auto duration = std::chrono::duration<double>(config["wait"].as<std::int64_t>() * 1ms);
         return demo_with_file().then([=] {
-            return demo_with_file_close_on_failure().then([=] {
+            return demo_make_file_output_stream().then([=] {
                 return demo_with_io_intent(duration);
             });
         });
