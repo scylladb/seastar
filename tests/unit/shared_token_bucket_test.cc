@@ -103,3 +103,77 @@ SEASTAR_TEST_CASE(test_replenish_not_lost_under_concurrent_grab) {
     BOOST_REQUIRE_EQUAL(lost, 0u);
     return make_ready_future<>();
 }
+
+// Keep the accesses out of line so the race regression remains observable
+// under compiler optimization.
+template <typename Bucket>
+[[gnu::noinline]] uint64_t observed_rate(const Bucket& tb) {
+    return tb.rate();
+}
+
+template <typename Bucket>
+[[gnu::noinline]] uint64_t observed_tokens(const Bucket& tb) {
+    return tb.accumulated_in(1ms);
+}
+
+template <typename Bucket>
+[[gnu::noinline]] double observed_duration(const Bucket& tb) {
+    return tb.duration_for(1000).count();
+}
+
+// Rate changes can happen while other shards calculate token replenishment
+// and throttling delays. These accesses must be safe concurrently.
+SEASTAR_TEST_CASE(test_concurrent_rate_updates_and_reads) {
+    using bucket_type = internal::shared_token_bucket<
+        uint64_t, std::ratio<1>, internal::capped_release::no>;
+
+    constexpr uint64_t slow_rate = 1'000'000;
+    constexpr uint64_t fast_rate = 2'000'000;
+
+    bucket_type tb(slow_rate, 4096, 1, false);
+
+    std::atomic<bool> ready{false};
+    std::atomic<bool> stop{false};
+    std::atomic<unsigned> updates{0};
+
+    std::thread updater([&] {
+        uint64_t rate = fast_rate;
+        tb.update_rate(rate);
+        updates.fetch_add(1, std::memory_order_relaxed);
+        ready.store(true, std::memory_order_release);
+
+        while (!stop.load(std::memory_order_acquire)) {
+            rate = rate == fast_rate ? slow_rate : fast_rate;
+            tb.update_rate(rate);
+            updates.fetch_add(1, std::memory_order_relaxed);
+        }
+    });
+
+    while (!ready.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+    }
+
+    const auto updates_before = updates.load(std::memory_order_relaxed);
+    bool valid = true;
+
+    for (unsigned i = 0; i < 100'000; ++i) {
+        if ((i & 1023) == 0) {
+            std::this_thread::yield();
+        }
+        const auto rate = observed_rate(tb);
+        const auto tokens = observed_tokens(tb);
+        const auto duration = observed_duration(tb);
+
+        valid &= rate == slow_rate || rate == fast_rate;
+        valid &= tokens == 1000 || tokens == 2000;
+        valid &= duration >= 0.0005 && duration <= 0.001;
+    }
+
+    const auto updates_after = updates.load(std::memory_order_relaxed);
+    stop.store(true, std::memory_order_release);
+    updater.join();
+
+    BOOST_REQUIRE_GT(updates_after, updates_before);
+    BOOST_REQUIRE(valid);
+    return make_ready_future<>();
+}
