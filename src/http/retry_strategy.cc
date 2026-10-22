@@ -29,11 +29,14 @@ static bool is_retryable_exception(std::exception_ptr ex) {
         try {
             std::rethrow_exception(ex);
         } catch (const std::system_error& sys_err) {
-            auto code = sys_err.code().value();
+            const auto& code = sys_err.code();
             // The body sources raise EPROTO for a body that ended before the length
             // it declared, the same fault as a premature TLS termination one layer
             // down, and a fresh request usually gets the resource whole.
-            if (code == EPIPE || code == ECONNABORTED || code == ECONNRESET || code == EPROTO || code == tls::ERROR_PREMATURE_TERMINATION) {
+            if (code.value() == EPIPE || code.value() == ECONNABORTED || code.value() == ECONNRESET || code.value() == EPROTO) {
+                return true;
+            }
+            if (code.category() == tls::error_category() && code.value() == tls::ERROR_PREMATURE_TERMINATION) {
                 return true;
             }
             try {
