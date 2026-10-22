@@ -235,8 +235,12 @@ class impl;
 class registered_metric final {
     metric_info _info;
     metric_function _f;
+    // The collector _f reads its value from, if any. A shared pointer
+    // captured by _f keeps it alive.
+    internal::collector_base* _collector;
 public:
-    registered_metric(metric_id id, metric_function f, bool enabled=true, skip_when_empty skip=skip_when_empty::no);
+    registered_metric(metric_id id, metric_function f, bool enabled=true, skip_when_empty skip=skip_when_empty::no,
+            internal::collector_base* collector = nullptr);
     metric_value operator()() const {
         return _f();
     }
@@ -263,6 +267,9 @@ public:
    }
     const metric_function& get_function() const {
         return _f;
+    }
+    internal::collector_base* get_collector() const {
+        return _collector;
     }
 };
 
@@ -438,6 +445,9 @@ class impl {
     shared_ptr<metric_metadata> _metadata;
     std::set<sstring> _labels;
     std::vector<std::deque<metric_function>> _current_metrics;
+    // The distinct collectors of the enabled metrics. The functions in
+    // _current_metrics keep them alive.
+    std::vector<internal::collector_base*> _current_collectors;
     std::vector<relabel_config> _relabel_configs;
     std::vector<metric_family_config> _metric_family_configs;
     internalized_set _internalized_labels;
@@ -450,7 +460,8 @@ public:
         return _value_map;
     }
 
-    register_ref add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels);
+    register_ref add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels,
+            internal::collector_base* collector = nullptr);
     internalized_labels_ref internalize_labels(labels_type labels);
     void remove_registration(const metric_id& id);
     future<> stop() {
@@ -466,6 +477,8 @@ public:
     shared_ptr<metric_metadata> metadata();
 
     std::vector<std::deque<metric_function>>& functions();
+
+    const std::vector<internal::collector_base*>& collectors();
 
     void update_metrics_if_needed();
 
