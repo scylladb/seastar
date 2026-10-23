@@ -1131,9 +1131,11 @@ posix_network_stack::posix_network_stack(const program_options::option_group& op
 // kept for: fixed and port placement, proxy-protocol listeners, SCTP (kernel
 // reuseport support is probed on a TCP socket only), and ephemeral-port
 // listens (each shard would bind a different port, forming no reuseport
-// group - and a second such listen on one shard must not fail).
+// group - and a second such listen on one shard must not fail). It is also
+// kept when the application clears listen_options::reuse_port.
 static bool use_reuseport(bool stack_reuseport, const listen_options& opt, const socket_address& sa) {
     return stack_reuseport
+        && opt.reuse_port
         && opt.lba == server_socket::load_balancing_algorithm::connection_distribution
         && !opt.proxy_protocol
         && opt.proto == transport::TCP

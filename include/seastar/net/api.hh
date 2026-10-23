@@ -447,6 +447,16 @@ struct listen_options {
     //
     // The proxy protocol is defined in https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt
     bool proxy_protocol = false;
+
+    /// If set (the default), a TCP listener on a concrete port with the
+    /// connection_distribution balancing listens with SO_REUSEPORT on every
+    /// shard that calls listen(), where the POSIX stack supports it, so that
+    /// every shard accepts connections. Another process of the same user that
+    /// also sets SO_REUSEPORT (for example another Seastar server) can then
+    /// listen on the same address and port and take a share of the
+    /// connections. Clear it to keep one listening socket, so that such a
+    /// listen() fails with EADDRINUSE.
+    bool reuse_port = true;
 };
 
 class network_interface {

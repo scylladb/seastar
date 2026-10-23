@@ -815,6 +815,31 @@ SEASTAR_THREAD_TEST_CASE(ephemeral_port_listen_test) {
     ss2.abort_accept();
 }
 
+// Check listen_options::reuse_port. With it (the default), another socket of
+// the same user can bind the listener's address with SO_REUSEPORT, and so take
+// a share of its connections, as a second process would. Without it, that bind
+// fails with EADDRINUSE.
+SEASTAR_THREAD_TEST_CASE(reuse_port_listen_option_test) {
+    if (!engine().posix_reuseport_available()) {
+        BOOST_TEST_MESSAGE("SO_REUSEPORT is not available, skipping");
+        return;
+    }
+    auto addr = random_loopback(11005);
+    for (bool reuse_port : {true, false}) {
+        server_socket ss = seastar::listen(addr, listen_options{ .reuse_address = true, .reuse_port = reuse_port });
+        auto other = file_desc::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+        other.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
+        if (reuse_port) {
+            other.bind(addr.u.sa, addr.length());
+        } else {
+            BOOST_REQUIRE_EXCEPTION(other.bind(addr.u.sa, addr.length()), std::system_error, [] (const std::system_error& e) {
+                return e.code() == std::error_code(EADDRINUSE, std::system_category());
+            });
+        }
+        ss.abort_accept();
+    }
+}
+
 SEASTAR_THREAD_TEST_CASE(inet_local_remote_address_sanity) {
     auto addr = make_ipv4_address(11003);
     auto ls = listen(addr);
