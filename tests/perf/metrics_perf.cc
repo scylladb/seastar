@@ -101,7 +101,7 @@ public:
 };
 
 
-namespace seastar::prometheus::details {
+namespace seastar::prometheus::internal {
 
 using data_type = seastar::metrics::impl::data_type;
 
@@ -185,7 +185,7 @@ struct metrics_perf_fixture {
 
         prometheus::config config{};
 
-        using access = prometheus::details::test_access;
+        using access = prometheus::internal::test_access;
 
         constexpr int iterations = 100;
 
