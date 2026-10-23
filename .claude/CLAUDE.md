@@ -51,6 +51,22 @@ ninja -C build/dev -t targets all
 - The working directory during builds should typically be the repository root
 - After code changes to specific components, rebuild only that target for faster iteration
 
+### Building with the ScyllaDB frozen toolchain
+
+Seastar has no frozen toolchain of its own, but the one ScyllaDB builds with works here:
+
+- Run the `dbuild` script of a ScyllaDB checkout from inside this tree, e.g.
+  `<scylla tree>/tools/toolchain/dbuild ./configure.py --mode=dev --build-root build/dbuild`
+  then `<scylla tree>/tools/toolchain/dbuild ninja -C build/dbuild/dev`. `dbuild` enters the
+  current directory, so the build happens in this tree.
+- `dbuild` takes its toolchain image from the `image` file next to it, so pick a ScyllaDB tree
+  whose Seastar matches the one you are building: for Seastar `master`, a ScyllaDB tree based on
+  current `master`. ScyllaDB release branches pin older Seastar versions and older toolchains.
+- Keep container builds and host builds in separate build roots (`--build-root`, passed to both
+  `configure.py` and `test.py`); mixing them in one build directory produces confusing failures.
+- Run the built binaries and tests under `dbuild` as well; the host usually lacks the
+  toolchain's library versions.
+
 ## Testing
 
 The project uses CTest for running tests. Test executables are built in `build/<mode>/tests/unit/` and `build/<mode>/tests/perf/`.
@@ -100,6 +116,10 @@ ctest --test-dir build/dev -N
 
 ### Important Notes
 
+- **`test.py` does not build.** It reconfigures and runs ctest, so build the test first:
+  `ninja -C build/<mode> test_unit_<name>` builds it, `test_unit_<name>_run` builds and runs it
+- **Build and test in `dev` mode unless told otherwise.** When fixing a CI failure, note the
+  failing build mode (often `debug` or `sanitize`) and verify the fix in that mode as well
 - **When iterating on code changes**, choose an appropriate test that covers the modified code and run only that test
 - **Running all tests is slow** - only run the full test suite when explicitly requested
 - Most unit tests use Boost.Test and accept standard Boost.Test command line options
