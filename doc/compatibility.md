@@ -16,8 +16,8 @@ Language standards
 Seastar will support the last two standards approved by the
 ISO C++ committee. Each time a new standard is approved, support
 for the older of the two is retired. See
-[Seastar's C++ standard](../README.md#cxx-standard)
-in the README for the pair currently supported.
+[Seastar's C++ standard](../BUILD.md#cxx-standard)
+in BUILD.md for the pair currently supported.
 
 Some features may only be enabled for newer dialects.
 
