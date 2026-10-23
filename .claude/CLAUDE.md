@@ -116,6 +116,14 @@ ctest --test-dir build/dev -N
 - Prefix the commit subject with the area it touches, e.g. `core: ...`, `rpc: ...`, `tests: ...`
   (see `doc/contributing.md`), and follow `coding-style.md`.
 
+## Git and GitHub Workflow
+
+- Never push a branch, open a pull request or force-push without being asked to.
+- Push to the contributor's fork, never to `scylladb/seastar` directly. Pull requests target
+  `master`. Changes may also be sent as patches to the mailing list, see `CONTRIBUTING.md`.
+- After a force-push, comment on the pull request describing what changed since the previous
+  push and what verification was run locally.
+
 ## Style
 
 Minimum C++ version is C++20. Use C++20 API where possible.
