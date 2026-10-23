@@ -96,7 +96,7 @@ namespace pm = io::prometheus::client;
 namespace mi = metrics::impl;
 
 using mi::labels_type;
-using write_body_args = details::write_body_args;
+using write_body_args = internal::write_body_args;
 
 namespace {
 
@@ -879,7 +879,7 @@ void write_value_as_string(buf_t& s, const mi::metric_value& value) noexcept {
     }
 }
 
-details::family_filter_t details::make_family_filter(std::vector<details::name_filter> filters, std::string_view prefix) {
+internal::family_filter_t internal::make_family_filter(std::vector<internal::name_filter> filters, std::string_view prefix) {
     if (filters.empty()) {
         return [](std::string_view) { return true; };
     }
@@ -1077,7 +1077,7 @@ public:
     future<std::unique_ptr<http::reply>> handle(const sstring& path,
         std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
         // Build name filters from all __name__ query parameters
-        std::vector<details::name_filter> name_filters;
+        std::vector<internal::name_filter> name_filters;
         for (auto name : req->get_query_param_array("__name__")) {
             if (!name.empty()) {
                 bool is_prefix = trim_asterisk(name);
@@ -1086,7 +1086,7 @@ public:
         }
         write_body_args args{
             .filter = make_filter(*req),
-            .family_filter = details::make_family_filter(std::move(name_filters), _ctx.prefix),
+            .family_filter = internal::make_family_filter(std::move(name_filters), _ctx.prefix),
             .use_protobuf_format = _ctx.allow_protobuf && is_accept_protobuf(req->get_header("Accept")),
             .show_help = req->get_query_param("__help__") != "false",
             .enable_aggregation = req->get_query_param("__aggregate__") != "false"
@@ -1115,10 +1115,10 @@ private:
                 .finally([&s] { return s.close(); });
     }
 
-    friend details::test_access;
+    friend internal::test_access;
 };
 
-future<> details::test_access::write_body(config cfg, write_body_args args, output_stream<char>&& s) {
+future<> internal::test_access::write_body(config cfg, write_body_args args, output_stream<char>&& s) {
     metrics_handler handler(std::move(cfg));
     co_return co_await handler.write_body(std::move(args), std::move(s));
 }

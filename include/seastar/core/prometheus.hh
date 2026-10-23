@@ -67,7 +67,7 @@ future<> add_prometheus_routes(sharded<httpd::http_server>& server, config ctx);
 future<> add_prometheus_routes(httpd::http_server& server, config ctx);
 /// @}
 
-namespace details {
+namespace internal {
 using filter_t = std::function<bool(const metrics::impl::labels_type&)>;
 using family_filter_t = std::function<bool(std::string_view)>;
 
