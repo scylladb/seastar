@@ -105,6 +105,17 @@ ctest --test-dir build/dev -N
 - Most unit tests use Boost.Test and accept standard Boost.Test command line options
 - Some tests (like allocator tests) may run for the default duration (5 seconds) unless interrupted
 
+## Making Changes
+
+- Make only the functional changes the task needs, and motivate each one in the commit message.
+- Keep the existing logic intact unless the change requires otherwise. Do not reorder statements,
+  restructure code or rename things that work, as this hides the real change and risks regressions.
+- Do not reformat or restyle code you are not otherwise changing. Cosmetic changes are made only
+  when asked for, and then as separate commits.
+- Adding or updating comments that explain the change is welcome.
+- Prefix the commit subject with the area it touches, e.g. `core: ...`, `rpc: ...`, `tests: ...`
+  (see `doc/contributing.md`), and follow `coding-style.md`.
+
 ## Style
 
 Minimum C++ version is C++20. Use C++20 API where possible.
