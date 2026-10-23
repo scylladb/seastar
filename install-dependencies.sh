@@ -85,6 +85,7 @@ debian_packages=(
     lttng-tools
     babeltrace2
     xfslibs-dev
+    zlib1g-dev
     "${debian_transitive[@]}"
 )
 
@@ -120,6 +121,7 @@ redhat_packages=(
     babeltrace2
     xfsprogs-devel
     yaml-cpp-devel
+    zlib-devel
     "${redhat_transitive[@]}"
 )
 
@@ -244,6 +246,7 @@ opensuse_packages=(
     stow
     xfsprogs-devel
     yaml-cpp-devel
+    zlib-devel
 )
 
 case "$ID" in
