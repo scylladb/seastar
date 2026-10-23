@@ -51,6 +51,22 @@ ninja -C build/dev -t targets all
 - The working directory during builds should typically be the repository root
 - After code changes to specific components, rebuild only that target for faster iteration
 
+### Building with the ScyllaDB frozen toolchain
+
+Seastar has no frozen toolchain of its own, but the one ScyllaDB builds with works here:
+
+- Run the `dbuild` script of a ScyllaDB checkout from inside this tree, e.g.
+  `<scylla tree>/tools/toolchain/dbuild ./configure.py --mode=dev --build-root build/dbuild`
+  then `<scylla tree>/tools/toolchain/dbuild ninja -C build/dbuild/dev`. `dbuild` enters the
+  current directory, so the build happens in this tree.
+- `dbuild` takes its toolchain image from the `image` file next to it, so pick a ScyllaDB tree
+  whose Seastar matches the one you are building: for Seastar `master`, a ScyllaDB tree based on
+  current `master`. ScyllaDB release branches pin older Seastar versions and older toolchains.
+- Keep container builds and host builds in separate build roots (`--build-root`, passed to both
+  `configure.py` and `test.py`); mixing them in one build directory produces confusing failures.
+- Run the built binaries and tests under `dbuild` as well; the host usually lacks the
+  toolchain's library versions.
+
 ## Testing
 
 The project uses CTest for running tests. Test executables are built in `build/<mode>/tests/unit/` and `build/<mode>/tests/perf/`.
@@ -100,10 +116,41 @@ ctest --test-dir build/dev -N
 
 ### Important Notes
 
+- **`test.py` does not build.** It reconfigures and runs ctest, so build the test first:
+  `ninja -C build/<mode> test_unit_<name>` builds it, `test_unit_<name>_run` builds and runs it
+- **Build and test in `dev` mode unless told otherwise.** When fixing a CI failure, note the
+  failing build mode (often `debug` or `sanitize`) and verify the fix in that mode as well
 - **When iterating on code changes**, choose an appropriate test that covers the modified code and run only that test
 - **Running all tests is slow** - only run the full test suite when explicitly requested
 - Most unit tests use Boost.Test and accept standard Boost.Test command line options
 - Some tests (like allocator tests) may run for the default duration (5 seconds) unless interrupted
+
+## Making Changes
+
+- Make only the functional changes the task needs, and motivate each one in the commit message.
+- Keep the existing logic intact unless the change requires otherwise. Do not reorder statements,
+  restructure code or rename things that work, as this hides the real change and risks regressions.
+- Do not reformat or restyle code you are not otherwise changing. Cosmetic changes are made only
+  when asked for, and then as separate commits.
+- Adding or updating comments that explain the change is welcome.
+- Prefix the commit subject with the area it touches, e.g. `core: ...`, `rpc: ...`, `tests: ...`
+  (see `doc/contributing.md`), and follow `coding-style.md`.
+
+## Git and GitHub Workflow
+
+- Never push a branch, open a pull request or force-push without being asked to.
+- Push to the contributor's fork, never to `scylladb/seastar` directly. Pull requests target
+  `master`. Changes may also be sent as patches to the mailing list, see `CONTRIBUTING.md`.
+- After a force-push, comment on the pull request describing what changed since the previous
+  push and what verification was run locally.
+
+## External Communication
+
+- When an AI agent posts a comment on GitHub, the mailing list or an issue tracker, it says so
+  and names the model, and states on whose behalf it comments, e.g.
+  `(<model name>, on behalf of @<user>)`.
+- Reference commits and issues by their full URLs, which the trackers render as links with the
+  live title, rather than by hand-copied titles that go stale.
 
 ## Style
 
