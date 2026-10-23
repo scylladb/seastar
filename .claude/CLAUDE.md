@@ -124,6 +124,14 @@ ctest --test-dir build/dev -N
 - After a force-push, comment on the pull request describing what changed since the previous
   push and what verification was run locally.
 
+## External Communication
+
+- When an AI agent posts a comment on GitHub, the mailing list or an issue tracker, it says so
+  and names the model, and states on whose behalf it comments, e.g.
+  `(<model name>, on behalf of @<user>)`.
+- Reference commits and issues by their full URLs, which the trackers render as links with the
+  live title, rather than by hand-copied titles that go stale.
+
 ## Style
 
 Minimum C++ version is C++20. Use C++20 API where possible.
