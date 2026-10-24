@@ -178,8 +178,8 @@ class io_queue::priority_class_data {
     // Both are integrated on every change, with the same clock that times
     // the requests, so that a request accounts for exactly the time it spent
     // in the queue and in the disk
-    util::integrated_length<unsigned short, io_queue::clock_type> _nr_queued;
-    util::integrated_length<unsigned short, io_queue::clock_type> _nr_executing;
+    util::integrated_length<unsigned, io_queue::clock_type> _nr_queued;
+    util::integrated_length<unsigned, io_queue::clock_type> _nr_executing;
     std::chrono::duration<double> _queue_time;
     std::chrono::duration<double> _total_queue_time;
     std::chrono::duration<double> _total_execution_time;
