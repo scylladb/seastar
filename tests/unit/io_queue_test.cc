@@ -34,6 +34,7 @@
 #include <seastar/core/when_all.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/io_queue.hh>
+#include <seastar/core/metrics_api.hh>
 #include <seastar/core/io_intent.hh>
 #include <seastar/core/disk_params.hh>
 #include <seastar/core/internal/io_request.hh>
@@ -113,6 +114,14 @@ struct io_queue_for_tests {
 
     void find_or_create_class(scheduling_group sg) {
         queue.find_or_create_class(sg);
+    }
+
+    size_t queued_requests() const noexcept {
+        return queue._queued_requests;
+    }
+
+    size_t executing_requests() const noexcept {
+        return queue._requests_executing;
     }
 
     fair_queue& get_fair_queue() {
@@ -1114,4 +1123,83 @@ SEASTAR_THREAD_TEST_CASE(test_get_all_io_queues) {
     if (auto* q = engine().try_get_io_queue(sd.device_id)) {
         BOOST_CHECK(std::find(queues.begin(), queues.end(), q) != queues.end());
     }
+}
+
+// Returns the value of the given io_queue metrics of the default class of
+// the queues mounted at the given mountpoint
+static uint64_t get_io_queue_metric(sstring name, sstring mountpoint) {
+    auto values = metrics::impl::get_values();
+    const auto& metadata = *values->metadata;
+    for (size_t i = 0; i < metadata.size(); i++) {
+        if (metadata[i].mf.name != "io_queue_" + name) {
+            continue;
+        }
+        size_t j = 0;
+        for (const auto& m : metadata[i].metrics) {
+            const auto& labels = m.labels();
+            if (labels.at("mountpoint").value() == mountpoint && labels.at("class").value() == "main") {
+                return values->values[i][j].ui();
+            }
+            j++;
+        }
+    }
+    BOOST_FAIL(format("no {} metrics for {}", name, mountpoint));
+    return 0;
+}
+
+// The integrated queue lengths are the time integrals of the number of
+// queued and executing requests, so that rate() of them is the average
+// length. A request that comes after an idle period mustn't be charged for
+// that period, and requests that sit in the queue must be accounted for
+// even when nothing dispatches them.
+SEASTAR_THREAD_TEST_CASE(test_integrated_queue_length) {
+    io_queue::config cfg{0};
+    cfg.mountpoint = "integrated-queue-length";
+    io_queue_for_tests tio(cfg);
+    fake_file file;
+    auto integrated_queued = [&] { return get_io_queue_metric("integrated_queue_length", cfg.mountpoint); };
+    auto integrated_executing = [&] { return get_io_queue_metric("integrated_disk_queue_length", cfg.mountpoint); };
+
+    tio.find_or_create_class(get_default_pc());
+    auto val = std::make_unique<int>(42);
+    auto run_queued = [&] (std::vector<future<>>& requests) {
+        while (tio.queued_requests() != 0 || tio.executing_requests() != 0) {
+            tio.queue.poll_io_queue();
+            tio.sink.drain([&file] (const internal::io_request& rq, io_completion* desc) -> bool {
+                file.execute_write_req(rq, desc);
+                return true;
+            });
+            yield().get();
+        }
+        when_all_succeed(requests.begin(), requests.end()).get();
+        requests.clear();
+    };
+    auto queue_some = [&] (unsigned nr) {
+        std::vector<future<>> requests;
+        for (unsigned i = 0; i < nr; i++) {
+            requests.push_back(tio.queue_request(get_default_pc(), internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(i, val.get()), nullptr, {}).discard_result());
+        }
+        return requests;
+    };
+
+    // Stay idle for 2 seconds, then serve one request right away. It spent
+    // microseconds in the queue and in the disk, so both integrals must stay
+    // under one request*second.
+    seastar::sleep(std::chrono::seconds(2)).get();
+    auto requests = queue_some(1);
+    run_queued(requests);
+    BOOST_REQUIRE_EQUAL(integrated_queued(), 0);
+    BOOST_REQUIRE_EQUAL(integrated_executing(), 0);
+
+    // Keep 100 requests queued for 2 seconds without dispatching them. They
+    // must be accounted for while they wait, and afterwards.
+    requests = queue_some(100);
+    seastar::sleep(std::chrono::seconds(2)).get();
+    auto waiting = integrated_queued();
+    BOOST_REQUIRE_GE(waiting, 200);
+    BOOST_REQUIRE_LE(waiting, 250);
+    run_queued(requests);
+    BOOST_REQUIRE_GE(integrated_queued(), waiting);
+    BOOST_REQUIRE_LE(integrated_queued(), 250);
+    BOOST_REQUIRE_EQUAL(integrated_executing(), 0);
 }
