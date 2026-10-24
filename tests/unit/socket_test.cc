@@ -40,9 +40,19 @@
 #include <seastar/core/when_all.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/posix-stack.hh>
+#include <seastar/net/ip.hh>
+#include <seastar/net/packet.hh>
+#include "net/native-stack-impl.hh"
 #include <stdexcept>
 
+#include <cstring>
+#include <deque>
 #include <fstream>
+#include <initializer_list>
+#include <memory>
+#include <span>
+#include <string_view>
+#include <vector>
 #include <optional>
 #include <tuple>
 #include <future>
@@ -626,4 +636,167 @@ SEASTAR_THREAD_TEST_CASE(inet_local_remote_address_sanity) {
 
     ss.wait_input_shutdown().get();
     BOOST_CHECK(ss.remote_address().is_unspecified());
+}
+
+namespace {
+
+class mock_native_connection {
+    net::ipv4_address _local_ip{0x7f000001};
+    net::ipv4_address _foreign_ip{0x7f000002};
+    uint16_t _local_port{12345};
+    uint16_t _foreign_port{54321};
+    std::deque<net::packet> _packets;
+public:
+    future<> send(std::span<temporary_buffer<char>>) { return make_ready_future<>(); }
+    future<> wait_for_data() { return make_ready_future<>(); }
+    future<> wait_input_shutdown() { return make_ready_future<>(); }
+
+    net::packet read() {
+        if (_packets.empty()) {
+            return {};
+        }
+        auto p = std::move(_packets.front());
+        _packets.pop_front();
+        return p;
+    }
+
+    net::ipv4_address foreign_ip() const { return _foreign_ip; }
+    uint16_t foreign_port() const { return _foreign_port; }
+    net::ipv4_address local_ip() const { return _local_ip; }
+    uint16_t local_port() const { return _local_port; }
+    void close_read() noexcept {}
+    void close_write() noexcept {}
+
+    void push_packet(net::packet p) {
+        _packets.push_back(std::move(p));
+    }
+};
+
+struct mock_native_protocol {
+    using connection = mock_native_connection;
+};
+
+using mock_native_connected_socket_impl = net::native_connected_socket_impl<mock_native_protocol>;
+
+sstring buffer_to_string(const temporary_buffer<char>& buf) {
+    return sstring(buf.get(), buf.size());
+}
+
+net::packet make_tracked_packet(
+        std::initializer_list<std::string_view> fragments,
+        const std::shared_ptr<unsigned>& release_count) {
+    size_t total_size = 0;
+    for (const auto frag : fragments) {
+        total_size += frag.size();
+    }
+    auto storage = std::make_unique<char[]>(total_size);
+    std::vector<net::fragment> packet_frags;
+    packet_frags.reserve(fragments.size());
+    size_t offset = 0;
+    for (const auto frag : fragments) {
+        std::memcpy(storage.get() + offset, frag.data(), frag.size());
+        packet_frags.push_back(net::fragment{storage.get() + offset, frag.size()});
+        offset += frag.size();
+    }
+    return net::packet(
+            std::move(packet_frags),
+            make_deleter([count = release_count, buf = storage.release()] {
+                ++*count;
+                delete[] buf;
+            }));
+}
+
+} // anonymous namespace
+
+SEASTAR_THREAD_TEST_CASE(native_data_source_releases_single_fragment_without_next_read) {
+    auto conn = make_lw_shared<mock_native_connection>();
+    auto release_count = std::make_shared<unsigned>(0);
+    conn->push_packet(make_tracked_packet({"hello"}, release_count));
+    mock_native_connected_socket_impl impl(conn);
+    auto source = impl.source();
+
+    auto buffer = source.get().get();
+    BOOST_REQUIRE_EQUAL(buffer_to_string(buffer), "hello");
+    BOOST_REQUIRE_EQUAL(*release_count, 0U);
+
+    buffer = temporary_buffer<char>();
+    BOOST_REQUIRE_EQUAL(*release_count, 1U);
+}
+
+SEASTAR_THREAD_TEST_CASE(native_data_source_releases_after_last_fragment_without_next_read) {
+    auto conn = make_lw_shared<mock_native_connection>();
+    auto release_count = std::make_shared<unsigned>(0);
+    conn->push_packet(make_tracked_packet({"ab", "cd"}, release_count));
+    mock_native_connected_socket_impl impl(conn);
+    auto source = impl.source();
+
+    auto first = source.get().get();
+    BOOST_REQUIRE_EQUAL(buffer_to_string(first), "ab");
+    first = temporary_buffer<char>();
+    BOOST_REQUIRE_EQUAL(*release_count, 0U);
+
+    auto second = source.get().get();
+    BOOST_REQUIRE_EQUAL(buffer_to_string(second), "cd");
+    BOOST_REQUIRE_EQUAL(*release_count, 0U);
+
+    second = temporary_buffer<char>();
+    BOOST_REQUIRE_EQUAL(*release_count, 1U);
+}
+
+SEASTAR_THREAD_TEST_CASE(native_data_source_buffer_outlives_source_instance) {
+    auto conn = make_lw_shared<mock_native_connection>();
+    auto release_count = std::make_shared<unsigned>(0);
+    conn->push_packet(make_tracked_packet({"bye"}, release_count));
+    temporary_buffer<char> buffer;
+
+    {
+        mock_native_connected_socket_impl impl(conn);
+        auto source = impl.source();
+        buffer = source.get().get();
+        BOOST_REQUIRE_EQUAL(buffer_to_string(buffer), "bye");
+    }
+
+    BOOST_REQUIRE_EQUAL(*release_count, 0U);
+    buffer = temporary_buffer<char>();
+    BOOST_REQUIRE_EQUAL(*release_count, 1U);
+}
+
+SEASTAR_THREAD_TEST_CASE(native_data_source_multi_fragment_order) {
+    auto conn = make_lw_shared<mock_native_connection>();
+    auto release_count = std::make_shared<unsigned>(0);
+    conn->push_packet(make_tracked_packet({"1", "22", "333"}, release_count));
+    mock_native_connected_socket_impl impl(conn);
+    auto source = impl.source();
+
+    auto first = source.get().get();
+    BOOST_REQUIRE_EQUAL(buffer_to_string(first), "1");
+
+    auto second = source.get().get();
+    BOOST_REQUIRE_EQUAL(buffer_to_string(second), "22");
+
+    auto third = source.get().get();
+    BOOST_REQUIRE_EQUAL(buffer_to_string(third), "333");
+
+    // All three buffers share the packet reference; release must not fire
+    // until the last one is dropped.
+    BOOST_REQUIRE_EQUAL(*release_count, 0U);
+    first = temporary_buffer<char>();
+    BOOST_REQUIRE_EQUAL(*release_count, 0U);
+    second = temporary_buffer<char>();
+    BOOST_REQUIRE_EQUAL(*release_count, 0U);
+    third = temporary_buffer<char>();
+    BOOST_REQUIRE_EQUAL(*release_count, 1U);
+}
+
+SEASTAR_THREAD_TEST_CASE(native_data_source_eof_on_empty_packet) {
+    auto conn = make_lw_shared<mock_native_connection>();
+    conn->push_packet(net::packet());
+    mock_native_connected_socket_impl impl(conn);
+    auto source = impl.source();
+
+    auto buf1 = source.get().get();
+    BOOST_REQUIRE_EQUAL(buf1.size(), 0U);
+
+    auto buf2 = source.get().get();
+    BOOST_REQUIRE_EQUAL(buf2.size(), 0U);
 }
