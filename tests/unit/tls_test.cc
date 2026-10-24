@@ -791,8 +791,33 @@ SEASTAR_TEST_CASE(test_x509_client_server_cert_validation_fail) {
 }
 
 SEASTAR_TEST_CASE(test_x509_client_server_cert_validation_fail_name) {
-    // Use trust store with our signer, but wrong host name
-    return run_echo_test(message, 1, certfile("tls-ca-bundle.pem"), "nils.holgersson.gov").then([] {
+    // Use trust store with our signer, but wrong host name. The certificate
+    // chain is fully trusted, so the only thing standing between the client
+    // and an impostor is the peer name check.
+    return run_echo_test(message, 1, certfile("catest.pem"), "nils.holgersson.gov").then([] {
+            BOOST_FAIL("Should have gotten validation error");
+    }).handle_exception([](auto ep) {
+        try {
+            std::rethrow_exception(ep);
+        } catch (tls::verification_error&) {
+            // ok.
+        } catch (...) {
+            BOOST_FAIL("Unexpected exception");
+        }
+    });
+}
+
+SEASTAR_TEST_CASE(test_x509_client_server_cert_validation_ip_match) {
+    // test.crt carries an iPAddress SAN for 127.0.0.1. An IP-literal
+    // server_name must be matched against that SAN as an address, not as a
+    // DNS name.
+    return run_echo_test(message, 1, certfile("catest.pem"), "127.0.0.1");
+}
+
+SEASTAR_TEST_CASE(test_x509_client_server_cert_validation_fail_ip) {
+    // Trusted signer, but an IP that does not match the certificate's
+    // iPAddress SAN (127.0.0.1).
+    return run_echo_test(message, 1, certfile("catest.pem"), "127.0.0.2").then([] {
             BOOST_FAIL("Should have gotten validation error");
     }).handle_exception([](auto ep) {
         try {
