@@ -20,7 +20,12 @@
  */
 
 #pragma once
+#include <chrono>
+#include <limits>
+#include <tuple>
 #include <unordered_set>
+#include <vector>
+#include <seastar/core/lowres_clock.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/net/stack.hh>
@@ -58,6 +63,11 @@ using namespace seastar;
 //
 // Right now this class is used by the posix_server_socket_impl, but it could be used by any other.
 class conntrack {
+public:
+    // Identifies a listening endpoint whose accepted connections are tracked:
+    // the protocol and the address the application asked to listen on.
+    using endpoint = std::tuple<int, socket_address>;
+private:
     class load_balancer {
         std::vector<unsigned> _cpu_load;
     public:
@@ -84,17 +94,58 @@ class conntrack {
     void closed_cpu(shard_id cpu) {
         _lb->closed_cpu(cpu);
     }
+
+    // Exact counts of the connections this shard currently hosts, per
+    // endpoint. Only the owning shard touches its counters, so no
+    // synchronization is involved; other shards obtain a snapshot with
+    // collect_hosted(), paying one cross-shard message per shard. Entries are
+    // never erased (outstanding handles point into the map), so the map's
+    // size is bounded by the number of distinct endpoints listened on over
+    // the process lifetime.
+    static long& hosted_counter(const endpoint& ep);
 public:
+    // The hosted-connection count of the calling shard for the given endpoint.
+    static long hosted_count(const endpoint& ep);
+    // The count that collect_hosted() reports for a shard without a listener
+    // for the endpoint. Such a shard drops the connections handed to it, so a
+    // balancer must never choose it. It is half the maximum, so that adding
+    // placements to it cannot overflow.
+    static constexpr long not_listening = std::numeric_limits<long>::max() / 2;
+    // A snapshot of every shard's hosted-connection count for the given
+    // endpoint, indexed by shard id, with not_listening for a shard without a
+    // listener for it. The counts are collected in parallel, but
+    // are not a consistent cross-shard view: each shard's count is read at
+    // whatever time its message is served.
+    static future<std::vector<long>> collect_hosted(endpoint ep);
+
     class handle {
+        // Takes the connection back out of its hosting shard's counter.
+        struct hosted_release {
+            shard_id cpu;
+            void operator()(long* counter) const noexcept {
+                if (cpu == this_shard_id()) {
+                    --*counter;
+                } else {
+                    // FIXME: future is discarded
+                    (void)smp::submit_to(cpu, [counter] { --*counter; });
+                }
+            }
+        };
         shard_id _host_cpu;
         shard_id _target_cpu;
         foreign_ptr<lw_shared_ptr<load_balancer>> _lb;
+        std::unique_ptr<long, hosted_release> _hosted;
     public:
         handle() : _lb(nullptr) {}
         handle(shard_id cpu, lw_shared_ptr<load_balancer> lb)
             : _host_cpu(this_shard_id())
             , _target_cpu(cpu)
             , _lb(make_foreign(std::move(lb))) {}
+        // Counts a connection that arrived on its hosting shard in that
+        // shard's hosted counter for ep; the handle takes it back out.
+        explicit handle(const endpoint& ep)
+            : _lb(nullptr)
+            , _hosted(&++hosted_counter(ep), hosted_release{this_shard_id()}) {}
 
         handle(const handle&) = delete;
         handle(handle&&) = default;
@@ -122,6 +173,39 @@ public:
     handle get_handle(shard_id cpu) {
         return handle(_lb->force_cpu(cpu), _lb);
     }
+};
+
+// A reuseport listener's private balancer: an estimate of how the connections
+// of one listening endpoint are spread across shards, used to decide whether a
+// connection accepted on this shard stays here or is handed off.
+//
+// With SO_REUSEPORT every shard accepts independently, so no single balancer
+// sees all connections. Each listener tracks its own placements in its view
+// and occasionally corrects the view with an exact snapshot of the real
+// per-shard counts (conntrack::collect_hosted()). The snapshot probability is
+// min(refresh_weight / average-connections-per-shard, 1): the first few
+// connections per shard are placed with accurate information, while at higher
+// connection counts the collection cost is amortized over many accepts.
+class sampled_conntrack : public enable_lw_shared_from_this<sampled_conntrack> {
+public:
+    static constexpr long refresh_weight = 10;
+    // Upper bound on the view's age; see maybe_collect().
+    static constexpr std::chrono::milliseconds max_view_age{100};
+private:
+    conntrack::endpoint _endpoint;
+    std::vector<long> _view;    // estimated hosted connections, indexed by shard
+    std::vector<long> _placed;  // our placements since the in-flight collection started
+    bool _collecting = false;
+    lowres_clock::time_point _refreshed = lowres_clock::time_point::min();
+public:
+    explicit sampled_conntrack(conntrack::endpoint ep);
+    // Chooses the shard to host a newly accepted connection, accounts for the
+    // placement in the local view, and possibly triggers an asynchronous
+    // refresh of the view.
+    shard_id place();
+private:
+    shard_id least_loaded() const;
+    void maybe_collect();
 };
 
 class posix_data_source_impl final : public data_source_impl, private internal::buffer_allocator {
@@ -166,7 +250,7 @@ struct proxy_data {
 };
 
 class posix_ap_server_socket_impl : public server_socket_impl {
-    using protocol_and_socket_address = std::tuple<int, socket_address>;
+    using protocol_and_socket_address = conntrack::endpoint;
     struct connection {
         pollable_fd fd;
         socket_address addr;
@@ -192,6 +276,29 @@ public:
         return _sa;
     }
     static void move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, std::optional<proxy_data> addr_data_opt, std::pmr::polymorphic_allocator<char>* allocator);
+    // Whether a listener on this shard claims the endpoint.
+    static bool listening(const protocol_and_socket_address& ep);
+
+    // The delivery maps above are shared with posix_reuseport_server_socket_impl,
+    // whose listeners receive connections handed off by other shards through
+    // move_connected_socket() too. The helpers below operate on those maps.
+
+    // Returns a queued connection for the endpoint if one is pending, otherwise
+    // registers the caller as the endpoint's waiter (at most one may exist) and
+    // resolves once a connection is delivered.
+    static future<accept_result> wait_connection(int protocol, const socket_address& sa, std::pmr::polymorphic_allocator<char>* allocator);
+    // Whether a waiter is currently registered for the endpoint.
+    static bool has_waiter(int protocol, const socket_address& sa);
+    // Fails the endpoint's waiter with the given exception. Returns false when
+    // no waiter is registered.
+    static bool fail_waiter(int protocol, const socket_address& sa, std::exception_ptr ex);
+    // Drops the endpoint's queued connections and fails its waiter, if any,
+    // with ECONNABORTED.
+    static void abort_pending(int protocol, const socket_address& sa);
+    // Claims the endpoint for a listener; throws EADDRINUSE when the endpoint
+    // is already claimed on this shard.
+    static void register_endpoint(int protocol, const socket_address& sa);
+    static void unregister_endpoint(int protocol, const socket_address& sa);
 
     template <typename T>
     friend class std::hash;
@@ -217,16 +324,35 @@ public:
 };
 
 class posix_reuseport_server_socket_impl : public server_socket_impl {
-    socket_address _sa;
-    int _protocol;
-    pollable_fd _lfd;
-    std::pmr::polymorphic_allocator<char>* _allocator;
+    // Shared with the detached kernel-accept continuation, which can be in
+    // flight while the listener is destroyed (see arm()).
+    struct state {
+        int protocol;
+        socket_address sa;
+        pollable_fd lfd;
+        std::pmr::polymorphic_allocator<char>* allocator;
+        lw_shared_ptr<sampled_conntrack> tracker;
+        // A failure of the kernel accept, or of routing its connection,
+        // observed while no accept() was waiting, reported to the next
+        // accept() call. One slot suffices: after a failure the kernel accept
+        // is not re-armed until an accept() call first consumes the error.
+        std::exception_ptr pending_error;
+        bool accept_armed = false;
+        bool aborted = false;
+    };
+    lw_shared_ptr<state> _state;
 public:
     explicit posix_reuseport_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
-        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _allocator(allocator) {}
+        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator);
+    ~posix_reuseport_server_socket_impl();
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
+private:
+    // Starts one kernel accept on the listener, unless one is already running.
+    // Its completion routes the connection to the shard chosen by the tracker
+    // and re-arms while a local accept() call is left waiting.
+    static void arm(lw_shared_ptr<state> st);
 };
 
 class posix_network_stack : public network_stack {
@@ -243,7 +369,7 @@ public:
     static future<std::unique_ptr<network_stack>> create(const program_options::option_group& opts, std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) {
         return make_ready_future<std::unique_ptr<network_stack>>(std::unique_ptr<network_stack>(new posix_network_stack(opts, allocator)));
     }
-    virtual bool has_per_core_namespace() override { return _reuseport; };
+    virtual bool has_per_core_namespace() override { return false; };
     bool supports_ipv6() const override;
     std::vector<network_interface> network_interfaces() override;
     virtual statistics stats(unsigned scheduling_group_id) override;

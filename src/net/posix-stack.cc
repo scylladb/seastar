@@ -42,6 +42,7 @@
 #include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/coroutine.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/core/byteorder.hh>
 #include <seastar/net/posix-stack.hh>
 #include <seastar/net/net.hh>
@@ -113,6 +114,96 @@ std::pair<size_t, deleter> wrapped_iovecs::populate(std::span<temporary_buffer<c
 namespace net {
 
 using namespace seastar;
+
+static thread_local std::unordered_map<conntrack::endpoint, long> hosted_counts;
+
+long&
+conntrack::hosted_counter(const endpoint& ep) {
+    return hosted_counts[ep];
+}
+
+long
+conntrack::hosted_count(const endpoint& ep) {
+    // Read-only: don't create an entry for an endpoint this shard never hosted
+    // a connection for, or every collect_hosted() would grow every shard's map.
+    auto i = hosted_counts.find(ep);
+    return i == hosted_counts.end() ? 0 : i->second;
+}
+
+future<std::vector<long>>
+conntrack::collect_hosted(endpoint ep) {
+    auto counts = std::views::iota(0u, this_smp_shard_count()) | std::views::transform([&ep] (shard_id cpu) {
+        return smp::submit_to(cpu, [ep] {
+            return posix_ap_server_socket_impl::listening(ep) ? hosted_count(ep) : not_listening;
+        });
+    });
+    return when_all_succeed(counts.begin(), counts.end());
+}
+
+sampled_conntrack::sampled_conntrack(conntrack::endpoint ep)
+    : _endpoint(std::move(ep))
+    , _view(this_smp_shard_count(), conntrack::not_listening)
+    , _placed(this_smp_shard_count()) {
+    // Until the first snapshot, only this shard is known to listen.
+    _view[this_shard_id()] = 0;
+}
+
+shard_id
+sampled_conntrack::least_loaded() const {
+    // Scan from this shard onwards, wrapping around, so an equal-load tie keeps
+    // the connection local and different shards resolve ties differently.
+    auto n = _view.size();
+    auto from_here = std::views::iota(size_t(this_shard_id()), this_shard_id() + n)
+            | std::views::transform([n] (size_t i) { return i % n; });
+    return *std::ranges::min_element(from_here, {}, [this] (size_t s) { return _view[s]; });
+}
+
+shard_id
+sampled_conntrack::place() {
+    maybe_collect();
+    auto cpu = least_loaded();
+    _view[cpu] += 1;
+    if (_collecting) {
+        _placed[cpu] += 1;
+    }
+    return cpu;
+}
+
+void
+sampled_conntrack::maybe_collect() {
+    if (_collecting) {
+        return;
+    }
+    // The refresh probability keys off the view's own total, and the view
+    // only grows between snapshots, so a mass disconnect leaves the total
+    // stale-high - suppressing the refresh exactly when the view is most
+    // wrong. Bounding the view's age in time caps how long placements can run
+    // against such a view, at a negligible worst-case collection rate.
+    if (lowres_clock::now() < _refreshed + max_view_age) {
+        auto listening = _view | std::views::filter([] (long n) { return n < conntrack::not_listening; });
+        auto avg = double(std::ranges::fold_left(listening, 0L, std::plus{})) / std::ranges::distance(listening);
+        static thread_local std::default_random_engine rng{std::random_device{}()};
+        if (avg > refresh_weight && !std::bernoulli_distribution(refresh_weight / avg)(rng)) {
+            return;
+        }
+    }
+    std::ranges::fill(_placed, 0);
+    auto collection = conntrack::collect_hosted(_endpoint);
+    _collecting = true;
+    // Runs in the background; a failure only leaves the view stale.
+    (void)std::move(collection).then_wrapped([self = shared_from_this()] (future<std::vector<long>> f) {
+        self->_collecting = false;
+        if (f.failed()) {
+            f.ignore_ready_future();
+            return;
+        }
+        // Our placements since the collection started are not in the counts:
+        // the local read ran inline before them, and each remote read was
+        // queued ahead of their handoffs (smp queues are FIFO per shard pair).
+        std::ranges::transform(f.get(), self->_placed, self->_view.begin(), std::plus{});
+        self->_refreshed = lowres_clock::now();
+    });
+}
 
 class posix_connected_socket_operations {
 public:
@@ -753,26 +844,38 @@ socket_address posix_server_socket_impl::local_address() const {
 posix_ap_server_socket_impl::posix_ap_server_socket_impl(int protocol, socket_address sa, std::pmr::polymorphic_allocator<char>* allocator)
         : _protocol(protocol), _sa(sa), _allocator(allocator)
 {
-    auto it = ports.emplace(std::make_tuple(_protocol, _sa));
-    if (!it.second) {
-        throw std::system_error(EADDRINUSE, std::system_category());
-    }
+    register_endpoint(_protocol, _sa);
 }
 
 posix_ap_server_socket_impl::~posix_ap_server_socket_impl() {
-    auto t_sa = std::make_tuple(_protocol, _sa);
-    conn_q.erase(t_sa);
-    ports.erase(t_sa);
+    conn_q.erase(std::make_tuple(_protocol, _sa));
+    unregister_endpoint(_protocol, _sa);
 }
 
-future<accept_result> posix_ap_server_socket_impl::accept() {
-    auto t_sa = std::make_tuple(_protocol, _sa);
+void
+posix_ap_server_socket_impl::register_endpoint(int protocol, const socket_address& sa) {
+    auto it = ports.emplace(std::make_tuple(protocol, sa));
+    if (!it.second) {
+        throw std::system_error(EADDRINUSE, std::system_category(), fmt::format("{}", sa));
+    }
+}
+
+void
+posix_ap_server_socket_impl::unregister_endpoint(int protocol, const socket_address& sa) {
+    ports.erase(std::make_tuple(protocol, sa));
+}
+
+future<accept_result>
+posix_ap_server_socket_impl::wait_connection(int protocol, const socket_address& sa, std::pmr::polymorphic_allocator<char>* allocator) {
+    auto t_sa = std::make_tuple(protocol, sa);
     auto conni = conn_q.find(t_sa);
     if (conni != conn_q.end()) {
         connection c = std::move(conni->second);
         conn_q.erase(conni);
         try {
-            auto csi = std::make_unique<posix_connected_socket_impl>(_sa.family(), _protocol, std::move(c.fd), std::move(c.connection_tracking_handle), _allocator);
+            auto csi = make_maybe_proxied_connected_socket_impl(
+                sa.family(), protocol, std::move(c.fd), std::move(c.connection_tracking_handle),
+                std::move(c.proxy_protocol_header_opt), allocator);
             return make_ready_future<accept_result>(accept_result{connected_socket(std::move(csi)), std::move(c.addr)});
         } catch (...) {
             return make_exception_future<accept_result>(std::current_exception());
@@ -788,9 +891,25 @@ future<accept_result> posix_ap_server_socket_impl::accept() {
     }
 }
 
+bool
+posix_ap_server_socket_impl::has_waiter(int protocol, const socket_address& sa) {
+    return sockets.contains(std::make_tuple(protocol, sa));
+}
+
+bool
+posix_ap_server_socket_impl::fail_waiter(int protocol, const socket_address& sa, std::exception_ptr ex) {
+    auto i = sockets.find(std::make_tuple(protocol, sa));
+    if (i == sockets.end()) {
+        return false;
+    }
+    i->second.set_exception(std::move(ex));
+    sockets.erase(i);
+    return true;
+}
+
 void
-posix_ap_server_socket_impl::abort_accept() {
-    auto t_sa = std::make_tuple(_protocol, _sa);
+posix_ap_server_socket_impl::abort_pending(int protocol, const socket_address& sa) {
+    auto t_sa = std::make_tuple(protocol, sa);
     conn_q.erase(t_sa);
     auto i = sockets.find(t_sa);
     if (i != sockets.end()) {
@@ -799,20 +918,118 @@ posix_ap_server_socket_impl::abort_accept() {
     }
 }
 
+future<accept_result> posix_ap_server_socket_impl::accept() {
+    return wait_connection(_protocol, _sa, _allocator);
+}
+
+void
+posix_ap_server_socket_impl::abort_accept() {
+    abort_pending(_protocol, _sa);
+}
+
+posix_reuseport_server_socket_impl::posix_reuseport_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
+        std::pmr::polymorphic_allocator<char>* allocator)
+        : _state(make_lw_shared<state>(state{
+            .protocol = protocol,
+            .sa = sa,
+            .lfd = std::move(lfd),
+            .allocator = allocator,
+            .tracker = make_lw_shared<sampled_conntrack>(conntrack::endpoint(protocol, sa)),
+          })) {
+    // The kernel accepts a second reuseport bind of the same address from this
+    // process, but the delivery maps support one listener per endpoint per
+    // shard; report EADDRINUSE like the non-reuseport paths do.
+    posix_ap_server_socket_impl::register_endpoint(protocol, sa);
+}
+
+posix_reuseport_server_socket_impl::~posix_reuseport_server_socket_impl() {
+    // The armed kernel-accept continuation shares (and keeps alive) the
+    // listener state: without the abort it would keep the listening socket
+    // open and serving the endpoint after the listener is gone. Queued
+    // connections must be dropped too, or their fds and hosted counts leak
+    // and a future listener of the same endpoint would receive them.
+    if (!_state->aborted) {
+        abort_accept();
+    } else {
+        // Connections handed off after abort_accept() were queued; drop them.
+        posix_ap_server_socket_impl::abort_pending(_state->protocol, _state->sa);
+    }
+    posix_ap_server_socket_impl::unregister_endpoint(_state->protocol, _state->sa);
+}
+
 future<accept_result>
 posix_reuseport_server_socket_impl::accept() {
-    auto [fd, sa] = co_await _lfd.accept();
-    auto csi = std::make_unique<posix_connected_socket_impl>(sa.family(), _protocol, std::move(fd), _allocator);
-    co_return accept_result{connected_socket(std::move(csi)), sa};
+    if (_state->aborted) {
+        return make_exception_future<accept_result>(std::system_error(ECONNABORTED, std::system_category()));
+    }
+    if (auto ex = std::exchange(_state->pending_error, nullptr)) {
+        // Reported before queued connections: the error concerns the listening
+        // socket itself, and the queued connections remain deliverable to
+        // subsequent accept() calls.
+        return make_exception_future<accept_result>(std::move(ex));
+    }
+    auto f = posix_ap_server_socket_impl::wait_connection(_state->protocol, _state->sa, _state->allocator);
+    // Arm on every call, even one served from the queue, so that handoffs
+    // from other shards cannot starve this listener's kernel backlog.
+    arm(_state);
+    return f;
+}
+
+void
+posix_reuseport_server_socket_impl::arm(lw_shared_ptr<state> st) {
+    if (st->accept_armed || st->aborted) {
+        return;
+    }
+    st->accept_armed = true;
+    // Runs detached, keeping the shared state alive. The waiting accept() is
+    // completed through the delivery maps: either by a connection kept local,
+    // or by one handed off from another shard while this kernel accept is
+    // still pending.
+    (void)st->lfd.accept().then([st] (std::tuple<pollable_fd, socket_address> accepted) {
+        st->accept_armed = false;
+        auto& [fd, addr] = accepted;
+        if (st->aborted) {
+            return; // drop the connection, the listener is going away
+        }
+        auto cpu = st->tracker->place();
+        if (cpu == this_shard_id()) {
+            posix_ap_server_socket_impl::move_connected_socket(st->protocol, st->sa, std::move(fd), addr, conntrack::handle(conntrack::endpoint(st->protocol, st->sa)), std::nullopt, st->allocator);
+        } else {
+            // FIXME: future is discarded
+            (void)smp::submit_to(cpu, [protocol = st->protocol, ssa = st->sa, fd = std::move(fd.get_file_desc()), addr, allocator = st->allocator] () mutable {
+                posix_ap_server_socket_impl::move_connected_socket(protocol, ssa, pollable_fd(std::move(fd)), addr, conntrack::handle(conntrack::endpoint(protocol, ssa)), std::nullopt, allocator);
+            });
+        }
+        // Keep draining the kernel queue while an accept() call still waits.
+        if (posix_ap_server_socket_impl::has_waiter(st->protocol, st->sa)) {
+            arm(st);
+        }
+    }).handle_exception([st] (std::exception_ptr ex) {
+        // The kernel accept failed, or routing the accepted connection did.
+        st->accept_armed = false;
+        if (st->aborted) {
+            return; // abort_accept() already failed the waiter
+        }
+        if (!posix_ap_server_socket_impl::fail_waiter(st->protocol, st->sa, ex)) {
+            st->pending_error = std::move(ex);
+        }
+    });
 }
 
 void
 posix_reuseport_server_socket_impl::abort_accept() {
-    _lfd.shutdown(SHUT_RD, pollable_fd::shutdown_kernel_only::no);
+    _state->aborted = true;
+    _state->lfd.shutdown(SHUT_RD, pollable_fd::shutdown_kernel_only::no);
+    posix_ap_server_socket_impl::abort_pending(_state->protocol, _state->sa);
 }
 
 socket_address posix_reuseport_server_socket_impl::local_address() const {
-    return _lfd.get_file_desc().get_address();
+    return _state->lfd.get_file_desc().get_address();
+}
+
+bool
+posix_ap_server_socket_impl::listening(const protocol_and_socket_address& ep) {
+    return ports.contains(ep);
 }
 
 void
@@ -909,6 +1126,22 @@ posix_network_stack::posix_network_stack(const program_options::option_group& op
 {
 }
 
+// The balanced reuseport path handles only the default connection-distribution
+// balancing of TCP listeners on a concrete port. The single-listener path is
+// kept for: fixed and port placement, proxy-protocol listeners, SCTP (kernel
+// reuseport support is probed on a TCP socket only), and ephemeral-port
+// listens (each shard would bind a different port, forming no reuseport
+// group - and a second such listen on one shard must not fail). It is also
+// kept when the application clears listen_options::reuse_port.
+static bool use_reuseport(bool stack_reuseport, const listen_options& opt, const socket_address& sa) {
+    return stack_reuseport
+        && opt.reuse_port
+        && opt.lba == server_socket::load_balancing_algorithm::connection_distribution
+        && !opt.proxy_protocol
+        && opt.proto == transport::TCP
+        && sa.port() != 0;
+}
+
 server_socket
 posix_network_stack::listen(socket_address sa, listen_options opt) {
     using server_socket = seastar::server_socket;
@@ -920,8 +1153,8 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
         return server_socket(std::make_unique<posix_server_socket_impl>(0, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, opt.proxy_protocol, _allocator));
     }
     auto protocol = static_cast<int>(opt.proto);
-    return _reuseport ?
-        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), _allocator))
+    return use_reuseport(_reuseport, opt, sa) ?
+        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt, true), _allocator))
         :
         server_socket(std::make_unique<posix_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, opt.proxy_protocol, _allocator));
 }
@@ -946,8 +1179,8 @@ posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
         return server_socket(std::make_unique<posix_ap_server_socket_impl>(0, sa, _allocator));
     }
     auto protocol = static_cast<int>(opt.proto);
-    return posix_network_stack::_reuseport ?
-        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), _allocator))
+    return use_reuseport(posix_network_stack::_reuseport, opt, sa) ?
+        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt, true), _allocator))
         :
         server_socket(std::make_unique<posix_ap_server_socket_impl>(protocol, sa, _allocator));
 }
@@ -1021,9 +1254,6 @@ private:
                 fd.setsockopt(IPPROTO_IPV6, IPV6_RECVPKTINFO, 1);
             } else {
                 fd.setsockopt(SOL_IP, IP_PKTINFO, 1);
-            }
-            if (engine().posix_reuseport_available()) {
-                fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
             }
         }
 

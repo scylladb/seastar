@@ -1642,9 +1642,21 @@ void reactor::configure(const reactor_options& opts) {
     }
 }
 
+bool reactor::posix_reuseport_available() const {
+    static const bool available = [] {
+        try {
+            file_desc::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0).setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
+            return true;
+        } catch (const std::system_error&) {
+            return false;
+        }
+    }();
+    return available;
+}
+
 namespace internal {
 
-pollable_fd posix_listen(socket_address sa, listen_options opts) {
+pollable_fd posix_listen(socket_address sa, listen_options opts, bool reuseport) {
     auto specific_protocol = (int)(opts.proto);
     if (sa.is_af_unix()) {
         // no type-safe way to create listen_opts with proto=0
@@ -1659,7 +1671,8 @@ pollable_fd posix_listen(socket_address sa, listen_options opts) {
         }
         return result;
     }();
-    if (somaxconn && *somaxconn < opts.listen_backlog) {
+    // With reuseport every shard listens; warn on shard 0 only.
+    if (somaxconn && *somaxconn < opts.listen_backlog && (!reuseport || this_shard_id() == 0)) {
         fmt::print(
             "Warning: /proc/sys/net/core/somaxconn is set to {:d} "
             "which is lower than the backlog parameter {:d} used for listen(), "
@@ -1670,6 +1683,9 @@ pollable_fd posix_listen(socket_address sa, listen_options opts) {
     file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, specific_protocol);
     if (opts.reuse_address) {
         fd.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1);
+    }
+    if (reuseport) {
+        fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
     }
 
     if (opts.so_sndbuf) {
