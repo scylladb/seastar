@@ -416,7 +416,6 @@ private:
 public:
     const std::string& name() const { return _name; }
     std::unique_ptr<reactor_backend> create(reactor& r);
-    static reactor_backend_selector default_backend();
     static std::vector<reactor_backend_selector> available();
     friend std::ostream& operator<<(std::ostream& os, const reactor_backend_selector& rbs) {
         return os << rbs._name;
