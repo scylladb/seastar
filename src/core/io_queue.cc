@@ -175,8 +175,11 @@ class io_queue::priority_class_data {
             bytes += len;
         }
     } _rwstat[2] = {}, _splits = {};
-    util::integrated_length<unsigned short, lowres_clock> _nr_queued;
-    util::integrated_length<unsigned short, lowres_clock> _nr_executing;
+    // Both are integrated on every change, with the same clock that times
+    // the requests, so that a request accounts for exactly the time it spent
+    // in the queue and in the disk
+    util::integrated_length<unsigned, io_queue::clock_type> _nr_queued;
+    util::integrated_length<unsigned, io_queue::clock_type> _nr_executing;
     std::chrono::duration<double> _queue_time;
     std::chrono::duration<double> _total_queue_time;
     std::chrono::duration<double> _total_execution_time;
@@ -270,21 +273,21 @@ public:
         SEASTAR_ASSERT(_nr_executing == 0);
     }
 
-    void on_queue() noexcept {
-        _nr_queued++;
+    void on_queue(io_queue::clock_type::time_point now) noexcept {
+        _nr_queued.add(1, now);
         if (_nr_executing == 0 && _nr_queued == 1) {
-            _activated = io_queue::clock_type::now();
+            _activated = now;
         }
     }
 
-    void on_dispatch(io_direction_and_length dnl, std::chrono::duration<double> lat) noexcept {
+    void on_dispatch(io_direction_and_length dnl, io_queue::clock_type::time_point now, std::chrono::duration<double> lat) noexcept {
         _rwstat[dnl.rw_idx()].add(dnl.length());
         _queue_time = lat;
         _total_queue_time += lat;
-        _nr_queued--;
-        _nr_executing++;
+        _nr_queued.sub(1, now);
+        _nr_executing.add(1, now);
         if (_nr_executing == 1) {
-            _starvation_time += io_queue::clock_type::now() - _activated;
+            _starvation_time += now - _activated;
         }
 
         auto tokens = io_group::priority_class_data::tokens(dnl.length());
@@ -297,11 +300,11 @@ public:
         _nr_queued--;
     }
 
-    void on_complete(std::chrono::duration<double> lat) noexcept {
+    void on_complete(io_queue::clock_type::time_point now, std::chrono::duration<double> lat) noexcept {
         _total_execution_time += lat;
-        _nr_executing--;
+        _nr_executing.sub(1, now);
         if (_nr_executing == 0 && _nr_queued != 0) {
-            _activated = io_queue::clock_type::now();
+            _activated = now;
         }
     }
 
@@ -314,14 +317,6 @@ public:
 
     void on_split(io_direction_and_length dnl) noexcept {
         _splits.add(dnl.length());
-    }
-
-    void on_before_dispatch() noexcept {
-        _nr_queued.checkpoint();
-    }
-
-    void on_after_dispatch() noexcept {
-        _nr_executing.checkpoint();
     }
 
     fair_queue::class_id fq_class() const noexcept { return internal::scheduling_group_index(_sg); }
@@ -364,7 +359,7 @@ public:
         SEASTAR_IO_TRACE(io_queue_completed, this);
         auto now = io_queue::clock_type::now();
         auto delay = std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts);
-        _pclass.on_complete(delay);
+        _pclass.on_complete(now, delay);
         _ioq.complete_request(*this, delay);
         _pr.set_value(res);
         delete this;
@@ -380,7 +375,7 @@ public:
     void dispatch() noexcept {
         SEASTAR_IO_TRACE(io_queue_dispatched, this);
         auto now = io_queue::clock_type::now();
-        _pclass.on_dispatch(_dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
+        _pclass.on_dispatch(_dnl, now, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
         _ts = now;
         _dispatched_polls = engine().polls();
     }
@@ -392,6 +387,8 @@ public:
     fair_queue_entry::capacity_t capacity() const noexcept { return _fq_capacity; }
     stream_id stream() const noexcept { return _stream; }
     uint64_t polls() const noexcept { return _dispatched_polls; }
+    // Until dispatched, the time the request was queued at
+    io_queue::clock_type::time_point timestamp() const noexcept { return _ts; }
 };
 
 class queued_io_request : private internal::io_request {
@@ -436,6 +433,10 @@ public:
 
     void set_intent(internal::cancellable_queue& cq) noexcept {
         _intent.enqueue(cq);
+    }
+
+    io_queue::clock_type::time_point queued_at() const noexcept {
+        return _desc->timestamp();
     }
 
     future<size_t> get_future() noexcept { return _desc->get_future(); }
@@ -1044,8 +1045,9 @@ future<size_t> io_queue::queue_one_request(scheduling_group sg, io_direction_and
         }
 
         _streams[queued_req->stream()].fq.queue(pclass.fq_class(), queued_req->queue_entry());
+        auto queued_at = queued_req->queued_at();
         queued_req.release();
-        pclass.on_queue();
+        pclass.on_queue(queued_at);
         _queued_requests++;
         return fut;
     });
@@ -1144,12 +1146,6 @@ future<size_t> io_queue::submit_io_write(size_t len, internal::io_request req, i
 // This is far from ideal, but it's something.
 
 void io_queue::poll_io_queue() {
-    for (auto& pc : _priority_classes) {
-        if (pc) {
-            pc->on_before_dispatch();
-        }
-    }
-
     for (auto&& st : _streams) {
         st.out.maybe_replenish_capacity(st.replenish);
         auto available = st.reap_pending_capacity();
@@ -1181,12 +1177,6 @@ void io_queue::poll_io_queue() {
         // unpleasant (it can bloat the bucket beyond its size limit, and its hard to write a correct
         // countermeasure for that), so we just discard the tokens. There's no harm in it, IO cancellation
         // can't have resource-saving guarantees anyway.
-    }
-
-    for (auto& pc : _priority_classes) {
-        if (pc) {
-            pc->on_after_dispatch();
-        }
     }
 }
 
