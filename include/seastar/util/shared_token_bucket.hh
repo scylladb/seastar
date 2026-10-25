@@ -91,7 +91,7 @@ requires std::is_nothrow_copy_constructible_v<T> && supports_wrapping_arithmetic
 class shared_token_bucket {
     using rate_resolution = std::chrono::duration<double, Period>;
 
-    T _replenish_rate;
+    std::atomic<T> _replenish_rate;
     const T _replenish_limit;
     const T _replenish_threshold;
     std::atomic<typename Clock::time_point> _replenished;
@@ -195,22 +195,22 @@ public:
     template <typename Rep, typename Per>
     T accumulated_in(const std::chrono::duration<Rep, Per> delta) const noexcept {
        auto delta_at_rate = std::min(rate_cast(delta), max_delta);
-       return accumulated(_replenish_rate, delta_at_rate);
+       return accumulated(_replenish_rate.load(std::memory_order_relaxed), delta_at_rate);
     }
 
     // Estimated time to process the given amount of tokens
     // (peer of accumulated_in helper)
     rate_resolution duration_for(T tokens) const noexcept {
-        return rate_resolution(double(tokens) / _replenish_rate);
+        return rate_resolution(double(tokens) / _replenish_rate.load(std::memory_order_relaxed));
     }
 
-    T rate() const noexcept { return _replenish_rate; }
+    T rate() const noexcept { return _replenish_rate.load(std::memory_order_relaxed); }
     T limit() const noexcept { return _replenish_limit; }
     T threshold() const noexcept { return _replenish_threshold; }
     typename Clock::time_point replenished_ts() const noexcept { return _replenished; }
 
     void update_rate(T rate) noexcept {
-        _replenish_rate = std::min(rate, max_rate);
+        _replenish_rate.store(std::min(rate, max_rate), std::memory_order_relaxed);
     }
 };
 
