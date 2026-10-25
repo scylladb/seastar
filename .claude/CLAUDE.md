@@ -144,6 +144,20 @@ ctest --test-dir build/dev -N
 - After a force-push, comment on the pull request describing what changed since the previous
   push and what verification was run locally.
 
+## Pull Requests and Issues
+
+- Keep pull request descriptions, cover letters and issue reports short and focused. Verbose
+  text makes human review harder and contributes to review fatigue.
+- In a pull request description, do not include a commit list; the pull request already shows
+  one. Do not list the tests you ran locally either; CI runs them. Mention only what CI does
+  not run, such as manual perf runs, and their results.
+- In an issue report, do reference the commits that matter, such as the one that introduced
+  the problem or a related fix, by URL.
+- Do not add sections the reader does not need.
+- Format for the reader, in comments as well as descriptions: break the text into short
+  paragraphs by topic and use a list where the items are parallel. Several sentences run
+  together on one line are as hard to read as a wall of text.
+
 ## External Communication
 
 - When an AI agent posts a comment on GitHub, the mailing list or an issue tracker, it says so
