@@ -4018,17 +4018,28 @@ static program_options::selection_value<network_stack_factory> create_network_st
             fmt::format("select network stack (valid values: {})", fmt::join(net_stack_names, ", ")));
 }
 
-static program_options::selection_value<reactor_backend_selector>::candidates backend_selector_candidates() {
+static program_options::selection_value<reactor_backend_selector> create_reactor_backend_option(reactor_options& zis) {
     using value_type = program_options::selection_value<reactor_backend_selector>;
     value_type::candidates candidates;
 
     auto deleter = [] (reactor_backend_selector* p) { delete p; };
 
-    for (auto&& be : reactor_backend_selector::available()) {
+    // Probe the available backends only once, and take the candidates, the
+    // default and the description from the same result: probing again may
+    // give a different answer (e.g., creating an io_uring can fail when
+    // memory is short), and then the default may not be one of the candidates.
+    auto available = reactor_backend_selector::available();
+    // asymmetric_io_uring needs --async-workers-cpuset, so it can't be the
+    // default (it is only first if the io_uring probe failed).
+    auto default_backend = std::ranges::find_if(available, [] (const reactor_backend_selector& be) {
+        return be.name() != "asymmetric_io_uring";
+    })->name();
+    auto description = fmt::format("Internal reactor implementation ({})", available);
+    for (auto&& be : available) {
         auto name = be.name();
         candidates.push_back({std::move(name), {new reactor_backend_selector(std::move(be)), deleter}, {}});
     }
-    return candidates;
+    return value_type(zis, "reactor-backend", std::move(candidates), std::move(default_backend), std::move(description));
 }
 
 reactor_options::reactor_options(program_options::option_group* parent_group)
@@ -4066,8 +4077,7 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
                  " Accepted values: none, critical (default), all. When set to critical, only allocations marked as critical will trigger diagnostics dump."
                  " The diagnostics will be written to the seastar_memory logger, with error level."
                  " Note that if the seastar_memory logger is set to debug or trace level, the diagnostics will be logged irrespective of this setting.")
-    , reactor_backend(*this, "reactor-backend", backend_selector_candidates(), reactor_backend_selector::default_backend().name(),
-                fmt::format("Internal reactor implementation ({})", reactor_backend_selector::available()))
+    , reactor_backend(create_reactor_backend_option(*this))
     , async_workers_cpuset(*this, "async-workers-cpuset", resource::cpuset{},
                 "CPUs to use (in cpuset(7) format) for backend's async workers."
                 " Only applicable to, and required by, the asymmetric_io_uring reactor backend (see --reactor-backend)."
