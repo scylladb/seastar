@@ -576,6 +576,10 @@ seastar_add_test (shared_token_bucket
 seastar_add_test (prometheus_text
   SOURCES prometheus_text_test.cc)
 
+seastar_add_test (prometheus_protobuf
+  SOURCES prometheus_protobuf_test.cc
+  LIBRARIES protobuf::libprotobuf)
+
 seastar_add_test (prometheus_http
   SOURCES
     prometheus_http_test.cc)
