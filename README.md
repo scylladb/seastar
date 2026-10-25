@@ -13,6 +13,20 @@ Seastar is an event-driven framework that allows you to write non-blocking,
 asynchronous code in a relatively straightforward manner (once understood).
 It is based on [futures](https://en.wikipedia.org/wiki/Futures_and_promises).
 
+Build requirements
+------------------
+
+Seastar supports Linux and the last two major releases of GCC and Clang.
+The [CI matrix](.github/workflows/tests.yaml) currently tests GCC 15 and 16,
+and Clang 21 and 22. See the [compiler support policy](doc/compatibility.md#compilers)
+for details.
+
+Building requires [C++23 or C++26](#cxx-standard), CMake, Ninja, Python 3,
+pkg-config, and Ragel 6.10 or later. Development packages for the required
+libraries can be installed with `install-dependencies.sh`, as shown below.
+Library versions and optional dependencies are checked in
+[cmake/SeastarDependencies.cmake](cmake/SeastarDependencies.cmake).
+
 Building Seastar
 --------------------
 
@@ -29,6 +43,10 @@ Then configure (in "release" mode):
 ```
 $ ./configure.py --mode=release
 ```
+
+To select a compiler other than the default `g++`, pass `--compiler`, for
+example `./configure.py --mode=release --compiler=clang++-22`.
+
 Then compile:
 
 ```
