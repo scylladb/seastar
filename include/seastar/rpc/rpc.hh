@@ -317,7 +317,7 @@ protected:
         return _is_stream;
     }
 
-    snd_buf compress(snd_buf buf);
+    future<snd_buf> compress(snd_buf buf);
     future<> send_buffer(snd_buf buf);
     future<> send(snd_buf buf, std::optional<rpc_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr);
     future<> send_entry(outgoing_entry& d) noexcept;
