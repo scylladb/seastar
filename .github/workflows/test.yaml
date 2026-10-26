@@ -139,4 +139,4 @@ jobs:
       # regular jobs already test.
       - name: Test
         if: ${{ ! contains(inputs.enables, 'cxx-modules') && ! inputs.install-test }}
-        run: ./test.py --mode=${{ inputs.mode }} --reactor-backend=${{ inputs.reactor-backend }} ${{ inputs.test-args }}
+        run: ./test.py --mode=${{ inputs.mode }} -j4 --reactor-backend=${{ inputs.reactor-backend }} ${{ inputs.test-args }}
