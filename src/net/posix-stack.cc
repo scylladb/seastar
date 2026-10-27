@@ -934,13 +934,17 @@ posix_ap_server_socket_impl::abort_accept() {
 }
 
 posix_reuseport_server_socket_impl::posix_reuseport_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
+        server_socket::load_balancing_algorithm lba,
         std::pmr::polymorphic_allocator<char>* allocator)
         : _state(make_lw_shared<state>(state{
             .protocol = protocol,
             .sa = sa,
             .lfd = std::move(lfd),
             .allocator = allocator,
-            .tracker = make_lw_shared<sampled_conntrack>(conntrack::endpoint(protocol, sa)),
+            .lba = lba,
+            .tracker = lba == server_socket::load_balancing_algorithm::port
+                    ? nullptr
+                    : make_lw_shared<sampled_conntrack>(conntrack::endpoint(protocol, sa)),
           })) {
     // The kernel accepts a second reuseport bind of the same address from this
     // process, but the delivery maps support one listener per endpoint per
@@ -998,7 +1002,9 @@ posix_reuseport_server_socket_impl::accept_loop(lw_shared_ptr<state> st) {
             if (st->aborted) {
                 break; // drop the connection, the listener is going away
             }
-            auto cpu = st->tracker->place();
+            auto cpu = st->lba == server_socket::load_balancing_algorithm::port
+                    ? get_port_or_counter(addr) % this_smp_shard_count()
+                    : st->tracker->place();
             if (cpu == this_shard_id()) {
                 posix_ap_server_socket_impl::move_connected_socket(st->protocol, st->sa, std::move(fd), addr, conntrack::handle(conntrack::endpoint(st->protocol, st->sa)), std::nullopt, st->allocator);
             } else {
@@ -1129,9 +1135,9 @@ posix_network_stack::posix_network_stack(const program_options::option_group& op
 {
 }
 
-// The balanced reuseport path handles only the default connection-distribution
+// The balanced reuseport path handles the connection-distribution and port
 // balancing of TCP listeners on a concrete port. The single-listener path is
-// kept for: fixed and port placement, proxy-protocol listeners, SCTP (kernel
+// kept for: fixed placement, proxy-protocol listeners, SCTP (kernel
 // reuseport support is probed on a TCP socket only), and ephemeral-port
 // listens (each shard would bind a different port, forming no reuseport
 // group - and a second such listen on one shard must not fail). It is also
@@ -1139,7 +1145,8 @@ posix_network_stack::posix_network_stack(const program_options::option_group& op
 static bool use_reuseport(bool stack_reuseport, const listen_options& opt, const socket_address& sa) {
     return stack_reuseport
         && opt.reuse_port
-        && opt.lba == server_socket::load_balancing_algorithm::connection_distribution
+        && (opt.lba == server_socket::load_balancing_algorithm::connection_distribution
+            || opt.lba == server_socket::load_balancing_algorithm::port)
         && !opt.proxy_protocol
         && opt.proto == transport::TCP
         && sa.port() != 0;
@@ -1157,7 +1164,7 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
     }
     auto protocol = static_cast<int>(opt.proto);
     return use_reuseport(_reuseport, opt, sa) ?
-        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt, true), _allocator))
+        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt, true), opt.lba, _allocator))
         :
         server_socket(std::make_unique<posix_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, opt.proxy_protocol, _allocator));
 }
@@ -1183,7 +1190,7 @@ posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
     }
     auto protocol = static_cast<int>(opt.proto);
     return use_reuseport(posix_network_stack::_reuseport, opt, sa) ?
-        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt, true), _allocator))
+        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt, true), opt.lba, _allocator))
         :
         server_socket(std::make_unique<posix_ap_server_socket_impl>(protocol, sa, _allocator));
 }

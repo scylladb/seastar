@@ -328,7 +328,8 @@ class posix_reuseport_server_socket_impl : public server_socket_impl {
         socket_address sa;
         pollable_fd lfd;
         std::pmr::polymorphic_allocator<char>* allocator;
-        lw_shared_ptr<sampled_conntrack> tracker;
+        server_socket::load_balancing_algorithm lba;
+        lw_shared_ptr<sampled_conntrack> tracker; // null with port balancing
         // A failure of the kernel accept, or of routing its connection,
         // observed while no accept() was waiting, reported to the next
         // accept() call. One slot suffices: after a failure the kernel accept
@@ -340,6 +341,7 @@ class posix_reuseport_server_socket_impl : public server_socket_impl {
     lw_shared_ptr<state> _state;
 public:
     explicit posix_reuseport_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
+        server_socket::load_balancing_algorithm lba,
         std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator);
     ~posix_reuseport_server_socket_impl();
     virtual future<accept_result> accept() override;
@@ -349,7 +351,8 @@ private:
     // Starts the accept loop on the listener, unless it is already running.
     static void arm(lw_shared_ptr<state> st);
     // Accepts a connection from the kernel, routes it to the shard chosen by
-    // the tracker, and repeats while a local accept() call is left waiting.
+    // the tracker (with port balancing, by its remote port), and repeats while
+    // a local accept() call is left waiting.
     static future<> accept_loop(lw_shared_ptr<state> st);
 };
 

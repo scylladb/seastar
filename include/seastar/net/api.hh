@@ -452,7 +452,7 @@ struct listen_options {
     /// SO_REUSEPORT when all of these conditions are true:
     /// - The kernel supports SO_REUSEPORT.
     /// - The protocol is TCP, and the port is not 0.
-    /// - The load balancing algorithm is connection_distribution.
+    /// - The load balancing algorithm is connection_distribution or port.
     /// - proxy_protocol is false.
     ///
     /// Then each shard that calls listen() opens its own listening socket and
