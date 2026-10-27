@@ -537,54 +537,66 @@ relative_timeout_to_absolute(rpc_clock_type::duration relative) {
 // Refer to struct request_frame for more details
 static constexpr size_t request_frame_headroom = 28;
 
+namespace internal {
+
+// The function object that make_client() returns (see send_helper()). It is a
+// class template, and not a local class in send_helper(), because the member
+// functions of a local class are instantiated together with the function
+// that defines it, while those of a class template are only instantiated
+// when they are used. So creating one, like register_handler() does, doesn't
+// instantiate the code that sends a message unless someone does send it.
+template<typename Serializer, typename MsgType, typename Ret, typename... InArgs>
+struct send_function {
+    MsgType t;
+    signature<Ret (InArgs...)> sig;
+    auto send(rpc::client& dst, std::optional<rpc_clock_type::time_point> timeout, cancellable* cancel, const InArgs&... args) {
+        if (dst.error()) {
+            using cleaned_ret_type = typename wait_signature<Ret>::cleaned_type;
+            return futurize<cleaned_ret_type>::make_exception_future(closed_error());
+        }
+
+        auto start = rpc_clock_type::now();
+        // send message
+        auto msg_id = dst.next_message_id();
+        snd_buf data = marshall(dst.template serializer<Serializer>(), request_frame_headroom, args...);
+
+        // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
+        using wait = wait_signature_t<Ret>;
+        return when_all(dst.request(uint64_t(t), msg_id, std::move(data), timeout, cancel), wait_for_reply<Serializer>(wait(), timeout, start, cancel, dst, msg_id, sig)).then([] (auto r) {
+                std::get<0>(r).ignore_ready_future();
+                return std::move(std::get<1>(r)); // return future of wait_for_reply
+        });
+    }
+    auto operator()(rpc::client& dst, const InArgs&... args) {
+        return send(dst, {}, nullptr, args...);
+    }
+    auto operator()(rpc::client& dst, rpc_clock_type::time_point timeout, const InArgs&... args) {
+        return send(dst, timeout, nullptr, args...);
+    }
+    auto operator()(rpc::client& dst, rpc_clock_type::time_point timeout, cancellable& cancel, const InArgs&... args) {
+        return send(dst, timeout, &cancel, args...);
+    }
+    auto operator()(rpc::client& dst, rpc_clock_type::duration timeout, const InArgs&... args) {
+        return send(dst, relative_timeout_to_absolute(timeout), nullptr, args...);
+    }
+    auto operator()(rpc::client& dst, rpc_clock_type::duration timeout, cancellable& cancel, const InArgs&... args) {
+        return send(dst, relative_timeout_to_absolute(timeout), &cancel, args...);
+    }
+    auto operator()(rpc::client& dst, cancellable& cancel, const InArgs&... args) {
+        return send(dst, {}, &cancel, args...);
+    }
+
+};
+
+}
+
 // Returns lambda that can be used to send rpc messages.
 // The lambda gets client connection and rpc parameters as arguments, marshalls them sends
 // to a server and waits for a reply. After receiving reply it unmarshalls it and signal completion
 // to a caller.
 template<typename Serializer, typename MsgType, typename Ret, typename... InArgs>
 auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
-    struct shelper {
-        MsgType t;
-        signature<Ret (InArgs...)> sig;
-        auto send(rpc::client& dst, std::optional<rpc_clock_type::time_point> timeout, cancellable* cancel, const InArgs&... args) {
-            if (dst.error()) {
-                using cleaned_ret_type = typename wait_signature<Ret>::cleaned_type;
-                return futurize<cleaned_ret_type>::make_exception_future(closed_error());
-            }
-
-            auto start = rpc_clock_type::now();
-            // send message
-            auto msg_id = dst.next_message_id();
-            snd_buf data = marshall(dst.template serializer<Serializer>(), request_frame_headroom, args...);
-
-            // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
-            using wait = wait_signature_t<Ret>;
-            return when_all(dst.request(uint64_t(t), msg_id, std::move(data), timeout, cancel), wait_for_reply<Serializer>(wait(), timeout, start, cancel, dst, msg_id, sig)).then([] (auto r) {
-                    std::get<0>(r).ignore_ready_future();
-                    return std::move(std::get<1>(r)); // return future of wait_for_reply
-            });
-        }
-        auto operator()(rpc::client& dst, const InArgs&... args) {
-            return send(dst, {}, nullptr, args...);
-        }
-        auto operator()(rpc::client& dst, rpc_clock_type::time_point timeout, const InArgs&... args) {
-            return send(dst, timeout, nullptr, args...);
-        }
-        auto operator()(rpc::client& dst, rpc_clock_type::time_point timeout, cancellable& cancel, const InArgs&... args) {
-            return send(dst, timeout, &cancel, args...);
-        }
-        auto operator()(rpc::client& dst, rpc_clock_type::duration timeout, const InArgs&... args) {
-            return send(dst, relative_timeout_to_absolute(timeout), nullptr, args...);
-        }
-        auto operator()(rpc::client& dst, rpc_clock_type::duration timeout, cancellable& cancel, const InArgs&... args) {
-            return send(dst, relative_timeout_to_absolute(timeout), &cancel, args...);
-        }
-        auto operator()(rpc::client& dst, cancellable& cancel, const InArgs&... args) {
-            return send(dst, {}, &cancel, args...);
-        }
-
-    };
-    return shelper{xt, xsig};
+    return internal::send_function<Serializer, MsgType, Ret, InArgs...>{xt, xsig};
 }
 
 // Refer to struct response_frame for more details
