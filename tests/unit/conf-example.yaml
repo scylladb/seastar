@@ -24,6 +24,12 @@ metrics:
   labels:
     private: "3"
   values: [2]
+- name: level_basic
+  type: gauge
+  labels:
+    private: "4"
+    __level: "basic"
+  values: [11]
 metric_family_config:
 - name: test_group_counter_1
   aggregate_labels:
