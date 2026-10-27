@@ -1131,10 +1131,8 @@ static void add_metrics_route(httpd::http_server& server, const config& ctx) {
     server._routes.put(httpd::GET, "/metrics", new metrics_handler(ctx));
 }
 
-// A metric registered before the exporter was set up is only known to the shard
-// that registered it, while a request can be served by any shard. Make every
-// shard aware of all the label names, so that the label filter of a request is
-// built the same way everywhere.
+// Any shard can serve a request. Thus, each shard must know all the label
+// names, so that each shard makes the same label filter.
 static future<> propagate_metric_labels() {
     return smp::invoke_on_all([] {
         return mi::get_local_impl()->propagate_labels();

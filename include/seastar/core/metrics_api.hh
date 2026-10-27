@@ -458,10 +458,13 @@ public:
     void add_labels(const std::set<sstring>& labels);
 
     /*!
-     * \brief share the label names known to this shard with the other shards
+     * \brief send the label names of this shard to the other shards
      *
-     * Also enables propagating label names added from now on, as they are
-     * registered.
+     * After this call, a registration or a relabeling on this shard that adds
+     * a label name also sends the name to the other shards.
+     *
+     * \return a future that resolves when the other shards have the label
+     * names that this shard has now.
      */
     future<> propagate_labels();
     internalized_labels_ref internalize_labels(labels_type labels);

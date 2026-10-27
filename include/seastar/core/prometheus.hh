@@ -62,6 +62,12 @@ future<> start(httpd::http_server_control& http_server, config ctx);
 
 /// \defgroup add_prometheus_routes adds a /metrics endpoint that returns prometheus metrics
 ///    both in txt format and in protobuf according to the prometheus spec
+///
+///    Both overloads also send the label names of each shard to all other shards.
+///    The returned future resolves when all shards have these names. After that,
+///    a registration or a relabeling that adds a label name sends the name to
+///    all other shards in the background. Thus, after the names arrive, the
+///    label filters of a request give the same result on every shard.
 /// @{
 future<> add_prometheus_routes(sharded<httpd::http_server>& server, config ctx);
 future<> add_prometheus_routes(httpd::http_server& server, config ctx);
