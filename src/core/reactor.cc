@@ -1720,6 +1720,10 @@ void pollable_fd_state::forget() {
     engine()._backend->forget(*this);
 }
 
+void pollable_fd_state::detach() {
+    engine()._backend->detach(*this);
+}
+
 void pollable_fd_state::shutdown(int how) {
     fd.shutdown(how);
 }

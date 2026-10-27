@@ -131,6 +131,7 @@ private:
     void maybe_no_more_recv();
     void maybe_no_more_send();
     void forget(); // called on end-of-life
+    void detach();
 
     friend void intrusive_ptr_add_ref(pollable_fd_state* fd) {
         ++fd->_refs;
@@ -215,6 +216,14 @@ public:
         return _s->sendto(addr, buf, len);
     }
     file_desc& get_file_desc() const { return _s->fd; }
+    /// Removes the file descriptor from the poll set of this shard and takes it
+    /// out, leaving this object empty. No operation on it may be pending.
+    file_desc detach_file_desc() noexcept {
+        _s->detach();
+        auto fd = std::move(_s->fd);
+        _s.reset();
+        return fd;
+    }
     using shutdown_kernel_only = bool_class<struct shutdown_kernel_only_tag>;
     void shutdown(int how, shutdown_kernel_only kernel_only = shutdown_kernel_only::yes);
     void close() { _s.reset(); }

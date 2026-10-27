@@ -232,6 +232,9 @@ public:
     virtual future<> readable_or_writeable(pollable_fd_state& fd) = 0;
     virtual future<> poll_rdhup(pollable_fd_state& fd) = 0;
     virtual void forget(pollable_fd_state& fd) noexcept = 0;
+    // Removes fd from the poll set, before its file descriptor moves elsewhere.
+    // Only epoll keeps a file descriptor in its poll set after a poll completes.
+    virtual void detach(pollable_fd_state&) noexcept {}
 
     virtual future<std::tuple<pollable_fd, socket_address>>
     accept(pollable_fd_state& listenfd) = 0;
@@ -322,6 +325,7 @@ public:
     virtual future<> readable_or_writeable(pollable_fd_state& fd) override;
     virtual future<> poll_rdhup(pollable_fd_state& fd) override;
     virtual void forget(pollable_fd_state& fd) noexcept override;
+    virtual void detach(pollable_fd_state& fd) noexcept override;
 
     virtual future<std::tuple<pollable_fd, socket_address>>
     accept(pollable_fd_state& listenfd) override;

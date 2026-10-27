@@ -733,8 +733,9 @@ posix_server_socket_impl::accept() {
                 _allocator);
             co_return accept_result{connected_socket(std::move(csi)), sa};
         } else {
+            // Reading the proxy-protocol header may have left the socket in the poll set of this shard.
             // FIXME: future is discarded
-            (void)smp::submit_to(cpu, [protocol = _protocol, ssa = _sa, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth), addr_data_opt = std::move(addr_data_opt), allocator = _allocator] () mutable {
+            (void)smp::submit_to(cpu, [protocol = _protocol, ssa = _sa, fd = fd.detach_file_desc(), sa, cth = std::move(cth), addr_data_opt = std::move(addr_data_opt), allocator = _allocator] () mutable {
                 posix_ap_server_socket_impl::move_connected_socket(protocol, ssa, pollable_fd(std::move(fd)), sa, std::move(cth), std::move(addr_data_opt), allocator);
             });
         }
