@@ -445,19 +445,13 @@ void add_labels(const std::set<sstring>& labels) {
 }
 
 void impl::register_labels(const labels_type& labels) {
-    // Collecting only the unknown names keeps the common case, where the metric
-    // brings no new label, free of allocations.
     std::set<sstring> new_labels;
     for (const auto& [name, _] : labels) {
-        if (!_labels.contains(name)) {
+        if (_labels.insert(name).second && _propagate_new_labels) {
             new_labels.insert(name);
         }
     }
     if (new_labels.empty()) {
-        return;
-    }
-    add_labels(new_labels);
-    if (!_propagate_new_labels) {
         return;
     }
     // The lambda has to reach the free function, not the member of the same
@@ -470,9 +464,6 @@ void impl::register_labels(const labels_type& labels) {
 }
 
 future<> impl::propagate_labels() {
-    // A metric registered before the metrics are exported is only known to the
-    // shard that registered it. Share the full set once, and keep the other
-    // shards up to date from now on.
     _propagate_new_labels = true;
     return smp::invoke_on_others([labels = _labels] {
         metrics::impl::add_labels(labels);
@@ -637,14 +628,8 @@ future<metric_relabeling_result> impl::set_relabel_configs(const std::vector<rel
             }
 
             family.second[ilb] = rm;
-        }
-    }
-
-    for (const auto& family : _value_map) {
-        for (const auto& metric : family.second) {
-            if (metric.second) {
-                register_labels(metric.second->info().id.labels());
-            }
+            // Only a metric whose labels changed can bring a new label name.
+            register_labels(*ilb);
         }
     }
     return make_ready_future<metric_relabeling_result>(conflicts);
