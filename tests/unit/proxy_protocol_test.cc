@@ -22,6 +22,8 @@
 #include <seastar/core/timer.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/core/sharded.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/net/api.hh>
 
 #include <seastar/testing/test_case.hh>
@@ -566,4 +568,54 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_unspec_family) {
     // UNSPEC family (0x0) should only be valid with LOCAL command
     auto header = make_proxy_v2_header(true, 0x21, 0x00);  // v2 PROXY with UNSPEC (invalid combo)
     test_proxy_header_negative(ipv4_addr("127.0.0.1", 12016), std::move(header));
+}
+
+SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_queued_moved_connection) {
+    // Shard 0 moves a connection to shard 1 before shard 1 calls accept(), so the
+    // connection waits in a queue. The data after the header must reach shard 1.
+    // With the epoll backend, debug and sanitize builds also detect #3791 here.
+    if (this_smp_shard_count() < 2) {
+        fmt::print("This test needs at least 2 shards to run\n");
+        return;
+    }
+    listen_options lo;
+    lo.reuse_address = true;
+    lo.proxy_protocol = true;
+    lo.lba = server_socket::load_balancing_algorithm::port;
+
+    auto listen_addr = ipv4_addr("127.0.0.1", 12017);
+    server_socket ss0 = seastar::listen(listen_addr, lo);
+    auto ss1 = smp::submit_to(1, [listen_addr, lo] {
+        return make_foreign(std::make_unique<server_socket>(seastar::listen(listen_addr, lo)));
+    }).get();
+
+    // Port balancing places a connection on shard (source port % shards), so
+    // the source ports 1 and 0 select shards 1 and 0.
+    auto send = [&] (uint16_t src_port, std::string_view data) {
+        auto header = make_proxy_v2_header(true, 0x21, 0x11, ipv4_addr("192.168.1.100", src_port));
+        auto s = connect(listen_addr).get();
+        auto out = s.output();
+        out.write(header.data(), header.size()).get();
+        out.write(data.data(), data.size()).get();
+        out.flush().get();
+        out.close().get();
+    };
+    send(1, "data");
+    send(0, "");
+
+    // Shard 0 accepts in arrival order: it moves the first connection to shard 1,
+    // then polls to read the second header while the first socket is readable.
+    ss0.accept().get();
+    auto data = smp::submit_to(1, [ss = ss1.get()] {
+        return seastar::async([ss] {
+            auto ar = ss->accept().get();
+            auto in = ar.connection.input();
+            auto buf = in.read_exactly(4).get();
+            in.close().get();
+            return sstring(buf.get(), buf.size());
+        });
+    }).get();
+    ss1.destroy().get();
+
+    BOOST_REQUIRE_EQUAL(data, "data");
 }

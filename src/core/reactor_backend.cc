@@ -1150,10 +1150,15 @@ future<> reactor_backend_epoll::poll_rdhup(pollable_fd_state& fd) {
     return get_epoll_future(fd, POLLRDHUP);
 }
 
-void reactor_backend_epoll::forget(pollable_fd_state& fd) noexcept {
+void reactor_backend_epoll::detach(pollable_fd_state& fd) noexcept {
     if (fd.events_epoll) {
         ::epoll_ctl(_epollfd.get(), EPOLL_CTL_DEL, fd.fd.get(), nullptr);
+        fd.events_epoll = 0;
     }
+}
+
+void reactor_backend_epoll::forget(pollable_fd_state& fd) noexcept {
+    detach(fd);
     auto* efd = static_cast<epoll_pollable_fd_state*>(&fd);
     delete efd;
 }
