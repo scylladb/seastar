@@ -121,6 +121,24 @@ rcv_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<rcv_buf>> org) 
     return buf;
 }
 
+snd_buf make_error_reply(std::exception_ptr eptr) {
+    // Use fmt::format with exception_ptr to properly render all exception
+    // details, including nested exceptions (seastar::nested_exception,
+    // std::nested_exception) which would otherwise lose their inner context
+    // if we only called what().
+    const auto msg = fmt::format("{}", seastar::formattable(eptr));
+    const uint32_t len = msg.size();
+    snd_buf data(response_frame_headroom + 2 * sizeof(uint32_t) + len);
+    auto os = make_serializer_stream(data);
+    os.skip(response_frame_headroom);
+    uint32_t v32 = cpu_to_le(uint32_t(exception_type::USER));
+    os.write(reinterpret_cast<char*>(&v32), sizeof(v32));
+    v32 = cpu_to_le(len);
+    os.write(reinterpret_cast<char*>(&v32), sizeof(v32));
+    os.write(msg.data(), len);
+    return data;
+}
+
 } // namespace internal
 
 static void log_exception(connection& c, log_level level, const char* log, std::exception_ptr eptr) {

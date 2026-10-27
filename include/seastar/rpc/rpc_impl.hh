@@ -590,6 +590,13 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 // Refer to struct response_frame for more details
 static constexpr size_t response_frame_headroom = 16;
 
+namespace internal {
+
+// Returns the reply to a request whose handler failed with the given exception.
+snd_buf make_error_reply(std::exception_ptr eptr);
+
+}
+
 template<typename Serializer, typename RetTypes>
 inline future<> reply(wait_type, future<RetTypes>&& ret, uint64_t verb, int64_t msg_id, shared_ptr<server::connection> client,
         std::optional<rpc_clock_type::time_point> timeout, std::optional<rpc_clock_type::duration> handler_duration) {
@@ -603,20 +610,7 @@ inline future<> reply(wait_type, future<RetTypes>&& ret, uint64_t verb, int64_t 
                 data = std::invoke(marshall<Serializer, const RetTypes&>, std::ref(client->template serializer<Serializer>()), response_frame_headroom, std::move(ret.get()));
             }
         } catch (...) {
-            // Use fmt::format with exception_ptr to properly render all exception
-            // details, including nested exceptions (seastar::nested_exception,
-            // std::nested_exception) which would otherwise lose their inner context
-            // if we only called what().
-            const auto msg = fmt::format("{}", seastar::formattable(std::current_exception()));
-            const uint32_t len = msg.size();
-            data = snd_buf(response_frame_headroom + 2 * sizeof(uint32_t) + len);
-            auto os = make_serializer_stream(data);
-            os.skip(response_frame_headroom);
-            uint32_t v32 = cpu_to_le(uint32_t(exception_type::USER));
-            os.write(reinterpret_cast<char*>(&v32), sizeof(v32));
-            v32 = cpu_to_le(len);
-            os.write(reinterpret_cast<char*>(&v32), sizeof(v32));
-            os.write(msg.data(), len);
+            data = internal::make_error_reply(std::current_exception());
             msg_id = -msg_id;
         }
 
