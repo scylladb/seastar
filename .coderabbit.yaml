@@ -6,3 +6,9 @@ knowledge_base:
     # Agent Skill; CodeRabbit doesn't discover skills, so point it at them.
     filePatterns:
       - .agents/skills/seastar-review/SKILL.md
+reviews:
+  # Put CodeRabbit's summary of the changes in its walkthrough comment,
+  # instead of inserting it into the pull request's description: the
+  # description is the author's cover letter, and becomes the message of
+  # the merge commit.
+  high_level_summary_in_walkthrough: true
