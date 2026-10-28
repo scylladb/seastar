@@ -175,6 +175,31 @@ void init_default_smp_service_group(shard_id cpu);
 
 smp_service_group_semaphore& get_smp_service_groups_semaphore(unsigned ssg_id, shard_id t) noexcept;
 
+namespace internal {
+
+// An object that keep_until_resolved() keeps alive. It is destroyed
+// through the virtual destructor, so all of them can be held in the same
+// type, std::unique_ptr<kept_alive_base>.
+struct kept_alive_base {
+    virtual ~kept_alive_base() = default;
+};
+
+template <typename T>
+struct kept_alive final : kept_alive_base {
+    T value;
+    explicit kept_alive(T&& v) : value(std::move(v)) {}
+};
+
+// Returns a future that resolves like fut, and destroys obj once fut is
+// resolved. It's a template only on the future's type, so its
+// continuation is shared by all callers with the same result type.
+template <typename Future>
+Future keep_until_resolved(Future fut, std::unique_ptr<kept_alive_base> obj) noexcept {
+    return std::move(fut).finally([obj = std::move(obj)] {});
+}
+
+}
+
 class smp_message_queue {
     static constexpr size_t queue_length = 128;
     static constexpr size_t batch_size = 16;
@@ -391,10 +416,13 @@ public:
                     // func is an lvalue, so caller worries about its lifetime
                     return futurize<ret_type>::invoke(func);
                 } else {
-                    // Deferring call on rvalue function, make sure to preserve it across call
-                    auto w = std::make_unique<std::decay_t<Func>>(std::move(func));
-                    auto ret = futurize<ret_type>::invoke(*w);
-                    return ret.finally([w = std::move(w)] {});
+                    // Deferring call on rvalue function, make sure to preserve it across call.
+                    // It's owned by a std::unique_ptr<kept_alive_base>, the same type for
+                    // every Func, and not created with std::make_unique, which would
+                    // instantiate std::unique_ptr again for every Func.
+                    auto w = new internal::kept_alive<std::decay_t<Func>>(std::move(func));
+                    std::unique_ptr<internal::kept_alive_base> holder(w);
+                    return internal::keep_until_resolved(futurize<ret_type>::invoke(w->value), std::move(holder));
                 }
             } catch (...) {
                 // Consistently return a failed future rather than throwing, to simplify callers
