@@ -286,8 +286,12 @@ public:
     template <typename Func>
     futurize_t<std::invoke_result_t<Func>> submit(shard_id t, smp_submit_to_options options, Func&& func) noexcept {
         memory::scoped_critical_alloc_section _;
-        auto wi = std::make_unique<async_work_item<Func>>(*this, options.service_group, std::forward<Func>(func));
-        auto fut = wi->get_future();
+        // Hold the item in a std::unique_ptr<work_item> right away, rather
+        // than using std::make_unique<async_work_item<Func>>, so that
+        // std::unique_ptr isn't instantiated again for every Func.
+        auto item = new async_work_item<Func>(*this, options.service_group, std::forward<Func>(func));
+        std::unique_ptr<work_item> wi(item);
+        auto fut = item->get_future();
         submit_item(t, options.timeout, std::move(wi));
         return fut;
     }
