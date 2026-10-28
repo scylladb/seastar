@@ -380,10 +380,10 @@ public:
         using ret_type = std::invoke_result_t<Func>;
         if (t == this_shard_id()) {
             try {
-                if (!is_future<ret_type>::value) {
+                if constexpr (!is_future<ret_type>::value) {
                     // Non-deferring function, so don't worry about func lifetime
                     return futurize<ret_type>::invoke(std::forward<Func>(func));
-                } else if (std::is_lvalue_reference_v<Func>) {
+                } else if constexpr (std::is_lvalue_reference_v<Func>) {
                     // func is an lvalue, so caller worries about its lifetime
                     return futurize<ret_type>::invoke(func);
                 } else {
