@@ -121,6 +121,78 @@ rcv_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<rcv_buf>> org) 
     return buf;
 }
 
+snd_buf make_error_reply(std::exception_ptr eptr) {
+    // Use fmt::format with exception_ptr to properly render all exception
+    // details, including nested exceptions (seastar::nested_exception,
+    // std::nested_exception) which would otherwise lose their inner context
+    // if we only called what().
+    const auto msg = fmt::format("{}", seastar::formattable(eptr));
+    const uint32_t len = msg.size();
+    snd_buf data(response_frame_headroom + 2 * sizeof(uint32_t) + len);
+    auto os = make_serializer_stream(data);
+    os.skip(response_frame_headroom);
+    uint32_t v32 = cpu_to_le(uint32_t(exception_type::USER));
+    os.write(reinterpret_cast<char*>(&v32), sizeof(v32));
+    v32 = cpu_to_le(len);
+    os.write(reinterpret_cast<char*>(&v32), sizeof(v32));
+    os.write(msg.data(), len);
+    return data;
+}
+
+future<> reply_with_error(bool want_reply, std::exception_ptr eptr, uint64_t verb, int64_t msg_id,
+        shared_ptr<server::connection> client, std::optional<rpc_clock_type::time_point> timeout) {
+    if (!want_reply) {
+        client->get_logger()(client->info(), msg_id, ::seastar::format("exception \"{}\" in no_wait handler of the verb {} ignored", seastar::formattable(eptr), verb));
+        return make_ready_future<>();
+    }
+    if (client->error()) {
+        return make_ready_future<>();
+    }
+    return client->respond(-msg_id, make_error_reply(std::move(eptr)), timeout, std::nullopt);
+}
+
+future<> log_reply_exception(future<>&& reply, uint64_t verb, int64_t msg_id, shared_ptr<server::connection>&& client,
+        resource_permit&& permit) {
+    return reply.handle_exception([verb, permit = std::move(permit), client = std::move(client), msg_id] (std::exception_ptr eptr) {
+        client->get_logger()(client->info(), msg_id, seastar::format("got exception while processing a message: {}, verb {}", seastar::formattable(eptr), verb));
+    });
+}
+
+future<> handle_request(shared_ptr<server::connection>&& client, std::optional<rpc_clock_type::time_point> timeout,
+        int64_t msg_id, rcv_buf&& data, gate::holder&& guard, uint64_t verb, bool want_reply,
+        request_handler& handler) {
+    auto memory_consumed = client->estimate_request_size(data.size);
+    if (memory_consumed > client->max_request_size()) {
+        auto err = format("request size {:d} large than memory limit {:d}, verb {}", memory_consumed, client->max_request_size(), verb);
+        client->get_logger()(client->peer_address(), err);
+        // FIXME: future is discarded
+        (void)try_with_gate(client->get_server().reply_gate(), [verb, client, timeout, msg_id, want_reply, err = std::move(err)] {
+            return reply_with_error(want_reply, std::make_exception_ptr(std::runtime_error(err.c_str())), verb, msg_id, client, timeout).handle_exception([verb, client, msg_id] (std::exception_ptr eptr) {
+                client->get_logger()(client->info(), msg_id, seastar::format("got exception while processing an oversized message: {} for verb {}", seastar::formattable(eptr), verb));
+            });
+        }).handle_exception_type([] (gate_closed_exception&) {/* ignore */});
+        return make_ready_future();
+    }
+    // note: the handler is executed asynchronously with regards to networking so we cannot chain futures here by doing "return handle()"
+    auto f = client->wait_for_resources(memory_consumed, timeout).then([verb, client, timeout, msg_id, data = std::move(data), &handler, g = std::move(guard)] (auto permit) mutable {
+            // FIXME: future is discarded
+            (void)try_with_gate(client->get_server().reply_gate(), [verb, client, timeout, msg_id, data = std::move(data), permit = std::move(permit), &handler] () mutable {
+                try {
+                    return handler.handle(client, timeout, msg_id, std::move(data), std::move(permit));
+                } catch (...) {
+                    client->get_logger()(client->info(), msg_id, seastar::format("caught exception while processing a message: {}, verb {}", seastar::formattable(std::current_exception()), verb));
+                    return make_ready_future();
+                }
+            }).handle_exception_type([g = std::move(g)] (gate_closed_exception&) {/* ignore */});
+    });
+
+    if (timeout) {
+        f = f.handle_exception_type([] (semaphore_timed_out&) { /* ignore */ });
+    }
+
+    return f;
+}
+
 } // namespace internal
 
 static void log_exception(connection& c, log_level level, const char* log, std::exception_ptr eptr) {
