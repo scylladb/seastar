@@ -217,17 +217,17 @@ class smp_message_queue {
         void process();
         virtual void complete() = 0;
     };
-    template <typename Func>
-    struct async_work_item : work_item {
+    // The parts of a cross-shard work item that depend only on the type of
+    // future its function returns, not on the function itself, so they are
+    // instantiated once per result type rather than once per function.
+    template <typename FutureType>
+    struct async_work_item_base : work_item {
+        using value_type = typename FutureType::value_type;
         smp_message_queue& _queue;
-        Func _func;
-        using futurator = futurize<std::invoke_result_t<Func>>;
-        using future_type = typename futurator::type;
-        using value_type = typename future_type::value_type;
         std::optional<value_type> _result;
         std::exception_ptr _ex; // if !_result
-        typename futurator::promise_type _promise; // used on local side
-        async_work_item(smp_message_queue& queue, smp_service_group ssg, Func&& func) : work_item(ssg), _queue(queue), _func(std::move(func)) {}
+        typename FutureType::promise_type _promise; // used on local side
+        async_work_item_base(smp_message_queue& queue, smp_service_group ssg) : work_item(ssg), _queue(queue) {}
         virtual void fail_with(std::exception_ptr ex) override {
             _promise.set_exception(std::move(ex));
         }
@@ -235,10 +235,12 @@ class smp_message_queue {
             // FIXME: waiting_tasking across shards is not implemented. Unsynchronized task access is unsafe.
             return nullptr;
         }
-        virtual void run_and_dispose() noexcept override {
+        // Waits for the result of the work item's function, and sends it
+        // back to the calling shard.
+        void respond_with(FutureType fut) noexcept {
             // _queue.respond() below forwards the continuation chain back to the
             // calling shard.
-            (void)futurator::invoke(this->_func).then_wrapped([this] (auto f) {
+            (void)std::move(fut).then_wrapped([this] (FutureType f) {
                 if (f.failed()) {
                     _ex = f.get_exception();
                 } else {
@@ -257,7 +259,17 @@ class smp_message_queue {
                 _promise.set_exception(std::move(_ex));
             }
         }
-        future_type get_future() { return _promise.get_future(); }
+        FutureType get_future() { return _promise.get_future(); }
+    };
+    template <typename Func>
+    struct async_work_item : async_work_item_base<futurize_t<std::invoke_result_t<Func>>> {
+        using futurator = futurize<std::invoke_result_t<Func>>;
+        Func _func;
+        async_work_item(smp_message_queue& queue, smp_service_group ssg, Func&& func)
+            : async_work_item_base<typename futurator::type>(queue, ssg), _func(std::move(func)) {}
+        virtual void run_and_dispose() noexcept override {
+            this->respond_with(futurator::invoke(this->_func));
+        }
     };
     union tx_side {
         tx_side() {}
