@@ -1368,7 +1368,9 @@ if (Seastar_INSTALL OR Seastar_TESTING)
     PRIVATE ${Seastar_PRIVATE_CXX_FLAGS})
   target_link_libraries (seastar_perf_testing
     PUBLIC
-    seastar)
+    seastar
+    PRIVATE
+    yaml-cpp::yaml-cpp)
 
 endif ()
 
