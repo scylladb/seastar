@@ -26,13 +26,16 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <optional>
 #include <type_traits>
 #include <variant>
 #include <seastar/core/internal/fmt.hh>
+#include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/metrics_types.hh>
 #include <seastar/util/bool_class.hh>
+#include <seastar/util/noncopyable_function.hh>
 
 /*! \file metrics.hh
  *  \brief header for metrics creation.
@@ -246,6 +249,24 @@ public:
     }
 };
 
+/// \cond internal
+namespace internal {
+
+/*!
+ * \brief The type-independent part of \ref seastar::metrics::collector "collector".
+ *
+ * Do not use directly @see make_collector
+ */
+class collector_base {
+public:
+    virtual ~collector_base() = default;
+    virtual void collect() = 0;
+    virtual void reset() noexcept = 0;
+};
+
+}
+/// \endcond
+
 /*!
  * \namespace impl
  * \brief holds the implementation parts of the metrics layer, do not use directly.
@@ -410,6 +431,9 @@ struct metric_definition_impl {
     skip_when_empty _skip_when_empty = skip_when_empty::no;
     std::vector<std::string> aggregate_labels;
     labels_type labels;
+    // The collector f reads its value from, if any. A shared pointer
+    // captured by f keeps it alive.
+    internal::collector_base* collector = nullptr;
     metric_definition_impl& operator ()(bool enabled);
     metric_definition_impl& operator ()(const label_instance& label);
     metric_definition_impl& operator ()(skip_when_empty skip) noexcept;
@@ -451,7 +475,110 @@ metric_function make_function(T& val, data_type dt) {
         return metric_value(val, dt);
     };
 }
+
 }
+
+template <typename T>
+class collector;
+
+/// \cond internal
+namespace internal {
+
+template <typename Projection, typename T>
+concept collector_projection = std::invocable<const Projection&, const T&>
+        && std::constructible_from<impl::metric_value, std::invoke_result_t<const Projection&, const T&>, impl::data_type>;
+
+template <typename T, collector_projection<T> Projection>
+impl::metric_definition_impl make_collected_definition(metric_name_type name, impl::metric_type type,
+        const lw_shared_ptr<collector<T>>& c, Projection proj, description d, std::vector<label_instance> labels);
+
+}
+/// \endcond
+
+/*!
+ * \brief A value computed once per collection of the metric values and
+ * shared by the metrics made from it.
+ *
+ * Several metrics often derive from one snapshot of some state. A collector
+ * takes that snapshot once per collection of the shard's metrics, before any
+ * metric is evaluated, and the metrics made from it read their values from
+ * the snapshot, so they agree with each other. The snapshot is dropped once
+ * the collection is over. A collector none of whose metrics is enabled does
+ * not run.
+ *
+ * Create it with make_collector() and make metrics from it with the
+ * overloads of make_gauge(), make_counter(), make_histogram() and
+ * make_summary() that take a collector.
+ */
+template <typename T>
+class collector final : public internal::collector_base {
+    noncopyable_function<T()> _f;
+    std::optional<T> _value;
+
+    void collect() override {
+        _value.emplace(_f());
+    }
+
+    void reset() noexcept override {
+        _value.reset();
+    }
+
+    template <typename U, internal::collector_projection<U> Projection>
+    friend impl::metric_definition_impl internal::make_collected_definition(metric_name_type name, impl::metric_type type,
+            const lw_shared_ptr<collector<U>>& c, Projection proj, description d, std::vector<label_instance> labels);
+public:
+    /*!
+     * \brief Create a collector that takes its snapshot by calling \p f.
+     *
+     * Prefer make_collector(), which deduces \c T from \p f.
+     */
+    explicit collector(noncopyable_function<T()> f) : _f(std::move(f)) {}
+};
+
+/*!
+ * \brief Create a collector, a value computed once per collection of the
+ * metric values, from which several metrics take their values.
+ *
+ * For example:
+ *  auto status = make_collector([this] { return _server.get_status(); });
+ *  _metrics.add_group("my_group", {
+ *      make_gauge("commit_index", status, &status_type::commit_index, description("commit index")),
+ *      make_gauge("apply_index", status, &status_type::apply_index, description("apply index")),
+ *  });
+ *
+ * Every collection of the values of this shard's metrics calls \p f once,
+ * before it evaluates any metric, provided at least one metric made from
+ * the collector is enabled. All those metrics report what that call
+ * returned. An exception thrown by \p f fails the collection, like one
+ * thrown by a metric function. \p f must not register or unregister
+ * metrics.
+ *
+ * The metrics made from the collector keep it alive.
+ */
+template <std::invocable F>
+lw_shared_ptr<collector<std::invoke_result_t<F>>> make_collector(F f) {
+    return make_lw_shared<collector<std::invoke_result_t<F>>>(std::move(f));
+}
+
+/// \cond internal
+namespace internal {
+
+template <typename T, collector_projection<T> Projection>
+impl::metric_definition_impl make_collected_definition(metric_name_type name, impl::metric_type type,
+        const lw_shared_ptr<collector<T>>& c, Projection proj, description d, std::vector<label_instance> labels) {
+    auto f = [c, proj = std::move(proj), dt = type.base_type] {
+        return impl::metric_value(std::invoke(proj, c->_value.value()), dt);
+    };
+    impl::metric_definition_impl md{std::move(name), type, std::move(f), std::move(d), std::move(labels)};
+    md.collector = c.get();
+    return md;
+}
+
+template <typename T, typename Projection>
+using collected_type = std::remove_cvref_t<std::invoke_result_t<const Projection&, const T&>>;
+
+}
+/// \endcond
 
 extern const bool metric_disabled;
 
@@ -494,6 +621,25 @@ template<typename T>
 impl::metric_definition_impl make_gauge(metric_name_type name,
         description d, std::vector<label_instance> labels, T&& val) {
     return {name, {impl::data_type::GAUGE, "gauge"}, impl::make_function(std::forward<T>(val), impl::data_type::GAUGE), d, labels};
+}
+
+/*!
+ * \brief Gauge whose value is taken from the snapshot of a collector.
+ *
+ * \p proj extracts the value from the snapshot. It is either a pointer to
+ * a data member of the snapshot or a callable taking the snapshot.
+ *
+ * For example:
+ *  auto status = make_collector([this] { return _server.get_status(); });
+ *  _metrics.add_group("my_group", {
+ *      make_gauge("commit_index", status, &status_type::commit_index, description("commit index")),
+ *      make_gauge("lag", status, [] (const status_type& s) { return s.commit_index - s.apply_index; }, description("lag")),
+ *  });
+ */
+template<typename T, internal::collector_projection<T> Projection>
+impl::metric_definition_impl make_gauge(metric_name_type name,
+        const lw_shared_ptr<collector<T>>& c, Projection proj, description d = description(), std::vector<label_instance> labels = {}) {
+    return internal::make_collected_definition(std::move(name), {impl::data_type::GAUGE, "gauge"}, c, std::move(proj), std::move(d), std::move(labels));
 }
 
 
@@ -541,6 +687,19 @@ impl::metric_definition_impl make_counter(metric_name_type name, description d, 
     return make_counter(std::move(name), std::forward<T>(val), std::move(d), std::move(labels));
 }
 
+/*!
+ * \brief Counter whose value is taken from the snapshot of a collector.
+ *
+ * \p proj extracts the value from the snapshot, @see the make_gauge()
+ * overload that takes a collector.
+ */
+template<typename T, internal::collector_projection<T> Projection>
+impl::metric_definition_impl make_counter(metric_name_type name,
+        const lw_shared_ptr<collector<T>>& c, Projection proj, description d = description(), std::vector<label_instance> labels = {}) {
+    auto type = impl::counter_type_traits<internal::collected_type<T, Projection>>::type;
+    return internal::make_collected_definition(std::move(name), {type, "counter"}, c, std::move(proj), std::move(d), std::move(labels));
+}
+
 
 /*!
  * \brief create a histogram metric.
@@ -580,6 +739,18 @@ impl::metric_definition_impl make_histogram(metric_name_type name,
 }
 
 /*!
+ * \brief Histogram whose value is taken from the snapshot of a collector.
+ *
+ * \p proj extracts the histogram from the snapshot, @see the make_gauge()
+ * overload that takes a collector.
+ */
+template<typename T, internal::collector_projection<T> Projection>
+impl::metric_definition_impl make_histogram(metric_name_type name,
+        const lw_shared_ptr<collector<T>>& c, Projection proj, description d = description(), std::vector<label_instance> labels = {}) {
+    return internal::make_collected_definition(std::move(name), {impl::data_type::HISTOGRAM, "histogram"}, c, std::move(proj), std::move(d), std::move(labels));
+}
+
+/*!
  * \brief create a summary metric.
  *
  * Summaries are a different kind of histograms. It reports in quantiles.
@@ -589,6 +760,18 @@ template<typename T>
 impl::metric_definition_impl make_summary(metric_name_type name,
         description d, T&& val) {
     return  {name, {impl::data_type::SUMMARY, "summary"}, make_function(std::forward<T>(val), impl::data_type::SUMMARY), d, {}};
+}
+
+/*!
+ * \brief Summary whose value is taken from the snapshot of a collector.
+ *
+ * \p proj extracts the histogram from the snapshot, @see the make_gauge()
+ * overload that takes a collector.
+ */
+template<typename T, internal::collector_projection<T> Projection>
+impl::metric_definition_impl make_summary(metric_name_type name,
+        const lw_shared_ptr<collector<T>>& c, Projection proj, description d = description(), std::vector<label_instance> labels = {}) {
+    return internal::make_collected_definition(std::move(name), {impl::data_type::SUMMARY, "summary"}, c, std::move(proj), std::move(d), std::move(labels));
 }
 
 
