@@ -581,7 +581,8 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_unspec_family) {
 // 3. Shard 0 reads the second header, so it polls while the moved socket is
 //    readable. Without the fix, the epoll backend then used freed memory, which
 //    debug and sanitize builds detect.
-// 4. Shard 1 accepts the queued connection. It must read the data.
+// 4. Shard 1 accepts the queued connection. It must read the data, and the
+//    connection must report the addresses from the header.
 SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_queued_moved_connection) {
     if (this_smp_shard_count() < 2) {
         fmt::print("This test needs at least 2 shards to run\n");
@@ -614,16 +615,19 @@ SEASTAR_THREAD_TEST_CASE(proxy_protocol_v2_queued_moved_connection) {
     send(0, "");
 
     ss0.accept().get();
-    auto data = smp::submit_to(1, [ss = ss1.get()] {
+    auto [addrs, data] = smp::submit_to(1, [ss = ss1.get()] {
         return seastar::async([ss] {
             auto ar = ss->accept().get();
+            server_addresses addrs{ar.connection.remote_address(), ar.connection.local_address()};
             auto in = ar.connection.input();
             auto buf = in.read_exactly(4).get();
             in.close().get();
-            return sstring(buf.get(), buf.size());
+            return std::make_pair(addrs, sstring(buf.get(), buf.size()));
         });
     }).get();
     ss1.destroy().get();
 
     BOOST_REQUIRE_EQUAL(data, "data");
+    BOOST_REQUIRE_EQUAL(addrs.remote, socket_address(ipv4_addr("192.168.1.100", 1)));
+    BOOST_REQUIRE_EQUAL(addrs.local, socket_address(ipv4_addr("10.0.0.1", 8080)));
 }

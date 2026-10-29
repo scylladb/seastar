@@ -773,7 +773,9 @@ future<accept_result> posix_ap_server_socket_impl::accept() {
         connection c = std::move(conni->second);
         conn_q.erase(conni);
         try {
-            auto csi = std::make_unique<posix_connected_socket_impl>(_sa.family(), _protocol, std::move(c.fd), std::move(c.connection_tracking_handle), _allocator);
+            auto csi = make_maybe_proxied_connected_socket_impl(
+                _sa.family(), _protocol, std::move(c.fd), std::move(c.connection_tracking_handle),
+                std::move(c.proxy_protocol_header_opt), _allocator);
             return make_ready_future<accept_result>(accept_result{connected_socket(std::move(csi)), std::move(c.addr)});
         } catch (...) {
             return make_exception_future<accept_result>(std::current_exception());
