@@ -447,6 +447,23 @@ struct listen_options {
     //
     // The proxy protocol is defined in https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt
     bool proxy_protocol = false;
+
+    /// If this option is true (the default), the POSIX stack listens with
+    /// SO_REUSEPORT when all of these conditions are true:
+    /// - The kernel supports SO_REUSEPORT.
+    /// - The protocol is TCP, and the port is not 0.
+    /// - The load balancing algorithm is connection_distribution or port.
+    /// - proxy_protocol is false.
+    ///
+    /// Then each shard that calls listen() opens its own listening socket and
+    /// accepts connections. If another process of the same user also sets
+    /// SO_REUSEPORT (for example, another Seastar server), it can listen on
+    /// the same address and port. That process then receives some of the
+    /// connections.
+    ///
+    /// Set this option to false to keep one listening socket. Then a listen()
+    /// on the same address and port in another process fails with EADDRINUSE.
+    bool reuse_port = true;
 };
 
 class network_interface {

@@ -34,6 +34,10 @@
 #include <seastar/util/defer.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include <seastar/testing/random.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/core/with_timeout.hh>
+#include <seastar/util/closeable.hh>
 #include <seastar/core/abort_source.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/thread.hh>
@@ -423,6 +427,57 @@ SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
     BOOST_CHECK_LT(recv_default, 20'000'000);
 }
 
+// Replies to each accepted connection with the id of the shard that hosts it
+// and the connection's remote port, and counts the connections it accepted.
+// With hold, it keeps the connections open until held is cleared. Shards
+// other than 0 start to accept after accept_delay.
+struct shard_number_server {
+    server_socket ss;
+    bool hold;
+    std::chrono::milliseconds accept_delay;
+    std::vector<connected_socket> held;
+    size_t accepted = 0;
+    future<> runner;
+    shard_number_server(socket_address addr, listen_options lo, bool hold = false, std::chrono::milliseconds accept_delay = {})
+            : ss(seastar::listen(addr, lo))
+            , hold(hold)
+            , accept_delay(accept_delay)
+            , runner(run()) {
+    }
+    future<> run() {
+        try {
+            if (this_shard_id() != 0 && accept_delay.count()) {
+                // Shard 0 accepts at once: its accept() moves the connections. The other
+                // shards accept late, so that their first connections wait in the queue.
+                co_await seastar::sleep(accept_delay);
+            }
+            while (true) {
+                auto [cs, _] = co_await ss.accept();
+                ++accepted;
+                auto out = cs.output();
+                auto in = cs.input();
+                char buf[8];
+                write_be<unsigned>(buf, this_shard_id());
+                write_be<unsigned>(buf + 4, cs.remote_address().port());
+                if (hold) {
+                    // Hold before the reply, so that a client that has the
+                    // reply finds the connection held.
+                    held.push_back(std::move(cs));
+                }
+                co_await out.write(buf, sizeof(buf));
+                co_await out.close();
+                co_await in.close();
+            }
+        } catch (...) {
+            // expected on abort_accept
+        }
+    }
+    future<> stop() {
+        ss.abort_accept();
+        return std::move(runner);
+    }
+};
+
 static
 void
 test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protocol) {
@@ -440,40 +495,12 @@ test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protoc
         int bad_proxy_send = 0;
         int bad_recv = 0;
         int bad_shard = 0;
+        int bad_remote_port = 0;
         int good = 0;
     };
 
-    struct shard_number_server {
-        server_socket ss;
-        future<> runner;
-        shard_number_server(socket_address addr, listen_options lo)
-                : ss(seastar::listen(addr, lo))
-                , runner(run()) {
-        }
-        future<> run() {
-            try {
-                while (true) {
-                    auto [cs, _] = co_await ss.accept();
-                    auto out = cs.output();
-                    auto in = cs.input();
-                    unsigned shard_id = this_shard_id();
-                    char buf[4];
-                    write_be<unsigned>(buf, shard_id);
-                    co_await out.write(buf, sizeof(buf));
-                    co_await out.close();
-                    co_await in.close();
-                }
-            } catch (...) {
-                // expected on abort_accept
-            }
-        }
-        future<> stop() {
-            ss.abort_accept();
-            return std::move(runner);
-        }
-    };
     auto server = sharded<shard_number_server>();
-    server.start(listen_addr, lo).get();
+    server.start(listen_addr, lo, false, std::chrono::milliseconds(50)).get();
     auto smp_count = this_smp_shard_count();
     promise<> client_done;
     auto client = std::async(std::launch::async, [&] {
@@ -550,15 +577,19 @@ test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protoc
                     continue;
                 }
             }
-            char buf[4];
-            auto recv_result = ::recv(conn, buf, sizeof(buf), 0);
-            if (recv_result != 4) {
+            char buf[8];
+            auto recv_result = ::recv(conn, buf, sizeof(buf), MSG_WAITALL);
+            if (recv_result != 8) {
                 ++r.bad_recv;
                 continue;
             }
             auto actual_shard = read_be<unsigned>(buf);
             if (actual_shard != expected_shard) {
                 ++r.bad_shard;
+                continue;
+            }
+            if (read_be<unsigned>(buf + 4) != client_addr.port()) {
+                ++r.bad_remote_port;
                 continue;
             }
             ++r.good;
@@ -578,10 +609,18 @@ test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protoc
     BOOST_REQUIRE_EQUAL(results.bad_proxy_send, 0);
     BOOST_REQUIRE_EQUAL(results.bad_recv, 0);
     BOOST_REQUIRE_EQUAL(results.bad_shard, 0);
+    BOOST_REQUIRE_EQUAL(results.bad_remote_port, 0);
+}
+
+// A random loopback address for a test that listens with SO_REUSEPORT on a
+// fixed port: a parallel run in another process on the same address would
+// silently share the connections.
+static socket_address random_loopback(uint16_t port) {
+    return ipv4_addr(std::uniform_int_distribution<uint32_t>(0x7f000002, 0x7ffffffe)(testing::local_random_engine), port);
 }
 
 SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv4_test) {
-    test_load_balancing_algorithm_port(ipv4_addr("127.0.0.1", 11001), false);
+    test_load_balancing_algorithm_port(random_loopback(11001), false);
 }
 
 SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv6_test) {
@@ -594,6 +633,217 @@ SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv4_proxy_test) {
 
 SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv6_proxy_test) {
     test_load_balancing_algorithm_port(ipv6_addr("::1", 11001), true);
+}
+
+// The total of every shard's hosted-connection count for the endpoint.
+static long hosted_total(socket_address addr) {
+    auto ep = net::conntrack::endpoint(int(transport::TCP), addr);
+    long total = 0;
+    for (unsigned cpu = 0; cpu < this_smp_shard_count(); ++cpu) {
+        total += smp::submit_to(cpu, [ep] { return net::conntrack::hosted_count(ep); }).get();
+    }
+    return total;
+}
+
+// Opens connections to addr, at most concurrency at a time; each one reads the
+// server's reply and closes.
+static future<> churn(socket_address addr, unsigned connections, unsigned concurrency) {
+    auto ids = std::views::iota(0u, connections);
+    co_await max_concurrent_for_each(ids, concurrency, [addr] (unsigned) {
+        return connect(addr).then([] (connected_socket cs) {
+            return do_with(std::move(cs), [] (connected_socket& cs) {
+                return do_with(cs.input(), [] (input_stream<char>& in) {
+                    return in.read_exactly(8).discard_result().finally([&in] { return in.close(); });
+                });
+            });
+        });
+    });
+}
+
+// Check that connection-distribution balancing spreads connections evenly
+// across the shards, whichever accept path serves the endpoint (the
+// single-listener conntrack balancer or per-shard SO_REUSEPORT listeners;
+// churn: the per-shard listeners only).
+//
+// held: each connection is acknowledged by its hosting shard before the next
+// one opens, and all stay open, so the balancer sees the load it balances.
+// The fill repeats from zero for several rounds, and the test bounds the mean
+// spread: a listener decides on its last snapshot plus its own placements, so
+// it trails the other listeners and one round can spread wide, while the raw
+// kernel hash spreads several times wider on average. The two sizes cover
+// both regions of the view's refresh probability.
+// churn: every shard opens short-lived connections, 10 at a time - the
+// pattern of #3514. With one listener on shard 0, shard 0 gets every
+// connection. With a listener per shard, a shard gets about 0.7 to 1.4 of
+// its share (--smp 4): least-connections gives more to the shards whose
+// connections close sooner.
+SEASTAR_THREAD_TEST_CASE(load_balancing_connection_distribution_spread_test) {
+    const auto shards = this_smp_shard_count();
+    const auto listen_addr = random_loopback(11002);
+    const auto lo = listen_options{ .reuse_address = true };
+
+    // held
+    {
+        auto server = sharded<shard_number_server>();
+        server.start(listen_addr, lo, true).get();
+        auto stop_server = deferred_stop(server);
+        constexpr size_t rounds = 5;
+        for (size_t per_shard : {size_t(net::sampled_conntrack::refresh_weight), 4 * size_t(net::sampled_conntrack::refresh_weight)}) {
+            size_t spread_sum = 0;
+            for (size_t round = 0; round < rounds; ++round) {
+                std::vector<connected_socket> conns;
+                std::vector<size_t> held(shards);
+                for (size_t i = 0; i < per_shard * shards; ++i) {
+                    auto cs = connect(listen_addr).get();
+                    auto ack = cs.input().read_exactly(8).get();
+                    BOOST_REQUIRE_EQUAL(ack.size(), 8u);
+                    ++held.at(read_be<unsigned>(ack.get()));
+                    conns.push_back(std::move(cs));
+                }
+                auto [min_held, max_held] = std::ranges::minmax(held);
+                BOOST_TEST_MESSAGE(fmt::format("held {} per shard, round {}: {}", per_shard, round, held));
+                spread_sum += max_held - min_held;
+
+                conns.clear();
+                server.invoke_on_all([] (shard_number_server& s) { s.held.clear(); }).get();
+                // Every connection is closed: a leaked hosted count would skew
+                // every later view of the endpoint.
+                BOOST_REQUIRE_EQUAL(hosted_total(listen_addr), 0);
+            }
+            BOOST_REQUIRE_LE(spread_sum, rounds * std::max<size_t>(3, shards));
+        }
+    }
+
+    // churn
+    if (!engine().posix_reuseport_available()) {
+        // One listener on shard 0 keeps the lag of #3514: shard 0 gets all.
+        BOOST_TEST_MESSAGE("SO_REUSEPORT is not available, skipping churn");
+        return;
+    }
+    auto server = sharded<shard_number_server>();
+    server.start(listen_addr, lo).get();
+    auto stop_server = deferred_stop(server);
+    constexpr unsigned churn_per_shard = 500;
+    smp::invoke_on_all([listen_addr] { return churn(listen_addr, churn_per_shard, 10); }).get();
+    auto accepted = server.map([] (shard_number_server& s) { return s.accepted; }).get();
+    BOOST_TEST_MESSAGE(fmt::format("churn: {}", accepted));
+    auto [min_accepted, max_accepted] = std::ranges::minmax(accepted);
+    BOOST_REQUIRE_GE(min_accepted, 0.5 * churn_per_shard);
+    BOOST_REQUIRE_LE(max_accepted, 1.5 * churn_per_shard);
+    stop_server.stop_now();
+    BOOST_REQUIRE_EQUAL(hosted_total(listen_addr), 0);
+}
+
+// Check the accept() contract of a reuseport listener: a connection that
+// arrives before accept() is served by it; abort_accept() fails the pending
+// accept() and every later one with ECONNABORTED, and the snapshots then
+// mark the shard as one that takes no connections; destruction without
+// abort_accept() fails the pending accept() and refuses new connections,
+// instead of leaving the armed kernel accept serving the endpoint.
+SEASTAR_THREAD_TEST_CASE(reuseport_listener_lifecycle_test) {
+    if (!engine().posix_reuseport_available()) {
+        BOOST_TEST_MESSAGE("SO_REUSEPORT is not available, skipping");
+        return;
+    }
+    const auto listen_addr = random_loopback(11004);
+    const auto lo = listen_options{ .reuse_address = true };
+    auto aborted = [] (const std::system_error& e) {
+        return e.code() == std::error_code(ECONNABORTED, std::system_category());
+    };
+    {
+        server_socket ss = seastar::listen(listen_addr, lo);
+        auto cs = connect(listen_addr).get();
+        auto ar = ss.accept().get();
+        BOOST_REQUIRE_EQUAL(ar.remote_address.port(), cs.local_address().port());
+        ss.abort_accept();
+    }
+    {
+        server_socket ss = seastar::listen(listen_addr, lo);
+        auto ep = net::conntrack::endpoint(int(transport::TCP), listen_addr);
+        BOOST_REQUIRE_NE(net::conntrack::collect_hosted(ep).get()[this_shard_id()], net::conntrack::not_listening);
+        auto af = ss.accept();
+        ss.abort_accept();
+        BOOST_REQUIRE_EXCEPTION(af.get(), std::system_error, aborted);
+        BOOST_REQUIRE_EXCEPTION(ss.accept().get(), std::system_error, aborted);
+        BOOST_REQUIRE_EQUAL(net::conntrack::collect_hosted(ep).get()[this_shard_id()], net::conntrack::not_listening);
+    }
+    {
+        std::optional<server_socket> ss = seastar::listen(listen_addr, lo);
+        // A full accept first, so the listener has armed its kernel accept.
+        auto af = ss->accept();
+        auto cs = connect(listen_addr).get();
+        auto ar = af.get();
+        auto af2 = ss->accept();
+        ss.reset();
+        BOOST_REQUIRE_EXCEPTION(af2.get(), std::system_error, aborted);
+        BOOST_REQUIRE_THROW(connect(listen_addr).get(), std::system_error);
+    }
+}
+
+// Check that a server that listens on one shard only, with the default
+// balancing, receives every connection: no connection may go to a shard
+// without a listener, where it would be closed.
+SEASTAR_THREAD_TEST_CASE(single_shard_listener_test) {
+    const auto listen_addr = random_loopback(11006);
+    server_socket ss = seastar::listen(listen_addr, listen_options{ .reuse_address = true });
+    for (int i = 0; i < 20; ++i) {
+        auto af = ss.accept();
+        auto cs = connect(listen_addr).get();
+        with_timeout(lowres_clock::now() + std::chrono::seconds(5), std::move(af)).get();
+    }
+    ss.abort_accept();
+}
+
+// Check that ephemeral-port (port 0) listens keep the classic single-listener
+// semantics: two such listens on one shard must succeed and bind two distinct
+// ports. The reuseport path must not engage for port 0 - each shard would
+// bind a different port, so the kernel could not spread connections anyway.
+SEASTAR_THREAD_TEST_CASE(ephemeral_port_listen_test) {
+    auto lo = listen_options{ .reuse_address = true };
+    server_socket ss1 = seastar::listen(ipv4_addr("127.0.0.1", 0), lo);
+    server_socket ss2 = seastar::listen(ipv4_addr("127.0.0.1", 0), lo);
+    auto a1 = ss1.local_address();
+    auto a2 = ss2.local_address();
+    BOOST_REQUIRE_NE(a1.port(), 0);
+    BOOST_REQUIRE_NE(a2.port(), 0);
+    BOOST_REQUIRE_NE(a1.port(), a2.port());
+    // And the sockets accept connections. The listener exists on this shard
+    // only, so this relies on the single-listener balancer resolving the
+    // all-idle tie to shard 0, the shard the test runs on. The test cannot pin
+    // the listener: a fixed-cpu listen would not reach the port-0 path.
+    auto af = ss1.accept();
+    auto cs = connect(a1).get();
+    auto ar = af.get();
+    ss1.abort_accept();
+    ss2.abort_accept();
+}
+
+// Check listen_options::reuse_port, for connection-distribution and port
+// balancing. With it (the default), another socket of the same user can bind
+// the listener's address with SO_REUSEPORT, and so take a share of its
+// connections, as a second process would. Without it, that bind fails with
+// EADDRINUSE.
+SEASTAR_THREAD_TEST_CASE(reuse_port_listen_option_test) {
+    if (!engine().posix_reuseport_available()) {
+        BOOST_TEST_MESSAGE("SO_REUSEPORT is not available, skipping");
+        return;
+    }
+    auto addr = random_loopback(11005);
+    for (auto lba : {server_socket::load_balancing_algorithm::connection_distribution, server_socket::load_balancing_algorithm::port}) {
+        for (bool reuse_port : {true, false}) {
+            server_socket ss = seastar::listen(addr, listen_options{ .reuse_address = true, .lba = lba, .reuse_port = reuse_port });
+            auto other = file_desc::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+            other.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
+            if (reuse_port) {
+                other.bind(addr.u.sa, addr.length());
+            } else {
+                BOOST_REQUIRE_EXCEPTION(other.bind(addr.u.sa, addr.length()), std::system_error, [] (const std::system_error& e) {
+                    return e.code() == std::error_code(EADDRINUSE, std::system_category());
+                });
+            }
+            ss.abort_accept();
+        }
+    }
 }
 
 SEASTAR_THREAD_TEST_CASE(inet_local_remote_address_sanity) {
