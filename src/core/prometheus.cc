@@ -251,6 +251,13 @@ static bool write_delimited_to(const google::protobuf::MessageLite& message,
     return true;
 }
 
+static inline bool is_internal(const sstring& name) {
+    if (auto cstr = name.c_str(); cstr[0] == '_' && cstr[1] == '_') [[unlikely]] {
+        return true;
+    }
+    return false;
+}
+
 static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::labels_type & id, const config& ctx) {
     mt->mutable_label()->Reserve(id.size() + 1);
     if (ctx.label) {
@@ -259,6 +266,9 @@ static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::labels_type & 
         label->set_value(std::string(ctx.label->value()));
     }
     for (auto && [name, value] : id) {
+        if (is_internal(name)) [[unlikely]] {
+            continue;
+        }
         auto label = mt->add_label();
         label->set_name(std::string(name));
         label->set_value(std::string(value.value()));
@@ -372,13 +382,6 @@ static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value&
         mf.set_type(pm::MetricType::COUNTER);
         break;
     }
-}
-
-static inline bool is_internal(const sstring& name) {
-    if (auto cstr = name.c_str(); cstr[0] == '_' && cstr[1] == '_') [[unlikely]] {
-        return true;
-    }
-    return false;
 }
 
 [[gnu::always_inline]]
