@@ -34,6 +34,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/coroutine/all.hh>
 #include <seastar/coroutine/maybe_yield.hh>
+#include <seastar/coroutine/yield.hh>
 #include <seastar/coroutine/switch_to.hh>
 #include <seastar/coroutine/parallel_for_each.hh>
 #include <seastar/coroutine/as_future.hh>
@@ -537,6 +538,21 @@ SEASTAR_TEST_CASE(test_maybe_yield) {
     done = true;
     co_await std::move(spinner_fut);
     BOOST_REQUIRE(true); // the test will hang if it doesn't work.
+}
+
+SEASTAR_TEST_CASE(test_yield) {
+    // coroutine::yield() suspends unconditionally, so the coroutine below
+    // does not run past its yield until the reactor gets a turn, even though
+    // the task quota is not exhausted.
+    bool resumed = false;
+    auto suspends = [&] () -> future<> {
+        co_await coroutine::yield();
+        resumed = true;
+    };
+    auto fut = suspends();
+    BOOST_REQUIRE(!resumed);
+    co_await std::move(fut);
+    BOOST_REQUIRE(resumed);
 }
 
 #ifndef __clang__
