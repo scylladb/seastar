@@ -182,7 +182,11 @@ struct metric_family_info {
     metric_type_def inherit_type;
     description d;
     sstring name;
+    // The labels a metric_family_config aggregates all the metrics of the family by.
+    // Only meaningful when aggregate_labels_from_config is set, otherwise each metric
+    // is aggregated by the labels it was registered with.
     std::vector<std::string> aggregate_labels;
+    bool aggregate_labels_from_config = false;
 };
 
 
@@ -194,6 +198,9 @@ struct metric_info {
     internalized_labels_ref original_labels;
     bool enabled;
     skip_when_empty should_skip_when_empty;
+    // The labels the metric is aggregated by, nullptr if it is not aggregated.
+    // Owned by the impl, see impl::internalize_aggregate_labels().
+    const std::vector<std::string>* aggregate_labels = nullptr;
 };
 
 class internalized_holder {
@@ -368,10 +375,12 @@ using value_map = std::map<sstring, metric_family>;
 class metric_series_metadata {
     internalized_labels_ref _labels;
     skip_when_empty _should_skip_when_empty;
+    const std::vector<std::string>* _aggregate_labels = nullptr;
 public:
     metric_series_metadata() = default;
-    metric_series_metadata(internalized_labels_ref labels, skip_when_empty should_skip_when_empty)
-        : _labels(std::move(labels)), _should_skip_when_empty(should_skip_when_empty) {
+    metric_series_metadata(internalized_labels_ref labels, skip_when_empty should_skip_when_empty,
+            const std::vector<std::string>* aggregate_labels = nullptr)
+        : _labels(std::move(labels)), _should_skip_when_empty(should_skip_when_empty), _aggregate_labels(aggregate_labels) {
     }
 
     metric_series_metadata(const metric_series_metadata&) = delete;
@@ -386,6 +395,11 @@ public:
 
     skip_when_empty should_skip_when_empty() const {
         return _should_skip_when_empty;
+    }
+
+    // The labels the metric was registered to be aggregated by, nullptr if none.
+    const std::vector<std::string>* aggregate_labels() const {
+        return _aggregate_labels;
     }
 };
 
@@ -441,6 +455,9 @@ class impl {
     std::vector<relabel_config> _relabel_configs;
     std::vector<metric_family_config> _metric_family_configs;
     internalized_set _internalized_labels;
+    // The distinct lists of labels metrics are aggregated by. Never shrinks, so the
+    // registered metrics and the metadata can point into it.
+    std::set<std::vector<std::string>> _aggregate_label_lists;
 public:
     value_map& get_value_map() {
         return _value_map;
@@ -452,6 +469,8 @@ public:
 
     register_ref add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels);
     internalized_labels_ref internalize_labels(labels_type labels);
+    // A stable pointer to a list equal to `labels`, nullptr for an empty one.
+    const std::vector<std::string>* internalize_aggregate_labels(const std::vector<std::string>& labels);
     void remove_registration(const metric_id& id);
     future<> stop() {
         return make_ready_future<>();
