@@ -110,6 +110,21 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_timeout_2) {
     BOOST_REQUIRE_EQUAL(x, 0);
 }
 
+// A relative timeout too far away to represent means no timeout, rather than
+// overflowing to a deadline in the past.
+SEASTAR_THREAD_TEST_CASE(test_semaphore_huge_timeout) {
+    auto sem = semaphore(0);
+    auto fut1 = sem.wait(semaphore::duration::max());
+    // A timeout that overflows the deadline by a single tick.
+    auto fut2 = sem.wait(semaphore::duration::max() - semaphore::clock::now().time_since_epoch() + semaphore::duration(1));
+    sleep(100ms).get();
+    BOOST_REQUIRE(!fut1.available());
+    BOOST_REQUIRE(!fut2.available());
+    sem.signal(2);
+    fut1.get();
+    fut2.get();
+}
+
 SEASTAR_THREAD_TEST_CASE(test_semaphore_mix_1) {
     auto sem = semaphore(0);
     int x = 0;
