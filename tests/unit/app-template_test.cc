@@ -29,6 +29,7 @@
 #include <vector>
 #include <boost/test/unit_test.hpp>
 #include <seastar/core/app-template.hh>
+#include <seastar/core/memory.hh>
 #include <seastar/core/sleep.hh>
 
 using namespace seastar;
@@ -65,6 +66,31 @@ BOOST_AUTO_TEST_CASE(app_standard_memory_allocator) {
         });
     BOOST_CHECK_EQUAL(actual_status, expected_status);
 }
+
+#ifdef SEASTAR_DEFAULT_ALLOCATOR
+// With the default allocator both allocator options are malloc, so the standard
+// one must report the --memory share just like the seastar one does.
+BOOST_AUTO_TEST_CASE(app_standard_memory_allocator_reports_configured_memory) {
+    app_template::seastar_options opts;
+    opts.smp_opts.thread_affinity.set_value(false);
+    opts.smp_opts.mbind.set_value(false);
+    opts.smp_opts.smp.set_value(1);
+    opts.smp_opts.lock_memory.set_value(false);
+    opts.smp_opts.memory.set_value("256M");
+    opts.smp_opts.memory_allocator = memory_allocator::standard;
+    opts.log_opts.default_log_level.set_value(log_level::error);
+    app_template app{std::move(opts)};
+    std::string prog_name{"prog"};
+    char* args[] = {prog_name.data()};
+    size_t total = 0;
+    int status = app.run(std::size(args), std::data(args), [&total] {
+        total = memory::stats().total_memory();
+        return make_ready_future();
+    });
+    BOOST_REQUIRE_EQUAL(status, 0);
+    BOOST_CHECK_EQUAL(total, size_t(256) << 20);
+}
+#endif
 
 BOOST_AUTO_TEST_CASE(return_0_for_func_returning_void) {
     app_template app;
