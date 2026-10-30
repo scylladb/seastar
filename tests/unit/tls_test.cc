@@ -445,7 +445,10 @@ SEASTAR_TEST_CASE(test_failed_connect) {
     return connect_to_ssl_addr(b.build_certificate_credentials(), ipv4_addr()).handle_exception([](auto) {});
 }
 
-SEASTAR_TEST_CASE(test_non_tls) {
+// Verify that if we connect to a (non-tls) server,
+// do no IO, but have the connection dropped, we get
+// a ECONNRESET
+SEASTAR_TEST_CASE(test_abort_without_read_write) {
     ::listen_options opts;
     opts.reuse_address = true;
     auto addr = ::make_ipv4_address( {0x7f000001, 4712});
@@ -458,19 +461,41 @@ SEASTAR_TEST_CASE(test_non_tls) {
 
     auto f = connect_to_ssl_addr(b.build_certificate_credentials(), addr);
 
+    auto got_exception = make_shared<bool>(false);
 
     return c.then([f = std::move(f)](accept_result ar) mutable {
         ::connected_socket s = std::move(ar.connection);
-        std::cerr << "Established connection" << std::endl;
+        BOOST_TEST_MESSAGE("Established connection");
         auto sp = std::make_unique<::connected_socket>(std::move(s));
         timer<> t([s = std::ref(*sp)] {
-            std::cerr << "Killing server side" << std::endl;
+            BOOST_TEST_MESSAGE("Killing server side");
             s.get() = ::connected_socket();
         });
-        t.arm(timer<>::clock::now() + std::chrono::seconds(5));
+        t.arm(timer<>::clock::now() + std::chrono::seconds(2));
         return std::move(f).finally([t = std::move(t), sp = std::move(sp)] {});
-    }).handle_exception([server = std::move(server)](auto ep) {
-        std::cerr << "Got expected exception" << std::endl;
+    }).handle_exception([server = std::move(server), got_exception](auto ep) {
+        for (;;) {
+            try {
+                std::rethrow_exception(ep);
+            } catch (seastar::nested_exception& ne) {
+                ep = ne.outer;
+                continue;
+            } catch (std::system_error& e) {
+                BOOST_TEST_MESSAGE("Got expected exception");
+                *got_exception = true;
+                return;
+            } catch (std::exception& e) {
+                try {
+                    std::rethrow_if_nested(e);
+                } catch (...) {
+                    ep = std::current_exception();
+                    continue;
+                }
+            }
+            break;
+        }
+    }).finally([got_exception] {
+        BOOST_CHECK(*got_exception);
     });
 }
 
@@ -486,6 +511,69 @@ SEASTAR_THREAD_TEST_CASE(test_error_category_instance) {
         BOOST_FAIL("expected an exception parsing garbage certificates");
     } catch (const std::system_error& e) {
         BOOST_REQUIRE(e.code().category() == tls::error_category());
+    }
+}
+
+// Verify connecting to a non-tls server
+// fails.
+SEASTAR_THREAD_TEST_CASE(test_non_tls) {
+    ::listen_options opts;
+    opts.reuse_address = true;
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto server = server_socket(seastar::listen(addr, opts));
+    auto sa = server.accept();
+
+    tls::credentials_builder b;
+    b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+
+    auto creds = b.build_certificate_credentials();
+    auto f = tls::connect(creds, addr);
+
+    auto ss = sa.get();
+    auto sis = ss.connection.input();
+    auto sos = ss.connection.output();
+    bool stop = false;
+    auto f2 = repeat_until_value([&] {
+        return sis.read().then([&](auto ignored) -> std::optional<int> {
+            return stop ? std::nullopt : std::optional<int>(1);
+        });
+    });
+    auto f3 = repeat_until_value([&] {
+        return sos.write("Goodbye mr Driscol, you've been bit by giant lizards").then([&] {
+            return sos.flush();
+        }).then([&]() -> std::optional<int> {
+            return stop ? std::nullopt : std::optional<int>(1);
+        });
+    });
+
+    // the connect as such should succeed, but the handshare following it
+    // should not.
+    auto c = f.get();
+    output_stream<char> out(c.output().detach(), 4096);
+
+    auto def = defer([&]() noexcept {
+        stop = true;
+        out.close().get();
+        server.abort_accept();
+        sis.close().get();
+        sos.close().get();
+        try {
+            f2.get();
+        } catch (...) {
+        }
+        try {
+            f3.get();
+        } catch (...) {
+        }
+    });
+
+    try {
+        out.write("apa").get();
+        out.flush().get();
+
+        BOOST_FAIL("Expected exception");
+    } catch (std::system_error& e) {
+        // ok
     }
 }
 
@@ -1683,10 +1771,16 @@ static void do_test_tls13_session_tickets(bool reset_server) {
     b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
     b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
     b.set_session_resume_mode(tls::session_resume_mode::TLS13_SESSION_TICKET);
+    b.set_client_auth(tls::client_auth::REQUIRE);
     b.set_priority_string("SECURE128:+SECURE192:-VERS-TLS-ALL:+VERS-TLS1.3");
 
     auto creds = b.build_certificate_credentials();
     auto serv = b.build_server_credentials();
+
+    unsigned dn_calls = 0;
+    creds->set_dn_verification_callback([&](tls::session_type, sstring, sstring) {
+        ++dn_calls;
+    });
 
     ::listen_options opts;
     opts.reuse_address = true;
@@ -1748,6 +1842,7 @@ static void do_test_tls13_session_tickets(bool reset_server) {
 
     {
         auto sa = server.accept();
+        auto dn_calls_before = dn_calls;
 
         // tell client to try resuming.
         tls::tls_options tls_opts;
@@ -1773,6 +1868,12 @@ static void do_test_tls13_session_tickets(bool reset_server) {
         fin.get();
 
         BOOST_REQUIRE(f.get()); // Should work
+        // the peer must be verified on a resumed connection too
+        BOOST_REQUIRE_GT(dn_calls, dn_calls_before);
+
+        auto dn = tls::get_dn_information(s.connection).get();
+        BOOST_REQUIRE(dn);
+        BOOST_REQUIRE(dn->issuer.find("scylladb.org") != std::string::npos);
 
         in.close().get();
         out.close().get();
