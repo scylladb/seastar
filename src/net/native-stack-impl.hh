@@ -169,6 +169,18 @@ class native_connected_socket_impl<Protocol>::native_data_source_impl final
     size_t _cur_frag = 0;
     bool _eof = false;
     packet _buf;
+    temporary_buffer<char> get_current_fragment() {
+        auto packet = _buf.share();
+        auto fragment = _buf.fragments()[_cur_frag++];
+        if (_cur_frag == _buf.nr_frags()) {
+            _buf = net::packet();
+            _cur_frag = 0;
+        }
+        return temporary_buffer<char>(
+                fragment.base,
+                fragment.size,
+                make_deleter(deleter(), [p = std::move(packet)] () mutable {}));
+    }
 public:
     explicit native_data_source_impl(lw_shared_ptr<connection_type> conn)
         : _conn(std::move(conn)) {}
@@ -177,10 +189,7 @@ public:
             return make_ready_future<temporary_buffer<char>>(temporary_buffer<char>(0));
         }
         if (_cur_frag != _buf.nr_frags()) {
-            auto& f = _buf.fragments()[_cur_frag++];
-            return make_ready_future<temporary_buffer<char>>(
-                    temporary_buffer<char>(f.base, f.size,
-                            make_deleter(deleter(), [p = _buf.share()] () mutable {})));
+            return make_ready_future<temporary_buffer<char>>(get_current_fragment());
         }
         return _conn->wait_for_data().then([this] {
             _buf = _conn->read();
