@@ -139,8 +139,16 @@ void impl::impl::update_aggregate(metric_family_info& mf) const noexcept {
     for (const auto& fc : _metric_family_configs) {
         if (fc.name == mf.name || fc.regex_name.match(mf.name)) {
             mf.aggregate_labels = fc.aggregate_labels;
+            mf.aggregate_labels_from_config = true;
         }
     }
+}
+
+const std::vector<std::string>* impl::impl::internalize_aggregate_labels(const std::vector<std::string>& labels) {
+    if (labels.empty()) {
+        return nullptr;
+    }
+    return &*_aggregate_label_lists.insert(labels).first;
 }
 void set_metric_family_configs(const std::vector<metric_family_config>& family_config) {
     impl::get_local_impl()->set_metric_family_configs(family_config);
@@ -489,7 +497,8 @@ void impl::update_metrics_if_needed() {
             _current_metrics[i].clear();
             for (auto&& m : mf.second) {
                 if (m.second && m.second->is_enabled()) {
-                    metrics.emplace_back(m.second->info().id.internalized_labels(), m.second->info().should_skip_when_empty);
+                    metrics.emplace_back(m.second->info().id.internalized_labels(), m.second->info().should_skip_when_empty,
+                            m.second->info().aggregate_labels);
                     _current_metrics[i].emplace_back(m.second->get_function());
                 }
             }
@@ -521,6 +530,7 @@ std::vector<std::deque<metric_function>>& impl::functions() {
 
 register_ref impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels) {
     auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled, skip);
+    rm->info().aggregate_labels = internalize_aggregate_labels(aggregate_labels);
     for (auto&& rl : _relabel_configs) {
         apply_relabeling(rl, rm->info());
     }
@@ -543,7 +553,6 @@ register_ref impl::add_registration(const metric_id& id, const metric_type& type
         _value_map[name].info().d = d;
         _value_map[name].info().inherit_type = type.type_name;
         _value_map[name].info().name = id.full_name();
-        _value_map[name].info().aggregate_labels = aggregate_labels;
         impl::update_aggregate(_value_map[name].info());
         _value_map[name][rm->info().id.internalized_labels()] = rm;
     }
@@ -604,6 +613,7 @@ void impl::set_metric_family_configs(const std::vector<metric_family_config>& fa
         for  (const auto& fc : family_config) {
             if (fc.name == name || fc.regex_name.match(name)) {
                 family.info().aggregate_labels = fc.aggregate_labels;
+                family.info().aggregate_labels_from_config = true;
             }
         }
     }
@@ -621,6 +631,7 @@ void impl::set_metric_family_configs(const std::vector<metric_family_config>& fa
         for  (const auto& fc : family_config) {
             if (fc.name == mf_metadata.mf.name || fc.regex_name.match(mf_metadata.mf.name)) {
                 mf_metadata.mf.aggregate_labels = fc.aggregate_labels;
+                mf_metadata.mf.aggregate_labels_from_config = true;
             }
         }
     }

@@ -39,6 +39,7 @@
 #include <seastar/core/loop.hh>
 #include <seastar/util/assert.hh>
 #include <algorithm>
+#include <map>
 #include <ranges>
 #include <regex>
 #include <string_view>
@@ -903,6 +904,44 @@ details::family_filter_t details::make_family_filter(std::vector<details::name_f
     };
 }
 
+/*!
+ * \brief sums the metrics of a family by the labels each of them is aggregated by
+ *
+ * Metrics of the same family may be registered with different labels to aggregate
+ * by, or with none, each is summed with the metrics aggregated by the same labels.
+ * A metric_family_config that sets the labels for the family applies to all of them.
+ */
+class family_aggregator {
+    const mi::metric_family_info& _family;
+    bool _enabled;
+    std::map<const std::vector<std::string>*, metric_aggregate_by_labels> _aggregators;
+public:
+    family_aggregator(const mi::metric_family_info& family, bool enabled)
+        : _family(family), _enabled(enabled) {
+    }
+    // Returns false if the metric is not aggregated and should be written as is.
+    bool add(const mi::metric_value& value, const mi::metric_series_metadata& series) {
+        if (!_enabled) {
+            return false;
+        }
+        const auto* labels = _family.aggregate_labels_from_config ? &_family.aggregate_labels : series.aggregate_labels();
+        if (!labels || labels->empty()) {
+            return false;
+        }
+        _aggregators.try_emplace(labels, *labels).first->second.add(value, series.labels());
+        return true;
+    }
+    // Calls func(value, labels) for each aggregated value.
+    template <typename Func>
+    void for_each_value(Func&& func) const {
+        for (const auto& [_, aggregator] : _aggregators) {
+            for (const auto& [_, value] : aggregator.get_values()) {
+                func(value.m, value.labels);
+            }
+        }
+    }
+};
+
 struct write_context {
     output_stream<char>& out;
     const config& ctx;
@@ -922,9 +961,8 @@ future<> write_context::write_text_representation() {
             }
             auto name = ctx.prefix + "_" + metric_family.name();
             bool found = false;
-            metric_aggregate_by_labels aggregated_values(metric_family.metadata().aggregate_labels);
-            bool should_aggregate = args.enable_aggregation && !metric_family.metadata().aggregate_labels.empty();
-            metric_family.foreach_metric([this, &s, &found, &name, &metric_family, &aggregated_values, should_aggregate](const mi::metric_value& value, const mi::metric_series_metadata& value_info) mutable {
+            family_aggregator aggregated_values(metric_family.metadata(), args.enable_aggregation);
+            metric_family.foreach_metric([this, &s, &found, &name, &metric_family, &aggregated_values](const mi::metric_value& value, const mi::metric_series_metadata& value_info) mutable {
                 s.clear();
                 if ((value_info.should_skip_when_empty() && value.is_empty()) || !args.filter(value_info.labels())) {
                     return;
@@ -936,8 +974,8 @@ future<> write_context::write_text_representation() {
                     s << "# TYPE " << name << " " << to_string(metric_family.metadata().type) << "\n";
                     found = true;
                 }
-                if (should_aggregate) {
-                    aggregated_values.add(value, value_info.labels());
+                if (aggregated_values.add(value, value_info)) {
+                    // Written below, once summed.
                 } else if (value.type() == mi::data_type::SUMMARY) {
                     write_summary(s, ctx, name, value.get_histogram(), value_info.labels());
                 } else if (value.type() == mi::data_type::HISTOGRAM) {
@@ -949,22 +987,18 @@ future<> write_context::write_text_representation() {
                 out.write(s.data(), s.size()).get();
                 thread::maybe_yield();
             });
-            if (!aggregated_values.empty()) {
-                for (auto&& h : aggregated_values.get_values()) {
-                    s.clear();
-                    // Labels are already filtered (aggregated labels removed)
-                    auto& labels = h.second.labels;
-                    auto& value = h.second.m;
-                    if (value.type() == mi::data_type::HISTOGRAM) {
-                        write_histogram(s, ctx, name, value.get_histogram(), labels);
-                    } else {
-                        write_name_and_labels(s, name, "", labels, ctx);
-                        write_value_as_string(s, value);
-                    }
-                    out.write(s.data(), s.size()).get();
-                    thread::maybe_yield();
+            aggregated_values.for_each_value([this, &s, &name] (const mi::metric_value& value, const mi::labels_type& labels) {
+                s.clear();
+                // Labels are already filtered (aggregated labels removed)
+                if (value.type() == mi::data_type::HISTOGRAM) {
+                    write_histogram(s, ctx, name, value.get_histogram(), labels);
+                } else {
+                    write_name_and_labels(s, name, "", labels, ctx);
+                    write_value_as_string(s, value);
                 }
-            }
+                out.write(s.data(), s.size()).get();
+                thread::maybe_yield();
+            });
         }
     });
 }
@@ -976,28 +1010,25 @@ future<> write_context::write_protobuf_representation() {
         }
         std::string s;
         google::protobuf::io::StringOutputStream os(&s);
-        metric_aggregate_by_labels aggregated_values(metric_family.metadata().aggregate_labels);
-        bool should_aggregate = args.enable_aggregation && !metric_family.metadata().aggregate_labels.empty();
+        family_aggregator aggregated_values(metric_family.metadata(), args.enable_aggregation);
         auto& name = metric_family.name();
         pm::MetricFamily mtf;
         bool empty_metric = true;
         mtf.set_name(fmt::format("{}_{}", ctx.prefix, name));
         mtf.mutable_metric()->Reserve(metric_family.size());
-        metric_family.foreach_metric([this, &mtf, &aggregated_values, &empty_metric, should_aggregate](const auto& value, const auto& value_info) {
+        metric_family.foreach_metric([this, &mtf, &aggregated_values, &empty_metric](const auto& value, const auto& value_info) {
             if ((value_info.should_skip_when_empty() && value.is_empty()) || !args.filter(value_info.labels())) {
                 return;
             }
-            if (should_aggregate) {
-                aggregated_values.add(value, value_info.labels());
-            } else {
+            if (!aggregated_values.add(value, value_info)) {
                 fill_metric(mtf, value, value_info.labels(), ctx);
                 empty_metric = false;
             }
         });
-        for (auto& [_, value] : aggregated_values.get_values()) {
-            fill_metric(mtf, value.m, value.labels, ctx);
+        aggregated_values.for_each_value([this, &mtf, &empty_metric] (const mi::metric_value& value, const mi::labels_type& labels) {
+            fill_metric(mtf, value, labels, ctx);
             empty_metric = false;
-        }
+        });
         if (empty_metric) {
             return make_ready_future<>();
         }
