@@ -18,8 +18,14 @@
 #
 # Copyright (C) 2026 Redpanda Data.
 #
-# Install the seastar build toolchain and run ./configure.py inside the
-# CI container. Called from .github/workflows/test.yaml after checkout.
+# Run ./configure.py inside the CI container. Called from
+# .github/workflows/test.yaml after checkout.
+#
+# The container is the frozen seastar-toolchain image (see test.yaml), which
+# already carries every compiler in the matrix and every dependency
+# install-dependencies.sh lists. Nothing is installed here: an apt-get install
+# would pull whatever the archive has today, which is exactly the drift the
+# frozen image exists to prevent.
 #
 # Expects these environment variables:
 #   COMPILER       clang++-N | g++-N  (e.g. clang++-22, g++-16)
@@ -31,56 +37,34 @@
 #
 # Locally:
 #   COMPILER=clang++-22 ENABLES='' STANDARD=23 MODE=dev OPTIONS='' \
-#     ENABLE_CCACHE=false ./install-build-env.sh
-#
-# ::group:: / ::endgroup:: are GitHub Actions log-folding markers so
-# each phase shows up collapsed in the CI log, mirroring what separate
-# steps used to look like. Harmless plain text when run locally.
+#     ENABLE_CCACHE=false ./configure-build.sh
 set -euo pipefail
 
-# Suppress debconf frontend warnings when apt installs packages with
-# postinst prompts (the container has no tty / no readline / no dialog).
-export DEBIAN_FRONTEND=noninteractive
-
-group() {
-    echo "::endgroup::"
-    echo "::group::$*"
-}
-trap 'echo "::endgroup::"' EXIT
-echo "::group::install-dependencies.sh"
-
-./install-dependencies.sh
-
-packages=()
 case "$COMPILER" in
     clang++-*)
-        version="${COMPILER#clang++-}"
-        # libstdc++-16-dev: libboost-all-dev pulls gcc-16-base but not
-        # libstdc++-16-dev; clang prefers the highest gcc dir, so
-        # without this `ld: cannot find -lstdc++` aborts the link.
-        packages+=("clang-${version}" libstdc++-16-dev)
-        CC="clang-${version}"
+        CC="clang-${COMPILER#clang++-}"
         CPP="$COMPILER"
         ;;
     g++-*)
-        version="${COMPILER#g++-}"
-        packages+=("gcc-${version}" "g++-${version}")
-        CC="gcc-${version}"
+        CC="gcc-${COMPILER#g++-}"
         CPP="$COMPILER"
         ;;
-    *) echo "install-build-env.sh: unknown COMPILER='$COMPILER'" >&2; exit 1 ;;
+    *) echo "configure-build.sh: unknown COMPILER='$COMPILER'" >&2; exit 1 ;;
 esac
 
-if [[ "$ENABLES" == *cxx-modules* ]]; then
-    if [[ "$COMPILER" != clang++-* ]]; then
-        echo "install-build-env.sh: cxx-modules requires clang++, got '$COMPILER'" >&2
-        exit 1
-    fi
-    packages+=("clang-tools-${version}")
+if [[ "$ENABLES" == *cxx-modules* && "$COMPILER" != clang++-* ]]; then
+    echo "configure-build.sh: cxx-modules requires clang++, got '$COMPILER'" >&2
+    exit 1
 fi
 
-group "apt-get install ${packages[*]}"
-apt-get install -y "${packages[@]}"
+# A compiler added to the matrix before the image is rebuilt with it should
+# fail here, by name, rather than somewhere inside cmake.
+for tool in "$CC" "$CPP"; do
+    if ! command -v "$tool" >/dev/null; then
+        echo "configure-build.sh: $tool is not in the toolchain image; rebuild it from docker/dev/Dockerfile" >&2
+        exit 1
+    fi
+done
 
 ccache_opt=()
 if [[ "$ENABLE_CCACHE" != "false" ]]; then
@@ -106,7 +90,6 @@ if [[ "$COMPILER" == clang++-* && "$clang_ver" -ge 20 || "$STANDARD" -ge 26 ]] \
     cook_args=(--cook fmt)
 fi
 
-group "configure.py"
 # Both TLS backends are requested explicitly rather than left to cmake's
 # auto-detection, so that a TLS development package going missing from the
 # image fails the configure instead of quietly dropping that backend, and the
