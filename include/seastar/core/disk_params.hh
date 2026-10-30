@@ -60,6 +60,7 @@ private:
     std::chrono::duration<double> _latency_goal{std::chrono::milliseconds(1)};
     std::chrono::milliseconds _stall_threshold{std::chrono::milliseconds(100)};
     double _flow_ratio_backpressure_threshold = 1.1;
+    std::chrono::duration<double> _disk_latency_threshold{0};
 
 public:
     explicit disk_config_params(unsigned max_queues) noexcept
