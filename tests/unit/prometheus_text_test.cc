@@ -444,6 +444,33 @@ SEASTAR_TEST_CASE(test_label_starting_with_double_underscore) {
     );
 }
 
+SEASTAR_TEST_CASE(test_protobuf_label_starting_with_double_underscore) {
+    // Labels starting with __ are not reported in protobuf either.
+    // Label names and values are written as plain bytes, so they can be searched in the output.
+    co_await smp::invoke_on_all([] {
+        remove_existing_metrics();
+    });
+    sm::metric_groups test_metrics;
+    sm::label internal_label{"__internal"};
+    sm::label visible_label{"visible"};
+    test_metrics.add_group("group-1", {
+        sm::make_counter("metric_0", [] { return 1; }, sm::description("metric_0"),
+                {internal_label("hidden_value"), visible_label("visible_value")})
+    });
+
+    auto actual = co_await prometheus_test_fixture::write_metrics({},
+        sp::details::write_body_args{
+            .filter = always_true,
+            .family_filter = [](std::string_view) { return true; },
+            .use_protobuf_format = true,
+            .show_help = false,
+            .enable_aggregation = false,
+        });
+    BOOST_REQUIRE_NE(actual.find("visible_value"), std::string::npos);
+    BOOST_REQUIRE_EQUAL(actual.find("__internal"), std::string::npos);
+    BOOST_REQUIRE_EQUAL(actual.find("hidden_value"), std::string::npos);
+}
+
 
 // OpenMetrics 2.0 tests
 //
