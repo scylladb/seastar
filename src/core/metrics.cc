@@ -685,21 +685,28 @@ relabel_config::relabel_action relabel_config_action(const std::string& action) 
 }
 
 histogram& histogram::operator+=(const histogram& c) {
-    if (c.sample_count == 0) {
-        return *this;
-    }
-    for (size_t i = 0; i < c.buckets.size(); i++) {
-        if (buckets.size() <= i) {
-            buckets.push_back(c.buckets[i]);
-        } else {
-            if (buckets[i].upper_bound != c.buckets[i].upper_bound) {
-                throw std::out_of_range("Trying to add histogram with different bucket limits");
+    if (c.sample_count != 0) {
+        for (size_t i = 0; i < c.buckets.size(); i++) {
+            if (buckets.size() <= i) {
+                buckets.push_back(c.buckets[i]);
+            } else {
+                if (buckets[i].upper_bound != c.buckets[i].upper_bound) {
+                    throw std::out_of_range("Trying to add histogram with different bucket limits");
+                }
+                buckets[i].count += c.buckets[i].count;
             }
-            buckets[i].count += c.buckets[i].count;
         }
+        sample_count += c.sample_count;
+        sample_sum += c.sample_sum;
     }
-    sample_count += c.sample_count;
-    sample_sum += c.sample_sum;
+    // the exemplars are added after the buckets, so a failed addition does not add them
+    if (&c == this) {
+        // inserting a vector's range into itself is undefined behavior
+        auto copy = exemplars;
+        exemplars.insert(exemplars.end(), copy.begin(), copy.end());
+    } else {
+        exemplars.insert(exemplars.end(), c.exemplars.begin(), c.exemplars.end());
+    }
     return *this;
 }
 
