@@ -240,12 +240,17 @@ class TestPrometheus(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.exporter_process.terminate()
 
+    OPENMETRICS_2_0 = 'application/openmetrics-text; version=2.0.0'
+
     @classmethod
-    def _get_metrics(cls,
-                     name: Optional[str] = None,
-                     labels: Optional[dict[str, str]] = None,
-                     with_help: bool = True,
-                     aggregate: bool = True) -> Metrics:
+    def _get_metrics_response(cls,
+                              name: Optional[str] = None,
+                              labels: Optional[dict[str, str]] = None,
+                              with_help: bool = True,
+                              aggregate: bool = True,
+                              accept: Optional[str] = None) -> tuple[str, str]:
+        '''return the content type and the body of a /metrics request
+        '''
         query: dict[str, str] = {}
         if name is not None:
             query['__name__'] = name
@@ -258,9 +263,20 @@ class TestPrometheus(unittest.TestCase):
         params = urllib.parse.urlencode(query)
         host = 'localhost'
         url = f'http://{host}:{cls.port}/metrics?{params}'
-        with urllib.request.urlopen(url) as f:
+        headers = {'Accept': accept} if accept else {}
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req) as f:
             body = f.read().decode('utf-8')
-            return Metrics(body.rstrip().split('\n'))
+            return f.headers['Content-Type'], body
+
+    @classmethod
+    def _get_metrics(cls,
+                     name: Optional[str] = None,
+                     labels: Optional[dict[str, str]] = None,
+                     with_help: bool = True,
+                     aggregate: bool = True) -> Metrics:
+        _, body = cls._get_metrics_response(name, labels, with_help, aggregate)
+        return Metrics(body.rstrip().split('\n'))
 
     def test_filtering_by_label_sans_aggregation(self) -> None:
         labels = {'private': '1'}
@@ -325,6 +341,37 @@ class TestPrometheus(unittest.TestCase):
                     self.assertIsNotNone(msg)
                 else:
                     self.assertIsNone(msg)
+
+    def test_openmetrics_2_0(self) -> None:
+        content_type, body = self._get_metrics_response(accept=self.OPENMETRICS_2_0)
+        self.assertEqual(content_type, 'application/openmetrics-text; version=2.0.0; charset=utf-8')
+        lines = body.rstrip().split('\n')
+        self.assertEqual(lines[-1], '# EOF')
+        # the metadata lines name the metric family exactly like the samples
+        types = {line.split()[2]: line.split()[3] for line in lines if line.startswith('# TYPE ')}
+        with open(self.exporter_config, encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        for metric in config['metrics']:
+            metric_name = f'{Metrics.prefix}_{Metrics.group}_{metric["name"]}'
+            self.assertEqual(types.get(metric_name), metric['type'])
+            samples = [line for line in lines if line.startswith(metric_name + '{')]
+            self.assertTrue(samples, f'no samples for {metric_name}')
+            if metric['type'] == 'histogram':
+                # a native histogram is a single composite value
+                self.assertEqual(len(samples), 1)
+                value = samples[0].split(' ', 1)[1]
+                self.assertRegex(value, r'^\{count:\d+,sum:[^,]+,schema:-?\d+,zero_threshold:0,zero_count:0(,positive_spans:\[[-\d:,]+\],positive_buckets:\[[\d,]+\])?\}$')
+                count = int(re.match(r'\{count:(\d+)', value).group(1))
+                self.assertEqual(count, len(metric['values']))
+                # the positive values are counted in the buckets
+                buckets = re.search(r'positive_buckets:\[([\d,]+)\]', value)
+                positive = sum(1 for v in metric['values'] if v > 0)
+                self.assertEqual(sum(int(c) for c in buckets.group(1).split(',')) if buckets else 0, positive)
+
+    def test_openmetrics_2_0_not_requested(self) -> None:
+        content_type, body = self._get_metrics_response(accept='text/plain; version=0.0.4')
+        self.assertEqual(content_type, 'text/plain')
+        self.assertNotEqual(body.rstrip().split('\n')[-1], '# EOF')
 
     @staticmethod
     def _from_native_histogram(values) -> dict[float, float]:

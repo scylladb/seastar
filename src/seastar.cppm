@@ -816,6 +816,7 @@ export namespace seastar::prometheus {
 using seastar::prometheus::add_prometheus_routes;
 using seastar::prometheus::config;
 using seastar::prometheus::start;
+using seastar::prometheus::text_format;
 
 }
 

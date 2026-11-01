@@ -49,6 +49,24 @@ SEASTAR_TEST_CASE(test_add_group) {
     return seastar::make_ready_future();
 }
 
+SEASTAR_THREAD_TEST_CASE(test_unit_must_match_in_family) {
+    namespace sm = seastar::metrics;
+    sm::label unit("__unit");
+    sm::label id("id");
+    sm::metric_groups metrics;
+    metrics.add_group("unit_test", {
+        sm::make_counter("read", [] { return 1; }, sm::description("read"), {unit("bytes"), id("1")}),
+        sm::make_counter("read", [] { return 2; }, sm::description("read"), {unit("bytes"), id("2")}),
+    });
+    // the family has a single unit, a series with another unit is refused
+    BOOST_REQUIRE_THROW(metrics.add_group("unit_test", {
+        sm::make_counter("read", [] { return 3; }, sm::description("read"), {unit("seconds"), id("3")}),
+    }), std::runtime_error);
+    BOOST_REQUIRE_THROW(metrics.add_group("unit_test", {
+        sm::make_counter("read", [] { return 4; }, sm::description("read"), {id("4")}),
+    }), std::runtime_error);
+}
+
 /**
  * This function return the different name label values
  *  for the named metric.
