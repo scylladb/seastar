@@ -221,6 +221,7 @@ class TestPrometheus(unittest.TestCase):
     exporter_config = None
     port = 10001
     prometheus = None
+    prometheus_openmetrics = None
     prometheus_scrape_interval = 15
 
     @classmethod
@@ -415,10 +416,21 @@ class TestPrometheus(unittest.TestCase):
                 return TestPrometheus._from_native_histogram(buckets)
             return float(results["value"][1])
 
-    def test_protobuf(self) -> None:
-        if self.prometheus is None:
-            self.skipTest("prometheus is not configured")
+    @staticmethod
+    def _query_prometheus_exemplars(host: str, query: str) -> list[tuple[str, float, float]]:
+        '''return the (trace_id, value, timestamp) of the exemplars stored for the query
+        '''
+        params = urllib.parse.urlencode({'query': query, 'start': 0, 'end': time.time()})
+        url = f'http://{host}/api/v1/query_exemplars?{params}'
+        with urllib.request.urlopen(url) as f:
+            series = json.load(f)["data"]
+            return sorted((e['labels']['trace_id'], float(e['value']), float(e['timestamp']))
+                          for s in series for e in s['exemplars'])
 
+    def _check_prometheus_values(self, host: str) -> list[tuple[str, dict]]:
+        '''check the values Prometheus scraped from the exporter, and return the
+        checked metrics with their full names
+        '''
         # Prometheus does not allow us to push metrics to it, neither
         # can we force it to scrape an exporter, so we have to wait
         # until prometheus scrapes the server
@@ -427,6 +439,7 @@ class TestPrometheus(unittest.TestCase):
             config = yaml.safe_load(f)
 
         labels = {'private': '1'}
+        checked = []
         for metric in config['metrics']:
             name = metric['name']
             metric_name = f'{Metrics.prefix}_{Metrics.group}_{name}'
@@ -439,10 +452,35 @@ class TestPrometheus(unittest.TestCase):
                                      metric_type,
                                      metric_value,
                                      metric_labels)
-            res = self._query_prometheus(self.prometheus,
+            res = self._query_prometheus(host,
                                          metric_name,
                                          metric_type)
             self.assertEqual(res, e.value)
+            checked.append((metric_name, metric))
+        return checked
+
+    def test_protobuf(self) -> None:
+        if self.prometheus is None:
+            self.skipTest("prometheus is not configured")
+        self._check_prometheus_values(self.prometheus)
+
+    def test_openmetrics_2_0_prometheus(self) -> None:
+        '''check what a Prometheus scraping the exporter in OpenMetrics 2.0 stored
+
+        The Prometheus given by --prometheus-openmetrics must run with
+        --enable-feature=openmetrics2,exemplar-storage, and scrape the exporter with
+        scrape_protocols: [OpenMetricsText2.0.0]
+        '''
+        if self.prometheus_openmetrics is None:
+            self.skipTest("prometheus with OpenMetrics 2.0 is not configured")
+        checked = self._check_prometheus_values(self.prometheus_openmetrics)
+        with_exemplars = [(name, metric) for name, metric in checked if 'exemplars' in metric]
+        self.assertTrue(with_exemplars, 'no metric with exemplars in the config')
+        for metric_name, metric in with_exemplars:
+            expected = sorted((e['labels']['trace_id'], e['value'], e['timestamp'])
+                              for e in metric['exemplars'])
+            self.assertEqual(self._query_prometheus_exemplars(self.prometheus_openmetrics, metric_name),
+                             expected)
 
 
 if __name__ == '__main__':
@@ -455,6 +493,8 @@ if __name__ == '__main__':
                         help='Path to the metrics definition file')
     parser.add_argument('--prometheus',
                         help='A Prometheus to connect to')
+    parser.add_argument('--prometheus-openmetrics',
+                        help='A Prometheus to connect to, that scrapes the exporter in OpenMetrics 2.0')
     parser.add_argument('--prometheus-scrape-interval',
                         type=int,
                         help='Prometheus scrape interval (in seconds)',
@@ -464,5 +504,6 @@ if __name__ == '__main__':
     TestPrometheus.exporter_path = opts.exporter
     TestPrometheus.exporter_config = opts.config
     TestPrometheus.prometheus = opts.prometheus
+    TestPrometheus.prometheus_openmetrics = opts.prometheus_openmetrics
     TestPrometheus.prometheus_scrape_interval = opts.prometheus_scrape_interval
     unittest.main(argv=remaining)
