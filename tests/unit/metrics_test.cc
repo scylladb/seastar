@@ -326,10 +326,11 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_enable_disable_skip_when_empty) {
 
     success = sm::set_relabel_configs(rl2).get();
     BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
-    BOOST_CHECK_EQUAL(count_by_label(""), 3);
+    // The counters were never used, so aren't reported
+    BOOST_CHECK_EQUAL(count_by_label(""), 1);
     BOOST_CHECK_EQUAL(count_by_fun([](const seastar::metrics::impl::metric_series_metadata& mi) {
         return mi.should_skip_when_empty() == sm::skip_when_empty::yes;
-    }), 3);
+    }), 1);
     // clear the configuration
     success = sm::set_relabel_configs({}).get();
     app_metrics.add_group("test3", {
@@ -353,6 +354,115 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_enable_disable_skip_when_empty) {
         return mi.should_skip_when_empty() == sm::skip_when_empty::yes;
     }), 0);
     sm::set_relabel_configs({}).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_skip_when_empty_latch) {
+    namespace sm = seastar::metrics;
+    auto reported = [] (std::string_view name) {
+        auto values = seastar::metrics::impl::get_values();
+        for (auto&& md : *values->metadata) {
+            if (md.mf.name == name) {
+                return md.metrics.size();
+            }
+        }
+        return size_t(0);
+    };
+
+    uint64_t value = 0;
+    sm::histogram h;
+    sm::metric_groups metrics;
+    metrics.add_group("latch", {
+        sm::make_counter("counter", [&value] { return value; }, sm::description("counter")).set_skip_when_empty(),
+        sm::make_counter("other", [] { return 0; }, sm::description("other"),
+                {sm::label_instance("l", "a")}).set_skip_when_empty(),
+        sm::make_counter("other", [] { return 0; }, sm::description("other"), {sm::label_instance("l", "b")}),
+        sm::make_histogram("histogram", sm::description("histogram"), [&h] { return h; }).set_skip_when_empty(),
+    });
+
+    // Metrics which were never used aren't reported
+    BOOST_REQUIRE_EQUAL(reported("latch_counter"), 0);
+    BOOST_REQUIRE_EQUAL(reported("latch_histogram"), 0);
+    BOOST_REQUIRE_EQUAL(reported("latch_other"), 1);
+
+    // Once used, they're reported, even when empty again
+    value = 3;
+    h.sample_count = 1;
+    BOOST_REQUIRE_EQUAL(reported("latch_counter"), 1);
+    BOOST_REQUIRE_EQUAL(reported("latch_histogram"), 1);
+    value = 0;
+    h.sample_count = 0;
+    BOOST_REQUIRE_EQUAL(reported("latch_counter"), 1);
+    BOOST_REQUIRE_EQUAL(reported("latch_histogram"), 1);
+    BOOST_REQUIRE_EQUAL(reported("latch_other"), 1);
+
+    // Relabeling to skip_when_empty hides metrics which were never used
+    std::vector<sm::relabel_config> rl(1);
+    rl[0].source_labels = {"__name__"};
+    rl[0].expr = "latch_other";
+    rl[0].action = sm::relabel_config::relabel_action::skip_when_empty;
+    sm::set_relabel_configs(rl).get();
+    BOOST_REQUIRE_EQUAL(reported("latch_other"), 0);
+    rl[0].action = sm::relabel_config::relabel_action::report_when_empty;
+    sm::set_relabel_configs(rl).get();
+    BOOST_REQUIRE_EQUAL(reported("latch_other"), 2);
+    sm::set_relabel_configs({}).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_metrics_generation) {
+    namespace sm = seastar::metrics;
+    auto impl = sm::impl::get_local_impl();
+    auto generation = [] {
+        return sm::impl::get_values()->generation;
+    };
+
+    auto g0 = generation();
+    // Reading values doesn't change the shape
+    BOOST_REQUIRE_EQUAL(generation(), g0);
+
+    std::optional<sm::metric_groups> metrics;
+    metrics.emplace();
+    metrics->add_group("generation_test", {
+        sm::make_gauge("gauge", sm::description("gauge"), [] { return 1; }),
+    });
+    auto g1 = generation();
+    BOOST_REQUIRE_NE(g1, g0);
+    BOOST_REQUIRE_EQUAL(generation(), g1);
+    BOOST_REQUIRE_EQUAL(impl->generation(), g1);
+
+    // Changing the aggregation labels changes the shape
+    std::vector<sm::metric_family_config> fc(1);
+    fc[0].name = "generation_test_gauge";
+    fc[0].aggregate_labels = { "shard" };
+    sm::set_metric_family_configs(fc);
+    auto g2 = generation();
+    BOOST_REQUIRE_NE(g2, g1);
+    sm::set_metric_family_configs({});
+
+    // So does relabeling
+    std::vector<sm::relabel_config> rl(1);
+    rl[0].source_labels = {"__name__"};
+    rl[0].target_label = "level";
+    rl[0].replacement = "1";
+    rl[0].expr = "generation_test_gauge";
+    sm::set_relabel_configs(rl).get();
+    auto g3 = generation();
+    BOOST_REQUIRE_NE(g3, g2);
+    sm::set_relabel_configs({}).get();
+
+    // And a skip_when_empty metric being used for the first time
+    uint64_t value = 0;
+    metrics->add_group("generation_test", {
+        sm::make_counter("counter", [&value] { return value; }, sm::description("counter")).set_skip_when_empty(),
+    });
+    auto g4 = generation();
+    BOOST_REQUIRE_EQUAL(generation(), g4);
+    value = 1;
+    BOOST_REQUIRE_NE(generation(), g4);
+
+    // And removing metrics
+    g4 = generation();
+    metrics.reset();
+    BOOST_REQUIRE_NE(generation(), g4);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_estimated_histogram) {
