@@ -68,6 +68,12 @@ Compared to the 0.0.4 format:
   their metrics accordingly (e.g. `read_bytes_total` with unit `bytes`). Metric names are expected to use
   the Prometheus character set (`[a-zA-Z_:][a-zA-Z0-9_:]*`). A label name outside `[a-zA-Z_][a-zA-Z0-9_]*`
   is written in double quotes, as OpenMetrics 2.0 requires.
+- Exemplars of histograms (`seastar::metrics::histogram::exemplars`, filled by the metric callback) are written
+  after the composite value in timestamp order, as `# {trace_id="..."} value timestamp`. The timestamp is in
+  seconds since the epoch. OpenMetrics 2.0 defines exemplars for histograms and counters only, and Prometheus drops
+  the exemplars of a summary, so they are not written for summaries. Prometheus also drops an exemplar whose label
+  names and values are longer than 128 UTF-8 characters together, so keep the labels short, for example a trace id
+  alone. The 0.0.4 text format and protocol buffers do not report exemplars.
 - The exposition ends with a `# EOF` line.
 
 For example:

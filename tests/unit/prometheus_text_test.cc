@@ -743,6 +743,146 @@ SEASTAR_TEST_CASE(test_om_summary_without_quantiles) {
     BOOST_REQUIRE_EQUAL(actual, expected);
 }
 
+namespace {
+
+using namespace std::chrono_literals;
+
+const auto exemplar_t0 = std::chrono::system_clock::time_point(1520879606100ms);
+
+// Registers one metric made by `make` and returns the output in `format`
+template <typename Make>
+future<std::string> write_one_metric(Make make, sp::text_format format) {
+    co_await smp::invoke_on_all([] {
+        remove_existing_metrics();
+    });
+    sm::metric_groups test_metrics;
+    test_metrics.add_group("group-1", {make()});
+    co_return co_await prometheus_test_fixture::write_metrics({},
+        sp::details::write_body_args{
+            .filter = always_true,
+            .family_filter = [](std::string_view) { return true; },
+            .use_protobuf_format = false,
+            .show_help = false,
+            .enable_aggregation = false,
+            .format = format,
+        });
+}
+
+// Given out of time order, as the exemplars of different shards are after aggregation
+std::vector<sm::exemplar> out_of_order_exemplars() {
+    return {
+        {{{"trace_id", "b"}}, 12.5, exemplar_t0 + 1s},
+        {{{"trace_id", "a"}, {"span_id", "s\"1"}}, 9, exemplar_t0},
+    };
+}
+
+sm::histogram summary_with_exemplars() {
+    sm::histogram h;
+    h.sample_count = 10;
+    h.sample_sum = 20;
+    h.buckets = {{3, 0.5}, {9, 0.99}};
+    h.exemplars = out_of_order_exemplars();
+    return h;
+}
+
+}
+
+SEASTAR_TEST_CASE(test_om_histogram_exemplars) {
+    // Exemplars follow the composite value in timestamp order, with escaped label values
+    auto actual = co_await write_one_metric([] {
+        return sm::make_histogram("metric_0", sm::description("metric_0"), [] {
+            sm::histogram h;
+            h.sample_count = 2;
+            h.sample_sum = 3;
+            h.buckets = {{1, 1.0}, {2, 2.0}};
+            h.exemplars = out_of_order_exemplars();
+            return h;
+        });
+    }, sp::text_format::openmetrics_2_0);
+    std::string expected =
+        R"(# TYPE seastar_group_1_metric_0 histogram)" "\n"
+        R"(seastar_group_1_metric_0{shard="0"} {count:2,sum:3,bucket:[1:1,2:2,+Inf:2]})"
+        R"( # {span_id="s\"1",trace_id="a"} 9 1520879606.100)"
+        R"( # {trace_id="b"} 12.5 1520879607.100)" "\n"
+        R"(# EOF)" "\n";
+    BOOST_REQUIRE_EQUAL(actual, expected);
+}
+
+SEASTAR_TEST_CASE(test_om_exemplars_same_timestamp) {
+    // Exemplars with the same millisecond timestamp are written in value order, as Prometheus orders them
+    auto actual = co_await write_one_metric([] {
+        return sm::make_histogram("metric_0", sm::description("metric_0"), [] {
+            sm::histogram h;
+            h.sample_count = 2;
+            h.sample_sum = 3;
+            h.buckets = {{1, 1.0}, {2, 2.0}};
+            h.exemplars = {
+                {{{"trace_id", "a"}}, 2, exemplar_t0},
+                {{{"trace_id", "b"}}, 1, exemplar_t0 + 100us},
+            };
+            return h;
+        });
+    }, sp::text_format::openmetrics_2_0);
+    std::string expected =
+        R"(# TYPE seastar_group_1_metric_0 histogram)" "\n"
+        R"(seastar_group_1_metric_0{shard="0"} {count:2,sum:3,bucket:[1:1,2:2,+Inf:2]})"
+        R"( # {trace_id="b"} 1 1520879606.100)"
+        R"( # {trace_id="a"} 2 1520879606.100)" "\n"
+        R"(# EOF)" "\n";
+    BOOST_REQUIRE_EQUAL(actual, expected);
+}
+
+SEASTAR_TEST_CASE(test_om_exemplar_with_invalid_label_name) {
+    // Exemplar label names that are not valid label names are quoted and escaped
+    auto actual = co_await write_one_metric([] {
+        return sm::make_histogram("metric_0", sm::description("metric_0"), [] {
+            sm::histogram h;
+            h.sample_count = 2;
+            h.sample_sum = 3;
+            h.buckets = {{1, 1.0}, {2, 2.0}};
+            h.exemplars = {
+                {{{"trace id", "a"}}, 1, exemplar_t0},
+                {{{"trace_id\"", "b"}}, 1, exemplar_t0},
+                {{{"1trace_id", "c"}}, 1, exemplar_t0},
+                {{{"trace_id", "d"}}, 2, exemplar_t0 + 1s},
+            };
+            return h;
+        });
+    }, sp::text_format::openmetrics_2_0);
+    std::string expected =
+        R"(# TYPE seastar_group_1_metric_0 histogram)" "\n"
+        R"(seastar_group_1_metric_0{shard="0"} {count:2,sum:3,bucket:[1:1,2:2,+Inf:2]})"
+        R"( # {"trace id"="a"} 1 1520879606.100 # {"trace_id\""="b"} 1 1520879606.100)"
+        R"( # {"1trace_id"="c"} 1 1520879606.100 # {trace_id="d"} 2 1520879607.100)" "\n"
+        R"(# EOF)" "\n";
+    BOOST_REQUIRE_EQUAL(actual, expected);
+}
+
+SEASTAR_TEST_CASE(test_om_summary_exemplars_not_written) {
+    // OpenMetrics does not define exemplars for summaries, Prometheus drops them
+    auto actual = co_await write_one_metric([] {
+        return sm::make_summary("metric_0", sm::description("metric_0"), [] { return summary_with_exemplars(); });
+    }, sp::text_format::openmetrics_2_0);
+    std::string expected =
+        R"(# TYPE seastar_group_1_metric_0 summary)" "\n"
+        R"(seastar_group_1_metric_0{shard="0"} {count:10,sum:20,quantile:[0.5:3,0.99:9]})" "\n"
+        R"(# EOF)" "\n";
+    BOOST_REQUIRE_EQUAL(actual, expected);
+}
+
+SEASTAR_TEST_CASE(test_exemplars_ignored_in_old_format) {
+    auto actual = co_await write_one_metric([] {
+        return sm::make_summary("metric_0", sm::description("metric_0"), [] { return summary_with_exemplars(); });
+    }, sp::text_format::prometheus_0_0_4);
+    std::string expected =
+        R"(# TYPE seastar_group_1_metric_0 summary)" "\n"
+        R"(seastar_group_1_metric_0_sum{shard="0"} 20)" "\n"
+        R"(seastar_group_1_metric_0_count{shard="0"} 10)" "\n"
+        R"(seastar_group_1_metric_0{quantile="0.500000",shard="0"} 3)" "\n"
+        R"(seastar_group_1_metric_0{quantile="0.990000",shard="0"} 9)" "\n";
+    BOOST_REQUIRE_EQUAL(actual, expected);
+}
+
 SEASTAR_TEST_CASE(test_om_histogram_bounds) {
     // Bounds keep their precision, a -Inf bucket is written as -Inf, and a +Inf bucket is only written once
     co_await smp::invoke_on_all([] {

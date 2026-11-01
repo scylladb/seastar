@@ -40,6 +40,7 @@ struct metric_def {
     sstring type;
     std::vector<double> values;
     std::vector<sm::label_instance> labels;
+    std::vector<sm::exemplar> exemplars;
 };
 
 struct config {
@@ -48,6 +49,20 @@ struct config {
 };
 
 namespace YAML {
+template<>
+struct convert<sm::exemplar> {
+    static bool decode(const Node& node, sm::exemplar& e) {
+        for (auto& [key, value] : node["labels"].as<std::map<std::string, std::string>>()) {
+            e.labels.emplace(key, value);
+        }
+        e.value = node["value"].as<double>();
+        // the timestamp is in seconds since the epoch
+        auto ts = std::chrono::duration<double>(node["timestamp"].as<double>());
+        e.timestamp = std::chrono::system_clock::time_point(std::chrono::duration_cast<std::chrono::system_clock::duration>(ts));
+        return true;
+    }
+};
+
 template<>
 struct convert<metric_def> {
     static bool decode(const Node& node, metric_def& cfg) {
@@ -65,6 +80,9 @@ struct convert<metric_def> {
             for (auto& [key, value]: labels) {
                 cfg.labels.emplace_back(key, value);
             }
+        }
+        if (node["exemplars"]) {
+            cfg.exemplars = node["exemplars"].as<std::vector<sm::exemplar>>();
         }
         return true;
     }
@@ -114,7 +132,11 @@ sm::impl::metric_definition_impl make_metrics_definition(const metric_def& jc) {
         for (const auto& v : jc.values) {
             histogram.add_micro(v);
         }
-        return sm::make_histogram(jc.name, [histogram]() {return histogram.to_metrics_histogram();},
+        return sm::make_histogram(jc.name, [histogram, exemplars = jc.exemplars]() {
+                    auto h = histogram.to_metrics_histogram();
+                    h.exemplars = exemplars;
+                    return h;
+                },
                 sm::description(jc.name), jc.labels );
     }
     if (jc.type == "gauge") {

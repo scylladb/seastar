@@ -995,6 +995,8 @@ static void write_om_number(buf_t& buf, T v) {
     fmt::format_to(buf.back_insert_begin(), FMT_COMPILE("{}"), v);
 }
 
+// The composite value writers below do not end the line, the exemplars follow the value.
+
 // Writes a classic (fixed buckets) histogram as an OpenMetrics 2.0 composite value:
 // {count:C,sum:S,bucket:[le:count,...,+Inf:C]}
 static void write_om_classic_histogram(buf_t& buf, const metrics::histogram& h) {
@@ -1018,7 +1020,7 @@ static void write_om_classic_histogram(buf_t& buf, const metrics::histogram& h) 
     }
     buf << "+Inf:";
     write_om_number(buf, h.sample_count);
-    buf << "]}\n";
+    buf << "]}";
 }
 
 /*!
@@ -1050,7 +1052,7 @@ static void write_om_native_histogram(buf_t& buf, const metrics::histogram& h) {
         buf.pop_back();
         buf << "]";
     }
-    buf << "}\n";
+    buf << "}";
 }
 
 static void write_om_histogram(buf_t& buf, const metrics::histogram& h) {
@@ -1076,16 +1078,62 @@ static void write_om_summary(buf_t& buf, const metrics::histogram& h) {
     if (buf.back() == ',') {
         buf.pop_back();
     }
-    buf << "]}\n";
+    buf << "]}";
+}
+
+// Writes the exemplars that follow a value: ` # {labels} value timestamp` for each exemplar.
+// Prometheus rejects out of order exemplars, so they are written in timestamp order,
+// and exemplars with the same (millisecond) timestamp in value order, as Prometheus orders them.
+static void write_om_exemplars(buf_t& buf, const std::vector<metrics::exemplar>& exemplars) {
+    auto order = [] (const metrics::exemplar& e) {
+        return std::pair(std::chrono::round<std::chrono::milliseconds>(e.timestamp), e.value);
+    };
+    auto write = [&buf] (const metrics::exemplar& e) {
+        buf << " # {";
+        for (auto& [key, value] : e.labels) {
+            write_om_label_name(buf, key);
+            buf << "=\"";
+            write_escaped(buf, value);
+            buf << "\",";
+        }
+        if (buf.back() == ',') {
+            buf.pop_back();
+        }
+        buf << "} ";
+        write_om_number(buf, e.value);
+        // the timestamp is in seconds since the epoch
+        fmt::format_to(buf.back_insert_begin(), FMT_COMPILE(" {:.3f}"),
+                std::chrono::duration<double>(e.timestamp.time_since_epoch()).count());
+    };
+    if (std::ranges::is_sorted(exemplars, {}, order)) {
+        std::ranges::for_each(exemplars, write);
+        return;
+    }
+    // aggregated histograms have the exemplars of each shard one after the other,
+    // sort pointers to them rather than copying their labels
+    std::vector<const metrics::exemplar*> sorted;
+    sorted.reserve(exemplars.size());
+    for (auto& e : exemplars) {
+        sorted.push_back(&e);
+    }
+    std::ranges::stable_sort(sorted, {}, [&order] (const metrics::exemplar* e) { return order(*e); });
+    for (auto e : sorted) {
+        write(*e);
+    }
 }
 
 static void write_om_value(buf_t& buf, const mi::metric_value& value) {
     switch (value.type()) {
     case mi::data_type::HISTOGRAM:
         write_om_histogram(buf, value.get_histogram());
+        write_om_exemplars(buf, value.get_histogram().exemplars);
+        buf << "\n";
         break;
     case mi::data_type::SUMMARY:
+        // OpenMetrics does not define exemplars for summaries and Prometheus drops them,
+        // so they are not written
         write_om_summary(buf, value.get_histogram());
+        buf << "\n";
         break;
     default:
         write_value_as_string(buf, value);

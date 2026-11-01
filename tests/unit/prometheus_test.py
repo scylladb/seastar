@@ -359,7 +359,7 @@ class TestPrometheus(unittest.TestCase):
             if metric['type'] == 'histogram':
                 # a native histogram is a single composite value
                 self.assertEqual(len(samples), 1)
-                value = samples[0].split(' ', 1)[1]
+                value = samples[0].split(' ', 1)[1].split(' # ')[0]
                 self.assertRegex(value, r'^\{count:\d+,sum:[^,]+,schema:-?\d+,zero_threshold:0,zero_count:0(,positive_spans:\[[-\d:,]+\],positive_buckets:\[[\d,]+\])?\}$')
                 count = int(re.match(r'\{count:(\d+)', value).group(1))
                 self.assertEqual(count, len(metric['values']))
@@ -367,6 +367,28 @@ class TestPrometheus(unittest.TestCase):
                 buckets = re.search(r'positive_buckets:\[([\d,]+)\]', value)
                 positive = sum(1 for v in metric['values'] if v > 0)
                 self.assertEqual(sum(int(c) for c in buckets.group(1).split(',')) if buckets else 0, positive)
+
+    def test_openmetrics_2_0_exemplars(self) -> None:
+        _, body = self._get_metrics_response(accept=self.OPENMETRICS_2_0)
+        with open(self.exporter_config, encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        exemplar = re.compile(r' # \{trace_id="(?P<trace_id>[^"]*)"\} (?P<value>\S+) (?P<timestamp>\S+)')
+        metrics = [metric for metric in config['metrics'] if 'exemplars' in metric]
+        self.assertTrue(metrics, 'no metric with exemplars in the config')
+        for metric in metrics:
+            metric_name = f'{Metrics.prefix}_{Metrics.group}_{metric["name"]}'
+            samples = [line for line in body.split('\n') if line.startswith(metric_name + '{')]
+            self.assertEqual(len(samples), 1)
+            found = [(m['trace_id'], float(m['value']), float(m['timestamp']))
+                     for m in exemplar.finditer(samples[0])]
+            # the exemplars follow the value in time order
+            expected = sorted(((e['labels']['trace_id'], e['value'], e['timestamp'])
+                               for e in metric['exemplars']), key=lambda e: e[2])
+            self.assertEqual(found, expected)
+
+    def test_exemplars_not_in_0_0_4(self) -> None:
+        _, body = self._get_metrics_response()
+        self.assertNotIn('trace_id', body)
 
     def test_openmetrics_2_0_not_requested(self) -> None:
         content_type, body = self._get_metrics_response(accept='text/plain; version=0.0.4')
