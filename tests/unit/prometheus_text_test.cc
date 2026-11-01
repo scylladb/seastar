@@ -870,6 +870,50 @@ SEASTAR_TEST_CASE(test_om_summary_exemplars_not_written) {
     BOOST_REQUIRE_EQUAL(actual, expected);
 }
 
+SEASTAR_TEST_CASE(test_om_histogram_exemplars_aggregated_over_shards) {
+    // A per node histogram, the sum of the shard histograms, has the exemplars of all the shards.
+    // Shards with a higher id have older exemplars, so they are written first.
+    static thread_local std::unique_ptr<sm::metric_groups> shard_metrics;
+    co_await smp::invoke_on_all([] {
+        remove_existing_metrics();
+        shard_metrics = std::make_unique<sm::metric_groups>();
+        shard_metrics->add_group("group-1", {
+            sm::make_histogram("metric_0", sm::description("metric_0"), [] {
+                sm::histogram h;
+                h.sample_count = 1;
+                h.sample_sum = 1;
+                h.buckets = {{1, 1.0}};
+                h.exemplars = {{{{"trace_id", fmt::format("shard-{}", this_shard_id())}}, double(this_shard_id()),
+                        exemplar_t0 - std::chrono::seconds(this_shard_id())}};
+                return h;
+            }).aggregate({sm::shard_label})
+        });
+    });
+
+    auto actual = co_await prometheus_test_fixture::write_metrics({},
+        sp::details::write_body_args{
+            .filter = always_true,
+            .family_filter = [](std::string_view) { return true; },
+            .use_protobuf_format = false,
+            .show_help = false,
+            .enable_aggregation = true,
+            .format = sp::text_format::openmetrics_2_0,
+        });
+    co_await smp::invoke_on_all([] {
+        shard_metrics.reset();
+    });
+
+    auto shards = this_smp_shard_count();
+    std::string expected = fmt::format("# TYPE seastar_group_1_metric_0 histogram\n"
+            "seastar_group_1_metric_0{{}} {{count:{0},sum:{0},bucket:[1:{0},+Inf:{0}]}}", shards);
+    for (auto shard = shards; shard-- > 0;) {
+        expected += fmt::format(R"( # {{trace_id="shard-{0}"}} {0} {1:.3f})", shard,
+                std::chrono::duration<double>((exemplar_t0 - std::chrono::seconds(shard)).time_since_epoch()).count());
+    }
+    expected += "\n# EOF\n";
+    BOOST_REQUIRE_EQUAL(actual, expected);
+}
+
 SEASTAR_TEST_CASE(test_exemplars_ignored_in_old_format) {
     auto actual = co_await write_one_metric([] {
         return sm::make_summary("metric_0", sm::description("metric_0"), [] { return summary_with_exemplars(); });
