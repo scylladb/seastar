@@ -23,6 +23,7 @@
 #include <memory>
 #include <regex>
 #include <random>
+#include <unordered_set>
 #include <variant>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/replace.hpp>
@@ -33,6 +34,7 @@
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/relabel_config.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/util/defer.hh>
 
 namespace seastar {
 extern seastar::logger seastar_logger;
@@ -264,8 +266,9 @@ escaped_string& escaped_string::operator=(const sstring& v) {
     return *this;
 }
 
-registered_metric::registered_metric(metric_id id, metric_function f, bool enabled, skip_when_empty skip) :
-        _f(f) {
+registered_metric::registered_metric(metric_id id, metric_function f, bool enabled, skip_when_empty skip,
+        internal::collector_base* collector) :
+        _f(f), _collector(collector) {
     _info.enabled = enabled;
     _info.should_skip_when_empty = skip;
     _info.id = id;
@@ -372,7 +375,8 @@ metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const m
 
     metric_id id(name, md._impl->name, internalized_labels);
 
-    auto reg = get_local_impl()->add_registration(id, md._impl->type, md._impl->f, md._impl->d, md._impl->enabled, md._impl->_skip_when_empty, md._impl->aggregate_labels);
+    auto reg = get_local_impl()->add_registration(id, md._impl->type, md._impl->f, md._impl->d, md._impl->enabled, md._impl->_skip_when_empty, md._impl->aggregate_labels,
+            md._impl->collector);
 
     _registration.push_back(std::move(reg));
     return *this;
@@ -447,6 +451,16 @@ foreign_ptr<values_reference> get_values() {
     auto& res = *(res_ref.get());
     auto& mv = res.values;
     res.metadata = get_local_impl()->metadata();
+    auto& collectors = get_local_impl()->collectors();
+    auto reset_collectors = defer([&collectors] () noexcept {
+        for (auto c : collectors) {
+            c->reset();
+        }
+    });
+    // Before any metric function, since those of a collector's metrics read what it collects.
+    for (auto c : collectors) {
+        c->collect();
+    }
     auto & functions = get_local_impl()->functions();
     for (auto&& i : functions) {
         value_vector values;
@@ -482,7 +496,10 @@ void impl::update_metrics_if_needed() {
         auto mt_ref = ::seastar::make_shared<metric_metadata>();
         auto &mt = *(mt_ref.get());
         mt.reserve(_value_map.size());
+        // Cleared before _current_metrics drops the functions that keep the collectors alive.
+        _current_collectors.clear();
         _current_metrics.resize(_value_map.size());
+        std::unordered_set<internal::collector_base*> distinct_collectors;
         size_t i = 0;
         for (auto&& mf : _value_map) {
             metric_metadata_fifo metrics;
@@ -491,6 +508,9 @@ void impl::update_metrics_if_needed() {
                 if (m.second && m.second->is_enabled()) {
                     metrics.emplace_back(m.second->info().id.internalized_labels(), m.second->info().should_skip_when_empty);
                     _current_metrics[i].emplace_back(m.second->get_function());
+                    if (auto c = m.second->get_collector()) {
+                        distinct_collectors.insert(c);
+                    }
                 }
             }
             if (!metrics.empty()) {
@@ -502,6 +522,7 @@ void impl::update_metrics_if_needed() {
         }
         // Maybe we didn't use all the original size
         _current_metrics.resize(i);
+        _current_collectors.assign_range(distinct_collectors);
         _metadata = mt_ref;
         _dirty = false;
 
@@ -519,8 +540,14 @@ std::vector<std::deque<metric_function>>& impl::functions() {
     return _current_metrics;
 }
 
-register_ref impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels) {
-    auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled, skip);
+const std::vector<internal::collector_base*>& impl::collectors() {
+    update_metrics_if_needed();
+    return _current_collectors;
+}
+
+register_ref impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels,
+        internal::collector_base* collector) {
+    auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled, skip, collector);
     for (auto&& rl : _relabel_configs) {
         apply_relabeling(rl, rm->info());
     }

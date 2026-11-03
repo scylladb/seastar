@@ -37,6 +37,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/test_runner.hh>
+#include <memory>
 #include <ranges>
 
 SEASTAR_TEST_CASE(test_add_group) {
@@ -256,6 +257,108 @@ SEASTAR_THREAD_TEST_CASE(test_metrics_family_aggregate) {
     BOOST_CHECK_EQUAL(count, 4);
     std::vector<sm::relabel_config> rl1;
     sm::set_relabel_configs(rl1).get();
+}
+
+// Collects the metric values and maps the name of each family of the
+// "collector" group to the value of its single series.
+static std::map<seastar::sstring, double> collect_collector_metrics() {
+    auto values = seastar::metrics::impl::get_values();
+    std::map<seastar::sstring, double> result;
+    for (size_t i = 0; i < values->metadata->size(); ++i) {
+        const auto& name = (*values->metadata)[i].mf.name;
+        if (name.starts_with("collector_")) {
+            result[name] = values->values[i][0].d();
+        }
+    }
+    return result;
+}
+
+SEASTAR_THREAD_TEST_CASE(test_collector) {
+    namespace sm = seastar::metrics;
+    struct snapshot {
+        int collection;
+        int doubled;
+        // Lets the test see whether the snapshot is still alive.
+        std::shared_ptr<int> token;
+    };
+
+    int collections = 0;
+    auto token = std::make_shared<int>(0);
+    sm::metric_groups app_metrics;
+    auto c = sm::make_collector([&] { ++collections; return snapshot{collections, 2 * collections, token}; });
+    app_metrics.add_group("collector", {
+        sm::make_gauge("first", c, &snapshot::collection, sm::description("first")),
+        sm::make_gauge("second", c, [] (const snapshot& s) { return s.doubled; }, sm::description("second")),
+        sm::make_counter("third", c, &snapshot::collection, sm::description("third")),
+    });
+    auto values = collect_collector_metrics();
+    BOOST_CHECK_EQUAL(collections, 1);
+    BOOST_CHECK_EQUAL(values["collector_first"], 1);
+    BOOST_CHECK_EQUAL(values["collector_second"], 2);
+    BOOST_CHECK_EQUAL(values["collector_third"], 1);
+    BOOST_CHECK_EQUAL(token.use_count(), 1);
+    values = collect_collector_metrics();
+    BOOST_CHECK_EQUAL(collections, 2);
+    BOOST_CHECK_EQUAL(values["collector_first"], 2);
+    BOOST_CHECK_EQUAL(values["collector_second"], 4);
+    BOOST_CHECK_EQUAL(values["collector_third"], 2);
+
+    int disabled_collections = 0;
+    sm::metric_groups disabled_metrics;
+    auto disabled = sm::make_collector([&] { ++disabled_collections; return snapshot{}; });
+    disabled_metrics.add_group("collector", {
+        sm::make_gauge("disabled", disabled, &snapshot::collection, sm::description("disabled"))(false),
+    });
+    collect_collector_metrics();
+    BOOST_CHECK_EQUAL(disabled_collections, 0);
+    BOOST_CHECK_EQUAL(collections, 3);
+
+    app_metrics.clear();
+    collect_collector_metrics();
+    BOOST_CHECK_EQUAL(collections, 3);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_collector_exceptions) {
+    namespace sm = seastar::metrics;
+    struct snapshot {
+        int collection;
+        // Lets the test see whether the snapshot is still alive.
+        std::shared_ptr<int> token;
+    };
+
+    auto token = std::make_shared<int>(0);
+    bool fail_second_collect = false;
+    bool fail_read = false;
+    int failing_collects = 0;
+    // The collectors run in no set order. When fail_second_collect is set,
+    // whichever runs second throws, so the first one has a snapshot to drop.
+    auto collect_or_fail = [&] {
+        if (fail_second_collect && ++failing_collects == 2) {
+            throw std::runtime_error("injected collect failure");
+        }
+        return snapshot{1, token};
+    };
+    sm::metric_groups failing_metrics;
+    failing_metrics.add_group("collector", {
+        sm::make_gauge("failing", sm::make_collector(collect_or_fail), [&] (const snapshot& s) {
+            if (fail_read) {
+                throw std::runtime_error("injected read failure");
+            }
+            return s.collection;
+        }, sm::description("failing")),
+        sm::make_gauge("other", sm::make_collector(collect_or_fail), &snapshot::collection, sm::description("other")),
+    });
+    fail_second_collect = true;
+    BOOST_CHECK_THROW(collect_collector_metrics(), std::runtime_error);
+    BOOST_CHECK_EQUAL(token.use_count(), 1);
+    fail_second_collect = false;
+    fail_read = true;
+    BOOST_CHECK_THROW(collect_collector_metrics(), std::runtime_error);
+    BOOST_CHECK_EQUAL(token.use_count(), 1);
+    fail_read = false;
+    auto values = collect_collector_metrics();
+    BOOST_CHECK_EQUAL(values["collector_failing"], 1);
+    BOOST_CHECK_EQUAL(values["collector_other"], 1);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_relabel_drop_label_prevent_runtime_conflicts) {
