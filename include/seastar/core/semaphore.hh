@@ -384,14 +384,15 @@ public:
     /// \note Waits are serviced in FIFO order, though if several are awakened
     ///       at once, they may be reordered by the scheduler.
     ///
-    /// \param timeout how long to wait.
+    /// \param timeout how long to wait. A timeout that reaches beyond the range
+    ///        of \c time_point waits with no timeout.
     /// \param nr Amount of units to wait for (default 1).
     /// \return a future that becomes ready when sufficient units are available
     ///         to satisfy the request.  On timeout, the future contains a
     ///         \ref semaphore_timed_out exception.  If the semaphore was
     ///         \ref broken(), may contain a \ref broken_semaphore exception.
     future<> wait(duration timeout, size_t nr = 1) noexcept {
-        return wait(clock::now() + timeout, nr);
+        return wait(internal::saturating_add(clock::now(), timeout), nr);
     }
     /// Deposits a specified number of units into the counter.
     ///
