@@ -1,0 +1,45 @@
+% Figure for chapter 13, "Handing an object to another shard": foreign.cc's
+% round trip. Shard 1 builds a table in its own memory, shard 0 reads it
+% through a foreign_ptr, and destroying the foreign_ptr sends the table back
+% to shard 1 to be destroyed. Time goes from left to right, not to scale.
+\begin{tikzpicture}[x=1mm, y=1mm,
+    lane/.style={font=\sffamily\small, anchor=east, align=right},
+    stage/.style={box, font=\sffamily\footnotesize, inner xsep=1.2mm, inner ysep=0.9mm},
+    own/.style={coolbox, font=\sffamily\footnotesize, inner xsep=1.2mm, inner ysep=0.9mm},
+    label/.style={note, inner sep=0.6mm},
+  ]
+  % The two lanes.
+  \def\top{0}
+  \def\bot{-26}
+  \node[lane] at (-2, \top) {shard 0};
+  \node[lane] at (-2, \bot) {shard 1};
+  \draw[draw=fignote, rare, line width=0.4pt] (0, \top) -- (116, \top);
+  \draw[draw=fignote, rare, line width=0.4pt] (0, \bot) -- (116, \bot);
+
+  % 1. Shard 0 asks shard 1 for a table.
+  \node[stage] (ask) at (9, \top) {\texttt{build\_table\_on(1)}};
+  \node[own, text width=19mm] (build) at (31, \bot)
+    {builds the table, in its own memory};
+  \draw[message, gap] (ask.south) -- (build.north west)
+    node[midway, left, label] {\texttt{submit\_to()}};
+
+  % 2. Shard 1 returns a foreign_ptr to it.
+  \node[stage, text width=17mm] (use) at (56, \top) {reads the rows, through the pointer};
+  \draw[message, gap] (build.north east) -- (use.south west)
+    node[pos=0.5, left, label, align=right] {a \texttt{foreign\_ptr} \\ to the table};
+  % Reading reaches into shard 1's memory, without a message.
+  \draw[flow, rare, gap] (use.south east) to[out=-70, in=0] (build.east);
+  \node[label, anchor=west, align=left] at (66, -15) {reads \\ shard 1's memory};
+
+  % 3. Destroying the foreign_ptr sends the table back to shard 1.
+  \node[stage] (destroy) at (84, \top) {\texttt{t.destroy()}};
+  \node[own] (dtor) at (98, \bot) {\texttt{\textasciitilde table()}};
+  \draw[message, gap] (destroy.south) -- (dtor.north west);
+  \node[stage] (back) at (110, \top) {back on shard 0};
+  \draw[message, gap] (dtor.north east) -- (back.south)
+    node[pos=0.45, right, label] {done};
+
+  % Time.
+  \draw[flow] (0, \bot-9) -- (116, \bot-9)
+    node[pos=1, below left, font=\sffamily\footnotesize, inner sep=0.8mm] {time};
+\end{tikzpicture}

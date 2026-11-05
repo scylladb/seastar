@@ -1,0 +1,25 @@
+% The book's structure in LaTeX, included by tools/build.py when building the
+% book (it relies on the fonts defined in titlepage.tex).
+%
+% Pandoc's template switches to \mainmatter before the whole body, which would
+% put the preface in the main matter; we disable that, and tools/bookfilter.py
+% calls \realmainmatter just before Part I instead.
+\let\realmainmatter\mainmatter
+\renewcommand{\mainmatter}{}
+
+% Part pages, in the style of the title page: the part's number in spaced
+% small caps, its title in the display font, between two short rules, and
+% the part's introduction below.
+\renewcommand*{\partformat}{\titlesmallcaps\fontsize{16}{20}\selectfont
+  \MakeLowercase{\partname~\thepart}}
+\setkomafont{part}{\titledisplay\fontsize{40}{46}\selectfont}
+\setkomafont{partnumber}{\normalfont}
+\renewcommand*{\partlineswithprefixformat}[3]{%
+  {\centering\rule{0.35\linewidth}{0.4pt}\par}\vspace{4ex}
+  {\centering#2\par}\vspace{3ex}
+  {\centering#3\par}\vspace{4ex}
+  {\centering\rule{0.35\linewidth}{0.4pt}\par}}
+\newcommand*{\partintro}{\normalfont\normalsize\itshape\centering\vspace*{6ex}}
+
+% Room for "VII" in the table of contents.
+\RedeclareSectionCommand[tocnumwidth=2.6em]{part}

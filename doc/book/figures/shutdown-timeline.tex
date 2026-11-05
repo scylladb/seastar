@@ -1,0 +1,71 @@
+% Figure for chapter 12, "Wait, but not forever": Shoal version 7 stopping,
+% with four clients connected and FLUSHALL ASYNC's work in the background.
+% The x axis is time, not to scale.
+\begin{tikzpicture}[x=0.9mm,
+    lane/.style={font=\sffamily\small, anchor=east, align=right},
+    group/.style={note, anchor=east, align=right},
+    event/.style={font=\sffamily\footnotesize, align=left, inner sep=0.8mm},
+    alive/.style={line width=1.6pt, draw=figcool},
+    waiting/.style={rare, draw=figink},
+  ]
+  % The two moments: stopping is requested at t0, and the grace period ends at t1.
+  \def\tzero{30}
+  \def\tone{78}
+  \def\tend{83}
+  \def\dot#1#2{\fill[figink] (#1, #2) circle (0.9mm);}
+  \def\axis{-52mm}
+
+  % Dotted guides at the two moments, behind everything else.
+  \foreach \t in {\tzero, \tone}
+    \draw[rare, draw=fignote, line width=0.4pt] (\t, 5mm) -- (\t, \axis);
+
+  % shoal_main(): accepting, then waiting for each gate in turn.
+  \node[lane] at (-2, 0) {\texttt{shoal\_main()}};
+  \draw[alive] (0, 0) -- (\tzero, 0);
+  \node[event, anchor=south] at (\tzero/2, 0) {accepts clients};
+  \draw[waiting] (\tzero, 0) -- (\tone, 0);
+  \node[event, anchor=south] at ({(\tzero+\tone)/2}, 0) {waits in \texttt{connections.close()}};
+  \draw[waiting] (\tone, 0) -- (\tend, 0);
+  \node[event, anchor=north east] at (\tend, 0) {then in \texttt{background.close()}};
+  \dot{\tend}{0}
+  \node[event, anchor=south west] at (\tend, 0) {exits};
+
+  % The connections, which hold the connections gate.
+  \node[group] at (-2, -7mm) {holding \texttt{connections}:};
+  \node[lane] at (-2, -12mm) {an idle client};
+  \draw[alive] (0, -12mm) -- (\tzero, -12mm);
+  \dot{\tzero}{-12mm}
+  \node[event, anchor=west] at (\tzero+1, -12mm) {stops reading, ends};
+
+  \node[lane] at (-2, -19mm) {a client in \texttt{BLPOP}};
+  \draw[alive] (4, -19mm) -- (\tzero, -19mm);
+  \dot{\tzero}{-19mm}
+  \node[event, anchor=west] at (\tzero+1, -19mm) {woken, ends without a reply};
+
+  \node[lane] at (-2, -26mm) {a client mid-request};
+  \draw[alive] (8, -26mm) -- (\tzero+7, -26mm);
+  \dot{\tzero+7}{-26mm}
+  \node[event, anchor=west] at (\tzero+8, -26mm) {finishes the request, replies, ends};
+
+  \node[lane] at (-2, -33mm) {a client that doesn't read};
+  \draw[alive] (12, -33mm) -- (\tone, -33mm);
+  \dot{\tone}{-33mm}
+  \node[event, anchor=south east] at (\tone-1, -33mm) {its write waits for the client};
+  \node[event, anchor=west] at (\tone+1, -33mm) {write fails, ends};
+
+  % The background work, which holds the background gate.
+  \node[group] at (-2, -40mm) {holding \texttt{background}:};
+  \node[lane] at (-2, -45mm) {\texttt{FLUSHALL ASYNC}'s work};
+  \draw[alive] (20, -45mm) -- (\tone+2, -45mm);
+  \dot{\tone+2}{-45mm}
+  \node[event, anchor=south east] at (\tone+1, -45mm) {destroys the old data, step by step};
+  \node[event, anchor=west] at (\tone+3, -45mm) {stops};
+
+  % The time axis, with the two moments.
+  \draw[flow] (0, \axis) -- (\tend+6, \axis)
+    node[pos=1, above left, font=\sffamily\footnotesize, inner sep=0.8mm] {time};
+  \node[event, anchor=north, align=center] at (\tzero, \axis)
+    {\texttt{SHUTDOWN} or a signal:\\\texttt{stopping.request\_abort()}};
+  \node[event, anchor=north, align=center] at (\tone, \axis)
+    {the grace period is over:\\\texttt{giving\_up.request\_abort()}};
+\end{tikzpicture}

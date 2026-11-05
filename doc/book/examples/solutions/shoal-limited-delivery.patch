@@ -1,0 +1,24 @@
+# A solution in solutions/concurrency-within-a-shard.md: shoal-limited-delivery, Shoal v4 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v4, builds it, and runs the tests.
+# base: shoal/v4
+--- a/pubsub.cc
++++ b/pubsub.cc
+@@ -1,6 +1,7 @@
+ // Pub/Sub: SUBSCRIBE, UNSUBSCRIBE and PUBLISH.
+ #include "pubsub.hh"
+ #include <seastar/core/coroutine.hh>
++#include <seastar/core/loop.hh>
+ #include <seastar/coroutine/exception.hh>
+ #include <seastar/coroutine/parallel_for_each.hh>
+ #include <fmt/format.h>
+@@ -198,7 +199,8 @@
+     // end snippet: sequential
+     // snippet: parallel
+     case delivery::parallel:
+-        co_await coroutine::parallel_for_each(subscribers, [&] (client* s) {
++        // Exercise 3: at most a hundred writes at a time.
++        co_await max_concurrent_for_each(subscribers, 100, [&] (client* s) {
+             return s->write(message).handle_exception([] (std::exception_ptr) {
+                 // The subscriber's connection failed; it reports that itself.
+             });
