@@ -432,6 +432,10 @@ struct listen_options {
     /// setting it directly on the already-accepted socket is ineffective (see TCP(7)).
     std::optional<int> so_rcvbuf;
 
+    /// Enable TCP Fast Open (RFC 7413) on the listening socket, queue length = listen_backlog.
+    /// Requires the server bit (0x2) in sysctl net.ipv4.tcp_fastopen. Linux TCP only.
+    bool tcp_fastopen = false;
+
     void set_fixed_cpu(unsigned cpu) {
         lba = server_socket::load_balancing_algorithm::fixed;
         fixed_cpu = cpu;
