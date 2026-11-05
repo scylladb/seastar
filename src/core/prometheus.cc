@@ -39,6 +39,7 @@
 #include <seastar/core/loop.hh>
 #include <seastar/util/assert.hh>
 #include <algorithm>
+#include <cctype>
 #include <ranges>
 #include <regex>
 #include <string_view>
@@ -99,6 +100,21 @@ using mi::labels_type;
 using write_body_args = details::write_body_args;
 
 namespace {
+
+/*!
+ * \brief An internal label that holds the unit of a metric.
+ *
+ * Labels starting with a double underscore are never exposed. When a metric
+ * carries this label and the OpenMetrics 2.0 format is used, the unit is
+ * reported in a `# UNIT` metadata line. The metric name is not changed.
+ */
+constexpr std::string_view unit_label_name = "__unit";
+
+/*!
+ * \brief The Content-Type of an OpenMetrics 2.0 response
+ */
+constexpr std::string_view openmetrics_2_0_content_type = "application/openmetrics-text; version=2.0.0; charset=utf-8";
+
 
 // A wrapper around a std::vector for efficient formatting and appending
 // of text data. Just using a std::vector is much slower.
@@ -251,6 +267,13 @@ static bool write_delimited_to(const google::protobuf::MessageLite& message,
     return true;
 }
 
+static inline bool is_internal(const sstring& name) {
+    if (auto cstr = name.c_str(); cstr[0] == '_' && cstr[1] == '_') [[unlikely]] {
+        return true;
+    }
+    return false;
+}
+
 static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::labels_type & id, const config& ctx) {
     mt->mutable_label()->Reserve(id.size() + 1);
     if (ctx.label) {
@@ -259,6 +282,9 @@ static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::labels_type & 
         label->set_value(std::string(ctx.label->value()));
     }
     for (auto && [name, value] : id) {
+        if (is_internal(name)) [[unlikely]] {
+            continue;
+        }
         auto label = mt->add_label();
         label->set_name(std::string(name));
         label->set_value(std::string(value.value()));
@@ -287,47 +313,68 @@ static void fill_old_type_histogram(const metrics::histogram& h, ::io::prometheu
  * Each back span represents multiple consecutive nonempty buckets.
  * It holds the id of the first bucket in the span of buckets and the length (number of nonempty consecutive buckets).
  */
+/*!
+ * \brief The bucket layout of a native histogram
+ *
+ * A native histogram is described by a list of spans and a list of
+ * per-bucket (non-cumulative) counts, one count for each nonempty bucket.
+ * Each span covers consecutive nonempty buckets. The offset of the first
+ * span is the id of its first bucket, the offset of the following spans is
+ * the number of empty buckets that separate them from the previous span.
+ */
+struct native_histogram_layout {
+    struct span {
+        int32_t offset;
+        uint32_t length;
+    };
+    std::vector<span> spans;
+    std::vector<uint64_t> counts;
+};
+
+static native_histogram_layout make_native_histogram_layout(const metrics::histogram& h) {
+    native_histogram_layout res;
+    int32_t id = h.native_histogram.value().min_id;
+    uint64_t cumulative = 0;
+    int32_t last_bucket_id = 0;
+    bool in_span = false;
+    for (auto b : h.buckets) {
+        // Metrics histograms are cumulative histograms
+        // A non empty bucket is bigger than the previous one
+        if (cumulative < b.count) {
+            // If we are not part of an existing bucket-span, create one
+            if (!in_span) {
+                res.spans.push_back({id - last_bucket_id, 0});
+                in_span = true;
+            }
+            res.spans.back().length++;
+            res.counts.push_back(b.count - cumulative);
+        } else if (in_span) {
+            // The current bucket is empty, close the existing bucket-span
+            in_span = false;
+            last_bucket_id = id;
+        }
+        cumulative = b.count;
+        id++;
+    }
+    return res;
+}
+
 static void fill_native_type_histogram(const metrics::histogram& h, ::io::prometheus::client::Histogram* mh) {
     mh->set_sample_count(h.sample_count);
     mh->set_sample_sum(h.sample_sum);
-    size_t id = h.native_histogram.value().min_id;
-
     mh->set_schema(h.native_histogram.value().schema);
-    double last_bucket = 0;
-    double count = 0;
 
-    size_t length = 0;
-    size_t last_bucket_id = 0;
-    ::io::prometheus::client::BucketSpan* bucket_span = nullptr;
-    for (auto b : h.buckets) {
-        // Metrics histograms are aggregated histograms
-        // A non empty bucket is bigger than the previous one
-        if (count < b.count) {
-            // If we are not part of an existing bucket-span, create one
-            if (!bucket_span) {
-                bucket_span = mh->add_positive_span();
-                bucket_span->set_offset(id - last_bucket_id);
-                length = 0;
-            }
-            length++;
-            mh->add_positive_delta(b.count - count - last_bucket);
-            last_bucket = b.count - count;
-        } else {
-            // The current bucket is empty, if there is an existing bucket-span
-            // set its length
-            if (bucket_span) {
-                bucket_span->set_length(length);
-                bucket_span = nullptr;
-                last_bucket_id = id;
-            }
-        }
-        count = b.count;
-        id++;
+    auto layout = make_native_histogram_layout(h);
+    for (auto& span : layout.spans) {
+        auto bucket_span = mh->add_positive_span();
+        bucket_span->set_offset(span.offset);
+        bucket_span->set_length(span.length);
     }
-    // maybe there is an open bucket span (the last bucket was part of a bucket-span)
-    // set its length
-    if (bucket_span) {
-        bucket_span->set_length(length);
+    // In the protobuf representation each bucket is stored as a delta from the previous nonempty bucket
+    int64_t last_count = 0;
+    for (auto count : layout.counts) {
+        mh->add_positive_delta(count - last_count);
+        last_count = count;
     }
 }
 
@@ -374,16 +421,43 @@ static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value&
     }
 }
 
-static inline bool is_internal(const sstring& name) {
-    if (auto cstr = name.c_str(); cstr[0] == '_' && cstr[1] == '_') [[unlikely]] {
-        return true;
+// Escapes backslash, double quote and line feed as required by the OpenMetrics text format
+static void write_escaped(buf_t& buf, std::string_view str) {
+    for (char c : str) {
+        switch (c) {
+        case '\\': buf.append(R"(\\)"); break;
+        case '"': buf.append(R"(\")"); break;
+        case '\n': buf.append(R"(\n)"); break;
+        default: buf.append(c);
+        }
     }
-    return false;
+}
+
+// Returns true if name is a valid OpenMetrics label name, [a-zA-Z_][a-zA-Z0-9_]*
+static bool is_om_label_name(std::string_view name) {
+    return !name.empty() && !std::isdigit(static_cast<unsigned char>(name[0])) &&
+            std::ranges::all_of(name, [] (char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; });
+}
+
+// Writes a label name, OpenMetrics requires quoting the ones that are not valid label names
+static void write_om_label_name(buf_t& buf, std::string_view name) {
+    if (is_om_label_name(name)) {
+        buf << name;
+        return;
+    }
+    buf << "\"";
+    write_escaped(buf, name);
+    buf << "\"";
 }
 
 [[gnu::always_inline]]
-static inline void write_label(buf_t& s, std::string_view key, std::string_view value) {
-    s << key << "=\"";
+static inline void write_label(buf_t& s, std::string_view key, std::string_view value, bool openmetrics = false) {
+    if (openmetrics) {
+        write_om_label_name(s, key);
+    } else {
+        s << key;
+    }
+    s << "=\"";
     s << value;
     s << "\",";
 };
@@ -391,7 +465,7 @@ static inline void write_label(buf_t& s, std::string_view key, std::string_view 
 struct no_label {};
 
 template <typename Extra = no_label>
-static void write_name_and_labels(buf_t& buf, std::string_view name, auto suffix, const labels_type& labels, const config& ctx, Extra extra = {}) {
+static void write_name_and_labels(buf_t& buf, std::string_view name, auto suffix, const labels_type& labels, const config& ctx, Extra extra = {}, bool openmetrics = false) {
 
     // extra label can be injected in by the caller, unfortunately prometheus
     // requires labels to be sorted by name, so we have to jump through some
@@ -400,7 +474,7 @@ static void write_name_and_labels(buf_t& buf, std::string_view name, auto suffix
 
     buf << name << suffix << "{";
     if (ctx.label) [[unlikely]] {
-        write_label(buf, ctx.label->key(), ctx.label->value());
+        write_label(buf, ctx.label->key(), ctx.label->value(), openmetrics);
     }
 
     bool wrote_extra = false;
@@ -409,18 +483,18 @@ static void write_name_and_labels(buf_t& buf, std::string_view name, auto suffix
         std::string_view label_name = l.first;
         if constexpr (has_extra) {
             if (!wrote_extra && extra.name < label_name) {
-                write_label(buf, extra.name, extra.value);
+                write_label(buf, extra.name, extra.value, openmetrics);
                 wrote_extra = true;
             }
         }
         if (!is_internal(l.first)) [[likely]] {
-            write_label(buf, label_name, l.second.value());
+            write_label(buf, label_name, l.second.value(), openmetrics);
         }
     }
 
     if constexpr (has_extra) {
         if (!wrote_extra) {
-            write_label(buf, extra.name, extra.value);
+            write_label(buf, extra.name, extra.value, openmetrics);
         }
     }
 
@@ -879,6 +953,196 @@ void write_value_as_string(buf_t& s, const mi::metric_value& value) noexcept {
     }
 }
 
+/*
+ * OpenMetrics 2.0 text format
+ *
+ * The OpenMetrics 2.0 format differs from the classic 0.0.4 text format in a few ways:
+ * - Complex types (histogram, summary) are written as a single composite value
+ *   `{count:..,sum:..,bucket:[..]}` instead of multiple series.
+ * - Native histograms have a text representation.
+ * - A metric unit is reported with a `# UNIT` line.
+ * Metric and label names are reported as is, like in the 0.0.4 format.
+ * - The exposition ends with `# EOF`.
+ */
+
+// Returns the unit of a metric, taken from the __unit label, or an empty string if it has none.
+// A unit is made of metric name characters, a unit with other characters is not reported.
+static std::string_view get_unit(const labels_type& labels) {
+    auto it = labels.find(sstring(unit_label_name));
+    if (it == labels.end()) {
+        return {};
+    }
+    std::string_view unit = it->second.value();
+    bool valid = std::ranges::all_of(unit, [] (char c) {
+        return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == ':';
+    });
+    return valid ? unit : std::string_view{};
+}
+
+// Writes the # TYPE, # UNIT and # HELP lines of a metric family
+static void write_om_metadata(buf_t& buf, std::string_view name, const mi::metric_family_info& info, std::string_view unit, bool show_help) {
+    buf << "# TYPE " << name << " " << to_string(info.type) << "\n";
+    if (!unit.empty()) {
+        buf << "# UNIT " << name << " " << unit << "\n";
+    }
+    if (show_help && info.d.str() != "") {
+        buf << "# HELP " << name << " ";
+        write_escaped(buf, info.d.str());
+        buf << "\n";
+    }
+}
+
+// Writes a number in the shortest form that reads back as the same value
+template <typename T>
+static void write_om_number(buf_t& buf, T v) {
+    fmt::format_to(buf.back_insert_begin(), FMT_COMPILE("{}"), v);
+}
+
+// The composite value writers below do not end the line, the exemplars follow the value.
+
+// Writes a classic (fixed buckets) histogram as an OpenMetrics 2.0 composite value:
+// {count:C,sum:S,bucket:[le:count,...,+Inf:C]}
+static void write_om_classic_histogram(buf_t& buf, const metrics::histogram& h) {
+    buf << "{count:";
+    write_om_number(buf, h.sample_count);
+    buf << ",sum:";
+    write_om_number(buf, h.sample_sum);
+    buf << ",bucket:[";
+    for (auto b : h.buckets) {
+        // the +Inf bucket is optional in the histogram, it is always written last
+        if (std::isinf(b.upper_bound) && b.upper_bound > 0) {
+            continue;
+        }
+        // a -Inf bucket can only be the first, as the buckets are in increasing order
+        if (std::isinf(b.upper_bound)) {
+            buf << "-Inf";
+        } else {
+            write_om_number(buf, b.upper_bound);
+        }
+        fmt::format_to(buf.back_insert_begin(), FMT_COMPILE(":{},"), b.count);
+    }
+    buf << "+Inf:";
+    write_om_number(buf, h.sample_count);
+    buf << "]}";
+}
+
+/*!
+ * \brief Writes a native histogram as an OpenMetrics 2.0 composite value
+ *
+ * {count:C,sum:S,schema:N,zero_threshold:0,zero_count:0,positive_spans:[offset:length,...],positive_buckets:[count,...]}
+ *
+ * Unlike the protobuf representation, the text representation holds the absolute
+ * count of each nonempty bucket rather than a delta from the previous bucket.
+ * Seastar histograms have no zero bucket and no negative buckets.
+ */
+static void write_om_native_histogram(buf_t& buf, const metrics::histogram& h) {
+    auto layout = make_native_histogram_layout(h);
+    buf << "{count:";
+    write_om_number(buf, h.sample_count);
+    buf << ",sum:";
+    write_om_number(buf, h.sample_sum);
+    fmt::format_to(buf.back_insert_begin(), FMT_COMPILE(",schema:{},zero_threshold:0,zero_count:0"), h.native_histogram->schema);
+    if (!layout.spans.empty()) {
+        buf << ",positive_spans:[";
+        for (auto& span : layout.spans) {
+            fmt::format_to(buf.back_insert_begin(), FMT_COMPILE("{}:{},"), span.offset, span.length);
+        }
+        buf.pop_back();
+        buf << "],positive_buckets:[";
+        for (auto count : layout.counts) {
+            fmt::format_to(buf.back_insert_begin(), FMT_COMPILE("{},"), count);
+        }
+        buf.pop_back();
+        buf << "]";
+    }
+    buf << "}";
+}
+
+static void write_om_histogram(buf_t& buf, const metrics::histogram& h) {
+    if (h.native_histogram) {
+        write_om_native_histogram(buf, h);
+    } else {
+        write_om_classic_histogram(buf, h);
+    }
+}
+
+// Writes a summary as an OpenMetrics 2.0 composite value: {count:C,sum:S,quantile:[q:v,...]}
+static void write_om_summary(buf_t& buf, const metrics::histogram& h) {
+    buf << "{count:";
+    write_om_number(buf, h.sample_count);
+    buf << ",sum:";
+    write_om_number(buf, h.sample_sum);
+    // the quantile list is required, even when it is empty
+    buf << ",quantile:[";
+    for (auto b : h.buckets) {
+        write_om_number(buf, b.upper_bound);
+        fmt::format_to(buf.back_insert_begin(), FMT_COMPILE(":{},"), b.count);
+    }
+    if (buf.back() == ',') {
+        buf.pop_back();
+    }
+    buf << "]}";
+}
+
+// Writes the exemplars that follow a value: ` # {labels} value timestamp` for each exemplar.
+// Prometheus rejects out of order exemplars, so they are written in timestamp order,
+// and exemplars with the same (millisecond) timestamp in value order, as Prometheus orders them.
+static void write_om_exemplars(buf_t& buf, const std::vector<metrics::exemplar>& exemplars) {
+    auto order = [] (const metrics::exemplar& e) {
+        return std::pair(std::chrono::round<std::chrono::milliseconds>(e.timestamp), e.value);
+    };
+    auto write = [&buf] (const metrics::exemplar& e) {
+        buf << " # {";
+        for (auto& [key, value] : e.labels) {
+            write_om_label_name(buf, key);
+            buf << "=\"";
+            write_escaped(buf, value);
+            buf << "\",";
+        }
+        if (buf.back() == ',') {
+            buf.pop_back();
+        }
+        buf << "} ";
+        write_om_number(buf, e.value);
+        // the timestamp is in seconds since the epoch
+        fmt::format_to(buf.back_insert_begin(), FMT_COMPILE(" {:.3f}"),
+                std::chrono::duration<double>(e.timestamp.time_since_epoch()).count());
+    };
+    if (std::ranges::is_sorted(exemplars, {}, order)) {
+        std::ranges::for_each(exemplars, write);
+        return;
+    }
+    // aggregated histograms have the exemplars of each shard one after the other,
+    // sort pointers to them rather than copying their labels
+    std::vector<const metrics::exemplar*> sorted;
+    sorted.reserve(exemplars.size());
+    for (auto& e : exemplars) {
+        sorted.push_back(&e);
+    }
+    std::ranges::stable_sort(sorted, {}, [&order] (const metrics::exemplar* e) { return order(*e); });
+    for (auto e : sorted) {
+        write(*e);
+    }
+}
+
+static void write_om_value(buf_t& buf, const mi::metric_value& value) {
+    switch (value.type()) {
+    case mi::data_type::HISTOGRAM:
+        write_om_histogram(buf, value.get_histogram());
+        write_om_exemplars(buf, value.get_histogram().exemplars);
+        buf << "\n";
+        break;
+    case mi::data_type::SUMMARY:
+        // OpenMetrics does not define exemplars for summaries and Prometheus drops them,
+        // so they are not written
+        write_om_summary(buf, value.get_histogram());
+        buf << "\n";
+        break;
+    default:
+        write_value_as_string(buf, value);
+    }
+}
+
 details::family_filter_t details::make_family_filter(std::vector<details::name_filter> filters, std::string_view prefix) {
     if (filters.empty()) {
         return [](std::string_view) { return true; };
@@ -910,6 +1174,7 @@ struct write_context {
     const write_body_args args;
 
     future<> write_text_representation();
+    future<> write_openmetrics_representation();
     future<> write_protobuf_representation();
 };
 
@@ -969,6 +1234,54 @@ future<> write_context::write_text_representation() {
     });
 }
 
+future<> write_context::write_openmetrics_representation() {
+    return seastar::async([this] {
+        buf_t s;
+        for (metric_family& metric_family : m) {
+            if (!args.family_filter(metric_family.name())) {
+                continue;
+            }
+            auto name = ctx.prefix + "_" + metric_family.name();
+            bool found = false;
+            metric_aggregate_by_labels aggregated_values(metric_family.metadata().aggregate_labels);
+            bool should_aggregate = args.enable_aggregation && !metric_family.metadata().aggregate_labels.empty();
+            auto write_metadata = [&] (const labels_type& labels) {
+                if (found) {
+                    return;
+                }
+                // OpenMetrics 2.0 only recommends suffixing the name with the unit (and counters
+                // with _total), it does not require it, so metric names are reported unchanged.
+                write_om_metadata(s, name, metric_family.metadata(), get_unit(labels), args.show_help);
+                found = true;
+            };
+            metric_family.foreach_metric([&](const mi::metric_value& value, const mi::metric_series_metadata& value_info) {
+                s.clear();
+                if ((value_info.should_skip_when_empty() && value.is_empty()) || !args.filter(value_info.labels())) {
+                    return;
+                }
+                write_metadata(value_info.labels());
+                if (should_aggregate) {
+                    aggregated_values.add(value, value_info.labels());
+                } else {
+                    write_name_and_labels(s, name, "", value_info.labels(), ctx, no_label{}, true);
+                    write_om_value(s, value);
+                }
+                out.write(s.data(), s.size()).get();
+                thread::maybe_yield();
+            });
+            for (auto&& h : aggregated_values.get_values()) {
+                s.clear();
+                // Labels are already filtered (aggregated labels removed)
+                write_name_and_labels(s, name, "", h.second.labels, ctx, no_label{}, true);
+                write_om_value(s, h.second.m);
+                out.write(s.data(), s.size()).get();
+                thread::maybe_yield();
+            }
+        }
+        out.write("# EOF\n").get();
+    });
+}
+
 future<> write_context::write_protobuf_representation() {
     return do_for_each(m, [this](metric_family& metric_family) mutable {
         if (!args.family_filter(metric_family.name())) {
@@ -1008,16 +1321,68 @@ future<> write_context::write_protobuf_representation() {
     });
 }
 
-bool is_accept_protobuf(const std::string& accept) {
-    std::vector<std::string> strs;
-    boost::split(strs, accept, boost::is_any_of(","));
-    for (auto i : strs) {
-        boost::trim(i);
-        if (boost::starts_with(i, "application/vnd.google.protobuf;")) {
+/*!
+ * \brief Returns the quality of the best entry of an Accept header for a media type
+ *
+ * Media types and parameters are compared in lower case, as they are case-insensitive.
+ * match is called with the trimmed ";" separated parameters of each entry of the media type,
+ * other than q, and decides whether the entry matches. An entry without q has a quality of 1.
+ * Returns 0 when no entry matches, which is also the quality of an entry the client refused (q=0).
+ */
+static double accept_quality(std::string_view accept, std::string_view media_type, std::function<bool(const std::vector<std::string>&)> match) {
+    double best = 0;
+    std::vector<std::string> entries;
+    boost::split(entries, accept, boost::is_any_of(","));
+    for (auto& entry : entries) {
+        std::vector<std::string> params;
+        boost::split(params, entry, boost::is_any_of(";"));
+        for (auto& p : params) {
+            boost::trim(p);
+            boost::to_lower(p);
+            // a parameter value may be a quoted string, version="2.0.0" is version=2.0.0
+            if (auto eq = p.find('='); eq != std::string::npos && p.size() >= eq + 3 && p[eq + 1] == '"' && p.back() == '"') {
+                p = p.substr(0, eq + 1) + p.substr(eq + 2, p.size() - eq - 3);
+            }
+        }
+        if (params.front() != media_type) {
+            continue;
+        }
+        params.erase(params.begin());
+        double q = 1;
+        std::erase_if(params, [&q] (const std::string& p) {
+            if (!p.starts_with("q=")) {
+                return false;
+            }
+            // a quality value is between 0 and 1
+            q = std::clamp(std::strtod(p.c_str() + 2, nullptr), 0.0, 1.0);
             return true;
+        });
+        if (match(params)) {
+            best = std::max(best, q);
         }
     }
-    return false;
+    return best;
+}
+
+double details::protobuf_accept_quality(std::string_view accept) {
+    // the protobuf media type is only meaningful with its parameters
+    return accept_quality(accept, "application/vnd.google.protobuf", [] (const std::vector<std::string>& params) {
+        return !params.empty();
+    });
+}
+
+double details::openmetrics_2_0_accept_quality(std::string_view accept) {
+    return accept_quality(accept, "application/openmetrics-text", [] (const std::vector<std::string>& params) {
+        return std::ranges::find(params, std::string_view("version=2.0.0")) != params.end();
+    });
+}
+
+double details::text_0_0_4_accept_quality(std::string_view accept) {
+    return accept_quality(accept, "text/plain", [] (const std::vector<std::string>& params) {
+        return std::ranges::none_of(params, [] (const std::string& p) {
+            return p.starts_with("version=") && p != "version=0.0.4";
+        });
+    });
 }
 
 class metrics_handler : public httpd::handler_base  {
@@ -1084,14 +1449,24 @@ public:
                 name_filters.push_back({std::move(name), is_prefix});
             }
         }
+        auto accept = req->get_header("Accept");
+        double protobuf_quality = _ctx.allow_protobuf ? details::protobuf_accept_quality(accept) : 0;
+        double openmetrics_quality = details::openmetrics_2_0_accept_quality(accept);
+        // the format the client prefers, protobuf wins a tie
+        bool use_protobuf = protobuf_quality > 0 && protobuf_quality >= openmetrics_quality;
+        // OpenMetrics 2.0 is only used when preferred over the 0.0.4 text format, which wins a tie
+        bool use_openmetrics = !use_protobuf && openmetrics_quality > 0
+                && openmetrics_quality > details::text_0_0_4_accept_quality(accept);
         write_body_args args{
             .filter = make_filter(*req),
             .family_filter = details::make_family_filter(std::move(name_filters), _ctx.prefix),
-            .use_protobuf_format = _ctx.allow_protobuf && is_accept_protobuf(req->get_header("Accept")),
+            .use_protobuf_format = use_protobuf,
             .show_help = req->get_query_param("__help__") != "false",
-            .enable_aggregation = req->get_query_param("__aggregate__") != "false"
+            .enable_aggregation = req->get_query_param("__aggregate__") != "false",
+            .format = use_openmetrics ? text_format::openmetrics_2_0 : text_format::prometheus_0_0_4,
         };
-        rep->write_body(args.use_protobuf_format ? "proto" : "txt", [this, args = std::move(args)](output_stream<char>&& s) {
+        std::string_view content_type = use_protobuf ? "proto" : use_openmetrics ? openmetrics_2_0_content_type : "txt";
+        rep->write_body(content_type, [this, args = std::move(args)](output_stream<char>&& s) {
             return write_body(std::move(args), std::move(s));
         });
         return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
@@ -1103,6 +1478,7 @@ private:
         auto s = std::move(out_stream);
         auto families = co_await get_map_value();
         bool use_protobuf = args.use_protobuf_format;
+        auto format = args.format;
 
         write_context context{
             .out = s,
@@ -1111,8 +1487,16 @@ private:
             .args = std::move(args)
         };
 
-        co_return co_await (use_protobuf ? context.write_protobuf_representation() : context.write_text_representation())
-                .finally([&s] { return s.close(); });
+        auto write = [&] {
+            if (use_protobuf) {
+                return context.write_protobuf_representation();
+            }
+            if (format == text_format::openmetrics_2_0) {
+                return context.write_openmetrics_representation();
+            }
+            return context.write_text_representation();
+        };
+        co_return co_await write().finally([&s] { return s.close(); });
     }
 
     friend details::test_access;

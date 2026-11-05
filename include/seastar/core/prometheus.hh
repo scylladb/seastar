@@ -58,6 +58,14 @@ struct config {
     bool allow_protobuf = false; // protobuf support is experimental and off by default
 };
 
+/*!
+ * \brief The text exposition format used when serializing the metrics
+ */
+enum class text_format : uint8_t {
+    prometheus_0_0_4, //!< The classic Prometheus text format (text/plain; version=0.0.4)
+    openmetrics_2_0,  //!< The OpenMetrics 2.0 text format (application/openmetrics-text; version=2.0.0)
+};
+
 future<> start(httpd::http_server_control& http_server, config ctx);
 
 /// \defgroup add_prometheus_routes adds a /metrics endpoint that returns prometheus metrics
@@ -89,7 +97,22 @@ struct write_body_args {
     bool use_protobuf_format;
     bool show_help;
     bool enable_aggregation;
+    text_format format = text_format::prometheus_0_0_4; // only used when use_protobuf_format is false
 };
+
+// Returns the quality (the q parameter, 1 when absent) with which the Accept header
+// asks for the protobuf format (application/vnd.google.protobuf), or 0 if it does not.
+double protobuf_accept_quality(std::string_view accept);
+
+// Returns the quality (the q parameter, 1 when absent) with which the Accept header
+// asks for the OpenMetrics 2.0 text format, i.e. an "application/openmetrics-text"
+// media type with a "version=2.0.0" parameter, or 0 if it does not.
+double openmetrics_2_0_accept_quality(std::string_view accept);
+
+// Returns the quality (the q parameter, 1 when absent) with which the Accept header
+// asks for the 0.0.4 text format, i.e. a "text/plain" media type without a version
+// or with a "version=0.0.4" parameter, or 0 if it does not.
+double text_0_0_4_accept_quality(std::string_view accept);
 
 class test_access {
     future<> write_body(config cfg, write_body_args args, output_stream<char>&& s);

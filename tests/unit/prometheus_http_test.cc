@@ -48,20 +48,36 @@ public:
     }
 };
 
-// Issue a GET to `path` and return the full response body as a string.
-std::string get_metrics_body(loopback_connection_factory& lcf, const sstring& path) {
-    auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
+struct metrics_response {
+    sstring content_type;
     std::string body;
-    cln.make_request(http::request::make("GET", "test", path),
-        [&body] (const http::reply& rep, input_stream<char>&& in) {
+};
+
+// Issue a GET to `path` with an optional Accept header and return the
+// response Content-Type and the full response body as a string.
+metrics_response get_metrics_response(loopback_connection_factory& lcf, const sstring& path, const sstring& accept = "") {
+    auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
+    metrics_response res;
+    auto req = http::request::make("GET", "test", path);
+    if (!accept.empty()) {
+        req._headers["Accept"] = accept;
+    }
+    cln.make_request(std::move(req),
+        [&res] (const http::reply& rep, input_stream<char>&& in) {
             BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::ok);
-            return seastar::async([&body, in = std::move(in)] () mutable {
-                body = util::read_entire_stream_contiguous(in).get();
+            res.content_type = rep.get_header("Content-Type");
+            return seastar::async([&res, in = std::move(in)] () mutable {
+                res.body = util::read_entire_stream_contiguous(in).get();
                 in.close().get();
             });
         }, http::reply::status_type::ok).get();
     cln.close().get();
-    return body;
+    return res;
+}
+
+// Issue a GET to `path` and return the full response body as a string.
+std::string get_metrics_body(loopback_connection_factory& lcf, const sstring& path) {
+    return get_metrics_response(lcf, path).body;
 }
 
 struct test_metrics {
@@ -171,4 +187,87 @@ SEASTAR_TEST_CASE(test_prometheus_multiple_name_filters) {
         client.get();
         server.stop().get();
     });
+}
+
+namespace {
+
+constexpr auto openmetrics_accept = "application/openmetrics-text; version=2.0.0";
+
+// Returns the Content-Type and body of a /metrics request with the given Accept header,
+// served by a prometheus handler configured with `ctx`.
+future<metrics_response> get_metrics_with_accept(prometheus::config ctx, sstring accept) {
+    test_metrics metrics;
+    metrics.setup_metrics();
+
+    co_return co_await seastar::async([ctx, accept] {
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+        add_prometheus_routes(server, ctx).get();
+
+        future<metrics_response> client = seastar::async([&lcf, accept] {
+            return get_metrics_response(lcf, "/metrics?__name__=aaaa*", accept);
+        });
+
+        server.do_accepts(0).get();
+        auto res = client.get();
+        server.stop().get();
+        return res;
+    });
+}
+
+}
+
+SEASTAR_TEST_CASE(test_prometheus_openmetrics_2_0) {
+    auto res = co_await get_metrics_with_accept({}, openmetrics_accept);
+    BOOST_REQUIRE_EQUAL(res.content_type, "application/openmetrics-text; version=2.0.0; charset=utf-8");
+    BOOST_REQUIRE(res.body.ends_with("# EOF\n"));
+    for (auto expected : {
+            R"(# TYPE seastar_aaaa_counter_test counter)" "\n"
+            R"(# HELP seastar_aaaa_counter_test test with a long counter value)" "\n"
+            R"(seastar_aaaa_counter_test{shard="0"} 1234567654321)" "\n",
+            R"(seastar_aaaa_escaped_label_value_test{shard="0",somekey="special\"\\nvalue"} 10.000000)" "\n"}) {
+        BOOST_REQUIRE_MESSAGE(res.body.find(expected) != std::string::npos,
+            fmt::format("cannot find: {}\nResponse: {}\n", expected, res.body));
+    }
+}
+
+SEASTAR_TEST_CASE(test_prometheus_openmetrics_2_0_preferred_over_protobuf) {
+    // The client's preference decides between OpenMetrics 2.0 and protobuf, like a Prometheus
+    // whose scrape_protocols list OpenMetricsText2.0.0 before PrometheusProto
+    prometheus::config ctx;
+    ctx.allow_protobuf = true;
+    auto res = co_await get_metrics_with_accept(ctx,
+            "application/openmetrics-text;version=2.0.0;q=0.5,"
+            "application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited;q=0.4,"
+            "text/plain;version=0.0.4;q=0.3");
+    BOOST_REQUIRE_EQUAL(res.content_type, "application/openmetrics-text; version=2.0.0; charset=utf-8");
+    res = co_await get_metrics_with_accept(ctx,
+            "application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited;q=0.5,"
+            "application/openmetrics-text;version=2.0.0;q=0.4");
+    BOOST_REQUIRE_EQUAL(res.content_type, "application/vnd.google.protobuf; proto=io.prometheus.client.MetricFamily; encoding=delimited");
+}
+
+SEASTAR_TEST_CASE(test_prometheus_text_0_0_4_preferred_over_openmetrics_2_0) {
+    // Like a Prometheus whose scrape_protocols list PrometheusText0.0.4 before OpenMetricsText2.0.0
+    auto res = co_await get_metrics_with_accept({},
+            "text/plain;version=0.0.4;q=0.5,"
+            "application/openmetrics-text;version=2.0.0;q=0.4");
+    BOOST_REQUIRE_EQUAL(res.content_type, "text/plain");
+    BOOST_REQUIRE(!res.body.ends_with("# EOF\n"));
+    // and a tie keeps the 0.0.4 text format
+    res = co_await get_metrics_with_accept({}, "application/openmetrics-text;version=2.0.0,text/plain");
+    BOOST_REQUIRE_EQUAL(res.content_type, "text/plain");
+    // OpenMetrics 2.0 preferred over text
+    res = co_await get_metrics_with_accept({},
+            "application/openmetrics-text;version=2.0.0;q=0.5,"
+            "text/plain;version=0.0.4;q=0.4");
+    BOOST_REQUIRE_EQUAL(res.content_type, "application/openmetrics-text; version=2.0.0; charset=utf-8");
+}
+
+SEASTAR_TEST_CASE(test_prometheus_openmetrics_2_0_not_requested) {
+    // A request that does not ask for OpenMetrics gets the 0.0.4 text format
+    auto res = co_await get_metrics_with_accept({}, "text/plain; version=0.0.4");
+    BOOST_REQUIRE_EQUAL(res.content_type, "text/plain");
+    BOOST_REQUIRE(!res.body.ends_with("# EOF\n"));
 }

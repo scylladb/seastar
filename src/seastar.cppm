@@ -725,6 +725,7 @@ using seastar::metrics::collector_projection;
 using seastar::metrics::collector_ptr;
 using seastar::metrics::description;
 using seastar::metrics::double_registration;
+using seastar::metrics::exemplar;
 using seastar::metrics::get_relabel_configs;
 using seastar::metrics::histogram;
 using seastar::metrics::histogram_bucket;
@@ -816,6 +817,7 @@ export namespace seastar::prometheus {
 using seastar::prometheus::add_prometheus_routes;
 using seastar::prometheus::config;
 using seastar::prometheus::start;
+using seastar::prometheus::text_format;
 
 }
 
