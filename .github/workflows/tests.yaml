@@ -42,6 +42,8 @@ jobs:
           - {compiler: g++-16, standard: 23, arch: x86, mode: release, reactor-backend: linux-aio, options: --without-tests --without-apps, install-test: true, info: 'install, '}
           - {compiler: clang++-22, standard: 23, arch: x86, mode: release, reactor-backend: linux-aio, enables: --enable-import-fmt, options: --without-tests --without-apps, enable-ccache: false, install-test: true, info: 'fmt module, '}
           - {compiler: clang++-22, standard: 23, arch: x86, mode: fuzz, reactor-backend: linux-aio, test-args: -- -R 'Seastar.fuzz.'}
+          - {compiler: clang++-22, standard: 23, arch: x86, mode: debug, reactor-backend: linux-aio, options: --tls-mode=both, info: 'dual-tls, '}
+          - {compiler: clang++-22, standard: 23, arch: x86, mode: debug, reactor-backend: linux-aio, options: --tls-mode=openssl, info: 'openssl-tls, '}
     with:
       compiler: ${{ matrix.compiler }}
       standard: ${{ matrix.standard }}

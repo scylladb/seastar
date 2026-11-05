@@ -203,6 +203,24 @@ SPECIAL_ITEMS: list[dict[str, Any]] = [
         "reactor-backend": "linux-aio",
         "test-args": "-- -R 'Seastar.fuzz.'",
     },
+    {
+        "compiler": "clang++-22",
+        "standard": 23,
+        "arch": "x86",
+        "mode": "debug",
+        "reactor-backend": "linux-aio",
+        "options": "--tls-mode=both",
+        "info": "dual-tls, ",
+    },
+    {
+        "compiler": "clang++-22",
+        "standard": 23,
+        "arch": "x86",
+        "mode": "debug",
+        "reactor-backend": "linux-aio",
+        "options": "--tls-mode=openssl",
+        "info": "openssl-tls, ",
+    },
 ]
 
 def _build_include(items: list[dict[str, Any]]) -> CommentedSeq:
