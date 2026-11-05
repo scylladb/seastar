@@ -834,24 +834,30 @@ auto tcp<InetTraits>::listen(uint16_t port, size_t queue_length) -> listener {
 
 template <typename InetTraits>
 auto tcp<InetTraits>::connect(socket_address sa) -> connection {
-    connid id;
     auto src_ip = _inet._inet.host_address();
     auto dst_ip = ipv4_address(sa);
     auto dst_port = net::ntoh(sa.u.in.sin_port);
+    auto first_port = _port_dist.min();
+    auto nr_ports = unsigned(_port_dist.max()) - first_port + 1;
+    auto start = unsigned(_port_dist(_e)) - first_port;
 
-    if (this_smp_shard_count() > 1) {
-        do {
-            id = connid{src_ip, dst_ip, _port_dist(_e), dst_port};
-        } while (_inet._inet.netif()->hash2cpu(id.hash(_inet._inet.netif()->rss_key())) != this_shard_id()
-                 || _tcbs.find(id) != _tcbs.end());
-    } else {
-        id = connid{src_ip, dst_ip, _port_dist(_e), dst_port};
+    for (unsigned offset = 0; offset < nr_ports; ++offset) {
+        auto src_port = uint16_t(first_port + (start + offset) % nr_ports);
+        auto id = connid{src_ip, dst_ip, src_port, dst_port};
+        if (_tcbs.find(id) != _tcbs.end()) {
+            continue;
+        }
+        if (this_smp_shard_count() > 1
+                && _inet._inet.netif()->hash2cpu(id.hash(_inet._inet.netif()->rss_key())) != this_shard_id()) {
+            continue;
+        }
+
+        auto tcbp = make_lw_shared<tcb>(*this, id);
+        _tcbs.emplace(id, tcbp);
+        tcbp->connect();
+        return connection(tcbp);
     }
-
-    auto tcbp = make_lw_shared<tcb>(*this, id);
-    _tcbs.insert({id, tcbp});
-    tcbp->connect();
-    return connection(tcbp);
+    throw tcp_error(EADDRNOTAVAIL);
 }
 
 template <typename InetTraits>

@@ -137,10 +137,12 @@ public:
         // FIXME: local is ignored since native stack does not support multiple IPs yet
         SEASTAR_ASSERT(sa.as_posix_sockaddr().sa_family == AF_INET);
 
-        _conn = make_lw_shared<typename Protocol::connection>(_proto.connect(sa));
-        return _conn->connected().then([conn = _conn]() mutable {
-            auto csi = std::make_unique<native_connected_socket_impl<Protocol>>(std::move(conn));
-            return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
+        return futurize_invoke([this, sa] {
+            _conn = make_lw_shared<typename Protocol::connection>(_proto.connect(sa));
+            return _conn->connected().then([conn = _conn]() mutable {
+                auto csi = std::make_unique<native_connected_socket_impl<Protocol>>(std::move(conn));
+                return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
+            });
         });
     }
 
