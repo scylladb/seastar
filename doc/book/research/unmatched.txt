@@ -1,0 +1,55 @@
+# Identifiers used >=3 times in ScyllaDB or Redpanda that PLAN.md does not mention literally.
+# Columns: scylla redpanda name where. Generic words (apply, impl, hash, swap, ...) are false matches;
+# the rest are covered under a parent topic in the plan (see PLAN.md section 1b).
+   162   1528 blob                               typedef:seastar::tls:net/tls.hh
+   461    303 validate                           prototype:seastar::program_options:util/program-options.hh
+   433    167 fragment                           struct:seastar::net:net/packet.hh
+   241    284 scheduling_group                   class:seastar:core/scheduling.hh
+   247      0 stream_id                          typedef:seastar:core/io_queue.hh
+     3    232 error_category                     prototype:seastar::net::dns:net/dns.hh ; prototype:seastar::tls:net/tls.hh
+     0    180 PERF_TEST_CN                       macro::testing/perf_tests.hh
+    62      0 id_type                            typedef:seastar::rpc:rpc/rpc.hh
+     8     49 cpu_to_le                          function:seastar:core/byteorder.hh
+     0     47 PERF_TEST_C                        macro::testing/perf_tests.hh
+     0     39 handler_t                          typedef:seastar::experimental::websocket:websocket/common.hh
+    38     31 backtrace                          function:seastar:util/backtrace.hh
+    37      6 futurator                          typedef:seastar:core/loop.hh
+    35      0 ntoh                               function:seastar::net:net/byteorder.hh ; function:seastar::net:net/tcp.hh
+    32      0 hton                               function:seastar::net:net/byteorder.hh ; function:seastar::net:net/tcp.hh
+    29     24 packed                             typedef:seastar::net:net/byteorder.hh
+    27      0 alignof                            macro::util/eclipse.hh
+    24      0 read_le                            function:seastar:core/byteorder.hh
+    21      0 write_be                           function:seastar:core/byteorder.hh
+     0     21 parse_config                       prototype:seastar::net:net/config.hh
+    20      0 frame_header                       struct:seastar::experimental::websocket:websocket/parser.hh
+    18     12 format_as                          prototype:seastar::tls:net/tls.hh
+     1     18 basic_rwlock                       class:seastar:core/rwlock.hh
+    16      8 be_to_cpu                          function:seastar:core/byteorder.hh
+    16      0 simple_output_stream               typedef:seastar:core/simple-stream.hh
+    15      0 api_doc                            struct:seastar::httpd:http/api_docs.hh
+    14      4 list_base_hook                     typedef:seastar::program_options:util/program-options.hh
+     5     13 le_to_cpu                          function:seastar:core/byteorder.hh
+    11      2 tls_options                        struct:seastar::tls:net/tls.hh
+     2     10 free_deleter                       struct:seastar:core/aligned_buffer.hh
+     9      0 simple_input_stream                typedef:seastar:core/simple-stream.hh
+     9      0 opt_family                         typedef:seastar::net:net/dns.hh
+     3      8 basic_sstring                      class:seastar:core/sstring.hh
+     2      8 broken_named_semaphore             class:seastar:core/semaphore.hh
+     7      5 saved_backtrace                    typedef:seastar:util/backtrace.hh
+     7      0 api_registry_builder               class:seastar::httpd:http/api_docs.hh
+     3      7 exception_type                     enum:seastar::rpc:rpc/rpc_impl.hh
+     0      7 range_format_kind                  struct:fmt:core/sstring.hh
+     6      1 named_semaphore_timed_out          class:seastar:core/semaphore.hh
+     0      6 str_len                            function:seastar:core/sstring.hh
+     0      6 group_name_type                    typedef:seastar::metrics:core/metrics_registration.hh
+     5      1 read_entire_file_contiguous        prototype:seastar::util:util/file.hh
+     5      0 set_iterator                       class:seastar::bitsets:core/bitset-iter.hh
+     5      0 memory_input_stream                class:seastar:core/simple-stream.hh
+     4      2 tuple_size                         struct:std:rpc/rpc_types.hh
+     4      0 reducer_traits                     struct:seastar:core/map_reduce.hh
+     4      0 make_sstring                       function:seastar:core/sstring.hh
+     3      0 type2str                           prototype:seastar::httpd:http/common.hh
+     3      0 shared_ptr_value_hash              typedef:seastar:core/shared_ptr.hh
+     3      0 shared_ptr_equal_by_value          typedef:seastar:core/shared_ptr.hh
+     3      0 metric_relabeling_result           struct:seastar::metrics:core/metrics_api.hh
+     2      3 named_semaphore_aborted            class:seastar:core/semaphore.hh

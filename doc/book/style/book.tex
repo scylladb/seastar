@@ -1,0 +1,35 @@
+% LaTeX additions for the book, included in the preamble by tools/build.py.
+\usepackage{microtype}
+\KOMAoptions{headings=standardclasses,open=any}
+\addtokomafont{disposition}{\rmfamily\bfseries}
+\addtokomafont{chapter}{\Huge}
+\usepackage[automark]{scrlayer-scrpage}
+\pagestyle{scrheadings}
+\clearpairofpagestyles
+\ohead{\pagemark}
+% Left pages show the chapter. Right pages show the section in force at the
+% top of the page, rather than LaTeX's default, the first section that
+% starts on the page, which may begin only in its last lines.
+% tools/bookfilter.py places each section's mark at the end of the text
+% before its heading, ahead of the point where a page break can come, so
+% that a section starting at the very top of a page names that page too.
+% Before the first section of a chapter, show the chapter.
+\rehead{\leftmark}
+\lohead{\Ifstr{\righttopmark}{}{\leftmark}{\righttopmark}}
+\setkomafont{pageheadfoot}{\normalfont\small\itshape}
+% Code blocks: light gray background, slightly smaller monospace font.
+\usepackage{xcolor}
+\definecolor{shadecolor}{gray}{0.95}
+\usepackage{framed}
+% Wrap code lines that are too long for the page, marking the break with an
+% arrow. Code blocks without a language are shaded like highlighted ones.
+\usepackage{fvextra}
+\fvset{breaklines=true}
+\makeatletter
+\@ifundefined{Shaded}{}{\renewenvironment{Shaded}{\begin{snugshade}\small}{\end{snugshade}}}
+\@ifundefined{Highlighting}{}{%
+  \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\},breaklines=true}}
+\makeatother
+\renewenvironment{verbatim}
+  {\VerbatimEnvironment\begin{snugshade}\small\begin{Verbatim}[breaklines=true]}
+  {\end{Verbatim}\end{snugshade}}
