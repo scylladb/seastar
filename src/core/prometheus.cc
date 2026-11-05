@@ -255,13 +255,16 @@ static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::labels_type & 
     mt->mutable_label()->Reserve(id.size() + 1);
     if (ctx.label) {
         auto label = mt->add_label();
-        label->set_name(std::string(ctx.label->key()));
-        label->set_value(std::string(ctx.label->value()));
+        const auto& key = ctx.label->key();
+        const auto& val = ctx.label->value();
+        label->mutable_name()->assign(key.data(), key.size());
+        label->mutable_value()->assign(val.data(), val.size());
     }
     for (auto && [name, value] : id) {
         auto label = mt->add_label();
-        label->set_name(std::string(name));
-        label->set_value(std::string(value.value()));
+        label->mutable_name()->assign(name.data(), name.size());
+        const auto& val = value.value();
+        label->mutable_value()->assign(val.data(), val.size());
     }
     return mt;
 }
@@ -970,18 +973,27 @@ future<> write_context::write_text_representation() {
 }
 
 future<> write_context::write_protobuf_representation() {
-    return do_for_each(m, [this](metric_family& metric_family) mutable {
+    // do_for_each is sequential and write_context is per-request, so buffer and message are reused.
+    // Clear() retains the message's strings and its repeated Metric elements, but each Metric's typed
+    // payload (gauge/counter/histogram) is freed and re-created per family. Reserve() doubles and never
+    // shrinks, so peak memory can hold at ~2x the largest family until the scrape ends.
+    std::string s;
+    pm::MetricFamily mtf;
+    co_await do_for_each(m, [this, &s, &mtf](metric_family& metric_family) {
         if (!args.family_filter(metric_family.name())) {
             return make_ready_future<>();
         }
-        std::string s;
+        s.clear();
         google::protobuf::io::StringOutputStream os(&s);
         metric_aggregate_by_labels aggregated_values(metric_family.metadata().aggregate_labels);
         bool should_aggregate = args.enable_aggregation && !metric_family.metadata().aggregate_labels.empty();
         auto& name = metric_family.name();
-        pm::MetricFamily mtf;
+        // Clear() clears each retained Metric in place; the Add()s below then reuse those elements
+        // without clearing them, so mtf must always be cleared here first - no AddAllocated() or
+        // ReleaseLast() on mtf.
+        mtf.Clear();
         bool empty_metric = true;
-        mtf.set_name(fmt::format("{}_{}", ctx.prefix, name));
+        fmt::format_to(std::back_inserter(*mtf.mutable_name()), FMT_COMPILE("{}_{}"), ctx.prefix, name);
         mtf.mutable_metric()->Reserve(metric_family.size());
         metric_family.foreach_metric([this, &mtf, &aggregated_values, &empty_metric, should_aggregate](const auto& value, const auto& value_info) {
             if ((value_info.should_skip_when_empty() && value.is_empty()) || !args.filter(value_info.labels())) {
