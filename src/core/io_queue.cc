@@ -23,6 +23,7 @@
 #include <chrono>
 #include <concepts>
 #include <cstdint>
+#include <deque>
 #include <mutex>
 #include <utility>
 #include <seastar/core/internal/fmt.hh>
@@ -114,6 +115,100 @@ void io_throttler::maybe_replenish_capacity(clock_type::time_point& local_ts) no
 
 auto io_throttler::capacity_deficiency(capacity_t from) const noexcept -> capacity_t {
     return _token_bucket.deficiency(from);
+}
+
+// How many buckets a group has, one per direction of a duplex disk, and the
+// capacity it took out of them
+struct io_group::budget_use {
+    const unsigned buckets;
+    std::atomic<uint64_t> sent = 0;
+};
+
+// What the groups of one disk share: the correction of the disk's configured
+// rates, a factor c in (0, 1]. Every queue of the disk makes its requests cost
+// 1/c times more than the configured rates say, as if those rates were c
+// times lower, so all groups of the disk scale down together.
+//
+// Every queue of the disk adds what it measured to the counters below, the
+// time in the disk once per averaging tick and what it sent as it sends it.
+// The queue that takes the lock when a period has passed runs regulate(), the
+// only writer of the correction.
+struct io_group::disk_state {
+    std::atomic<double> rate_correction = 1.0;
+    std::atomic<uint64_t> completed = 0;
+    std::atomic<uint64_t> time_in_disk_us = 0;
+
+    util::spinlock lock;
+    std::deque<budget_use> groups;
+    io_queue::clock_type::time_point last_run = io_queue::clock_type::now();
+    double prev_latency = 0.0;
+    unsigned probes = 0;
+    unsigned room = 0;
+    bool warned = false;
+
+    void regulate(const io_queue::config& cfg, io_queue::clock_type::time_point now) noexcept;
+};
+
+// Down every period while requests queue in the disk: above the threshold it
+// holds a deeper queue than the scheduler tolerates, and a time shorter than
+// in the previous period means it is already working that queue off.
+//
+// Up every cycle in which the disk had room while it was given all the
+// corrected rates. The rates are split between the groups statically, so the
+// disk is given all of them only while every group sends nearly all that its
+// buckets let through; a group that sends less, because its load is light or
+// its reactor is busy, leaves the disk with less, and a short time in the disk
+// then shows nothing about the rest.
+void io_group::disk_state::regulate(const io_queue::config& cfg, io_queue::clock_type::time_point now) noexcept {
+    const std::chrono::duration<double> elapsed = now - last_run;
+    if (elapsed < cfg.rate_correction_period) {
+        return;
+    }
+    last_run = now;
+
+    const double threshold = cfg.disk_latency_threshold.count();
+    double old = rate_correction.load(std::memory_order_relaxed);
+    double c = old;
+    auto nr = completed.exchange(0, std::memory_order_relaxed);
+    double latency = nr ? time_in_disk_us.exchange(0, std::memory_order_relaxed) * 1e-6 / nr : 0.0;
+    if (nr) {
+        if (latency > 2 * threshold || (latency > threshold && latency >= prev_latency)) {
+            c = std::max(c - cfg.rate_correction_step, cfg.rate_correction_min);
+        }
+        prev_latency = latency;
+    }
+
+    // A group sends all its share of the corrected rates, up to the noise of
+    // measuring it, while it takes this much of what its buckets let through
+    constexpr double full_use = 0.97;
+    bool all_used = true;
+    for (auto& g : groups) {
+        all_used &= io_throttler::capacity_tokens(g.sent.exchange(0, std::memory_order_relaxed)) >= full_use * g.buckets * elapsed.count();
+    }
+    probes++;
+    room += all_used && nr && latency < threshold / 2;
+
+    if (probes >= cfg.rate_correction_cycle / cfg.rate_correction_period) {
+        if (room * 10 >= probes * 9) {
+            c = std::min(c + cfg.rate_correction_step, 1.0);
+        }
+        probes = room = 0;
+    }
+
+    if (c != old) {
+        io_log.debug("{}: rate correction {:.3f} -> {:.3f}, requests spent {:.2f}ms in the disk", cfg.mountpoint, old, c, latency * 1e3);
+        rate_correction.store(c, std::memory_order_relaxed);
+    }
+    // A disk that keeps up with less than this share of its configured rates
+    // is reported once, until its correction is back at 1.0
+    constexpr double warning_level = 0.9;
+    if (c < warning_level && !warned) {
+        io_log.warn("Disk {} does not keep up with its configured rates (requests spend {:.1f}ms in it), they are corrected down to {:.0f}%",
+                cfg.mountpoint, latency * 1e3, c * 100);
+        warned = true;
+    } else if (c == 1.0) {
+        warned = false;
+    }
 }
 
 struct io_group::priority_class_data {
@@ -392,6 +487,7 @@ public:
     fair_queue_entry::capacity_t capacity() const noexcept { return _fq_capacity; }
     stream_id stream() const noexcept { return _stream; }
     uint64_t polls() const noexcept { return _dispatched_polls; }
+    io_queue::clock_type::time_point dispatched_at() const noexcept { return _ts; }
 };
 
 class queued_io_request : private internal::io_request {
@@ -660,10 +756,35 @@ void io_queue::lower_stall_threshold() noexcept {
     _stall_threshold = std::max(_stall_threshold_min, new_threshold);
 }
 
+// Adds this queue's measurements to the disk's, runs the regulator unless
+// another queue does, and takes the disk's correction until the next tick
+void io_queue::update_rate_correction(clock_type::time_point now) noexcept {
+    const auto& cfg = get_config();
+    auto& disk = *_group->_disk;
+    if (cfg.disk_latency_threshold.count() > 0) {
+        disk.completed.fetch_add(std::exchange(_completed_in_disk, 0), std::memory_order_relaxed);
+        disk.time_in_disk_us.fetch_add(std::exchange(_time_in_disk_us, 0), std::memory_order_relaxed);
+        _group->_budget_use->sent.fetch_add(std::exchange(_sent, 0), std::memory_order_relaxed);
+        if (disk.lock.try_lock()) {
+            disk.regulate(cfg, now);
+            disk.lock.unlock();
+        }
+    }
+    _rate_correction = disk.rate_correction.load(std::memory_order_relaxed);
+}
+
 void
 io_queue::complete_request(io_desc_read_write& desc, std::chrono::duration<double> delay) noexcept {
     _requests_executing--;
     _requests_completed++;
+    // A failed request comes with no delay and does not count. The others
+    // count their time in the disk up to prev_poll_time() only: the rest of
+    // the delay may be the reactor's own, a long task or a stall.
+    if (delay.count() > 0) {
+        auto in_disk = engine().prev_poll_time() - desc.dispatched_at();
+        _completed_in_disk++;
+        _time_in_disk_us += std::max<int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(in_disk).count(), 0);
+    }
 
     if (delay > _stall_threshold) {
         _stall_threshold *= 2;
@@ -688,6 +809,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     , _averaging_decay_timer([this] {
         update_flow_ratio();
         lower_stall_threshold();
+        update_rate_correction(clock_type::now());
     })
     , _stall_threshold_min(std::max(get_config().stall_threshold, 1ms))
     , _stall_threshold(_stall_threshold_min)
@@ -714,6 +836,15 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
                     sm::description("Ratio of dispatch rate to completion rate. Is expected to be 1.0+ growing larger on reactor stalls or (!) disk problems"),
                     { owner_l, mnt_l, group_l }),
         });
+        // The correction belongs to the disk, and every shard has a queue for
+        // every disk, so the queue of shard 0 exports it for the disk
+        if (this_shard_id() == 0) {
+            _metric_groups.add_group("io_queue", {
+                sm::make_gauge("rate_correction", [this] { return _group->_disk->rate_correction.load(std::memory_order_relaxed); },
+                        sm::description("Factor the configured rates of the disk are corrected by, 1.0 while the disk keeps up with them"),
+                        { mnt_l }),
+            });
+        }
     }
 }
 
@@ -734,14 +865,19 @@ std::chrono::duration<double> io_group::io_latency_goal() const noexcept {
     return _fgs.front().rate_limit_duration();
 }
 
-io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
+io_group::io_group(io_queue::config io_cfg, unsigned nr_queues, const io_group* peer)
     : _config(std::move(io_cfg))
     , _allocated_on(this_shard_id())
+    , _disk(peer ? peer->_disk : std::make_shared<disk_state>())
 {
     auto throttler_config = configure_throttler(_config);
     _fgs.emplace_back(throttler_config, nr_queues);
     if (_config.duplex) {
         _fgs.emplace_back(throttler_config, nr_queues);
+    }
+    {
+        std::lock_guard _(_disk->lock);
+        _budget_use = &_disk->groups.emplace_back(unsigned(_fgs.size()));
     }
 
     auto goal = io_latency_goal();
@@ -1009,12 +1145,15 @@ double internal::request_tokens(io_direction_and_length dnl, const io_queue::con
 fair_queue_entry::capacity_t io_queue::request_capacity(io_direction_and_length dnl) const noexcept {
     const auto& cfg = get_config();
     auto tokens = internal::request_tokens(dnl, cfg);
-    if (_flow_ratio <= cfg.flow_ratio_backpressure_threshold) {
+    // The flow ratio backpressure and the disk's rate correction both make
+    // requests cost more than the configured rates say, the stronger one wins
+    auto scale = std::max(_flow_ratio > cfg.flow_ratio_backpressure_threshold ? _flow_ratio : 1.0, 1.0 / _rate_correction);
+    if (scale == 1.0) {
         return _streams[request_stream(dnl)].out.tokens_capacity(tokens);
     }
 
     auto stream = request_stream(dnl);
-    auto cap = _streams[stream].out.tokens_capacity(tokens * _flow_ratio);
+    auto cap = _streams[stream].out.tokens_capacity(tokens * scale);
     auto max_cap = _streams[stream].out.maximum_capacity();
     return std::min(cap, max_cap);
 }
@@ -1170,6 +1309,7 @@ void io_queue::poll_io_queue() {
             }
 
             st.fq.pop_front();
+            _sent += ent->capacity();
             queued_io_request::from_fq_entry(*ent).dispatch();
         }
 
@@ -1181,6 +1321,12 @@ void io_queue::poll_io_queue() {
         // unpleasant (it can bloat the bucket beyond its size limit, and its hard to write a correct
         // countermeasure for that), so we just discard the tokens. There's no harm in it, IO cancellation
         // can't have resource-saving guarantees anyway.
+    }
+
+    // What the queue sent goes to its group a grab at a time, not once per
+    // tick, so that the regulator reads what the group sent in its own period
+    if (_sent >= _streams[0].out.per_tick_grab_threshold() && get_config().disk_latency_threshold.count() > 0) {
+        _group->_budget_use->sent.fetch_add(std::exchange(_sent, 0), std::memory_order_relaxed);
     }
 
     for (auto& pc : _priority_classes) {
