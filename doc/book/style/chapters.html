@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+$-- Template for the HTML edition with a page for each part and chapter
+$-- (Pandoc's chunkedhtml), used by tools/build.py. Every page has links to
+$-- the previous and next pages and to the contents, at its top and bottom;
+$-- the left and right arrow keys follow them too. tools/build.py then puts
+$-- chapter numbers into the links' text and the page titles.
+<html xmlns="http://www.w3.org/1999/xhtml" lang="$lang$" xml:lang="$lang$"$if(dir)$ dir="$dir$"$endif$>
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+$for(author-meta)$
+  <meta name="author" content="$author-meta$" />
+$endfor$
+  <title>$pagetitle$</title>
+$if(previous.url)$
+  <link rel="prev" href="$previous.url$" />
+$endif$
+$if(next.url)$
+  <link rel="next" href="$next.url$" />
+$endif$
+  <style>
+    $styles.html()$
+  </style>
+$for(css)$
+  <link rel="stylesheet" href="$css$" />
+$endfor$
+  <script>
+    document.addEventListener('keydown', function (e) {
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      var rel = {ArrowLeft: 'prev', ArrowRight: 'next'}[e.key];
+      var link = rel && document.querySelector('link[rel="' + rel + '"]');
+      if (link) window.location.href = link.href;
+    });
+  </script>
+</head>
+<body>
+<nav class="pagenav" aria-label="Pages">
+<span class="pagenav-prev">$if(previous.url)$<a href="$previous.url$" accesskey="p">$previous.title$</a>$endif$</span>
+<span class="pagenav-contents">$if(top)$<a href="$top.url$" accesskey="t">Contents</a>$endif$</span>
+<span class="pagenav-next">$if(next.url)$<a href="$next.url$" accesskey="n">$next.title$</a>$endif$</span>
+</nav>
+<main>
+$if(top)$
+$else$
+<header id="title-block-header">
+<h1 class="title">$title$</h1>
+$if(subtitle)$
+<p class="subtitle">$subtitle$</p>
+$endif$
+$for(author)$
+<p class="author">$author$</p>
+$endfor$
+$if(date)$
+<p class="date">$date$</p>
+$endif$
+</header>
+$if(toc)$
+<nav id="$idprefix$TOC" role="doc-toc">
+<h2 id="$idprefix$toc-title">Contents</h2>
+$table-of-contents$
+</nav>
+$endif$
+$endif$
+$body$
+</main>
+<nav class="pagenav pagenav-bottom" aria-label="Pages">
+<span class="pagenav-prev">$if(previous.url)$<a href="$previous.url$">$previous.title$</a>$endif$</span>
+<span class="pagenav-contents">$if(top)$<a href="$top.url$">Contents</a>$endif$</span>
+<span class="pagenav-next">$if(next.url)$<a href="$next.url$">$next.title$</a>$endif$</span>
+</nav>
+</body>
+</html>

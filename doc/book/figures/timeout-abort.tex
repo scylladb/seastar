@@ -1,0 +1,58 @@
+% Figure for chapter 9, "Abort sources": timeouts.cc's two ways to give up
+% after 20 ms. with_timeout() stops the caller's waiting, but the operation
+% runs on until 100 ms; an abort source stops the operation itself.
+\begin{tikzpicture}[
+    lane/.style={font=\sffamily\small, anchor=east, align=right},
+    event/.style={font=\sffamily\footnotesize, align=center},
+    tick/.style={draw=figink, line width=0.66pt},
+    busy/.style={line width=1.6pt, draw=figcool},
+  ]
+  % 0.95 mm per millisecond, from 0 to 100 ms.
+  \def\ms#1{#1*0.95mm}
+  \def\dot#1#2{\fill[figink] (\ms{#1}, #2) circle (0.9mm);}
+  % The lanes: two for each way, top to bottom.
+  \def\tcaller{0mm}
+  \def\top{-11mm}
+  \def\acaller{-30mm}
+  \def\aop{-41mm}
+  \def\axis{-50mm}
+
+  % A dotted guide at 20 ms, behind everything else.
+  \draw[rare, draw=fignote, line width=0.4pt] (\ms{20}, 6mm) -- (\ms{20}, \axis);
+
+  % with_timeout().
+  \node[title, anchor=east] at ([xshift=-3mm, yshift=7mm]0, \tcaller) {\texttt{with\_timeout()}:};
+  \node[lane] at ([xshift=-3mm]0, \tcaller) {the caller};
+  \node[lane] at ([xshift=-3mm]0, \top) {the operation};
+  \draw[busy] (\ms{0}, \tcaller) -- (\ms{20}, \tcaller);
+  \draw[rare] (\ms{20}, \tcaller) -- (\ms{100}, \tcaller);
+  \dot{20}{\tcaller}
+  \node[event, anchor=south west] at ([xshift=1mm]\ms{20}, \tcaller)
+    {``timed out'', and moves on};
+  \draw[busy] (\ms{0}, \top) -- (\ms{100}, \top);
+  \dot{100}{\top}
+  \node[event, anchor=south east] at ([xshift=-1mm]\ms{100}, \top)
+    {finishes, and nobody wants the result};
+
+  % An abort source.
+  \node[title, anchor=east] at ([xshift=-3mm, yshift=7mm]0, \acaller) {an abort source:};
+  \node[lane] at ([xshift=-3mm]0, \acaller) {the caller};
+  \node[lane] at ([xshift=-3mm]0, \aop) {the operation};
+  \draw[busy] (\ms{0}, \acaller) -- (\ms{20}, \acaller);
+  \draw[rare] (\ms{20}, \acaller) -- (\ms{100}, \acaller);
+  \dot{20}{\acaller}
+  \node[event, anchor=south west] at ([xshift=1mm]\ms{20}, \acaller)
+    {``aborted'', and moves on};
+  \draw[busy] (\ms{0}, \aop) -- (\ms{20}, \aop);
+  \dot{20}{\aop}
+  \node[event, anchor=west, align=left] at ([xshift=2mm]\ms{20}, \aop)
+    {stops at once: the timer called {\ttfamily request\_abort()}};
+
+  % The time axis.
+  \draw[flow] (\ms{0}, \axis) -- (\ms{106}, \axis);
+  \foreach \t in {0, 20, 100} {
+    \draw[tick] (\ms{\t}, \axis) -- ++(0, -1.2mm)
+      node[below, font=\sffamily\footnotesize] {\t};
+  }
+  \node[event, anchor=west] at (\ms{106}, \axis) {ms};
+\end{tikzpicture}

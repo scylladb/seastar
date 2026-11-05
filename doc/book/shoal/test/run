@@ -1,0 +1,124 @@
+#!/usr/bin/python3
+# Runs the tests of a version of Shoal against a server that this script
+# starts, and stops it when the tests end:
+#
+#   ./run 4                  tests the Shoal built in ../v4/build
+#   ./run 4 --shoal PATH     tests the Shoal program at PATH as version 4
+#   ./run 4 --valkey         runs version 4's tests against a valkey-server,
+#                            to check the tests themselves
+#
+# A version runs its own tests, in test_vN.py, and those of all the earlier
+# versions, so that each version is also checked not to break what the
+# earlier ones did. Other arguments are passed to pytest, for example
+# "./run 4 -v -k incr". Two more options serve modified copies of Shoal,
+# such as the solutions to the exercises:
+#
+#   --test FILE              also runs the tests in FILE
+#   --server-option OPTION   starts the server with OPTION (repeatable)
+
+import argparse
+import shlex
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+here = Path(__file__).resolve().parent
+
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(('localhost', 0))
+        return s.getsockname()[1]
+
+
+def wait_for(port, server, timeout=30):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if server.poll() is not None:
+            return False
+        try:
+            socket.create_connection(('localhost', port), timeout=1).close()
+            return True
+        except OSError:
+            time.sleep(0.1)
+    return False
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Run Shoal\'s tests against a server it starts.')
+    parser.add_argument('version', help='the version of Shoal, such as 4 or v4')
+    parser.add_argument('--valkey', action='store_true', help='test valkey-server instead of Shoal')
+    parser.add_argument('--shoal', type=Path,
+                        help='the Shoal program to test (default: ../vN/build/shoal)')
+    parser.add_argument('--test', type=Path, action='append', default=[],
+                        help='a file of more tests to run')
+    parser.add_argument('--server-option', action='append', default=[],
+                        help='an option for the server (repeatable)')
+    args, pytest_args = parser.parse_known_args()
+    version = int(args.version.removeprefix('v'))
+    shoal = args.shoal or here.parent / f'v{version}' / 'build' / 'shoal'
+
+    # Each version's command line is the one its tests need, and only uses
+    # the options that its Shoal has: --maxclients since version 6, for
+    # test_max_clients (and --overprovisioned, as tests should run, as
+    # chapter "How Seastar runs your code" explains), --shutdown-grace since
+    # version 7, and --dir since version 10.
+    if args.valkey:
+        command = ['valkey-server', '--save', '', '--appendonly', 'no']
+        if version >= 6:
+            command += ['--maxclients', '64']
+    else:
+        if not shoal.exists():
+            sys.exit(f'run: {shoal} not found; build Shoal first, or use --shoal')
+        command = [str(shoal), '-c2', '-m1G']
+        if version >= 6:
+            command += ['--overprovisioned', '--maxclients', '64']
+        if version >= 7:
+            command += ['--shutdown-grace', '1']
+    for option in args.server_option:
+        command += shlex.split(option)
+
+    tests = [f'test_v{v}.py' for v in range(1, version + 1) if (here / f'test_v{v}.py').exists()]
+    port = free_port()
+    with tempfile.TemporaryFile() as log, tempfile.TemporaryDirectory() as data, \
+         tempfile.TemporaryDirectory() as test_dir:
+        # The tests run in a directory of their own, with copies of
+        # conftest.py and of the test files, so that test files from
+        # elsewhere (--test) can use the fixtures in conftest.py too.
+        for f in ['conftest.py', *tests]:
+            shutil.copy(here / f, test_dir)
+        for f in args.test:
+            shutil.copy(f, test_dir)
+            tests.append(f.name)
+        # The server keeps its files in a temporary directory, which is
+        # removed at the end (Valkey keeps none, since it runs without
+        # snapshots or a log).
+        directory = ['--dir', data] if version >= 10 else []
+        server = subprocess.Popen([*command, '--port', str(port), *directory],
+                                  stdout=log, stderr=subprocess.STDOUT)
+        try:
+            if not wait_for(port, server):
+                log.seek(0)
+                sys.exit(f'run: the server did not start:\n{log.read().decode()}')
+            # Tests that stop the server start one of their own, with the
+            # same command (except the port).
+            result = subprocess.run([sys.executable, '-m', 'pytest', '-p', 'no:cacheprovider',
+                                     '--port', str(port),
+                                     '--server-command', shlex.join(command),
+                                     '--shoal-version', str(version),
+                                     *tests, *pytest_args], cwd=test_dir)
+        finally:
+            server.terminate()
+            server.wait()
+        if result.returncode != 0:
+            log.seek(0)
+            print(f'\nThe server\'s output:\n{log.read().decode()}')
+        sys.exit(result.returncode)
+
+
+if __name__ == '__main__':
+    main()

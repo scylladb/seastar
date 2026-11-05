@@ -1,0 +1,55 @@
+% Figure for chapter 18, "The I/O scheduler": why Seastar keeps a queue of
+% its own. Above, every request goes to the disk at once, and a read that
+% a client waits for lands at the end of a long queue of background
+% writes. Below, the requests wait in Seastar's queue, one lane for each
+% class, and only a latency goal's worth is in the disk's queue, in the
+% order that Seastar chose.
+\begin{tikzpicture}[x=1mm, y=1mm,
+    req/.style={box, font=\sffamily\footnotesize, minimum width=5mm,
+                minimum height=5.5mm, inner sep=0pt, rounded corners=1.5pt},
+    rd/.style={req, coolbox, inner sep=0pt, rounded corners=1.5pt},
+    holder/.style={draw=fignote, rounded corners=3pt, inner sep=1.6mm},
+    disk/.style={box, minimum width=13mm, minimum height=9mm},
+    label/.style={note, inner sep=0.6mm},
+  ]
+  % Above: every request sent at once.
+  \node[title, anchor=west] at (0, 10.5) {Every request sent at once};
+  \node[box, text width=14mm] (prog1) at (8, -2) {the program};
+  \foreach \i in {0,...,10} {
+    \node[req] (a\i) at (30 + 6*\i, -2) {W};
+  }
+  \node[rd] (aread) at (30 + 6*11, -2) {R};
+  \node[holder, fit=(a0) (aread)] (dq1) {};
+  \node[label, above=0.2mm of dq1] {the disk's queue, which takes hundreds of requests};
+  \node[disk] (disk1) at (118, -2) {disk};
+  \draw[flow, gap] (prog1) -- (dq1);
+  \draw[flow, gap] (disk1.west -| dq1.east) -- (disk1);
+  \node[label, below=0.4mm of dq1, text=fighot]
+    {the read waits for every write ahead of it, and nothing can move it};
+
+  % Below: Seastar's queue in front of the disk.
+  \node[title, anchor=west] at (0, -13) {Seastar's queue in front of the disk};
+  \node[box, text width=14mm] (prog2) at (8, -29) {the program};
+  % Seastar's queue: a lane for each class.
+  \node[rd] (r0) at (30, -24) {R};
+  \node[rd] (r1) at (36, -24) {R};
+  \foreach \i in {0,...,6} {
+    \node[req] (w\i) at (30 + 6*\i, -34) {W};
+  }
+  \node[note, anchor=west] at (40, -24) {reads};
+  \node[note, anchor=west] (wl) at (34+6*6, -34) {writes};
+  \node[holder, fit=(r0) (w0) (wl), inner xsep=1.6mm] (sq) {};
+  \node[label, above=0.2mm of sq] {Seastar's queue};
+  % The disk's short queue: a latency goal's worth.
+  \node[rd] (d0) at (94, -29) {R};
+  \node[req] (d1) at (100, -29) {W};
+  \node[holder, fit=(d0) (d1)] (dq2) {};
+  \node[label, above=0.2mm of dq2, align=center] {the disk's queue};
+  \node[disk] (disk2) at (118, -29) {disk};
+  \draw[flow, gap] (prog2) -- (sq);
+  \draw[flow, gap] (sq) -- (dq2);
+  \draw[flow, gap] (dq2) -- (disk2);
+  \node[label, below=0.4mm of sq, xshift=10mm, align=center]
+    {Seastar sends only a latency goal's worth, choosing by the shares:\\
+     the read can go ahead of writes made before it};
+\end{tikzpicture}

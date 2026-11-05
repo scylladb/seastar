@@ -1,0 +1,81 @@
+# Seastar's command-line options, which tools/bookfilter.py indexes
+# automatically under "command-line options", like Seastar's names: a code
+# span that begins with one, such as `--cpuset` or `--cpuset 0-3`, at its
+# first mention in each section. Written from the output of any Seastar
+# program's --help and --help-seastar (Seastar ce7d08061, without DPDK),
+# plus --heapprof and DPDK's options, which builds without those features
+# don't list. -c and -m, the short forms of --smp and --memory, are handled
+# in bookfilter.py.
+--abort-on-seastar-bad-alloc
+--abort-on-too-long-task-queue
+--aio-fsync
+--allow-cpus-in-remote-numa-nodes
+--async-workers-cpuset
+--blocked-reactor-notify-ms
+--blocked-reactor-report-format-oneline
+--blocked-reactor-reports-per-minute
+--collectd
+--collectd-address
+--collectd-hostname
+--collectd-poll-period
+--cpuset
+--crypto-provider
+--csum-offload
+--default-log-level
+--dhcp
+--dpdk-pmd
+--dpdk-port-index
+--dump-memory-diagnostics-on-alloc-failure-kind
+--enable-glibc-exception-scaling-workaround
+--event-index
+--force-aio-syscalls
+--gw-ipv4-addr
+--heapprof
+--help
+--help-loggers
+--help-seastar
+--host-ipv4-addr
+--hugepages
+--hw-fc
+--hw-queue-weight
+--idle-poll-time-us
+--io-completion-notify-ms
+--io-flow-rate-threshold
+--io-latency-goal-ms
+--io-properties
+--io-properties-file
+--kernel-page-cache
+--linux-aio-nowait
+--lock-memory
+--log-to-stdout
+--log-to-syslog
+--log-with-color
+--logger-log-level
+--logger-ostream-type
+--logger-stdout-timestamps
+--lro
+--max-networking-io-control-blocks
+--max-task-backlog
+--mbind
+--memory
+--metrics-hostname
+--netmask-ipv4-addr
+--network-stack
+--no-handle-interrupt
+--num-io-groups
+--overprovisioned
+--poll-aio
+--poll-mode
+--reactor-backend
+--relaxed-dma
+--reserve-io-control-blocks
+--reserve-memory
+--smp
+--tap-device
+--task-quota-ms
+--thread-affinity
+--tso
+--udpv4-queue-size
+--ufo
+--unsafe-bypass-fsync
+--virtio-ring-size

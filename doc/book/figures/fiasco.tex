@@ -1,0 +1,60 @@
+% Figure for chapter 8, "The Lambda Coroutine Fiasco": two timelines of
+% fiasco.cc's greet_later(). then()'s task holds the lambda, and frees it
+% when the call returns, the first time the coroutine waits. Without
+% "this auto", the coroutine's frame keeps a pointer to the lambda, and
+% reads freed memory when it resumes; with it, the lambda is moved into the
+% frame. The x axis is time, not to scale.
+\begin{tikzpicture}[
+    lane/.style={minimum height=9mm, anchor=west, align=center,
+                 font=\sffamily\footnotesize, inner xsep=1mm},
+    task/.style={box, lane},
+    frame/.style={coolbox, lane},
+    freed/.style={hotbox, rarebox, lane},
+    gone/.style={plainbox, rarebox, lane, text=fignote},
+    label/.style={anchor=east, align=right, font=\sffamily\footnotesize},
+    event/.style={note, anchor=south, inner sep=0.8mm},
+    dangling/.style={->, draw=fighot, line width=0.77pt,
+                     dash pattern=on 2.2pt off 1.65pt},
+  ]
+  % #1: the panel's top y. Lanes: the task at #1-12mm, the frame 11mm lower.
+  \newcommand\lanes[1]{
+    \node[label] at (-2mm, #1-12mm) {\ttfamily then()\sffamily's task};
+    \node[label] at (-2mm, #1-23mm) {the coroutine's\\frame};
+    \node[event] at (8mm, #1-7.5mm) {calls the\\lambda};
+    \node[event] at (46mm, #1-7.5mm) {waits; the call returns,\\and \ttfamily then()\sffamily\ frees its task};
+    \node[event] at (84mm, #1-7.5mm) {10 ms later,\\resumes};
+    \draw[figink!60, rare] (46mm, #1-7.5mm) -- (46mm, #1-28.5mm);
+    \draw[figink!60, rare] (8mm, #1-7.5mm) -- (8mm, #1-28.5mm);
+    \draw[figink!60, rare] (84mm, #1-7.5mm) -- (84mm, #1-28.5mm);
+    \draw[figink!45, line width=1.2pt] (46mm, #1-23mm) -- (84mm, #1-23mm)
+      node[midway, fill=white, inner sep=0.6mm, text=fignote,
+           font=\sffamily\footnotesize]
+      {waits in \ttfamily sleep()};
+  }
+
+  % Without "this auto".
+  \node[title, anchor=base west] at (-30mm, 0) {Without \texttt{this auto}};
+  \lanes{0mm}
+  \node[task, minimum width=46mm] (t1) at (0, -12mm)
+    {the lambda, with {\ttfamily name}};
+  \node[freed, minimum width=50mm] (x1) at (46mm, -12mm)
+    {\textbf{freed}};
+  \node[frame, minimum width=38mm] (f1) at (8mm, -23mm)
+    {holds a pointer\\to the lambda};
+  \node[frame, minimum width=12mm] (r1) at (84mm, -23mm)
+    {reads\\{\ttfamily name}};
+  \draw[flow, gap] (f1.north -| t1.south) -- (t1.south);
+  \draw[dangling, gap] (r1.north) -- (r1.north |- x1.south);
+
+  % With "this auto".
+  \node[title, anchor=base west] at (-30mm, -38mm) {With \texttt{this auto}};
+  \lanes{-38mm}
+  \node[task, minimum width=46mm] (t2) at (0, -50mm)
+    {only a moved-from lambda};
+  \node[gone, minimum width=50mm] (x2) at (46mm, -50mm)
+    {freed; nothing points to it};
+  \node[frame, minimum width=38mm] (f2) at (8mm, -61mm)
+    {the lambda, with {\ttfamily name},\\moved in when called};
+  \node[frame, minimum width=12mm] (r2) at (84mm, -61mm)
+    {reads\\{\ttfamily name}};
+\end{tikzpicture}
