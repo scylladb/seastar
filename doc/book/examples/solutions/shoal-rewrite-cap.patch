@@ -1,0 +1,23 @@
+# A solution in solutions/scheduling-groups.md: the rewrite's disk bandwidth capped at 100 MB a second.
+# tools/check_examples.py applies it to a copy of shoal/v11,
+# builds it, and runs the tests.
+# base: shoal/v11
+--- a/main.cc
++++ b/main.cc
+@@ -744,9 +744,15 @@
+         // against the default group's 1000, KEYS and the rewrite get a
+         // little of each while clients keep Shoal busy, and all of it when
+         // they don't.
++        // snippet: cap
++        auto rewrite = co_await create_scheduling_group("rewrite", 100);
++        // Exercise 4: the rewrite may transfer at most 100 MB a second, on
++        // all the shards together, however idle the disk is.
++        co_await rewrite.update_io_bandwidth(100'000'000);
++        // end snippet: cap
+         co_await db.start(scheduling_groups{
+             .keys = co_await create_scheduling_group("keys", 100),
+-            .rewrite = co_await create_scheduling_group("rewrite", 100),
++            .rewrite = rewrite,
+         });
+         // end snippet: create-groups
+         // snippet: open-logs

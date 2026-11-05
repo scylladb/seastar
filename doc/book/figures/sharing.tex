@@ -1,0 +1,53 @@
+% Figure for chapter 1, "What sharing costs": threads that share data,
+% against shards that share nothing.
+\begin{tikzpicture}
+  % Left: a thread on every core, all reaching into one shared table.
+  \foreach \i in {0,...,3}
+    \node[box, minimum width=12.4mm, minimum height=10.9mm] (c\i) at (\i*14.7mm, 0)
+      {core \i \\[-1pt] {\footnotesize\color{fignote} thread}};
+  \foreach \a/\b in {0/1, 1/2, 2/3}
+    \draw[bounce] ([xshift=2.9mm, yshift=0.4mm]c\a.north)
+      to[out=65, in=115, looseness=1.2] ([xshift=-2.9mm, yshift=0.4mm]c\b.north);
+  % Both titles stand on this line, above the arrows between the cores.
+  \coordinate (titles) at ([yshift=7.5mm]c0.north);
+  \coordinate (leftmiddle) at ($(c1.north)!0.5!(c2.north)$);
+  \node[title, anchor=base] at (leftmiddle |- titles) {Threads share the data};
+  \node[hotbox, minimum width=24.8mm, minimum height=10.9mm] (table)
+    at ($(c1.south)!0.5!(c2.south) + (0,-21.75mm)$) {};
+  \node at ([yshift=2.1mm]table.center) {shared table};
+  \pic at ([yshift=-2.5mm]table.center) {lock};
+  \foreach \i in {0,...,3}
+    \draw[flow, gap] (c\i.south) -- ([xshift={(\i-1.5)*3.6mm}]table.north);
+  \node[note, text=fighot] (leftnote) at ([yshift=-6.1mm]table.south)
+    {a lock, and cache lines \\ moving between cores};
+
+  % Right: a shard on every core, each owning its data. Their tops line up
+  % with the cores', their bottoms with the shared table's.
+  \foreach \i in {0,...,3} {
+    \node[box, minimum width=11.3mm, minimum height=38.1mm, anchor=north] (s\i)
+      at ($(c0.north) + (69.3mm+\i*15.1mm, 0)$) {};
+    \node[anchor=north, align=center] at ([yshift=-1.5mm]s\i.north)
+      {core \i \\[-1pt] {\footnotesize\color{fignote} shard}};
+    \node[coolbox, minimum width=8.9mm, minimum height=8.5mm, anchor=south,
+          font=\sffamily\footnotesize] at ([yshift=2.3mm]s\i.south) {its \\[-2pt] data};
+  }
+  \coordinate (rightmiddle) at ($(s1.north)!0.5!(s2.north)$);
+  \node[title, anchor=base] at (rightmiddle |- titles) {Shards share nothing};
+  % Messages between shards, each through a queue in the gap between them.
+  % (Each starts inside its sender, and ends inside its receiver.)
+  \foreach \a/\b/\y in {0/1/-15.1mm, 2/3/-15.1mm, 2/1/-20.6mm} {
+    \coordinate (y) at ($(s0.north) + (0,\y)$);
+    \ifnum\a<\b
+      \draw[message] ([xshift=-3.5mm]s\a.east |- y) -- ([xshift=3.1mm]s\b.west |- y);
+      \coordinate (mid) at ($(s\a.east)!0.5!(s\b.west)$);
+      \pic at (mid |- y) {queue};
+    \else
+      \draw[message] ([xshift=3.5mm]s\a.west |- y) -- ([xshift=-3.1mm]s\b.east |- y);
+      \coordinate (mid) at ($(s\b.east)!0.5!(s\a.west)$);
+      \pic at (mid |- y) {queue};
+    \fi
+  }
+  \coordinate (middle) at ($(s1.south)!0.5!(s2.south)$);
+  \node[note, text=figcool] at (middle |- leftnote)
+    {no locks; shards ask each other \\ by passing messages};
+\end{tikzpicture}

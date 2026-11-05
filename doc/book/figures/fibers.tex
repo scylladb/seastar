@@ -1,0 +1,37 @@
+% Figure for chapter 7, "Fibers": the accept loop and three clients' fibers
+% on one shard, and what the shard's thread runs. The x axis is time, in
+% arbitrary units.
+\begin{tikzpicture}[x=1.25mm]
+  % A fiber's lane, at y #1, named #2, from when it starts (#3) to the end,
+  % with its runs (#4, a list of from/to pairs) drawn over a dashed line,
+  % which is the fiber waiting.
+  \newcommand\fiber[4]{
+    \node[anchor=east] at (-2, #1) {#2};
+    \draw[figink!55, rare] (#3, #1) -- (88, #1);
+    \foreach \from/\to in {#4}
+      \node[coolbox, minimum height=4.5mm, minimum width={((\to)-(\from))*1.25mm},
+            inner sep=0, rounded corners=1.5pt, anchor=west] at (\from, #1) {};
+  }
+  \fiber{0}{accept loop}{0}{0/6, 16/22, 40/46}
+  \fiber{-9mm}{client 1}{6}{6/16, 32/40, 64/72}
+  \fiber{-18mm}{client 2}{22}{22/32, 56/64}
+  \fiber{-27mm}{client 3}{46}{46/56, 72/80}
+  % Where the accept loop starts a client's fiber.
+  \foreach \t/\y in {6/-9mm, 22/-18mm, 46/-27mm}
+    \draw[flow, gap] (\t, -2.25mm) -- (\t, \y+2.25mm);
+  \node[font=\sffamily\footnotesize, anchor=west, inner sep=0.6mm] at (6, -4.5mm) {starts};
+  \node[note, anchor=south west, inner sep=0.6mm] at (46.5, 0) {waits for a connection};
+  \node[note, anchor=south west, inner sep=0.6mm] at (40.5, -9mm) {waits for the network};
+
+  % The thread: one fiber at a time.
+  \def\y{-39mm}
+  \node[anchor=east] at (-2, \y) {the thread};
+  \foreach \from/\to/\who in {0/6/acc, 6/16/1, 16/22/acc, 22/32/2, 32/40/1, 40/46/acc,
+                              46/56/3, 56/64/2, 64/72/1, 72/80/3}
+    \node[box, minimum height=5mm, minimum width={((\to)-(\from))*1.25mm}, inner sep=0,
+          rounded corners=1.5pt, anchor=west, font=\sffamily\footnotesize]
+      at (\from, \y) {\who};
+  \draw[figink!55, rare] (80, \y) -- (88, \y);
+  \draw[flow] (0, \y-5.5mm) -- (88, \y-5.5mm)
+    node[pos=1, below left, font=\sffamily\footnotesize, inner sep=0.8mm] {time};
+\end{tikzpicture}

@@ -1,0 +1,42 @@
+% Figure for chapter 13, "Sharing anyway": why an lw_shared_ptr copied on
+% two shards at once ends with the wrong count. Each copy reads the count,
+% adds one and writes it back; when two shards do it at the same time, both
+% read the same value, and one increment is lost. Time goes from left to
+% right.
+\begin{tikzpicture}[x=1mm, y=1mm,
+    lane/.style={font=\sffamily\small, anchor=east, align=right},
+    op/.style={box, font=\sffamily\footnotesize, inner xsep=1.1mm, inner ysep=0.8mm},
+    label/.style={note, inner sep=0.6mm},
+  ]
+  \def\top{0}
+  \def\mid{-15}
+  \def\bot{-30}
+  \node[lane] at (-2, \top) {shard 0};
+  \node[lane] at (-2, \mid) {the count};
+  \node[lane] at (-2, \bot) {shard 1};
+  \draw[draw=fignote, rare, line width=0.4pt] (0, \top) -- (96, \top);
+  \draw[draw=fignote, rare, line width=0.4pt] (0, \bot) -- (96, \bot);
+
+  % The count, as it changes.
+  \node[coolbox, font=\sffamily\footnotesize] (c5) at (8, \mid) {5};
+  \node[coolbox, font=\sffamily\footnotesize] (c6a) at (52, \mid) {6};
+  \node[hotbox, rarebox, font=\sffamily\footnotesize] (c6b) at (78, \mid) {6};
+
+  % Shard 0 reads 5, and writes 6.
+  \node[op] (r0) at (20, \top) {reads 5};
+  \node[op] (w0) at (46, \top) {writes 5 + 1};
+  \draw[flow, gap] (c5.north east) -- (r0.south);
+  \draw[flow, gap] (w0.south) -- (c6a.north);
+
+  % Shard 1 reads 5 too, before shard 0 wrote, and also writes 6.
+  \node[op] (r1) at (30, \bot) {reads 5};
+  \node[op] (w1) at (72, \bot) {writes 5 + 1};
+  \draw[flow, gap] (c5.south east) -- (r1.north);
+  \draw[flow, gap] (w1.north) -- (c6b.south);
+
+  \node[note, text=fighot, anchor=west] at (86, \mid) {should be 7};
+
+  % Time.
+  \draw[flow] (0, \bot-8) -- (96, \bot-8)
+    node[pos=1, below left, font=\sffamily\footnotesize, inner sep=0.8mm] {time};
+\end{tikzpicture}

@@ -1,0 +1,189 @@
+# A solution in solutions/http.md: Shoal v13 with GET /v1/config, which rejects unknown query parameters
+# tools/check_examples.py applies it to a copy of shoal/v13,
+# builds it, and runs the tests.
+# base: shoal/v13
+--- a/admin.cc
++++ b/admin.cc
+@@ -82,6 +82,37 @@
+     co_return json::json_void();
+ }
+
++// snippet: get-config
++// GET /v1/config?name=...: Shoal's options, or only the one named. Seastar
++// checks only that the parameters that an operation requires are there,
++// so a parameter that it doesn't know, perhaps misspelled, is rejected
++// here, rather than ignored.
++future<json::json_return_type> get_config(const config_list& config,
++                                          const http::request& req) {
++    for (auto& [param, values] : req.get_query_params()) {
++        if (param != "name") {
++            throw httpd::bad_param_exception(
++                fmt::format("unknown parameter '{}'", param));
++        }
++    }
++    auto name = req.get_query_param("name");
++    std::vector<aj::option> options;
++    for (auto& [n, v] : config) {
++        if (name.empty() || n == name) {
++            aj::option o;
++            o.name = n;
++            o.value = v;
++            options.push_back(std::move(o));
++        }
++    }
++    if (!name.empty() && options.empty()) {
++        throw httpd::not_found_exception(
++            fmt::format("no option '{}'", name));
++    }
++    return make_ready_future<json::json_return_type>(std::move(options));
++}
++// end snippet: get-config
++
+ // POST /v1/rewrite: starts a rewrite of the logs, or answers 409 Conflict
+ // if one is in progress.
+ future<json::json_return_type> rewrite(sharded<store>& db) {
+@@ -96,7 +127,8 @@
+ } // anonymous namespace
+
+ // snippet: set-routes
+-void set_admin_routes(httpd::routes& r, sharded<store>& db) {
++void set_admin_routes(httpd::routes& r, sharded<store>& db,
++                      const config_list& config) {
+     // Each lambda only calls a coroutine function, and passes it what it
+     // needs, so that no coroutine refers to a lambda's captures.
+     aj::get_info.set(r, [&db] (std::unique_ptr<http::request>) {
+@@ -111,6 +143,10 @@
+     aj::delete_key.set(r, [&db] (std::unique_ptr<http::request> req) {
+         return remove_key(db, std::move(req));
+     });
++    // Each shard's handler has its own copy of the options.
++    aj::get_config.set(r, [config] (std::unique_ptr<http::request> req) {
++        return get_config(config, *req);
++    });
+     aj::rewrite.set(r, [&db] (std::unique_ptr<http::request>) {
+         return rewrite(db);
+     });
+--- a/admin.hh
++++ b/admin.hh
+@@ -7,4 +7,8 @@
+ using namespace seastar;
+
+ // Adds the admin API's routes to a shard's routes.
+-void set_admin_routes(httpd::routes& r, sharded<store>& db);
++// Shoal's options, as names and values, for GET /v1/config.
++using config_list = std::vector<std::pair<sstring, sstring>>;
++
++void set_admin_routes(httpd::routes& r, sharded<store>& db,
++                      const config_list& config);
+--- a/api/admin.json
++++ b/api/admin.json
+@@ -66,6 +66,25 @@
+             }]
+         },
+         {
++            "path": "/v1/config",
++            "operations": [{
++                "method": "GET",
++                "summary": "Shoal's options, or the one named",
++                "type": "array",
++                "items": {"type": "option"},
++                "nickname": "get_config",
++                "produces": ["application/json"],
++                "parameters": [{
++                    "name": "name",
++                    "description": "An option's name; all the options if missing",
++                    "required": false,
++                    "allowMultiple": false,
++                    "type": "string",
++                    "paramType": "query"
++                }]
++            }]
++        },
++        {
+             "path": "/v1/rewrite",
+             "operations": [{
+                 "method": "POST",
+@@ -78,6 +97,14 @@
+         }
+     ],
+     "models": {
++        "option": {
++            "id": "option",
++            "description": "One of Shoal's options",
++            "properties": {
++                "name": {"type": "string", "description": "The option's name"},
++                "value": {"type": "string", "description": "Its value"}
++            }
++        },
+         "info": {
+             "id": "info",
+             "description": "The keys and the memory of all the shards together",
+--- a/main.cc
++++ b/main.cc
+@@ -817,6 +817,24 @@
+ }
+ // end snippet: resolve
+
++// snippet: config-of
++// The options that GET /v1/config shows, as names and values.
++config_list config_of(const options& opts) {
++    auto yes_no = [] (bool b) { return sstring(b ? "yes" : "no"); };
++    return {
++        {"port", fmt::to_string(opts.port)},
++        {"tls-port", fmt::to_string(opts.tls_port)},
++        {"admin-port", fmt::to_string(opts.admin_port)},
++        {"admin-tls-port", fmt::to_string(opts.admin_tls_port)},
++        {"dir", opts.dir},
++        {"appendonly", yes_no(opts.appendonly)},
++        {"appendfsync", opts.sync_always ? "always" : "everysec"},
++        {"maxmemory", fmt::to_string(opts.maxmemory)},
++        {"maxclients", fmt::to_string(opts.max_clients)},
++    };
++}
++// end snippet: config-of
++
+ // snippet: shoal-main
+ future<> shoal_main(options opts) {
+     sharded<store> db;
+@@ -860,8 +878,9 @@
+         if (opts.admin_port || opts.admin_tls_port) {
+             co_await admin.start("admin");
+             admin_started = true;
+-            co_await admin.set_routes([&db] (httpd::routes& r) {
+-                set_admin_routes(r, db);
++            auto config = config_of(opts);
++            co_await admin.set_routes([&db, &config] (httpd::routes& r) {
++                set_admin_routes(r, db, config);
+             });
+         }
+         // end snippet: admin-server
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,27 @@
++# Tests for the solution of chapter 25's exercise 2: GET /v1/config, which
++# returns Shoal's options, and rejects a query parameter it doesn't know.
++from test_v13 import admin_server, call
++
++
++# Check that /v1/config returns the options, among them those the server
++# was started with, and ?name= only the one named.
++def test_config(start_server):
++    r, api = admin_server(start_server, '--maxmemory', '100000000')
++    status, options = call(f'{api}/v1/config')
++    assert status == 200
++    config = {o['name']: o['value'] for o in options}
++    assert config['maxmemory'] == '100000000'
++    assert config['appendonly'] == 'yes'
++    assert int(config['port']) == r.connection_pool.connection_kwargs['port']
++    status, options = call(f'{api}/v1/config?name=maxmemory')
++    assert status == 200
++    assert options == [{'name': 'maxmemory', 'value': '100000000'}]
++
++
++# Check that an unknown query parameter gets 400 Bad Request, and an
++# unknown option's name 404 Not Found.
++def test_config_errors(start_server):
++    r, api = admin_server(start_server)
++    status, error = call(f'{api}/v1/config?nmae=maxmemory')
++    assert status == 400 and 'nmae' in error['message']
++    assert call(f'{api}/v1/config?name=nothing')[0] == 404

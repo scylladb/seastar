@@ -1,0 +1,29 @@
+% Figure for chapter 14, "Calls that wait for each other": nested.cc's
+% deadlock, as a graph of who waits for what. Each shard's call to the
+% other holds the one unit of its group from its shard to the other, and
+% its nested call back waits for the unit that the other shard's call
+% holds.
+\begin{tikzpicture}[x=1mm, y=1mm,
+    call/.style={box, font=\sffamily\footnotesize, text width=33mm},
+    unit/.style={coolbox, font=\sffamily\footnotesize, text width=24mm},
+    label/.style={note, inner sep=0.8mm},
+    waits/.style={->, draw=fighot, dash pattern=on 2.2pt off 1.65pt,
+                  line width=0.77pt},
+  ]
+  \node[call] (a) at (0, 0)
+    {shard 0's call, running on shard 1, makes a nested call to shard 0};
+  \node[call] (b) at (0, -30)
+    {shard 1's call, running on shard 0, makes a nested call to shard 1};
+  \node[unit] (u01) at (-48, -15) {the unit for calls from shard 0 to 1};
+  \node[unit] (u10) at (48, -15) {the unit for calls from shard 1 to 0};
+  % Each call holds its own unit until it ends.
+  \draw[flow, gap] (a.west) -- (u01.north)
+    node[pos=0.45, above left, label] {holds};
+  \draw[flow, gap] (b.east) -- (u10.south)
+    node[pos=0.45, below right, label] {holds};
+  % Each nested call waits for the unit that the other call holds.
+  \draw[waits, gap] (a.east) -- (u10.north)
+    node[pos=0.45, above right, label] {waits for};
+  \draw[waits, gap] (b.west) -- (u01.south)
+    node[pos=0.45, below left, label] {waits for};
+\end{tikzpicture}

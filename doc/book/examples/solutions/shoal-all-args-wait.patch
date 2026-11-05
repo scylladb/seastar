@@ -1,0 +1,32 @@
+# A solution in solutions/coordination.md: shoal-all-args-wait, Shoal v6 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v6, builds it, and runs the tests.
+# base: shoal/v6
+--- a/resp.cc
++++ b/resp.cc
+@@ -129,19 +129,18 @@
+ // limited.
+ constexpr size_t large_request = 64 * 1024;
+
+-// Takes n units from the memory semaphore for the current request. The
+-// request's first admission waits for its units. Later ones take theirs
+-// without waiting, even beyond the limit: a request that waited while
+-// holding units could wait forever, if the requests holding all the other
+-// units were waiting too.
++// Takes n units from the memory semaphore for the current request. In
++// this copy, for chapter 10's exercise 2, every admission waits for its
++// units, even when the request already holds units.
+ future<> request_reader::admit(size_t n) {
+     // A single request larger than the limit gets all the units, and waits
+     // for all the other requests to give theirs back.
+     n = std::min(n, _memory_limit);
++    auto units = co_await get_units(_memory, n);
+     if (_admitted) {
+-        _admitted.adopt(consume_units(_memory, n));
++        _admitted.adopt(std::move(units));
+     } else {
+-        _admitted = co_await get_units(_memory, n);
++        _admitted = std::move(units);
+     }
+ }
+ // end snippet: admit

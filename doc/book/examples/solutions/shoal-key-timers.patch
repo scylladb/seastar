@@ -1,0 +1,280 @@
+# A solution in solutions/time.md: shoal-key-timers, Shoal v5 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v5, builds it, and runs the tests.
+# base: shoal/v5
+--- a/commands.cc
++++ b/commands.cc
+@@ -1,4 +1,5 @@
+-// Shoal's commands, and the data they work on.
++// Shoal's commands, and the data they work on, with a timer for each key
++// that expires.
+ #include "commands.hh"
+ #include <seastar/core/coroutine.hh>
+ #include <seastar/coroutine/maybe_yield.hh>
+@@ -39,20 +40,16 @@
+ // snippet: lookup
+ // Whether the key has an expiration time that has passed.
+ bool expired(const entry& e) {
+-    return e.expires && e.expires->when <= expiry_clock::now();
++    return e.expires && e.expires->get_timeout() <= expiry_clock::now();
+ }
+
+ // Removes a key's expiration time, if it has one.
+-void persist_key(store& db, entry& e) {
+-    if (e.expires) {
+-        db.expirations.erase(db.expirations.iterator_to(*e.expires));
+-        e.expires.reset();
+-    }
++void persist_key(store&, entry& e) {
++    e.expires.reset();
+ }
+
+ // Deletes a key, and its expiration time.
+ void erase_key(store& db, std::unordered_map<sstring, entry>::iterator it) {
+-    persist_key(db, it->second);
+     db.data.erase(it);
+ }
+
+@@ -68,52 +65,60 @@
+ }
+ // end snippet: lookup
+
++// snippet: run-log
++// The longest gap between two timer functions in one run.
++constexpr auto run_gap = std::chrono::microseconds(50);
++
++// Logs the current run of timer functions, if it has ended, by now.
++void log_run(store& db, std::chrono::steady_clock::time_point now) {
++    if (db.run.functions && now - db.run.last > run_gap) {
++        std::chrono::duration<double, std::milli> took =
++            db.run.last - db.run.start;
++        shoal_log.info("{} timer functions in a row, in {:.1f} ms",
++                       db.run.functions, took.count());
++        db.run.functions = 0;
++    }
++}
++
++// Notes that a timer function ran, for the log.
++void note_timer_function(store& db) {
++    auto now = std::chrono::steady_clock::now();
++    log_run(db, now);
++    if (db.run.functions++ == 0) {
++        db.run.start = now;
++    }
++    db.run.last = now;
++}
++// end snippet: run-log
++
+ // snippet: expire-at
+ // Sets a key's expiration time, replacing any old one.
+ void expire_key_at(store& db, const sstring& key, entry& e,
+                    expiry_clock::time_point when) {
+-    if (e.expires) {
+-        db.expirations.erase(db.expirations.iterator_to(*e.expires));
+-    } else {
+-        e.expires = std::make_unique<expiration>();
+-        e.expires->key = &key;
+-    }
+-    e.expires->when = when;
+-    db.expirations.insert(*e.expires);
+-    // If this key now expires first, the timer must fire earlier.
+-    if (&*db.expirations.begin() == e.expires.get()) {
+-        db.expiry_timer.rearm(when);
++    if (db.round_expiry) {
++        auto seconds = std::chrono::ceil<std::chrono::seconds>(
++            when.time_since_epoch());
++        when = expiry_clock::time_point(seconds);
++    }
++    if (!e.expires) {
++        e.expires = std::make_unique<timer<expiry_clock>>();
++        // The function deletes the key, unless the key now has another
++        // timer: after FLUSHALL, the old data, with its timers, is
++        // destroyed gradually, and a new key may have the same name.
++        e.expires->set_callback([&db, &key, t = e.expires.get()] {
++            note_timer_function(db);
++            auto it = db.data.find(key);
++            if (it != db.data.end() && it->second.expires.get() == t) {
++                // This destroys the timer, and this function: it must
++                // not use its captures after this.
++                db.data.erase(it);
++            }
++        });
+     }
++    e.expires->rearm(when);
+ }
+ // end snippet: expire-at
+
+-// snippet: expire-keys
+-// How many keys the timer's function deletes before it lets other work run.
+-constexpr int expire_batch = 1000;
+-
+-// The expiry timer's function: deletes the keys whose expiration time has
+-// passed, and arms the timer again for the next one. A timer's function
+-// can't yield, so it deletes only a batch of keys, and if more are due,
+-// arms the timer to run again right after other work.
+-void expire_keys(store& db) {
+-    auto now = expiry_clock::now();
+-    for (int i = 0; i < expire_batch; i++) {
+-        if (db.expirations.empty()) {
+-            return;
+-        }
+-        auto& first = *db.expirations.begin();
+-        if (first.when > now) {
+-            db.expiry_timer.rearm(first.when);
+-            return;
+-        }
+-        erase_key(db, db.data.find(*first.key));
+-    }
+-    // A whole batch expired, and more keys may be due: expire the next
+-    // batch as soon as the reactor has let other work run.
+-    db.expiry_timer.rearm(now);
+-}
+-// end snippet: expire-keys
+-
+ std::string lowercase(std::string_view s) {
+     std::string ret(s);
+     std::ranges::transform(ret, ret.begin(), [] (unsigned char c) {
+@@ -242,7 +247,7 @@
+         return integer_reply(-1);
+     }
+     auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+-        it->second.expires->when - expiry_clock::now());
++        it->second.expires->get_timeout() - expiry_clock::now());
+     // Round to the nearest second, as Redis does.
+     return integer_reply((left.count() + 500) / 1000);
+ }
+@@ -388,15 +393,9 @@
+                                            && lowercase(req[1]) != "sync")) {
+         co_return co_await out.write(error_reply("syntax error"));
+     }
+-    // snippet: flushall-expirations
+-    // Forget all the expiration times, which is quick: the tree only needs
+-    // to forget its root, because the entries own the records. Then move
+-    // all the data out of the store, which is quick too, and destroy it
+-    // gradually.
+-    db.expirations.clear();
+-    db.expiry_timer.cancel();
++    // Move all the data out of the store, which is quick, and destroy it
++    // gradually, with the keys' timers.
+     auto old = std::exchange(db.data, {});
+-    // end snippet: flushall-expirations
+     if (req.size() == 2 && lowercase(req[1]) == "async") {
+         // Reply at once, and destroy the old data in the background.
+         (void)destroy_gently(std::move(old));
+@@ -461,5 +460,9 @@
+ // end snippet: execute
+
+ // snippet: store-constructor
+-store::store() : expiry_timer([this] { expire_keys(*this); }) {}
++store::store() : run_logger([this] {
++    log_run(*this, std::chrono::steady_clock::now());
++}) {
++    run_logger.arm_periodic(std::chrono::milliseconds(10));
++}
+ // end snippet: store-constructor
+--- a/commands.hh
++++ b/commands.hh
+@@ -5,7 +5,7 @@
+ #include <seastar/core/iostream.hh>
+ #include <seastar/core/lowres_clock.hh>
+ #include <seastar/core/timer.hh>
+-#include <boost/intrusive/set.hpp>
++#include <chrono>
+ #include <memory>
+ #include <unordered_map>
+
+@@ -14,30 +14,33 @@
+ // that changing the system's clock doesn't make keys expire early.
+ using expiry_clock = lowres_clock;
+
+-// When a key expires. It points back to its key, and it's linked, through
+-// the hook it inherits, into the store's tree of expiration times.
+-struct expiration : boost::intrusive::set_base_hook<
+-        boost::intrusive::link_mode<boost::intrusive::normal_link>> {
+-    expiry_clock::time_point when;
+-    const sstring* key;
+-    bool operator<(const expiration& other) const { return when < other.when; }
+-};
+-
+-// A key's value, and, if the key has one, its expiration time.
++// A key's value, and, if the key has an expiration time, a timer of its
++// own, armed for that time, whose function deletes the key.
+ struct entry {
+     sstring value;
+-    std::unique_ptr<expiration> expires;
++    std::unique_ptr<timer<expiry_clock>> expires;
++};
++
++// For the measurement: when the current run of timer functions, which
++// ran one right after the other, started, when its last function ran,
++// and how many ran.
++struct timer_run {
++    std::chrono::steady_clock::time_point start, last;
++    size_t functions = 0;
+ };
+
+-// The data that Shoal stores, and the keys' expiration times, ordered by
+-// time, with a timer armed for the earliest.
++// The data that Shoal stores.
+ struct store {
+     std::unordered_map<sstring, entry> data;
+-    boost::intrusive::multiset<expiration> expirations;
+-    timer<expiry_clock> expiry_timer;
++    // Whether to round expiration times up to whole seconds, so that keys
++    // expire together (--round-expiry).
++    bool round_expiry = false;
++    timer_run run;
++    // Logs each run of timer functions, once it has ended.
++    timer<> run_logger;
+
+     store();
+-    store(const store&) = delete;      // the timer's function points to it
++    store(const store&) = delete;      // the timers' functions point to it
+ };
+
+ // Executes a request on the store, and writes its reply to out.
+--- a/main.cc
++++ b/main.cc
+@@ -1,4 +1,5 @@
+-// Shoal, version 5: a Redis-compatible key-value server on a single shard.
++// Shoal, version 5, with a timer for each key that expires: a
++// Redis-compatible key-value server on a single shard.
+ #include "commands.hh"
+ #include "pubsub.hh"
+ #include <seastar/core/app-template.hh>
+@@ -26,6 +27,7 @@
+     delivery pubsub_delivery;
+     size_t pubsub_max_pending;
+     size_t pubsub_max_total_pending;
++    bool round_expiry;
+ };
+
+ // snippet: serve
+@@ -95,6 +97,7 @@
+ // snippet: shoal-main
+ future<> shoal_main(options opts) {
+     store db;
++    db.round_expiry = opts.round_expiry;
+     pubsub ps(opts.pubsub_delivery, opts.pubsub_max_pending,
+               opts.pubsub_max_total_pending);
+     listen_options lo;
+@@ -151,7 +154,10 @@
+         ("pubsub-max-total-pending", bpo::value<size_t>()->default_value(0),
+          "when all subscribers' unsent messages use more than this many "
+          "bytes, disconnect those that are behind (default: a quarter of "
+-         "the shard's memory)");
++         "the shard's memory)")
++        ("round-expiry", bpo::bool_switch(),
++         "round expiration times up to whole seconds, so that keys expire "
++         "together");
+     return app.run(argc, argv, [&app] {
+         auto& config = app.configuration();
+         return shoal_main(options{
+@@ -161,6 +167,7 @@
+             .pubsub_max_pending = config["pubsub-max-pending"].as<size_t>(),
+             .pubsub_max_total_pending = max_total_pending(
+                 config["pubsub-max-total-pending"].as<size_t>()),
++            .round_expiry = config["round-expiry"].as<bool>(),
+         });
+     });
+ }

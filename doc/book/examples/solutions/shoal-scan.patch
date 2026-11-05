@@ -1,0 +1,197 @@
+# A solution in solutions/designing-a-sharded-application.md: shoal-scan, Shoal v8 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v8, builds it, and runs the tests.
+# base: shoal/v8
+--- a/commands.cc
++++ b/commands.cc
+@@ -1,6 +1,6 @@
+-// Shoal's commands, and the data they work on: each shard executes the
+-// commands on its own keys, and the connection's shard sends each command
+-// to the shards it needs.
++// Shoal's commands, with SCAN, and the data they work on: each shard
++// executes the commands on its own keys, and the connection's shard sends
++// each command to the shards it needs.
+ #include "commands.hh"
+ #include <seastar/core/coroutine.hh>
+ #include <seastar/core/loop.hh>
+@@ -563,6 +563,108 @@
+     co_return sstring(reply);
+ }
+
++// snippet: scan
++// SCAN cursor [MATCH pattern] [COUNT count]. The cursor says where to
++// continue: in its lowest 8 bits, the shard (so Shoal may have at most 256
++// shards); in the next 32, a bucket of that shard's hash table; and in the
++// highest 24, the low bits of the number of buckets that the table had
++// then. If the table has grown since, its keys have moved, and the shard
++// is scanned again from its first bucket: some keys may be returned
++// twice, which SCAN allows, but none that existed all along is missed.
++struct scan_cursor {
++    unsigned shard = 0;
++    size_t bucket = 0;
++    uint64_t buckets_tag = 0;
++    static constexpr uint64_t tag_mask = (uint64_t(1) << 24) - 1;
++    static scan_cursor decode(uint64_t c) {
++        return {unsigned(c & 0xff), size_t((c >> 8) & 0xffffffff), c >> 40};
++    }
++    uint64_t encode() const {
++        return shard | (uint64_t(bucket) << 8) | (buckets_tag << 40);
++    }
++};
++
++// What one shard found: its keys, and where to continue on it, if it
++// hasn't been scanned to the end.
++struct scan_result {
++    std::vector<sstring> keys;
++    std::optional<scan_cursor> next;
++};
++
++// Scans this shard's buckets, from the cursor's, until it finds count
++// keys, or reaches the end of the table.
++scan_result scan_here(store& db, scan_cursor c, const sstring& pattern,
++                      size_t count) {
++    size_t buckets = db.data.bucket_count();
++    uint64_t tag = buckets & scan_cursor::tag_mask;
++    if (c.bucket != 0 && c.buckets_tag != tag) {
++        c.bucket = 0;           // the table has grown: start again
++    }
++    scan_result result;
++    size_t b = c.bucket;
++    for (; b < buckets && result.keys.size() < count; b++) {
++        for (auto it = db.data.begin(b); it != db.data.end(b); ++it) {
++            if (glob_match(pattern, it->first) && !expired(it->second)) {
++                result.keys.push_back(it->first);
++            }
++        }
++    }
++    if (b < buckets) {
++        result.next = scan_cursor{c.shard, b, tag};
++    }
++    return result;
++}
++
++future<std::optional<sstring>> scan(sharded<store>& db, request req,
++                                    abort_source&) {
++    uint64_t cursor;
++    auto [end, error] = std::from_chars(req[1].data(),
++                                        req[1].data() + req[1].size(), cursor);
++    if (error != std::errc() || end != req[1].data() + req[1].size()) {
++        co_return error_reply("invalid cursor");
++    }
++    sstring pattern = "*";
++    size_t count = 10;
++    for (size_t i = 2; i < req.size(); i += 2) {
++        auto option = lowercase(req[i]);
++        if (i + 1 == req.size() || (option != "match" && option != "count")) {
++            co_return error_reply("syntax error");
++        }
++        if (option == "match") {
++            pattern = req[i + 1];
++        } else {
++            auto n = parse_integer(req[i + 1]);
++            if (!n || *n < 1) {
++                co_return error_reply("syntax error");
++            }
++            count = *n;
++        }
++    }
++    auto c = scan_cursor::decode(cursor);
++    if (c.shard >= this_smp_shard_count()) {
++        co_return error_reply("invalid cursor");
++    }
++    auto result = co_await db.invoke_on(c.shard, [&] (store& s) {
++        return scan_here(s, c, pattern, count);
++    });
++    // Continue on this shard, or on the next one, or, after the last one,
++    // tell the client that it's done, with the cursor 0.
++    uint64_t next = 0;
++    if (result.next) {
++        next = result.next->encode();
++    } else if (c.shard + 1 < this_smp_shard_count()) {
++        next = scan_cursor{c.shard + 1, 0, 0}.encode();
++    }
++    std::string reply = array_header_reply(2)
++        + bulk_string_reply(to_sstring(next))
++        + array_header_reply(result.keys.size());
++    for (auto& key : result.keys) {
++        reply += bulk_string_reply(key);
++    }
++    co_return sstring(reply);
++}
++// end snippet: scan
++
+ // DBSIZE: the number of keys, on all the shards together.
+ future<std::optional<sstring>> dbsize(sharded<store>& db, request,
+                                       abort_source&) {
+@@ -963,6 +1065,7 @@
+     {"llen", {.arity = 2, .first_key = 1, .on_shard = llen}},
+     {"lrange", {.arity = 4, .first_key = 1, .on_shard = lrange}},
+     {"dbsize", {.arity = 1, .run = dbsize}},
++    {"scan", {.arity = -2, .run = scan}},
+     {"blpop", {.arity = -3, .run = blpop}},
+     {"keys", {.arity = 2, .run = keys}},
+     {"flushall", {.arity = -1, .run = flushall}},
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,61 @@
++# Tests for the solution of chapter 15's exercise 1: SCAN, which lists the
++# keys a few at a time, with a cursor, on all the shards. Like all of
++# Shoal's tests, they pass against Valkey too.
++import pytest
++import redis
++
++from test_v8 import unique_key
++
++
++# Calls SCAN until the cursor is 0 again, calling between() after each
++# call, and returns all the keys it returned, with repetitions.
++def scan_all(r, match, count=10, between=lambda: None):
++    keys = []
++    cursor = 0
++    while True:
++        cursor, found = r.scan(cursor, match=match, count=count)
++        keys += [k.decode() for k in found]
++        between()
++        if cursor == 0:
++            return keys
++
++
++# Check that SCAN returns every matching key, and no other.
++def test_scan_all_keys(r):
++    prefix = unique_key()
++    keys = {f'{prefix}-{i}' for i in range(200)}
++    r.mset({k: 'x' for k in keys})
++    r.set(unique_key(), 'not matching')
++    assert set(scan_all(r, f'{prefix}-*')) == keys
++    r.delete(*keys)
++
++
++# Check that keys that exist throughout a scan are all returned, even when
++# many keys are added between the first calls, which makes the server's
++# tables grow. (Not between all of them: a scan of keys that are added
++# faster than it lists them may never end.)
++def test_scan_while_adding(r):
++    prefix = unique_key()
++    stable = {f'{prefix}-stable-{i}' for i in range(200)}
++    r.mset({k: 'x' for k in stable})
++    added = []
++
++    def add():
++        if len(added) < 5000:
++            new = [f'{prefix}-new-{len(added) + i}' for i in range(500)]
++            r.mset({k: 'x' for k in new})
++            added.extend(new)
++    found = set(scan_all(r, f'{prefix}-*', between=add))
++    assert stable <= found
++    r.delete(*stable, *added)
++
++
++# Check that SCAN rejects a cursor that isn't a number, and an option that
++# it doesn't know, or a COUNT that isn't positive.
++def test_scan_errors(r):
++    with pytest.raises(redis.ResponseError, match='invalid cursor'):
++        r.execute_command('SCAN', 'abc')
++    with pytest.raises(redis.ResponseError, match='syntax error'):
++        r.execute_command('SCAN', '0', 'SIZE', '10')
++    with pytest.raises(redis.ResponseError, match='syntax error'):
++        r.execute_command('SCAN', '0', 'COUNT', '0')

@@ -1,0 +1,57 @@
+% Figure for chapter 5, "The results": why a PING that arrives while KEYS
+% runs is answered after 3.5 ms, with a task quota of half a millisecond.
+% Measured on an instrumented Shoal version 2;
+% drawn with the polls at exact half milliseconds. The x axis is time, one
+% unit a millisecond.
+\begin{tikzpicture}[x=31mm]
+  % A slice of KEYS, from #1 ms to the next poll.
+  \newcommand\keys[2]{
+    \node[box, minimum height=5mm, minimum width={(#2)*31mm}, inner sep=0,
+          rounded corners=1.5pt, font=\sffamily\footnotesize, anchor=west]
+      at (#1, 0) {KEYS};
+  }
+  % A step of the PING, a short task, right after the poll at #1 ms.
+  \newcommand\step[1]{
+    \fill[figcool, rounded corners=0.4mm] (#1+0.008, -3.5mm) rectangle (#1+0.037, 3.5mm);
+  }
+
+  \foreach \t in {0, 0.5, ..., 3} \keys{\t+0.045}{0.43};
+  \keys{3.545}{0.2}
+  \foreach \t in {1, 1.5, 2, 2.5, 3} \step{\t};
+
+  % Each step's task waits behind a slice of KEYS for the next one.
+  \foreach \t in {1, 1.5, 2, 2.5}
+    \draw[message, gap] (\t+0.03, 3.5mm) to[out=60, in=120] (\t+0.52, 3.5mm);
+  \draw[message, gap, rare] (0.1, 4.3mm) to[out=10, in=125] (1.02, 3.5mm);
+  \node[note, anchor=south, inner sep=0.6mm] at (1.77, 8.4mm) {each step waits behind KEYS};
+
+  % The PING arrives, and its reply leaves.
+  \draw[figcool, fill=white, line width=0.72pt]
+    (0.06, 3.4mm) -- ++(-0.035, 1.8mm) -- ++(0.07, 0) -- cycle;
+  \draw[message] (3.52, 0) -- (3.52, 7mm);
+  \draw[figcool, |-|, line width=0.6pt, >={Bar[width=1.6mm]}]
+    (0.06, 15mm) -- (3.52, 15mm)
+    node[midway, above, font=\sffamily\footnotesize, text=figcool, inner sep=0.6mm]
+      {3.5 ms from the PING's arrival to its reply};
+  \node[note, anchor=south west, inner sep=0.5mm] at (0.0, 8.6mm) {PING arrives};
+  \node[note, anchor=south west, inner sep=0.5mm] at (3.54, 7mm) {reply sent};
+
+  % What each step is, in two rows of labels.
+  \node[note, anchor=north] at (0.5, -9.5mm) {poll finds the data};
+  \node[note, anchor=north] at (1.02, -4.5mm) {Seastar reads the socket};
+  \node[note, anchor=north, font=\ttfamily\footnotesize] at (1.52, -9.5mm) {read\_more()};
+  \node[note, anchor=north, font=\ttfamily\footnotesize] at (2.02, -4.5mm) {read\_line()};
+  \node[note, anchor=north, font=\ttfamily\footnotesize] at (2.52, -9.5mm) {read()};
+  \node[note, anchor=north, align=center] at (3.02, -4.5mm)
+    {\ttfamily handle\_connection()\\\sffamily writes the reply};
+  \node[note, anchor=north] at (3.52, -9.5mm) {poll};
+
+  % The time axis, with the polls.
+  \def\y{-17mm}
+  \draw[figink] (0, \y) -- (3.75, \y);
+  \foreach \t in {0, 0.5, ..., 3.5}
+    \draw[figink] (\t, \y) -- (\t, \y-1mm);
+  \foreach \t in {0, 1, 2, 3}
+    \node[font=\sffamily\footnotesize, anchor=north, inner sep=0.8mm] at (\t, \y-1.5mm) {\t};
+  \node[font=\sffamily\footnotesize, anchor=north west, inner sep=0.8mm] at (3.75, \y-1.5mm) {ms};
+\end{tikzpicture}

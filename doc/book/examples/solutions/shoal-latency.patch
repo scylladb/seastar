@@ -1,0 +1,147 @@
+# A solution in solutions/observability.md: Shoal v15 with histograms of how long GET and SET took
+# tools/check_examples.py applies it to a copy of shoal/v15,
+# builds it, and runs the tests.
+# base: shoal/v15
+--- a/commands.cc
++++ b/commands.cc
+@@ -1229,6 +1229,18 @@
+             .aggregate({sm::shard_label})
+             .set_skip_when_empty());
+     }
++    // snippet: latency-metrics
++    calls.push_back(sm::make_histogram("latency",
++        sm::description("How long the command took, from when its request "
++                        "was read until its reply was ready, in seconds"),
++        {command_label("get")},
++        [&db] { return db.get_latency.to_metrics(); }));
++    calls.push_back(sm::make_histogram("latency",
++        sm::description("How long the command took, from when its request "
++                        "was read until its reply was ready, in seconds"),
++        {command_label("set")},
++        [&db] { return db.set_latency.to_metrics(); }));
++    // end snippet: latency-metrics
+     db.metrics.add_group("commands", calls);
+     db.metrics.add_group("log", {
+         sm::make_total_bytes("bytes_written", db.log_statistics.bytes_written,
+@@ -1243,6 +1255,14 @@
+ }
+ // end snippet: register-metrics
+
++latency_histogram* latency_of(store& db, const command* cmd) {
++    static const command* get = &commands.at("get");
++    static const command* set = &commands.at("set");
++    return cmd == get ? &db.get_latency
++         : cmd == set ? &db.set_latency
++         : nullptr;
++}
++
+ const command* find_command(const request& req) {
+     // Lowercase the name into a small buffer, rather than a new string:
+     // this runs for every request. No command's name is longer.
+--- a/commands.hh
++++ b/commands.hh
+@@ -200,6 +200,10 @@
+     // these and more. Destroying the store unregisters them.
+     log_stats log_statistics;
+     std::unordered_map<const command*, uint64_t> calls;
++    // How long GET and SET took, from when the request was read until its
++    // reply was ready, on the shard that read them.
++    latency_histogram get_latency;
++    latency_histogram set_latency;
+     metrics::metric_groups metrics;
+     // end snippet: store-metrics
+
+@@ -262,6 +266,10 @@
+ // Registers the shard's metrics (version 15).
+ void register_metrics(store& db);
+
++// The histogram of the latency of a command, on this shard, or nullptr if
++// the command doesn't have one.
++latency_histogram* latency_of(store& db, const command* cmd);
++
+ // snippet: replication-decl
+ // For replication (version 14).
+ // Whether a command changes keys, which a replica's clients may not do.
+--- a/main.cc
++++ b/main.cc
+@@ -410,6 +410,25 @@
+ }
+ // end snippet: prefetch-ahead
+
++// snippet: timed
++// Adds the time since start to the histogram, if there is one, when the
++// reply is ready: now, if it is, or else in a continuation.
++future<sstring> timed(future<sstring> reply, latency_histogram* latency,
++                      std::chrono::steady_clock::time_point start) {
++    if (!latency) {
++        return reply;
++    }
++    if (reply.available()) {
++        latency->add(std::chrono::steady_clock::now() - start);
++        return reply;
++    }
++    return reply.then([latency, start] (sstring r) {
++        latency->add(std::chrono::steady_clock::now() - start);
++        return r;
++    });
++}
++// end snippet: timed
++
+ // snippet: serve
+ // Reads and executes a client's commands, until the client closes the
+ // connection.
+@@ -443,6 +462,11 @@
+                 _db.local().calls[cmd]++;       // for the metrics
+             }
+             // end snippet: count-calls
++            // snippet: latency-start
++            auto* latency = latency_of(_db.local(), cmd);
++            auto start = latency ? std::chrono::steady_clock::now()
++                                 : std::chrono::steady_clock::time_point();
++            // end snippet: latency-start
+             auto shard = batch_shard(cmd, *req);
+             if (is_write(cmd) && _db.local().replica) {
+                 // snippet: read-only
+@@ -468,7 +492,8 @@
+                 // in order; only a reply may wait, for the log), and if its
+                 // reply is ready, and no earlier reply waits, write it now,
+                 // as version 7 did. This keeps the speed of one shard.
+-                auto reply = execute_here(_db.local(), cmd, *req);
++                auto reply = timed(execute_here(_db.local(), cmd, *req),
++                                   latency, start);
+                 if (reply.available() && !reply.failed()) {
+                     auto r = reply.get();
+                     if (!replies.write_now(r)) {
+@@ -487,7 +512,8 @@
+                 // A client that sends requests faster than they're executed
+                 // waits for room, and Shoal stops reading its requests.
+                 auto in_flight = co_await replies.reserve();
+-                replies.add(queues[*shard].add(cmd, std::move(*req)),
++                replies.add(timed(queues[*shard].add(cmd, std::move(*req)),
++                                  latency, start),
+                             reader.take_units(), std::move(in_flight));
+             } else {
+                 // Any other command is executed alone, after the earlier
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,20 @@
++# Tests of the solution of chapter 27's exercise 2: histograms of how long
++# GET and SET took.
++from test_v15 import metrics_server, total
++
++
++# Check that each GET and SET is counted in its command's histogram, and
++# that no other command has one.
++def test_latency_histograms(start_server):
++    r, url, _ = metrics_server(start_server)
++    for i in range(5):
++        r.set(f'latency:{i}', i)
++    for i in range(3):
++        r.get(f'latency:{i}')
++    r.delete('latency:0')
++    for command, n in [('set', 5), ('get', 3)]:
++        assert total(url, 'shoal_commands_latency_count', command=command) == n
++        assert total(url, 'shoal_commands_latency_bucket', command=command,
++                     le='+Inf') == n
++        assert total(url, 'shoal_commands_latency_sum', command=command) > 0
++    assert total(url, 'shoal_commands_latency_count', command='del') == 0

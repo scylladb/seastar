@@ -1,0 +1,186 @@
+# A solution in solutions/http.md: Shoal v13 with PUT /v1/keys/{key}, which reads the body as a stream, up to a megabyte
+# tools/check_examples.py applies it to a copy of shoal/v13,
+# builds it, and runs the tests.
+# base: shoal/v13
+--- a/admin.cc
++++ b/admin.cc
+@@ -82,6 +82,27 @@
+     co_return json::json_void();
+ }
+
++// snippet: put-key
++// PUT /v1/keys/{key}: sets the key to the request's body, which it reads
++// from the request's stream. The server has already rejected a body whose
++// Content-Length is larger than max_body, but a chunked body has none, so
++// this checks the length again as it reads.
++future<json::json_return_type> put_key(sharded<store>& db,
++                                       std::unique_ptr<http::request> req) {
++    sstring value;
++    while (auto buf = co_await req->content_stream->read()) {
++        if (value.size() + buf.size() > max_body) {
++            throw httpd::base_exception(
++                fmt::format("a value may have at most {} bytes", max_body),
++                http::reply::status_type::payload_too_large);
++        }
++        value.append(buf.get(), buf.size());
++    }
++    co_await set_key(db, req->get_path_param("key"), std::move(value));
++    co_return json::json_void();
++}
++// end snippet: put-key
++
+ // POST /v1/rewrite: starts a rewrite of the logs, or answers 409 Conflict
+ // if one is in progress.
+ future<json::json_return_type> rewrite(sharded<store>& db) {
+@@ -108,6 +129,9 @@
+     aj::get_keys.set(r, [&db] (std::unique_ptr<http::request> req) {
+         return get_keys(db, std::move(req));
+     });
++    aj::put_key.set(r, [&db] (std::unique_ptr<http::request> req) {
++        return put_key(db, std::move(req));
++    });
+     aj::delete_key.set(r, [&db] (std::unique_ptr<http::request> req) {
+         return remove_key(db, std::move(req));
+     });
+--- a/admin.hh
++++ b/admin.hh
+@@ -7,4 +7,7 @@
+ using namespace seastar;
+
+ // Adds the admin API's routes to a shard's routes.
++// The largest body of a request that the admin API accepts.
++constexpr size_t max_body = 1024 * 1024;
++
+ void set_admin_routes(httpd::routes& r, sharded<store>& db);
+--- a/api/admin.json
++++ b/api/admin.json
+@@ -50,6 +50,21 @@
+         {
+             "path": "/v1/keys/{key}",
+             "operations": [{
++                "method": "PUT",
++                "summary": "Sets a key to the request's body",
++                "type": "void",
++                "nickname": "put_key",
++                "produces": ["application/json"],
++                "parameters": [{
++                    "name": "key",
++                    "description": "The key",
++                    "required": true,
++                    "allowMultiple": false,
++                    "type": "string",
++                    "paramType": "path"
++                }]
++            },
++            {
+                 "method": "DELETE",
+                 "summary": "Deletes a key",
+                 "type": "void",
+--- a/commands.cc
++++ b/commands.cc
+@@ -1496,6 +1496,21 @@
+     co_return r && std::get<sstring>(*r) == integer_reply(1);
+ }
+
++// snippet: set-key
++// Sets a key to a value, by executing SET, which also logs it, and counts
++// its memory, as a client's SET would.
++future<> set_key(sharded<store>& db, sstring key, sstring value) {
++    abort_source never;
++    auto r = co_await execute(db, request{"SET", std::move(key),
++                                          std::move(value)}, never);
++    auto& text = std::get<sstring>(*r);
++    if (text.starts_with("-")) {
++        // An error reply, "-ERR ...\r\n", without the "-" and "\r\n".
++        throw std::runtime_error(text.substr(1, text.size() - 3));
++    }
++}
++// end snippet: set-key
++
+ // The keys that match a pattern, on every shard, as KEYS finds them, and
+ // in the keys group, as KEYS runs.
+ future<std::vector<sstring>> matching_keys(sharded<store>& db,
+--- a/commands.hh
++++ b/commands.hh
+@@ -243,6 +243,8 @@
+ // For the admin API (version 13).
+ future<bool> start_rewrite(sharded<store>& db);
+ future<bool> delete_key(sharded<store>& db, sstring key);
++// Sets a key to a value, by executing SET (for the admin API's PUT).
++future<> set_key(sharded<store>& db, sstring key, sstring value);
+ future<std::vector<sstring>> matching_keys(sharded<store>& db,
+                                            sstring pattern);
+ // end snippet: admin-decl
+--- a/main.cc
++++ b/main.cc
+@@ -863,6 +863,13 @@
+             co_await admin.set_routes([&db] (httpd::routes& r) {
+                 set_admin_routes(r, db);
+             });
++            // Handlers read bodies from a stream, and a body whose
++            // Content-Length is larger than max_body gets 413 Payload Too
++            // Large, before it's read.
++            co_await admin.server().invoke_on_all([] (httpd::http_server& h) {
++                h.set_content_streaming(true);
++                h.set_content_length_limit(max_body);
++            });
+         }
+         // end snippet: admin-server
+         co_await run(db, srv, admin_started ? &admin : nullptr, opts);
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,54 @@
++# Tests for the solution of chapter 25's exercise 1: PUT /v1/keys/{key},
++# which sets a key to the request's body, of at most a megabyte.
++import http.client
++import urllib.error
++import urllib.parse
++import urllib.request
++
++from test_v13 import admin_server, call
++
++
++# Sends a PUT with a body, which is sent chunked, without a Content-Length,
++# if it's an iterable of pieces; returns the HTTP status.
++def put(url, body):
++    request = urllib.request.Request(url, data=body, method='PUT')
++    try:
++        with urllib.request.urlopen(request, timeout=10) as reply:
++            return reply.status
++    except urllib.error.HTTPError as e:
++        return e.code
++
++
++# Check that PUT sets the key, for Redis clients too, and replaces an old
++# value.
++def test_put(start_server):
++    r, api = admin_server(start_server)
++    assert put(f'{api}/v1/keys/put1', b'hello') == 200
++    assert r.get('put1') == b'hello'
++    assert put(f'{api}/v1/keys/put1', b'x' * 100_000) == 200
++    assert r.get('put1') == b'x' * 100_000
++
++
++# Check that a request that says its body has a gigabyte gets 413 Payload
++# Too Large at once, before it sends the body.
++def test_put_gigabyte(start_server):
++    r, api = admin_server(start_server)
++    url = urllib.parse.urlsplit(f'{api}/v1/keys/put2')
++    conn = http.client.HTTPConnection(url.hostname, url.port, timeout=10)
++    conn.putrequest('PUT', url.path)
++    conn.putheader('Content-Length', str(1024 ** 3))
++    conn.endheaders()
++    assert conn.getresponse().status == 413
++    conn.close()
++    assert r.exists('put2') == 0
++
++
++# Check that a chunked body, which has no Content-Length, gets 413 Payload
++# Too Large when it grows over a megabyte, and sets nothing, while a
++# megabyte exactly is allowed.
++def test_put_chunked(start_server):
++    r, api = admin_server(start_server)
++    assert put(f'{api}/v1/keys/put3', iter([b'x' * 65536] * 17)) == 413
++    assert r.exists('put3') == 0
++    assert put(f'{api}/v1/keys/put3', iter([b'x' * 65536] * 16)) == 200
++    assert len(r.get('put3')) == 1024 * 1024

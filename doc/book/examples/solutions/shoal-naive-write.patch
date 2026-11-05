@@ -1,0 +1,33 @@
+# A solution in solutions/concurrency-within-a-shard.md: shoal-naive-write, Shoal v4 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v4, builds it, and runs the tests.
+# base: shoal/v4
+--- a/pubsub.cc
++++ b/pubsub.cc
+@@ -44,8 +44,8 @@
+ // A message waiting to be written costs more memory than its bytes: the
+ // frame of write_after(), the shared_future and the allocations, and the
+ // allocator's rounding. We measured Shoal's memory with a subscriber that
+-// never reads: 613 bytes more than a message of 100, 919 more than one of
+-// 1,000. So this is too little, but good enough to keep Shoal alive.
++// never reads: 505 bytes more than a message of 100, 812 more than one of
++// 1,000. This is close for small messages, and too little for large ones.
+ constexpr size_t write_overhead = 512;
+
+ void client::send(sstring data) {
+@@ -72,10 +72,13 @@
+     }
+ }
+
++// snippet: write
++// Exercise 1: write directly, without the chain, as in the first attempt.
+ future<> client::write(sstring data) {
+-    send(std::move(data));
+-    return drain();
++    co_await _out.write(data);
++    co_await _out.flush();
+ }
++// end snippet: write
+ // end snippet: send
+
+ void client::disconnect() {

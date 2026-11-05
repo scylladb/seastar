@@ -1,0 +1,47 @@
+% Figure for chapter 5, "The loop": the reactor's three steps.
+\begin{tikzpicture}
+  % 1. Run tasks.
+  \node[box, minimum width=48.5mm, minimum height=39.2mm, anchor=north west] (run) at (0,0) {};
+  \node[title, anchor=base] at ([yshift=-5mm]run.north) {1. Run tasks};
+  \node[note, anchor=base] at ([yshift=-10.5mm]run.north) {the queue of ready tasks};
+  \foreach \i in {0,...,4}
+    \node[coolbox, minimum width=5.8mm, minimum height=5mm, anchor=north] (t\i)
+      at ($(run.north) + ({(\i-2)*7mm}, -12.4mm)$) {};
+  \node[plainbox, minimum width=17.5mm, minimum height=5mm, font=\sffamily\footnotesize,
+        rounded corners=1.65pt, anchor=north]
+    (running) at ($(run.north) + (2mm, -19.8mm)$) {running};
+  \draw[flow, gap] (t0.south) to[out=-90, in=180] (running.west);
+  \node[font=\sffamily\fontsize{7.7pt}{9.9pt}\selectfont, align=center, inner sep=0,
+        above=1.4mm of run.south]
+    {one at a time, in order, until \\ the queue is empty or the \\ task quota (0.5 ms) is used up};
+
+  % 2. Poll: the pollers, each checking for one kind of event.
+  \node[box, minimum width=48.5mm, minimum height=39.2mm, anchor=north west] (poll) at (77.2mm,0) {};
+  \node[title, anchor=base] at ([yshift=-5mm]poll.north) {2. Poll};
+  \foreach \what [count=\n] in {{network: data, connections}, {disk: reads and writes done},
+                                {timers that expired}, {messages from other shards},
+                                {flushed output, to send}}
+    \node[plainbox, minimum width=42.3mm, minimum height=4.66mm, text width=38.5mm,
+          inner xsep=1.9mm, inner ysep=0pt, align=left, font=\sffamily\footnotesize,
+          line width=0.6pt, rounded corners=1.65pt, anchor=north]
+      at ($(poll.north) + (0, {-7.76mm - (\n-1)*5.43mm})$) {\what};
+
+  % From running tasks to polling, and the tasks that polling makes ready.
+  \draw[flow, gap] (run.east |- 0,-13.2mm) -- (poll.west |- 0,-13.2mm)
+    node[midway, above, align=center, font=\sffamily\footnotesize] {queue empty, \\ or quota used up};
+  \draw[message, gap] (poll.west |- 0,-25.2mm) -- (run.east |- 0,-25.2mm)
+    node[midway, below, align=center, font=\sffamily\footnotesize, text=figcool]
+      {new ready tasks: \\ what they waited \\ for has happened};
+
+  % 3. Sleep, only when there is nothing to do (dashed: it rarely happens on
+  % a busy server).
+  \node[plainbox, rarebox, minimum width=48.5mm, minimum height=12mm, below=8.9mm of poll]
+    (sleep) {};
+  \node[title, anchor=base] at ([yshift=-4.9mm]sleep.north) {3. Sleep};
+  \node[font=\sffamily\footnotesize, anchor=base] at ([yshift=-9.3mm]sleep.north)
+    {until the kernel wakes the thread};
+  \draw[flow, rare, gap] ([xshift=-5.6mm]poll.south) -- ([xshift=-5.6mm]sleep.north)
+    node[midway, left, align=right, font=\sffamily\footnotesize] {nothing found, \\ for 200 µs};
+  \draw[flow, rare, gap] ([xshift=5.6mm]sleep.north) -- ([xshift=5.6mm]poll.south)
+    node[midway, right, align=left, font=\sffamily\footnotesize] {something \\ happened};
+\end{tikzpicture}

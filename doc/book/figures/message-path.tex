@@ -1,0 +1,49 @@
+% Figure for chapter 14, "How a message travels": a request from shard 0
+% to shard 1, and its reply. Each direction has its own queue; requests
+% and replies wait in batches, and each shard picks them up when it polls.
+% Time goes from left to right, not to scale.
+\begin{tikzpicture}[x=1mm, y=1mm,
+    lane/.style={font=\sffamily\small, anchor=east, align=right},
+    stage/.style={box, font=\sffamily\footnotesize, inner xsep=1.2mm,
+                  inner ysep=0.9mm, text width=#1},
+    remote/.style={coolbox, font=\sffamily\footnotesize, inner xsep=1.2mm,
+                   inner ysep=0.9mm, text width=#1},
+    label/.style={note, inner sep=0.6mm},
+  ]
+  % The two lanes.
+  \def\top{0}
+  \def\bot{-30}
+  \node[lane] at (-2, \top) {shard 0};
+  \node[lane] at (-2, \bot) {shard 1};
+  \draw[draw=fignote, rare, line width=0.4pt] (0, \top) -- (116, \top);
+  \draw[draw=fignote, rare, line width=0.4pt] (0, \bot) -- (116, \bot);
+
+  % 1. The request, on shard 0.
+  \node[stage=17mm] (call) at (10, \top)
+    {\texttt{submit\_to()} takes a unit of its group};
+  \node[stage=19mm] (batch) at (34, \top)
+    {waits for a batch of 16, or the next poll};
+  \draw[flow, gap] (call) -- (batch);
+
+  % 2. Through the queue of requests from shard 0 to shard 1.
+  \node[remote=19mm] (run) at (58, \bot) {polls, and runs the function};
+  \draw[message, gap] (batch.south) -- (run.north west)
+    pic[pos=0.5, sloped] {queue}
+    node[pos=0.5, left=1.5mm, label, align=right] {queue of \\ requests};
+
+  % 3. The reply, on shard 1.
+  \node[remote=19mm] (reply) at (82, \bot)
+    {the result waits for a batch, or the next poll};
+  \draw[flow, gap] (run) -- (reply);
+
+  % 4. Through the queue of replies, back to shard 0.
+  \node[stage=20mm] (done) at (104, \top)
+    {polls: the future is ready, the unit goes back};
+  \draw[message, gap] (reply.north) -- (done.south west)
+    pic[pos=0.5, sloped] {queue}
+    node[pos=0.5, right=1.5mm, label, align=left] {queue of \\ replies};
+
+  % Time.
+  \draw[flow] (0, \bot-11) -- (116, \bot-11)
+    node[pos=1, below left, font=\sffamily\footnotesize, inner sep=0.8mm] {time};
+\end{tikzpicture}

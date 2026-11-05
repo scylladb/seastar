@@ -1,0 +1,73 @@
+% Figure for chapter 4, "Coroutines calling coroutines": Shoal's request
+% reader, suspended while it waits for the network. Its coroutines' frames
+% are on the heap, linked by the futures they wait for, and the stack holds
+% only the reactor; compare the same calls as ordinary functions.
+\begin{tikzpicture}[
+    frame/.style={coolbox, align=left, text width=40mm, inner xsep=1.8mm,
+                  inner ysep=1.2mm, font=\sffamily\footnotesize},
+    stackframe/.style={plainbox, minimum width=30mm, minimum height=5.6mm,
+                       inner ysep=0pt, font=\ttfamily\footnotesize,
+                       rounded corners=1.65pt},
+    code/.style={font=\ttfamily\footnotesize},
+  ]
+  % A frame: its function, its parameters and local variables, and the
+  % co_await where it waits.
+  \newcommand\frameof[3]{{\ttfamily\small #1} \\ #2 \\
+    {\color{figcool}at \ttfamily #3}}
+
+  % The heap: the four frames, wherever the allocator put them.
+  \node[frame] (f1) at (0, 0)
+    {\frameof{handle\_connection()}{db, s, in, out, reader, error}{co\_await reader.read()}};
+  \node[frame, anchor=north west] (f2) at ([xshift=7mm, yshift=-7mm]f1.south west)
+    {\frameof{read()}{this}{co\_await read\_line()}};
+  \node[frame, anchor=north west] (f3) at ([xshift=-4mm, yshift=-7mm]f2.south west)
+    {\frameof{read\_line()}{this, newline}{co\_await read\_more()}};
+  \node[frame, anchor=north west] (f4) at ([xshift=6mm, yshift=-7mm]f3.south west)
+    {\frameof{read\_more()}{this}{co\_await \_in.read()}};
+  \node[plainbox, rarebox, anchor=north, align=center,
+        font=\sffamily\footnotesize] (data)
+   at ([yshift=-7mm]f4.south) {{\ttfamily \_in.read()}: no data yet};
+  \foreach \a/\b in {f1/f2, f2/f3, f3/f4, f4/data}
+    \draw[message, gap] (\a.south -| \b.north) -- (\b.north);
+  \path (f1.south -| f2.north) -- (f2.north)
+    node[midway, right, font=\sffamily\footnotesize, text=figcool] {waits for};
+  % The heap's extent (not drawn: the frames are wherever they are).
+  \node[fit=(f1) (f2) (f3) (f4) (data), inner sep=2.5mm] (heap) {};
+  \node[title, anchor=base] at ([yshift=2mm]heap.north) {The heap};
+
+  % The thread's stack, left: only the reactor's loop. A stack is open at the
+  % top, where it grows.
+  \coordinate (stackright) at ([xshift=-6mm]heap.west);
+  \coordinate (stackleft) at ([xshift=-26mm]heap.west);
+  \draw (stackleft |- heap.north) -- (stackleft |- heap.south)
+    -- (stackright |- heap.south) -- (stackright |- heap.north);
+  \node[title, anchor=base] at ($(stackleft |- heap.north)!0.5!(stackright |- heap.north)
+    + (0, 2mm)$) {The stack};
+  \node[box, minimum width=17mm, minimum height=9mm, anchor=south,
+        font=\sffamily\footnotesize]
+    (reactor) at ([yshift=1.5mm]$(stackleft |- heap.south)!0.5!(stackright |- heap.south)$)
+    {the reactor's \\ loop};
+  \node[note, text width=17mm, anchor=south] at ([yshift=4mm]reactor.north)
+    {free to run other clients' coroutines};
+  \draw[flow, gap, rare] (reactor.east) -- (reactor.east -| data.west)
+    node[midway, above, font=\sffamily\footnotesize, align=center]
+      {resumes them \\ when data arrives};
+
+  % Right: the same calls as ordinary functions, on the stack of a thread
+  % that waits for the data, too.
+  \coordinate (otherleft) at ([xshift=9mm]heap.east);
+  \coordinate (otherright) at ([xshift=43mm]heap.east);
+  \draw (otherleft |- heap.north) -- (otherleft |- heap.south)
+    -- (otherright |- heap.south) -- (otherright |- heap.north);
+  \node[title, anchor=base, align=center] at
+    ($(otherleft |- heap.north)!0.5!(otherright |- heap.north) + (0, 2mm)$)
+    {Ordinary functions};
+  \coordinate (bottom) at ($(otherleft |- heap.south)!0.5!(otherright |- heap.south)$);
+  \foreach \what [count=\n] in {{\sffamily the thread's start}, {handle\_connection()},
+                                {read()}, {read\_line()}, {read\_more()}}
+    \node[stackframe, anchor=south] at ([yshift={1.5mm + (\n-1)*6.6mm}]bottom) {\what};
+  \node[stackframe, hotbox, font=\sffamily\footnotesize, anchor=south]
+    (recv) at ([yshift={1.5mm + 5*6.6mm}]bottom) {{\ttfamily recv()}: blocked};
+  \node[note, text width=30mm, anchor=south] at ([yshift=3mm]recv.north)
+    {the thread waits, and serves no one else};
+\end{tikzpicture}

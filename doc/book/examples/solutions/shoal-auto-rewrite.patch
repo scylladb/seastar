@@ -1,0 +1,255 @@
+# A solution in solutions/scheduling-groups.md: --auto-aof-rewrite-percentage, as Redis's.
+# tools/check_examples.py applies it to a copy of shoal/v11,
+# builds it, and runs the tests.
+# base: shoal/v11
+--- a/commands.cc
++++ b/commands.cc
+@@ -104,6 +104,21 @@
+ // Records a change in the shard's log: the request that, executed again
+ // when Shoal starts, makes the same change. While Shoal replays the log,
+ // the store has no log yet, so replaying records nothing.
++// snippet: maybe-rewrite
++// Exercise 5: starts a rewrite when the log has grown enough, as Redis's
++// auto-aof-rewrite-percentage and auto-aof-rewrite-min-size do.
++void maybe_rewrite(store& db) {
++    if (!db.auto_rewrite_percentage || db.rewrite_in_progress || !db.log) {
++        return;
++    }
++    auto size = db.log->size();
++    if (size >= db.auto_rewrite_min_size &&
++        size >= db.base_size * (100 + db.auto_rewrite_percentage) / 100) {
++        db.start_rewrite();
++    }
++}
++// end snippet: maybe-rewrite
++
+ template <typename Words>
+ void record(store& db, const Words& words) {
+     if (db.log) {
+@@ -112,6 +127,7 @@
+     if (db.rewriting) {
+         db.rewriting->append(words);
+     }
++    maybe_rewrite(db);
+ }
+
+ void record(store& db, std::initializer_list<std::string_view> words) {
+@@ -664,25 +680,30 @@
+     struct totals {
+         uint64_t clients = 0, blocked = 0, input = 0, output = 0;
+         bool rewriting = false, rewrite_failed = false;
++        uint64_t current = 0, base = 0;
+     };
+     auto t = co_await db.map_reduce0([] (store& s) {
+         return totals{s.connected_clients, s.blocked_clients,
+                       s.net_input_bytes, s.net_output_bytes,
+-                      s.rewrite_in_progress, s.last_rewrite_failed};
++                      s.rewrite_in_progress, s.last_rewrite_failed,
++                      s.log ? s.log->size() : 0, s.base_size};
+     }, totals{}, [] (totals a, totals b) {
+         return totals{a.clients + b.clients, a.blocked + b.blocked,
+                       a.input + b.input, a.output + b.output,
+                       a.rewriting || b.rewriting,
+-                      a.rewrite_failed || b.rewrite_failed};
++                      a.rewrite_failed || b.rewrite_failed,
++                      a.current + b.current, a.base + b.base};
+     });
+     co_return bulk_string_reply(fmt::format(
+         "# Clients\r\nconnected_clients:{}\r\nblocked_clients:{}\r\n"
+         "\r\n# Persistence\r\naof_rewrite_in_progress:{}\r\n"
+         "aof_last_bgrewrite_status:{}\r\n"
++        "aof_current_size:{}\r\naof_base_size:{}\r\n"
+         "\r\n# Stats\r\ntotal_net_input_bytes:{}\r\n"
+         "total_net_output_bytes:{}\r\n",
+         t.clients, t.blocked, int(t.rewriting),
+-        t.rewrite_failed ? "err" : "ok", t.input, t.output));
++        t.rewrite_failed ? "err" : "ok", t.current, t.base, t.input,
++        t.output));
+ }
+
+ // DBSIZE: the number of keys, on all the shards together.
+@@ -778,11 +799,7 @@
+         // Marked at once, so that the next BGREWRITEAOF sees it, though
+         // the rewrite starts only when the rewrite group gets to run.
+         if (!s.rewrite_in_progress) {
+-            s.rewrite_in_progress = true;
+-            // Not awaited: rewrite_log() holds the store's background gate.
+-            (void)with_scheduling_group(s.groups.rewrite, [&s] {
+-                return s.rewrite_log();
+-            });
++            s.start_rewrite();
+         }
+     });
+     co_return simple_string_reply(
+@@ -1248,6 +1265,7 @@
+     }
+     log = co_await append_only_log::open(
+         path, [this] (const request& req) { replay(*this, req); });
++    base_size = log->size();
+     if (!sync_always) {
+         (void)commit_periodically();
+     }
+@@ -1326,6 +1344,18 @@
+ }
+ // end snippet: write-key
+
++// snippet: start-rewrite
++void store::start_rewrite() {
++    // Marked at once, so that the next BGREWRITEAOF sees it, though the
++    // rewrite starts only when the rewrite group gets to run.
++    rewrite_in_progress = true;
++    // Not awaited: rewrite_log() holds the store's background gate.
++    (void)with_scheduling_group(groups.rewrite, [this] {
++        return rewrite_log();
++    });
++}
++// end snippet: start-rewrite
++
+ // snippet: rewrite
+ future<> store::rewrite_log() {
+     // Started in the background, by BGREWRITEAOF, which set
+@@ -1373,6 +1403,7 @@
+             co_await coroutine::switch_to(default_scheduling_group());
+             co_await log->hand_over(*rewriting, tmp, path);
+             auto old = std::exchange(log, std::move(rewriting));
++            base_size = log->size();
+             // The old log's waiting commits now commit the new one.
+             co_await old->close();
+         }
+--- a/commands.hh
++++ b/commands.hh
+@@ -116,6 +116,12 @@
+     std::unique_ptr<append_only_log> rewriting;
+     bool rewrite_in_progress = false;
+     bool last_rewrite_failed = false;
++    // Exercise 5: rewrite the log, without BGREWRITEAOF, when it has grown
++    // by auto_rewrite_percentage since its size after the last rewrite,
++    // base_size, if it's at least auto_rewrite_min_size (0: never).
++    uint64_t auto_rewrite_percentage = 0;
++    uint64_t auto_rewrite_min_size = 0;
++    uint64_t base_size = 0;
+     // end snippet: store-rewrite
+     // For INFO: this shard's clients, those of them waiting in BLPOP, and
+     // the bytes read from them and written to them, which their streams
+@@ -133,6 +139,8 @@
+     // the shard's data as a new log, as short as it can be, which then
+     // replaces the log.
+     future<> rewrite_log();
++    // Starts rewrite_log() in the background, in the rewrite group.
++    void start_rewrite();
+     // Whether a command, which began when the log had appends_before
+     // requests, must wait for a commit: if it appended any, and either
+     // every change waits, or too many wait to be written.
+--- a/log.hh
++++ b/log.hh
+@@ -59,6 +59,7 @@
+     future<> write();
+     uint64_t uncommitted() const { return _size - _written; }
+     uint64_t appends() const { return _appends; }
++    uint64_t size() const { return _size; }
+     // Commits what's left, and closes the file.
+     future<> close();
+     // At the end of a rewrite: makes next, written to the file tmp_path,
+--- a/main.cc
++++ b/main.cc
+@@ -58,6 +58,8 @@
+     std::chrono::seconds tcp_keepalive;
+     sstring dir;                        // where the logs are
+     bool sync_always;                   // --appendfsync always
++    uint64_t auto_rewrite_percentage;   // --auto-aof-rewrite-percentage
++    uint64_t auto_rewrite_min_size;     // --auto-aof-rewrite-min-size
+     size_t max_clients;
+     size_t max_request_memory;
+     size_t max_reply_memory;
+@@ -754,6 +756,8 @@
+         co_await check_shard_count(opts.dir);
+         auto start = std::chrono::steady_clock::now();
+         co_await db.invoke_on_all([&opts] (store& s) {
++            s.auto_rewrite_percentage = opts.auto_rewrite_percentage;
++            s.auto_rewrite_min_size = opts.auto_rewrite_min_size;
+             return s.open(opts.dir, opts.sync_always);
+         });
+         shoal_log.info("replayed the logs in {} in {:.3f} s", opts.dir,
+@@ -840,6 +844,13 @@
+         ("appendfsync", bpo::value<std::string>()->default_value("everysec"),
+          "when the log reaches the disk: always, before each change is "
+          "acknowledged, or everysec, once a second")
++        ("auto-aof-rewrite-percentage",
++         bpo::value<uint64_t>()->default_value(0),
++         "rewrite a shard's log when it has grown by this percentage since "
++         "its last rewrite (0, the default: never)")
++        ("auto-aof-rewrite-min-size",
++         bpo::value<uint64_t>()->default_value(64 << 20),
++         "but not before the log has this many bytes")
+         ("maxclients", bpo::value<size_t>()->default_value(10000),
+          "refuse connections beyond this many clients")
+         ("max-request-memory", bpo::value<size_t>()->default_value(0),
+@@ -878,6 +889,10 @@
+             .dir = config["dir"].as<std::string>(),
+             .sync_always = appendfsync_option(
+                 config["appendfsync"].as<std::string>()),
++            .auto_rewrite_percentage =
++                config["auto-aof-rewrite-percentage"].as<uint64_t>(),
++            .auto_rewrite_min_size =
++                config["auto-aof-rewrite-min-size"].as<uint64_t>(),
+             .max_clients = config["maxclients"].as<size_t>(),
+             .max_request_memory = memory_option(
+                 config["max-request-memory"].as<size_t>(), 4),
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,55 @@
++# Tests for the solution of exercise 5 of "Scheduling groups": the log is
++# rewritten by itself when it has grown by --auto-aof-rewrite-percentage
++# since its last rewrite, and is at least --auto-aof-rewrite-min-size.
++import time
++
++import redis
++
++
++def start(start_server, tmp_path, *options):
++    options = [*options, '--dir', str(tmp_path)]
++    if start_server.is_valkey:
++        options += ['--appendonly', 'yes']
++    srv = start_server(*options)
++    return srv, redis.Redis(port=srv.address[1])
++
++
++def wait_for_rewrite(r):
++    deadline = time.time() + 60
++    while r.info('persistence')['aof_rewrite_in_progress']:
++        assert time.time() < deadline
++        time.sleep(0.01)
++
++
++# Check that a log that keeps growing, here with 3,000 values of a
++# kilobyte written to one key, is rewritten by itself, and so stays small.
++def test_auto_rewrite(start_server, tmp_path):
++    min_size = 65536
++    srv, r = start(start_server, tmp_path,
++                   '--auto-aof-rewrite-percentage', '100',
++                   '--auto-aof-rewrite-min-size', str(min_size))
++    value = 'x' * 1000
++    for i in range(3000):
++        r.set('key', f'{i} {value}')
++    time.sleep(0.5)     # Valkey checks the log's growth periodically
++    wait_for_rewrite(r)
++    info = r.info('persistence')
++    # A rewrite happened (the base size is the log's size after the last
++    # one, with the changes made during it), the log is smaller than all
++    # that was written to it, and no rewrite is due.
++    assert info['aof_base_size'] > 0
++    assert info['aof_current_size'] < 3000 * 1000
++    assert info['aof_current_size'] < 2 * info['aof_base_size'] + min_size
++    assert r.get('key') == f'2999 {value}'.encode()
++
++
++# Check that with --auto-aof-rewrite-percentage 0, the log isn't rewritten
++# by itself: it holds all the values written to the key.
++def test_no_auto_rewrite(start_server, tmp_path):
++    srv, r = start(start_server, tmp_path,
++                   '--auto-aof-rewrite-percentage', '0')
++    value = 'x' * 1000
++    for i in range(300):
++        r.set('key', f'{i} {value}')
++    time.sleep(1.5)     # until a commit, once a second, has written them
++    assert r.info('persistence')['aof_current_size'] > 300 * 1000

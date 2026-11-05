@@ -1,0 +1,6 @@
+% makeindex style for the book's index (tools/build.py): a bold letter
+% heading before each group of entries, and symbols before letters.
+headings_flag 1
+heading_prefix "{\\bfseries "
+heading_suffix "}\\par\\nopagebreak\n"
+symhead_positive "Symbols"

@@ -1,0 +1,72 @@
+% Figure for chapter 16, "Clients that send faster than we answer": a
+% client that sends a huge pipeline, and reads its replies only after
+% sending all of it. In version 8 (top), the sockets' buffers fill up in
+% both directions, and the waits make a cycle. In version 9 (bottom),
+% the reader goes on while the replies wait in Shoal's memory, so the
+% client finishes sending, and then reads.
+\begin{tikzpicture}[x=1mm, y=1mm,
+    part/.style={plainbox, font=\sffamily\footnotesize, minimum width=17mm},
+    waits/.style={->, draw=fighot, dash pattern=on 2.2pt off 1.65pt,
+                  line width=0.77pt},
+    label/.style={note, inner sep=0.6mm},
+  ]
+  % A socket buffer: a row of six blocks, the first few filled.
+  \newcommand\buffer[2]{% center, filled blocks
+    \foreach \i in {0,...,5} {
+      \pgfmathsetmacro\x{\i * 4}
+      \ifnum\i<#2
+        \fill[figcool] ($(#1) + (\x - 12, -1.5)$) rectangle ++(3.2, 3);
+      \else
+        \draw[draw=figcool, line width=0.5pt] ($(#1) + (\x - 12, -1.5)$) rectangle ++(3.2, 3);
+      \fi
+    }
+  }
+  % One row: a client, the two directions of the sockets, and Shoal, with
+  % its reader at height #2 and its writer at height #3.
+  \newcommand\row[5]{% name, reader y, writer y, requests filled, replies filled
+    \node[box, minimum width=22mm, fit={(-11, #2+6) (11, #3-4)}, inner sep=0]
+      (c#1) {};
+    \node[note, anchor=north] at (c#1.north) {client};
+    \node[note, text width=20mm] at ($(c#1.center) + (0, -1)$)
+      {sends everything, then reads};
+    \node[part] (r#1) at (80, #2) {reader};
+    \node[part] (w#1) at (80, #3) {writer};
+    \coordinate (q#1) at (40, #2);
+    \coordinate (p#1) at (40, #3);
+    \buffer{q#1}{#4}
+    \buffer{p#1}{#5}
+    \node[note, anchor=south] at ($(q#1) + (0, 1.8)$) {requests};
+    \node[note, anchor=north] at ($(p#1) + (0, -1.8)$) {replies};
+    \draw[flow] (c#1.east |- q#1) -- ($(q#1) + (-13.5, 0)$);
+    \draw[flow] ($(q#1) + (12.5, 0)$) -- (r#1.west);
+    \draw[flow] (w#1.west) -- ($(p#1) + (12.5, 0)$);
+    \draw[flow] ($(p#1) + (-13.5, 0)$) -- (c#1.east |- p#1);
+  }
+
+  % Version 8: everything is full, and everyone waits.
+  \node[title, anchor=west] at (-11, 16) {version 8};
+  \row{8}{6}{-6}{6}{6}
+  \node[box, fill=none, fit=(r8) (w8), inner sep=2.5mm] (s8) {};
+  \node[note, anchor=south] at (s8.north) {Shoal};
+  \draw[waits] (r8.east) to[bend left=60]
+    node[right, label] {waits for \texttt{write()}} (w8.east);
+  \node[note, text=fighot, anchor=north] at ($(q8) + (0, -2)$)
+    {full: the client waits};
+  \node[note, text=fighot, anchor=south] at ($(p8) + (0, 2)$)
+    {full: the writer waits};
+
+  % Version 9: the replies wait in Shoal's memory instead.
+  \node[title, anchor=west] at (-11, -16) {version 9};
+  \row{9}{-26}{-46}{2}{6}
+  \node[coolbox, font=\sffamily\footnotesize, minimum width=17mm] (m9)
+    at (80, -36) {waiting replies};
+  \node[box, fill=none, fit=(r9) (w9) (m9), inner sep=2.5mm] (s9) {};
+  \node[note, anchor=south] at (s9.north) {Shoal};
+  \draw[flow, gap] (r9) -- (m9);
+  \draw[flow, gap] (m9) -- (w9);
+  \node[note, anchor=west, text width=28mm, align=flush left]
+    at ($(m9.east) + (6, 0)$)
+    {the reader goes on, up to \texttt{--max-reply-memory}};
+  \node[note, text=fighot, anchor=south] at ($(p9) + (0, 2)$)
+    {full: the writer waits};
+\end{tikzpicture}

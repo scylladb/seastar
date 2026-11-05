@@ -1,0 +1,50 @@
+% Figure for chapter 15, "Waiting on several shards": a client on shard 0
+% waits in BLPOP on key a, on shard 1, and key b, on shard 2. Pushes to
+% both keys come at once; shard 2 wins the flag, and shard 1 skips the
+% client. Time goes from left to right, not to scale.
+\begin{tikzpicture}[x=1mm, y=1mm,
+    lane/.style={font=\sffamily\small, anchor=east, align=right},
+    stage/.style={box, font=\sffamily\footnotesize, inner xsep=1.1mm,
+                  inner ysep=0.8mm, text width=#1},
+    key/.style={coolbox, font=\sffamily\footnotesize, inner xsep=1.1mm,
+                inner ysep=0.8mm, text width=#1},
+    lost/.style={box, rarebox, font=\sffamily\footnotesize, inner xsep=1.1mm,
+                 inner ysep=0.8mm, text width=#1},
+    label/.style={note, inner sep=0.6mm},
+  ]
+  \def\zero{0}
+  \def\one{-21}
+  \def\two{-42}
+  \node[lane] at (-2, \zero) {shard 0};
+  \node[lane] at (-2, \one) {shard 1 (a)};
+  \node[lane] at (-2, \two) {shard 2 (b)};
+  \foreach \y in {\zero, \one, \two}
+    \draw[draw=fignote, rare, line width=0.4pt] (0, \y) -- (118, \y);
+
+  % The client's shard visits the keys, in order.
+  \node[stage=15mm] (start) at (8, \zero) {\texttt{BLPOP a b}};
+  \node[key=14mm] (wa) at (22, \one) {joins a's line};
+  \node[key=14mm] (wb) at (38, \two) {joins b's line};
+  \draw[message, gap] (start.south) -- (wa.north west);
+  \draw[message, gap] (start.east) -- (wb.north west);
+
+  % Pushes to both keys, at the same moment.
+  \node[key=17mm] (pb) at (62, \two)
+    {\texttt{RPUSH b x}: sets \texttt{done}, pops x};
+  \node[lost=19mm] (pa) at (62, \one)
+    {\texttt{RPUSH a y}: \texttt{done} was set, skips; y stays};
+
+  % The element goes to the client's shard.
+  \node[stage=17mm] (served) at (84, \zero) {gets \texttt{(b, x)}};
+  \draw[message, gap] (pb.north east) -- (served.south)
+    node[pos=0.55, right, label] {x};
+
+  % Forgetting the wait on both shards.
+  \node[stage=17mm] (forget) at (108, \zero)
+    {forgets the wait on shards 1 and 2, replies};
+  \draw[flow, gap] (served) -- (forget);
+
+  % Time.
+  \draw[flow] (0, \two-9) -- (118, \two-9)
+    node[pos=1, below left, font=\sffamily\footnotesize, inner sep=0.8mm] {time};
+\end{tikzpicture}

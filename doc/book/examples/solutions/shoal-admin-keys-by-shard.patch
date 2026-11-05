@@ -1,0 +1,98 @@
+# A solution in solutions/http.md: Shoal v13 whose GET /v1/keys holds one shard's keys at a time
+# tools/check_examples.py applies it to a copy of shoal/v13,
+# builds it, and runs the tests.
+# base: shoal/v13
+--- a/admin.cc
++++ b/admin.cc
+@@ -58,15 +58,42 @@
+ }
+
+ // snippet: get-keys
+-// GET /v1/keys?pattern=...: the matching keys, as a JSON array, which is
+-// written to the connection a key at a time, rather than built whole.
++// Writes the keys that match a pattern, as a JSON array, asking one shard
++// at a time, so that only one shard's keys are in memory at once.
++future<> write_keys(sharded<store>& db, sstring pattern,
++                    output_stream<char> out) {
++    std::exception_ptr error;
++    try {
++        co_await out.write("[");
++        bool first = true;
++        for (unsigned shard = 0; shard < this_smp_shard_count(); shard++) {
++            auto keys = co_await keys_on(db, shard, pattern);
++            for (auto& key : keys) {
++                if (!first) {
++                    co_await out.write(", ");
++                }
++                first = false;
++                co_await json::formatter::write(out, key);
++            }
++        }
++        co_await out.write("]");
++    } catch (...) {
++        error = std::current_exception();
++    }
++    co_await out.close();
++    if (error) {
++        std::rethrow_exception(error);
++    }
++}
++
++// GET /v1/keys?pattern=...: the matching keys, written by write_keys().
+ future<json::json_return_type> get_keys(sharded<store>& db,
+                                         std::unique_ptr<http::request> req) {
+     auto pattern = req->get_query_param("pattern", "*");
+-    auto keys = co_await matching_keys(db, std::move(pattern));
+-    co_return json::stream_range_as_array(std::move(keys),
+-                                          [] (const sstring& key) {
+-        return key;
++    // The lambda only calls a coroutine function, and gives it copies.
++    co_return json::json_return_type::body_writer_type(
++            [&db, pattern] (output_stream<char>&& out) {
++        return write_keys(db, pattern, std::move(out));
+     });
+ }
+ // end snippet: get-keys
+--- a/commands.cc
++++ b/commands.cc
+@@ -1496,21 +1496,15 @@
+     co_return r && std::get<sstring>(*r) == integer_reply(1);
+ }
+
+-// The keys that match a pattern, on every shard, as KEYS finds them, and
+-// in the keys group, as KEYS runs.
+-future<std::vector<sstring>> matching_keys(sharded<store>& db,
+-                                           sstring pattern) {
++// snippet: keys-on
++// The keys on one shard that match a pattern, as KEYS finds them, and in
++// the keys group, as KEYS runs.
++future<std::vector<sstring>> keys_on(sharded<store>& db, unsigned shard,
++                                     sstring pattern) {
+     co_await coroutine::switch_to(db.local().groups.keys);
+-    auto found = co_await db.map([&pattern] (store& s) {
++    co_return co_await db.invoke_on(shard, [&pattern] (store& s) {
+         return keys_here(s, pattern);
+     });
+-    std::vector<sstring> all;
+-    for (auto& keys : found) {
+-        for (auto& key : keys) {
+-            all.push_back(std::move(key));
+-            co_await coroutine::maybe_yield();
+-        }
+-    }
+-    co_return all;
+ }
++// end snippet: keys-on
+ // end snippet: admin-functions
+--- a/commands.hh
++++ b/commands.hh
+@@ -243,7 +243,7 @@
+ // For the admin API (version 13).
+ future<bool> start_rewrite(sharded<store>& db);
+ future<bool> delete_key(sharded<store>& db, sstring key);
+-future<std::vector<sstring>> matching_keys(sharded<store>& db,
+-                                           sstring pattern);
++future<std::vector<sstring>> keys_on(sharded<store>& db, unsigned shard,
++                                     sstring pattern);
+ // end snippet: admin-decl
+ // end snippet: execute-decl

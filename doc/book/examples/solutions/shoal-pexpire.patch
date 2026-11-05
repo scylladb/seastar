@@ -1,0 +1,186 @@
+# A solution in solutions/time.md: shoal-pexpire, Shoal v5 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v5, builds it, and runs the tests.
+# base: shoal/v5
+--- a/commands.cc
++++ b/commands.cc
+@@ -207,42 +207,71 @@
+ // end snippet: del-exists
+
+ // snippet: expire
+-// EXPIRE key seconds
+-sstring expire(store& db, const request& req) {
+-    auto seconds = parse_integer(req[2]);
+-    if (!seconds) {
++// EXPIRE key seconds, and PEXPIRE key milliseconds: Unit is the unit of
++// the time, and command the command's name, for the error message.
++template <typename Unit>
++sstring expire_after(store& db, const request& req,
++                     std::string_view command) {
++    auto n = parse_integer(req[2]);
++    if (!n) {
+         return error_reply("value is not an integer or out of range");
+     }
+-    if (*seconds > max_expire_seconds) {
+-        return error_reply("invalid expire time in 'expire' command");
++    auto max = std::chrono::duration_cast<Unit>(
++        std::chrono::seconds(max_expire_seconds));
++    if (*n > max.count()) {
++        return error_reply(fmt::format(
++            "invalid expire time in '{}' command", command));
+     }
+     auto it = lookup(db, req[1]);
+     if (it == db.data.end()) {
+         return integer_reply(0);
+     }
+-    if (*seconds <= 0) {
++    if (*n <= 0) {
+         // An expiration time that has already passed deletes the key.
+         erase_key(db, it);
+     } else {
+         expire_key_at(db, it->first, it->second,
+-                      expiry_clock::now() + std::chrono::seconds(*seconds));
++                      expiry_clock::now() + Unit(*n));
+     }
+     return integer_reply(1);
+ }
+
+-// TTL key
+-sstring ttl(store& db, const request& req) {
++sstring expire(store& db, const request& req) {
++    return expire_after<std::chrono::seconds>(db, req, "expire");
++}
++
++sstring pexpire(store& db, const request& req) {
++    return expire_after<std::chrono::milliseconds>(db, req, "pexpire");
++}
++
++// How long the key has left, in milliseconds, for TTL and PTTL: -2 if the
++// key doesn't exist, and -1 if it has no expiration time.
++int64_t milliseconds_left(store& db, const request& req) {
+     auto it = lookup(db, req[1]);
+     if (it == db.data.end()) {
+-        return integer_reply(-2);
++        return -2;
+     }
+     if (!it->second.expires) {
+-        return integer_reply(-1);
++        return -1;
+     }
+     auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+         it->second.expires->when - expiry_clock::now());
++    return left.count();
++}
++
++// TTL key
++sstring ttl(store& db, const request& req) {
++    auto left = milliseconds_left(db, req);
++    if (left < 0) {
++        return integer_reply(left);
++    }
+     // Round to the nearest second, as Redis does.
+-    return integer_reply((left.count() + 500) / 1000);
++    return integer_reply((left + 500) / 1000);
++}
++
++// PTTL key
++sstring pttl(store& db, const request& req) {
++    return integer_reply(milliseconds_left(db, req));
+ }
+
+ // PERSIST key
+@@ -424,7 +453,9 @@
+     {"del", {.arity = -2, .run = del}},
+     {"exists", {.arity = -2, .run = exists}},
+     {"expire", {.arity = 3, .run = expire}},
++    {"pexpire", {.arity = 3, .run = pexpire}},
+     {"ttl", {.arity = 2, .run = ttl}},
++    {"pttl", {.arity = 2, .run = pttl}},
+     {"persist", {.arity = 2, .run = persist}},
+     {"keys", {.arity = 2, .run_long = keys}},
+     {"flushall", {.arity = -1, .run_long = flushall}},
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,82 @@
++# Tests for the solution of chapter 9's exercise 1: PEXPIRE and PTTL,
++# which are EXPIRE and TTL in milliseconds. Like all of Shoal's tests,
++# they pass against Valkey too.
++import time
++
++import pytest
++import redis
++
++from test_v5 import unique_key
++
++
++# Check that PTTL is -2 for a key that doesn't exist, and -1 for a key
++# that has no expiration time.
++def test_pttl_without_expiration(r):
++    k = unique_key()
++    assert r.pttl(k) == -2
++    r.set(k, 'v')
++    assert r.pttl(k) == -1
++
++
++# Check that PEXPIRE sets an expiration time, which PTTL reports in
++# milliseconds, and TTL in seconds.
++def test_pexpire_and_pttl(r):
++    k = unique_key()
++    r.set(k, 'v')
++    assert r.pexpire(k, 100000) is True
++    assert 99000 < r.pttl(k) <= 100000
++    assert r.ttl(k) == 100
++
++
++# Check that PTTL reports, in milliseconds, an expiration time that
++# EXPIRE set in seconds.
++def test_expire_then_pttl(r):
++    k = unique_key()
++    r.set(k, 'v')
++    r.expire(k, 100)
++    assert 99000 < r.pttl(k) <= 100000
++
++
++# Check that PEXPIRE of a key that doesn't exist returns 0, and doesn't
++# create the key.
++def test_pexpire_missing_key(r):
++    k = unique_key()
++    assert r.pexpire(k, 1000) is False
++    assert r.exists(k) == 0
++
++
++# Check that a key disappears when the expiration time that PEXPIRE set
++# passes.
++def test_pexpire_key_expires(r):
++    k = unique_key()
++    r.set(k, 'v')
++    assert r.pexpire(k, 200) is True
++    assert r.get(k) == b'v'
++    time.sleep(0.4)
++    assert r.get(k) is None
++    assert r.pttl(k) == -2
++
++
++# Check that PEXPIRE with zero or a negative time deletes the key at once.
++def test_pexpire_non_positive_deletes(r):
++    k1 = unique_key()
++    k2 = unique_key()
++    r.set(k1, 'v')
++    r.set(k2, 'v')
++    assert r.pexpire(k1, 0) is True
++    assert r.pexpire(k2, -5) is True
++    assert r.exists(k1, k2) == 0
++
++
++# Check that PEXPIRE rejects a time that isn't an integer, and that both
++# commands check their number of arguments.
++def test_pexpire_pttl_errors(r):
++    k = unique_key()
++    r.set(k, 'v')
++    with pytest.raises(redis.ResponseError, match='not an integer'):
++        r.execute_command('PEXPIRE', k, 'soon')
++    with pytest.raises(redis.ResponseError, match='wrong number of arguments'):
++        r.execute_command('PEXPIRE', k)
++    with pytest.raises(redis.ResponseError, match='wrong number of arguments'):
++        r.execute_command('PTTL')
++    assert r.pttl(k) == -1

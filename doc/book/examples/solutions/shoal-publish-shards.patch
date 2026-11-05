@@ -1,0 +1,205 @@
+# A solution in solutions/designing-a-sharded-application.md: shoal-publish-shards, Shoal v8 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v8, builds it, and runs the tests.
+# base: shoal/v8
+--- a/pubsub.cc
++++ b/pubsub.cc
+@@ -1,7 +1,8 @@
+ // Pub/Sub: SUBSCRIBE, UNSUBSCRIBE and PUBLISH, with subscribers on every
+-// shard.
++// shard, and PUBLISH visiting only the shards with subscribers.
+ #include "pubsub.hh"
+ #include <seastar/core/coroutine.hh>
++#include <seastar/core/map_reduce.hh>
+ #include <seastar/coroutine/exception.hh>
+ #include <fmt/format.h>
+ #include <functional>
+@@ -167,7 +168,14 @@
+     }
+     for (size_t i = 1; i < req.size(); i++) {
+         if (c.channels().insert(req[i]).second) {
+-            _channels[req[i]].insert(&c);
++            auto& subscribers = _channels[req[i]];
++            subscribers.insert(&c);
++            if (subscribers.size() == 1) {
++                // This shard's first subscriber to the channel: every
++                // shard must know, before the client is told that it's
++                // subscribed, so that every later PUBLISH reaches it.
++                co_await tell_all(req[i], true);
++            }
+         }
+         c.send(confirmation("subscribe", &req[i], c.channels().size()));
+     }
+@@ -182,10 +190,48 @@
+         it->second.erase(&c);
+         if (it->second.empty()) {
+             _channels.erase(it);
++            // Nothing needs to wait for the other shards to learn this: a
++            // PUBLISH that still visits this shard finds no subscribers.
++            // But the gate makes stop() wait for it.
++            if (!_updates.is_closed()) {
++                (void)with_gate(_updates, [this, channel] {
++                    return tell_all(channel, false);
++                });
++            }
+         }
+     }
+ }
+
++// snippet: tell-all
++future<> pubsub::tell_all(const sstring& channel, bool subscribed) {
++    unsigned shard = this_shard_id();
++    uint64_t version = ++_version;
++    return container().invoke_on_all(
++            [channel, shard, version, subscribed] (pubsub& ps) {
++        ps.learn(channel, shard, version, subscribed);
++    });
++}
++
++void pubsub::learn(const sstring& channel, unsigned shard, uint64_t version,
++                   bool subscribed) {
++    auto& shards = _channel_shards[channel];
++    auto it = shards.find(shard);
++    if (it != shards.end() && it->second >= version) {
++        return;         // older than what we know
++    }
++    if (subscribed) {
++        shards[shard] = version;
++    } else {
++        // A later "subscribed", if one comes, has a higher version, so
++        // forgetting this one's version is safe.
++        shards.erase(shard);
++        if (shards.empty()) {
++            _channel_shards.erase(channel);
++        }
++    }
++}
++// end snippet: tell-all
++
+ // UNSUBSCRIBE [channel ...]
+ future<> pubsub::unsubscribe(client& c, const request& req) {
+     if (req.size() == 1) {
+@@ -219,12 +265,21 @@
+     if (req.size() != 3) {
+         co_return co_await c.write(wrong_arguments("publish"));
+     }
+-    // Subscribers may be on any shard: every shard sends the message to its
+-    // own subscribers, and the counts are added up.
+-    auto count = co_await container().map_reduce0(
+-        [&channel = req[1], &message = req[2]] (pubsub& ps) {
++    // Visit only the shards that have subscribers to the channel: each
++    // sends the message to its own subscribers, and the counts are added.
++    std::vector<unsigned> shards;
++    auto it = _channel_shards.find(req[1]);
++    if (it != _channel_shards.end()) {
++        for (auto& [shard, version] : it->second) {
++            shards.push_back(shard);
++        }
++    }
++    auto count = co_await map_reduce(shards, [&] (unsigned shard) {
++        return container().invoke_on(shard,
++                [&channel = req[1], &message = req[2]] (pubsub& ps) {
+             return ps.publish_here(channel, message);
+-        }, size_t(0), std::plus<size_t>());
++        });
++    }, size_t(0), std::plus<size_t>());
+     co_await c.reply(integer_reply(count));
+ }
+
+--- a/pubsub.hh
++++ b/pubsub.hh
+@@ -4,6 +4,7 @@
+
+ #include "resp.hh"
+ #include <seastar/core/condition-variable.hh>
++#include <seastar/core/gate.hh>
+ #include <seastar/core/iostream.hh>
+ #include <seastar/core/queue.hh>
+ #include <seastar/core/semaphore.hh>
+@@ -77,6 +78,8 @@
+     future<> execute(client& c, const request& req);
+     // Unsubscribes a client that is going away from all its channels.
+     void forget(client& c);
++    // Called by sharded<pubsub>::stop(): waits for the updates in progress.
++    future<> stop() { return _updates.close(); }
+ private:
+     future<> subscribe(client& c, const request& req);
+     future<> unsubscribe(client& c, const request& req);
+@@ -85,6 +88,22 @@
+     // returns how many it sent it to.
+     future<size_t> publish_here(const sstring& channel, const sstring& data);
+     void remove(client& c, const sstring& channel);
++    // snippet: shard-sets
++    // A copy, on every shard, of which shards have subscribers to each
++    // channel. Each shard tells all the others when it gets its first
++    // subscriber to a channel, or loses its last, with a version number,
++    // which grows with every change it tells: messages may be handled out
++    // of order, and a change older than one already known is ignored.
++    std::unordered_map<sstring, std::unordered_map<unsigned, uint64_t>>
++        _channel_shards;
++    uint64_t _version = 0;      // this shard's last change
++    gate _updates;              // held by the changes being told
++    // Tells every shard whether this shard has subscribers to a channel.
++    future<> tell_all(const sstring& channel, bool subscribed);
++    // Learns whether a shard has subscribers to a channel.
++    void learn(const sstring& channel, unsigned shard, uint64_t version,
++               bool subscribed);
++    // end snippet: shard-sets
+ };
+ // end snippet: pubsub
+
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,52 @@
++# Tests for the solution of chapter 15's exercise 2: PUBLISH visits only
++# the shards that have subscribers to its channel, which every shard learns
++# when another gets its first subscriber to a channel, or loses its last.
++# Like all of Shoal's tests, they pass against Valkey too.
++import redis
++
++from test_v8 import unique_key
++
++
++# Subscribes a new client, on a connection of its own, to a channel, and
++# returns it after the server confirmed.
++def subscriber(server, channel):
++    host, port = server
++    p = redis.Redis(host=host, port=port).pubsub()
++    p.subscribe(channel)
++    assert p.get_message(timeout=5)['type'] == 'subscribe'
++    return p
++
++
++# Check that a PUBLISH right after a client's subscription is confirmed
++# reaches it, whichever shard the client is on, again and again.
++def test_publish_right_after_subscribe(r, server):
++    for _ in range(20):
++        channel = unique_key()
++        others = [subscriber(server, unique_key()) for _ in range(3)]
++        p = subscriber(server, channel)
++        try:
++            assert r.publish(channel, 'hello') == 1
++            m = p.get_message(timeout=5)
++            assert m['type'] == 'message' and m['data'] == b'hello'
++        finally:
++            p.close()
++            for o in others:
++                o.close()
++
++
++# Check that subscribers who come and go are counted right: a channel
++# whose subscribers all left has none, and one that has new ones counts
++# them all.
++def test_subscribers_come_and_go(r, server):
++    channel = unique_key()
++    first = [subscriber(server, channel) for _ in range(4)]
++    assert r.publish(channel, 'a') == 4
++    for p in first:
++        assert p.get_message(timeout=5)['data'] == b'a'
++        p.unsubscribe(channel)
++        assert p.get_message(timeout=5)['type'] == 'unsubscribe'
++    assert r.publish(channel, 'b') == 0
++    second = [subscriber(server, channel) for _ in range(3)]
++    assert r.publish(channel, 'c') == 3
++    for p in first + second:
++        p.close()

@@ -1,0 +1,44 @@
+% Figure for chapter 6, "Many waiters": the loader of shared.cc, while its
+% four requests wait for two loads.
+\begin{tikzpicture}[
+    waiter/.style={coolbox, minimum width=21mm, minimum height=5.5mm, inner ysep=0pt,
+                   font=\ttfamily\footnotesize, rounded corners=1.65pt},
+    fut/.style={plainbox, minimum width=12mm, minimum height=5.5mm, inner ysep=0pt,
+                font=\ttfamily\footnotesize, rounded corners=1.65pt},
+    entry/.style={plainbox, minimum width=31mm, minimum height=6mm, inner ysep=0pt,
+                  font=\ttfamily\footnotesize, rounded corners=1.65pt},
+    load/.style={coolbox, minimum width=27mm, align=center, font=\ttfamily\footnotesize},
+    head/.style={note, anchor=base},
+  ]
+  % The four requests, each waiting for a future of its own.
+  \foreach \who/\key/\y [count=\n] in {1/x/0, 3/x/-7.5, 2/y/-19, 4/y/-26.5} {
+    \node[waiter] (ask\n) at (0, \y mm) {ask(\who, "\key")};
+    \node[fut, right=13mm of ask\n] (fut\n) {future};
+    \draw[message, gap] (ask\n) -- (fut\n);
+  }
+  % The loader's map: a shared_future for each key it has started to load.
+  \node[entry] (x) at ($(fut1.east)!0.5!(fut2.east) + (31mm, 0)$) {"x": shared\_future};
+  \node[entry] (y) at ($(fut3.east)!0.5!(fut4.east) + (31mm, 0)$) {"y": shared\_future};
+  \node[font=\ttfamily\footnotesize, above=2mm of x] (values) {\_values};
+  \begin{scope}[on background layer]
+    \node[box, fit=(values) (x) (y), inner xsep=5mm, inner ysep=1.5mm] (map) {};
+  \end{scope}
+  % The two futures of a key end at different heights of its entry, so
+  % that their arrowheads don't meet.
+  \foreach \n/\e/\dy in {1/x/1.5, 2/x/-1.5, 3/y/1.5, 4/y/-1.5}
+    \draw[message, gap] (fut\n.east) -- ([yshift=\dy mm]\e.west);
+  % The two loads, each waiting for its sleep.
+  \node[load, right=12mm of x] (loadx) {load("x") \\ co\_await sleep()};
+  \node[load, right=12mm of y] (loady) {load("y") \\ co\_await sleep()};
+  \draw[message, gap] (x) -- (loadx);
+  \draw[message, gap] (y) -- (loady);
+
+  % The columns' headings.
+  \coordinate (heads) at ([yshift=2.5mm]map.north);
+  \node[head] at (ask1 |- heads) {waiting coroutines};
+  \node[head] at (fut1 |- heads) {their futures};
+  \node[head] at (map.north |- heads) {the loader's map};
+  \node[head] at (loadx |- heads) {two loads, not four};
+  \path (ask1) -- (fut1) node[midway, above, font=\sffamily\footnotesize, text=figcool,
+                               inner sep=0.8mm] {waits for};
+\end{tikzpicture}

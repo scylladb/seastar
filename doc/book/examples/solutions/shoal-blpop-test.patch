@@ -1,0 +1,37 @@
+# A solution in solutions/testing.md: exercise 1, a unit test of BLPOP.
+# tools/check_examples.py applies it to a copy of shoal/v16,
+# builds it, and runs the tests.
+# base: shoal/v16
+--- a/unit_tests.cc
++++ b/unit_tests.cc
+@@ -9,6 +9,7 @@
+ #include "resp.hh"
+ #include <seastar/core/coroutine.hh>
+ #include <seastar/core/sharded.hh>
++#include <seastar/util/later.hh>
+ #include <seastar/testing/test_case.hh>
+ #include <seastar/testing/test_fixture.hh>
+ #include <seastar/testing/thread_test_case.hh>
+@@ -144,3 +145,22 @@
+     BOOST_REQUIRE_EQUAL(keys, 100);
+ }
+ // end snippet: fixture
++
++// snippet: blpop-test
++// BLPOP waits for a key, until LPUSH, on another "connection", pushes to
++// it. The test waits until the BLPOP is blocked before it pushes:
++// otherwise the LPUSH might come first, and BLPOP would find the element
++// at once, without waiting, which isn't what we test. BLPOP counts itself
++// as blocked, on the shard of its client, this one, only after it's in
++// the key's line of waiting clients.
++SEASTAR_FIXTURE_TEST_CASE(test_blpop_wakes_up, shoal_fixture) {
++    auto waiting = run({"BLPOP", "list", "0"});
++    while (db.local().blocked_clients == 0) {
++        co_await yield();
++    }
++    BOOST_REQUIRE(!waiting.available());
++    BOOST_REQUIRE_EQUAL(co_await run({"LPUSH", "list", "x"}), ":1\r\n");
++    BOOST_REQUIRE_EQUAL(co_await std::move(waiting),
++                        "*2\r\n$4\r\nlist\r\n$1\r\nx\r\n");
++}
++// end snippet: blpop-test
