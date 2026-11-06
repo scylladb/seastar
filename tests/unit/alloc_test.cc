@@ -825,6 +825,111 @@ SEASTAR_TEST_CASE(test_posix_memalign) {
     return make_ready_future<>();
 }
 
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+
+// Sizes on both sides of the page and of max_small_allocation (4 pages).
+static const std::vector<size_t> sized_free_sizes = {
+    1, 16, 100, 1000, memory::page_size - 1, memory::page_size, memory::page_size + 1,
+    3 * memory::page_size, 4 * memory::page_size, 4 * memory::page_size + 1,
+};
+
+// `p` heads a large span. Freeing it with `do_free` must give the whole span
+// back, and must not push it into the small pool that serves `size`.
+template <typename Free>
+static void check_large_span_sized_free(void* p, size_t size, Free do_free) {
+    // Read the pool's object size before `p` can pollute that pool.
+    void* probe = malloc(size);
+    auto pool_object_size = malloc_usable_size(probe);
+    free(probe);
+
+    auto span_bytes = malloc_usable_size(p);
+    // Nothing else allocates between the two readings.
+    auto free_before = memory::stats().free_memory();
+    do_free(p);
+    BOOST_CHECK_EQUAL(memory::stats().free_memory(), free_before + span_bytes);
+
+    // A misrouted span comes back out of the pool, sized as the large span it still is.
+    std::vector<void*> objs;
+    for (int i = 0; i < 16; ++i) {
+        objs.push_back(malloc(size));
+        BOOST_REQUIRE_EQUAL(malloc_usable_size(objs.back()), pool_object_size);
+    }
+    for (auto o : objs) {
+        free(o);
+    }
+}
+
+#endif
+
+SEASTAR_TEST_CASE(test_sized_free_after_shrinking_realloc) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+#ifdef SEASTAR_HEAPPROF
+    // Sampling would keep a small-pool page and skew free_memory().
+    memory::scoped_heap_profiling no_sampling(0);
+#endif
+    for (auto size : sized_free_sizes) {
+        BOOST_TEST_CONTEXT("size " << size) {
+            // realloc() shrinks a large allocation in place, keeping it a large span.
+            void* p = realloc(malloc(100000), size);
+            BOOST_REQUIRE(p);
+            BOOST_REQUIRE_GE(malloc_usable_size(p), memory::page_size);
+            check_large_span_sized_free(p, size, [size] (void* p) { free_sized(p, size); });
+        }
+    }
+#endif
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_sized_delete_above_page_alignment) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+#ifdef SEASTAR_HEAPPROF
+    memory::scoped_heap_profiling no_sampling(0);
+#endif
+    // Alignment above a page always takes the large allocator, whatever the size.
+    for (auto align : {2 * memory::page_size, 4 * memory::page_size}) {
+        for (auto size : sized_free_sizes) {
+            BOOST_TEST_CONTEXT("align " << align << " size " << size) {
+                auto al = std::align_val_t(align);
+                check_large_span_sized_free(operator new(size, al), size,
+                        [=] (void* p) { operator delete(p, size, al); });
+                check_large_span_sized_free(operator new[](size, al), size,
+                        [=] (void* p) { operator delete[](p, size, al); });
+            }
+        }
+    }
+#endif
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_free_aligned_sized_above_page_alignment) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+#ifdef SEASTAR_HEAPPROF
+    memory::scoped_heap_profiling no_sampling(0);
+#endif
+    for (auto align : {2 * memory::page_size, 4 * memory::page_size}) {
+        for (auto size : sized_free_sizes) {
+            BOOST_TEST_CONTEXT("align " << align << " size " << size) {
+                void* p;
+                BOOST_REQUIRE_EQUAL(posix_memalign(&p, align, size), 0);
+                check_large_span_sized_free(p, size,
+                        [=] (void* p) { free_aligned_sized(p, align, size); });
+            }
+        }
+    }
+#endif
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_sized_free_null) {
+    free_sized(nullptr, 100);
+    free_aligned_sized(nullptr, 2 * memory::page_size, 100);
+    operator delete(nullptr, 100);
+    operator delete[](nullptr, 100);
+    operator delete(nullptr, 100, std::align_val_t(2 * memory::page_size));
+    operator delete[](nullptr, 100, std::align_val_t(2 * memory::page_size));
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(test_posix_memalign_failure_preserves_pointer) {
 #ifndef SEASTAR_DEFAULT_ALLOCATOR
     constexpr auto overflowing_page_count =
