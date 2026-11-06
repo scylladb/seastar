@@ -672,7 +672,6 @@ struct cpu_pages {
     void free_span_no_merge(pageidx start, uint32_t nr_pages);
     void free_span_unaligned(pageidx start, uint32_t nr_pages);
     void free(void* ptr);
-    void free(void* ptr, size_t size);
     static bool try_free_fastpath(void* ptr);
     static bool is_local_pointer(void* ptr);
     static void do_foreign_free(void* ptr);
@@ -1157,28 +1156,6 @@ inline void cpu_pages::free(void* ptr) {
     }
 }
 
-void cpu_pages::free(void* ptr, size_t size) {
-#ifdef SEASTAR_HEAPPROF
-    // sized free can avoid accessing the `page` structure as an optimization.
-    // With memory sampling we always need to check the pool though to see
-    // whether this allocation was sampled. Hence, just defer to the non-sized
-    // implementation
-    (void) size;
-    free(ptr);
-#else
-    // match action on allocate() so hit the right pool
-    if (size <= sizeof(free_object)) {
-        size = sizeof(free_object);
-    }
-    if (size <= max_small_allocation) {
-        auto pool = &small_pools[small_pool::size_to_idx(size)];
-        pool->deallocate(ptr);
-    } else {
-        free_large(ptr);
-    }
-#endif
-}
-
 // Is the passed pointer a local pointer, i.e., allocated on the current shard from the
 // per-shard allocator.
 [[gnu::always_inline]]
@@ -1209,24 +1186,11 @@ cpu_pages::try_free_fastpath(void* ptr) {
     return false;
 }
 
-/// Helper to allow a single implementation for sized and non-sized functions.
-/// Indicator to allow a single implementation for sized and non-sized functions.
-/// The size parameter will be either no_size tag type or size_t, and most
-/// of the implementation can be shared, using constexpr if or other dispatch
-/// in the places where there should be a difference of behavior.
-struct no_size {};
-
-template <typename S>
-requires std::same_as<S, size_t> || std::same_as<S, no_size>
 [[gnu::noinline]]
-static void free_slowpath(void* obj, S size) {
+static void free_slowpath(void* obj) {
     if (cpu_pages::is_local_pointer(obj)) {
         alloc_stats::increment_local(alloc_stats::types::frees);
-        if constexpr (std::is_same_v<decltype(size), no_size>) {
-            cpu_mem.free(obj);
-        } else {
-            cpu_mem.free(obj, size);
-        }
+        cpu_mem.free(obj);
     } else {
         cpu_pages::do_foreign_free(obj);
     }
@@ -1876,30 +1840,11 @@ inline void* allocate_aligned(size_t align, size_t size) {
 /// of free into all the variations of the top level dallocation functions like
 /// free, delete, sized delete, etc. The slow path is not inline and is shared
 /// by all implementations.
-///
-/// The S template object allows us to handle both sized and unsized allocations
-/// in the same code path.
-template <typename S = no_size>
 [[gnu::always_inline]]
-inline void free(void* obj, S size = {}) {
+inline void free(void* obj) {
     if (!__builtin_expect(cpu_pages::try_free_fastpath(obj), true)) {
-        free_slowpath(obj, size);
+        free_slowpath(obj);
     }
-}
-
-void free_aligned(void* obj, size_t align, size_t size) {
-    if (size <= sizeof(free_object)) {
-        size = sizeof(free_object);
-    }
-#ifndef SEASTAR_HEAPPROF
-    // See comment in the sized-free implementation below. With heap profiling we
-    // can skip this as sized-free defers to non-sized-free
-    if (size <= max_small_allocation && align <= page_size) {
-        // Same adjustment as allocate_aligned()
-        size = 1 << log2ceil(size);
-    }
-#endif
-    free(obj, size);
 }
 
 void shrink(void* obj, size_t new_size) {
@@ -2409,14 +2354,14 @@ extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
 void free_sized(void* ptr, size_t size) {
-    seastar::memory::free(ptr, size);
+    seastar::memory::free(ptr);
 }
 
 extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
 void free_aligned_sized(void* ptr, size_t alignment, size_t size) {
-    seastar::memory::free_aligned(ptr, alignment, size);
+    seastar::memory::free(ptr);
 }
 
 extern "C"
@@ -2642,13 +2587,13 @@ void operator delete[](void* ptr) noexcept {
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size) noexcept {
-    seastar::memory::free(ptr, size);
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size) noexcept {
-    seastar::memory::free(ptr, size);
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
@@ -2681,13 +2626,13 @@ void operator delete[](void* ptr, std::nothrow_t) noexcept {
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size, std::nothrow_t) noexcept {
-    seastar::memory::free(ptr, size);
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size, std::nothrow_t) noexcept {
-    seastar::memory::free(ptr, size);
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
@@ -2739,17 +2684,13 @@ void operator delete[](void* ptr, std::align_val_t a) noexcept {
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size, std::align_val_t a) noexcept {
-    if (ptr) {
-        seastar::memory::free_aligned(ptr, size_t(a), size);
-    }
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size, std::align_val_t a) noexcept {
-    if (ptr) {
-        seastar::memory::free_aligned(ptr, size_t(a), size);
-    }
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
@@ -2893,10 +2834,6 @@ internal::per_shard_memory(size_t total_memory, unsigned nr_shards) {
 
 void
 internal::global_setup(unsigned nr_shards) {
-}
-
-void free(void* ptr, size_t size) {
-    ::free(ptr);
 }
 
 }
