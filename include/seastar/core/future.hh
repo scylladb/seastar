@@ -355,17 +355,17 @@ public:
     }
     void uninitialized_emplace() {
     }
-    void uninitialized_set_from_tuple(std::tuple<>&& v) {
+    void uninitialized_set_from_tuple(std::tuple<>&&) {
     }
-    void uninitialized_set_from_tuple(const std::tuple<>& v) {
+    void uninitialized_set_from_tuple(const std::tuple<>&) {
     }
     void uninitialized_set_loose_type_conversion() {
     }
     void uninitialized_set_loose_type_conversion(internal::monostate) {
     }
-    void uninitialized_set_loose_type_conversion(std::tuple<>&& v) {
+    void uninitialized_set_loose_type_conversion(std::tuple<>&&) {
     }
-    void uninitialized_set_loose_type_conversion(const std::tuple<>& v) {
+    void uninitialized_set_loose_type_conversion(const std::tuple<>&) {
     }
     internal::monostate& uninitialized_get() {
         return _v;
