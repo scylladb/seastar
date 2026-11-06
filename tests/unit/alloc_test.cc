@@ -19,6 +19,7 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
+#include <seastar/core/align.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/core/shard_id.hh>
 #include <seastar/core/smp.hh>
@@ -36,6 +37,7 @@
 #include <future>
 #include <iostream>
 
+#include <bit>
 #include <cerrno>
 #include <cstdint>
 #include <malloc.h>
@@ -822,6 +824,199 @@ SEASTAR_TEST_CASE(test_posix_memalign) {
     verify(16, 32);
     verify(32, 16);
 
+    return make_ready_future<>();
+}
+
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+// ASan rejects non-power-of-two alignments.
+SEASTAR_TEST_CASE(test_memalign_non_power_of_two) {
+    // Like glibc, a non-power-of-two alignment is rounded up to a power of two.
+    for (size_t align : {3, 12, 24, 48, 100, 3000, 3 * 4096}) {
+        size_t effective = std::bit_ceil(size_t(align));
+        for (size_t size : {1, 40, 100, 5000}) {
+            void* p = memalign(align, size);
+            BOOST_REQUIRE(p != nullptr);
+            // Through a volatile, or the compiler folds the check using the alloc_align attribute.
+            volatile uintptr_t addr = reinterpret_cast<uintptr_t>(p);
+            if (addr % effective) {
+                BOOST_FAIL(fmt::format("p {} align {} size {}", fmt::ptr(p), align, size));
+            }
+            ::memset(p, 0, size);
+            free(p);
+        }
+    }
+    // Alignments above SIZE_MAX/2+1 saturate at 2^63 and fail.
+    // Through a function pointer, or the compiler folds the check using the alloc_align attribute.
+    void* (*volatile memalign_fn)(size_t, size_t) = memalign;
+    for (size_t huge : {(size_t(1) << 63) + 1, std::numeric_limits<size_t>::max()}) {
+        BOOST_REQUIRE(memalign_fn(huge, 64) == nullptr);
+    }
+    return make_ready_future<>();
+}
+#endif
+
+SEASTAR_TEST_CASE(test_aligned_alloc_size_class) {
+    auto check = [] (void* p, size_t align, size_t size, bool sampled) {
+        BOOST_REQUIRE(p != nullptr);
+        // Through a volatile, or the compiler folds the check using the alloc_align attribute.
+        volatile uintptr_t addr = reinterpret_cast<uintptr_t>(p);
+        if (addr % align) {
+            BOOST_FAIL(fmt::format("p {} align {} size {}", fmt::ptr(p), align, size));
+        }
+        ::memset(p, 0, size);
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+        auto usable = malloc_usable_size(p);
+        BOOST_REQUIRE_GE(usable, size);
+        // Sampled objects carry their allocation site, so they may take a larger class.
+        if (!sampled && align <= alignof(std::max_align_t) && size > alignof(std::max_align_t)) {
+            void* q = malloc(size);
+            BOOST_REQUIRE_EQUAL(usable, malloc_usable_size(q));
+            free(q);
+        }
+#endif
+    };
+    auto run = [&] (bool sampled) {
+        for (size_t align = sizeof(void*); align <= 4 * memory::page_size; align <<= 1) {
+            for (size_t size = 1; size <= 4 * memory::page_size; size += size < 1024 && !sampled ? 1 : 13) {
+                void* p = nullptr;
+                BOOST_REQUIRE_EQUAL(posix_memalign(&p, align, size), 0);
+                check(p, align, size, sampled);
+                free(p);
+
+#ifdef SEASTAR_DEFAULT_ALLOCATOR
+                // ASan's aligned_alloc() requires a multiple of the alignment.
+                auto aligned_alloc_size = align_up(size, align);
+#else
+                auto aligned_alloc_size = size;
+#endif
+                p = aligned_alloc(align, aligned_alloc_size);
+                check(p, align, aligned_alloc_size, sampled);
+                free_aligned_sized(p, align, aligned_alloc_size);
+
+                p = memalign(align, size);
+                check(p, align, size, sampled);
+                free(p);
+
+                p = operator new(size, std::align_val_t(align));
+                check(p, align, size, sampled);
+                operator delete(p, size, std::align_val_t(align));
+
+                p = malloc(size);
+                BOOST_REQUIRE(p != nullptr);
+                free_sized(p, size);
+            }
+        }
+    };
+#ifdef SEASTAR_HEAPPROF
+    {
+        // Rate 0 turns sampling off.
+        memory::scoped_heap_profiling no_sampling(0);
+        run(false);
+    }
+    {
+        // Rate 1 samples every allocation.
+        memory::scoped_heap_profiling profiling(1);
+        run(true);
+    }
+#else
+    run(false);
+#endif
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+    // Must fail, not wrap (sizes >= 2^63 abort in size_to_page_count()).
+    // Through a volatile, or the compiler folds the null check away.
+    void* volatile huge = memalign(memory::page_size, SIZE_MAX / 2 - 100);
+    BOOST_REQUIRE(huge == nullptr);
+#endif
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_large_aligned_alloc_smaller_than_alignment) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+    // Back-to-back, so a one-page span would come from the upper half of a split buddy.
+    std::vector<void*> ptrs;
+    for (int i = 0; i < 16; ++i) {
+        void* p = aligned_alloc(2 * memory::page_size, 100);
+        BOOST_REQUIRE(p != nullptr);
+        volatile uintptr_t addr = reinterpret_cast<uintptr_t>(p);
+        ptrs.push_back(p);
+        BOOST_REQUIRE_EQUAL(addr % (2 * memory::page_size), 0);
+    }
+    for (auto p : ptrs) {
+        free(p);
+    }
+#endif
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_zero_alignment) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+    // Zero alignment must behave like no alignment requirement, not index out of the pools.
+    // Called indirectly so the compiler doesn't diagnose the zero alignment.
+    decltype(&::memalign) volatile call_memalign = &::memalign;
+    decltype(&::aligned_alloc) volatile call_aligned_alloc = &::aligned_alloc;
+    void* p = call_memalign(0, 64);
+    BOOST_REQUIRE(p != nullptr);
+    ::memset(p, 0, 64);
+    free(p);
+    p = call_aligned_alloc(0, 64);
+    BOOST_REQUIRE(p != nullptr);
+    ::memset(p, 0, 64);
+    free(p);
+    p = nullptr;
+    decltype(&::posix_memalign) volatile call_posix_memalign = &::posix_memalign;
+    BOOST_REQUIRE_EQUAL(call_posix_memalign(&p, 0, 64), 0);
+    BOOST_REQUIRE(p != nullptr);
+    ::memset(p, 0, 64);
+    free(p);
+#endif
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_aligned_alloc_no_power_of_two_rounding) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+    for (size_t size : {144, 288, 1032}) {
+        for (size_t align : {8, 16}) {
+            void* p = nullptr;
+            BOOST_REQUIRE_EQUAL(posix_memalign(&p, align, size), 0);
+            BOOST_REQUIRE_LT(malloc_usable_size(p), std::bit_ceil(size));
+            free(p);
+        }
+    }
+#endif
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_sized_delete_above_page_alignment) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+#ifdef SEASTAR_HEAPPROF
+    // Sampling would keep a small-pool page and skew free_memory().
+    memory::scoped_heap_profiling no_sampling(0);
+#endif
+    for (size_t size = 1; size <= 4 * memory::page_size; size += 511) {
+        // Nothing else allocates between the two readings.
+        auto free_before = memory::stats().free_memory();
+        void* p = operator new(size, std::align_val_t(2 * memory::page_size));
+        operator delete(p, size, std::align_val_t(2 * memory::page_size));
+        BOOST_REQUIRE_EQUAL(memory::stats().free_memory(), free_before);
+    }
+#endif
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_sized_free_after_shrinking_realloc) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+#ifdef SEASTAR_HEAPPROF
+    // Sampling would keep a small-pool page and skew free_memory().
+    memory::scoped_heap_profiling no_sampling(0);
+#endif
+    // Above max_small_allocation (4 pages), so a large allocation.
+    void* p = malloc(std::max<size_t>(100000, 5 * memory::page_size));
+    p = realloc(p, 100);
+    BOOST_REQUIRE_EQUAL(malloc_usable_size(p), memory::page_size);
+    auto free_before = memory::stats().free_memory();
+    free_sized(p, 100);
+    BOOST_REQUIRE_EQUAL(memory::stats().free_memory(), free_before + memory::page_size);
+#endif
     return make_ready_future<>();
 }
 
