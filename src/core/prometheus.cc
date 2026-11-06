@@ -861,7 +861,7 @@ void write_summary(buf_t& buf, const config& ctx, std::string_view name, const s
 
     for (auto  i : h.buckets) {
         write_series(buf, name, labels, ctx, i.count, "",
-            extra_label{"quantile", fmt::format(FMT_COMPILE("{:f}"), i.upper_bound)} );
+            extra_label{"quantile", fmt::format(FMT_COMPILE("{}"), i.upper_bound)} );
     }
 }
 
