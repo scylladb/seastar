@@ -5,8 +5,14 @@ This works contains software from the OSv project (http://osv.io), licensed
 under the BSD license.
 
 This work contains software from the DPDK project (http://dpdk.org), licensed
-under the BSD license.  The software is under the dpdk/ directory.
+under the BSD license.  The software is under the dpdk/ directory, and in
+the scripts/dpdk_nic_bind.py file.
 
 This work contains software from the Android Open Source Project,
 licensed under the Apache2 license.
 The software is in the include/seastar/util/sampler.hh file.
+
+This work contains software from the Asio project (https://think-async.com/Asio/),
+licensed under the Boost Software License, version 1.0.
+The software is in the include/seastar/http/mime_types.hh and
+src/http/mime_types.cc files.
