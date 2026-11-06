@@ -825,6 +825,40 @@ SEASTAR_TEST_CASE(test_posix_memalign) {
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(test_sized_delete_above_page_alignment) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+#ifdef SEASTAR_HEAPPROF
+    // Sampling would keep a small-pool page and skew free_memory().
+    memory::scoped_heap_profiling no_sampling(0);
+#endif
+    for (size_t size = 1; size <= 4 * memory::page_size; size += 511) {
+        // Nothing else allocates between the two readings.
+        auto free_before = memory::stats().free_memory();
+        void* p = operator new(size, std::align_val_t(2 * memory::page_size));
+        operator delete(p, size, std::align_val_t(2 * memory::page_size));
+        BOOST_REQUIRE_EQUAL(memory::stats().free_memory(), free_before);
+    }
+#endif
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_sized_free_after_shrinking_realloc) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+#ifdef SEASTAR_HEAPPROF
+    // Sampling would keep a small-pool page and skew free_memory().
+    memory::scoped_heap_profiling no_sampling(0);
+#endif
+    // Above max_small_allocation (4 pages), so a large allocation.
+    void* p = malloc(std::max<size_t>(100000, 5 * memory::page_size));
+    p = realloc(p, 100);
+    BOOST_REQUIRE_EQUAL(malloc_usable_size(p), memory::page_size);
+    auto free_before = memory::stats().free_memory();
+    free_sized(p, 100);
+    BOOST_REQUIRE_EQUAL(memory::stats().free_memory(), free_before + memory::page_size);
+#endif
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(test_posix_memalign_failure_preserves_pointer) {
 #ifndef SEASTAR_DEFAULT_ALLOCATOR
     constexpr auto overflowing_page_count =
