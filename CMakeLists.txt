@@ -938,6 +938,15 @@ target_link_libraries (seastar
     ucontext::ucontext
     yaml-cpp::yaml-cpp
     Threads::Threads)
+
+if (BUILD_SHARED_LIBS)
+  # A static c-ares, such as the one that --cook c-ares builds, becomes part
+  # of a shared libseastar. Keep its symbols private, so that libseastar
+  # always calls its own copy, even in a program that also loads another
+  # c-ares, such as the system's.
+  target_link_options (seastar
+    PRIVATE "LINKER:--exclude-libs,libcares.a")
+endif ()
 if (Seastar_DPDK)
   target_link_libraries (seastar
     PRIVATE
