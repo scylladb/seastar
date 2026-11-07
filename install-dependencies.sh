@@ -35,6 +35,7 @@ fi
 #
 # The two lists differ because each distribution's gnutls and hwloc
 # name their own private requirements.
+# Requirements of only some releases are in that release's list.
 debian_transitive=(
     libudev-dev
     libunistring-dev
@@ -43,9 +44,7 @@ debian_transitive=(
 
 redhat_transitive=(
     libidn2-devel
-    libtool-ltdl-devel
     libunistring-devel
-    trousers-devel
 )
 
 debian_packages=(
@@ -145,6 +144,9 @@ centos7_packages=(
     ninja-build
     ragel
     rh-mongodb36-boost-devel
+    # static-link deps of el7's gnutls/hwloc (not re-checked)
+    libtool-ltdl-devel
+    trousers-devel
 )
 
 centos8_packages=(
@@ -156,6 +158,8 @@ centos8_packages=(
     gcc-toolset-11-libubsan-devel
     ninja-build
     ragel
+    # gnutls 3.6 links -ltspi
+    trousers-devel
 )
 
 centos9_packages=(
