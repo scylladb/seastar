@@ -132,6 +132,7 @@ fedora_packages=(
     libubsan
     ninja-build
     ragel
+    systemd-devel  # hwloc links -ludev
 )
 
 centos7_packages=(
