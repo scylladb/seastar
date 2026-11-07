@@ -51,6 +51,10 @@ struct cpu_stall_detector_config {
 // Detects stalls in continuations that run for too long
 class cpu_stall_detector {
 protected:
+    // The number of tasks the reactor had processed, plus one, when we last
+    // looked; zero while the reactor isn't running tasks. Adding one keeps
+    // zero free to mean that even during the reactor's first batch of tasks,
+    // when the number of tasks processed is zero.
     std::atomic<uint64_t> _last_tasks_processed_seen{};
     std::atomic<uint64_t> _stall_detector_missed_ticks = { 0 };
     unsigned _reported = 0;
