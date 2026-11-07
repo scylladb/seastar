@@ -85,7 +85,7 @@ public:
     constexpr connection_id(uint64_t id) : _id(id) {}
 };
 
-constexpr connection_id invalid_connection_id = connection_id::make_invalid_id();
+inline constexpr connection_id invalid_connection_id = connection_id::make_invalid_id();
 
 std::ostream& operator<<(std::ostream&, const connection_id&);
 
@@ -285,7 +285,7 @@ struct snd_buf : public boost::intrusive::slist_base_hook<> {
     temporary_buffer<char>& front();
 };
 
-static inline memory_input_stream<rcv_buf::iterator> make_deserializer_stream(rcv_buf& input) {
+inline memory_input_stream<rcv_buf::iterator> make_deserializer_stream(rcv_buf& input) {
     auto* b = std::get_if<temporary_buffer<char>>(&input.bufs);
     if (b) {
         return memory_input_stream<rcv_buf::iterator>(memory_input_stream<rcv_buf::iterator>::simple(b->begin(), b->size()));
@@ -354,8 +354,8 @@ public:
 class connection;
 
 using xshard_connection_ptr = lw_shared_ptr<foreign_ptr<shared_ptr<connection>>>;
-constexpr size_t max_queued_stream_buffers = 50;
-constexpr size_t max_stream_buffers_memory = 100 * 1024;
+inline constexpr size_t max_queued_stream_buffers = 50;
+inline constexpr size_t max_stream_buffers_memory = 100 * 1024;
 
 /// \addtogroup rpc
 /// @{

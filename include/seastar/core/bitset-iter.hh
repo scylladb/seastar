@@ -20,7 +20,7 @@ namespace seastar {
 
 namespace bitsets {
 
-static constexpr int ulong_bits = std::numeric_limits<unsigned long>::digits;
+inline constexpr int ulong_bits = std::numeric_limits<unsigned long>::digits;
 
 /**
  * Returns the number of leading zeros in value's binary representation.

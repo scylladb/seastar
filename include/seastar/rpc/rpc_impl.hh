@@ -535,7 +535,7 @@ relative_timeout_to_absolute(rpc_clock_type::duration relative) {
 }
 
 // Refer to struct request_frame for more details
-static constexpr size_t request_frame_headroom = 28;
+inline constexpr size_t request_frame_headroom = 28;
 
 namespace internal {
 
@@ -604,7 +604,7 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 }
 
 // Refer to struct response_frame for more details
-static constexpr size_t response_frame_headroom = 16;
+inline constexpr size_t response_frame_headroom = 16;
 
 namespace internal {
 

@@ -154,7 +154,7 @@ using smp_service_group_semaphore = basic_semaphore<named_semaphore_exception_fa
 using smp_service_group_semaphore_units = semaphore_units<named_semaphore_exception_factory, smp_timeout_clock>;
 
 
-static constexpr smp_timeout_clock::time_point smp_no_timeout = smp_timeout_clock::time_point::max();
+inline constexpr smp_timeout_clock::time_point smp_no_timeout = smp_timeout_clock::time_point::max();
 
 /// Options controlling the behaviour of \ref smp::submit_to().
 struct smp_submit_to_options {
