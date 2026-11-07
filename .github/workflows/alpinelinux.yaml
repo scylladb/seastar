@@ -2,6 +2,15 @@ name: Alpine Linux
 
 on:
   pull_request:
+    paths:
+      # Everything but documentation, which no CI job builds. A few files in
+      # doc/ can break every job, though: configuring Seastar reads them to
+      # define the documentation targets (which CI doesn't build).
+      - '**'
+      - '!doc/**'
+      - 'doc/CMakeLists.txt'
+      - 'doc/Doxyfile.in'
+      - 'doc/DoxygenLayout.xml'
   workflow_dispatch:  # Allows manual triggering
 
 concurrency:
