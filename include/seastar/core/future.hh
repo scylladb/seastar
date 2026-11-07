@@ -410,7 +410,7 @@ static constexpr bool is_tuple_effectively_trivially_move_constructible_and_dest
 // to rvalues. This helper handles both references to callable objects such as lambdas,
 // copying them, and references to functions, decaying them to function pointers.
 template <typename Func>
-static constexpr auto func_to_rvalue(Func&& func) {
+constexpr auto func_to_rvalue(Func&& func) {
     static_assert(std::is_lvalue_reference_v<Func>, "call with lvalue reference");
     if constexpr (std::is_function_v<std::remove_reference_t<Func>>) {
         // return decayed function pointer
