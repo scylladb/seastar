@@ -1252,14 +1252,21 @@ if (ErrorCpp_FOUND)
       PRIVATE "-Wno-error=cpp")
 endif ()
 
-foreach (definition
-    SEASTAR_DEBUG
-    SEASTAR_DEFAULT_ALLOCATOR
-    SEASTAR_SHUFFLE_TASK_QUEUE)
+# These definitions change Seastar's headers, so a program must be compiled
+# with the same ones as the library. With a single-configuration generator,
+# decide by the build type Seastar is built with, not by the configuration of
+# the program that uses it: a program built as "Debug" against an installed
+# "RelWithDebInfo" Seastar must not get them.
+tri_state_option (DEFAULT
+  DEFAULT_BUILD_TYPES "Debug" "Sanitize" "Fuzz"
+  CONDITION condition)
+if (condition)
   target_compile_definitions (seastar
     PUBLIC
-      $<$<IN_LIST:$<CONFIG>,Debug;Sanitize;Fuzz>:${definition}>)
-endforeach ()
+      $<${condition}:SEASTAR_DEBUG>
+      $<${condition}:SEASTAR_DEFAULT_ALLOCATOR>
+      $<${condition}:SEASTAR_SHUFFLE_TASK_QUEUE>)
+endif ()
 
 tri_state_option (${Seastar_DEBUG_SHARED_PTR}
   DEFAULT_BUILD_TYPES "Debug" "Sanitize" "Fuzz"
@@ -1298,9 +1305,14 @@ if (condition)
       $<${condition}:SEASTAR_THREAD_STACK_GUARDS>)
 endif ()
 
-target_compile_definitions (seastar
-  PUBLIC
-    $<$<IN_LIST:$<CONFIG>,Dev;Debug>:SEASTAR_TYPE_ERASE_MORE>)
+tri_state_option (DEFAULT
+  DEFAULT_BUILD_TYPES "Dev" "Debug"
+  CONDITION condition)
+if (condition)
+  target_compile_definitions (seastar
+    PUBLIC
+      $<${condition}:SEASTAR_TYPE_ERASE_MORE>)
+endif ()
 
 target_compile_definitions (seastar
   PRIVATE ${Seastar_PRIVATE_COMPILE_DEFINITIONS})
