@@ -1,0 +1,74 @@
+#!/usr/bin/python3
+# Runs Shoal's tests against a server that this script starts, and stops it
+# when the tests end:
+#
+#   ./run                  tests a Shoal built in ../build (cmake -S .. -B ../build)
+#   ./run --shoal PATH     tests the Shoal program at PATH
+#   ./run --valkey         tests a valkey-server, to check the tests themselves
+#
+# Other arguments are passed to pytest, for example "./run -v -k incr".
+
+import argparse
+import os
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+here = Path(__file__).resolve().parent
+
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(('localhost', 0))
+        return s.getsockname()[1]
+
+
+def wait_for(port, server, timeout=30):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if server.poll() is not None:
+            return False
+        try:
+            socket.create_connection(('localhost', port), timeout=1).close()
+            return True
+        except OSError:
+            time.sleep(0.1)
+    return False
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Run Shoal\'s tests against a server it starts.')
+    parser.add_argument('--valkey', action='store_true', help='test valkey-server instead of Shoal')
+    parser.add_argument('--shoal', type=Path, default=here.parent / 'build' / 'shoal',
+                        help='the Shoal program to test (default: ../build/shoal)')
+    args, pytest_args = parser.parse_known_args()
+
+    port = free_port()
+    if args.valkey:
+        command = ['valkey-server', '--port', str(port), '--save', '', '--appendonly', 'no']
+    else:
+        if not args.shoal.exists():
+            sys.exit(f'run: {args.shoal} not found; build Shoal first, or use --shoal')
+        command = [str(args.shoal), '-c2', '-m1G', '--port', str(port)]
+    with tempfile.TemporaryFile() as log:
+        server = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
+        try:
+            if not wait_for(port, server):
+                log.seek(0)
+                sys.exit(f'run: the server did not start:\n{log.read().decode()}')
+            result = subprocess.run([sys.executable, '-m', 'pytest', '-p', 'no:cacheprovider',
+                                     '--port', str(port), *pytest_args], cwd=here)
+        finally:
+            server.terminate()
+            server.wait()
+        if result.returncode != 0:
+            log.seek(0)
+            print(f'\nThe server\'s output:\n{log.read().decode()}')
+        sys.exit(result.returncode)
+
+
+if __name__ == '__main__':
+    main()

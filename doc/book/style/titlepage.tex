@@ -1,0 +1,23 @@
+% The book's title page, included by tools/build.py when building the book.
+% The title is set by hand, in three lines of different weight, so this
+% file is specific to this book. The byline comes from metadata.yaml
+% (author, subtitle and date). Below the title is the sea star drawn by
+% art/seastar.py; build.py converts it to PDF and defines \titleart.
+\newfontfamily\titledisplay{Libertinus Serif Display}
+\newfontfamily\titlesmallcaps{Libertinus Serif}[Letters=SmallCaps, LetterSpace=15]
+\makeatletter
+\renewcommand{\maketitle}{%
+  \begin{titlepage}\centering
+    \vspace*{0.08\textheight}
+    \rule{0.35\linewidth}{0.4pt}\\[5ex]
+    {\titlesmallcaps\fontsize{22}{26}\selectfont asynchronous programming}\\[3ex]
+    {\itshape\Large with}\\[1.5ex]
+    {\titledisplay\fontsize{76}{76}\selectfont Seastar}\\[5ex]
+    \rule{0.35\linewidth}{0.4pt}\\[5ex]
+    \titleart
+    \vfill
+    {\large\@author}\\[1.2ex]
+    {\titlesmallcaps\small\MakeLowercase{\@subtitle\ \textperiodcentered\ \@date}}
+    \vspace*{0.06\textheight}
+  \end{titlepage}}
+\makeatother

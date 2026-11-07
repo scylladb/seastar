@@ -1,0 +1,85 @@
+/* Stylesheet for the HTML edition of the book. */
+:root {
+  --text: #1d1d1f;
+  --muted: #5f6368;
+  --bg: #fdfdfb;
+  --code-bg: #f3f3f0;
+  --rule: #d8d8d2;
+  --link: #1a5a96;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #e4e4e0;
+    --muted: #a0a0a0;
+    --bg: #1b1b1d;
+    --code-bg: #26262a;
+    --rule: #3a3a3e;
+    --link: #8ab8e6;
+  }
+}
+html { background: var(--bg); color: var(--text); }
+body {
+  font-family: "Libertinus Serif", "Linux Libertine O", Georgia, serif;
+  font-size: 1.15rem;
+  line-height: 1.55;
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 2rem 1rem 4rem;
+  hyphens: auto;
+}
+/* Choose the line breaks of a paragraph together, for a more even right
+   edge, and no single word alone on the last line. (Browsers that don't
+   support this simply ignore it.) */
+p, li, blockquote { text-wrap: pretty; }
+h1, h2, h3, h4 { line-height: 1.25; margin-top: 2em; }
+h1 { font-size: 2.1rem; border-bottom: 1px solid var(--rule); padding-bottom: 0.3em; }
+a { color: var(--link); }
+code, pre {
+  font-family: "Source Code Pro", "DejaVu Sans Mono", Menlo, monospace;
+  font-size: 0.85em;
+}
+pre {
+  background: var(--code-bg);
+  padding: 0.8em 1em;
+  border-radius: 4px;
+  overflow-x: auto;
+  line-height: 1.4;
+}
+blockquote { border-left: 3px solid var(--rule); margin-left: 0; padding-left: 1em; color: var(--muted); }
+table { border-collapse: collapse; }
+th, td { border-bottom: 1px solid var(--rule); padding: 0.3em 0.6em; text-align: left; }
+#TOC { font-size: 0.95rem; }
+#TOC ul { list-style: none; padding-left: 1.2em; }
+#TOC a { text-decoration: none; }
+#TOC a:hover { text-decoration: underline; }
+#TOC > ul > li { margin-top: 0.5em; }
+header#title-block-header { text-align: center; margin-bottom: 3rem; }
+/* Parts: a heading in the style of the PDF's part pages. */
+.part-intro { text-align: center; margin: 5rem 0 4rem; padding: 2rem 0;
+  border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.part-intro h1.part { border: none; font-size: 2.6rem; font-weight: normal; margin: 0; }
+.part-intro .part-number { display: block; font-size: 1rem; font-variant: small-caps;
+  letter-spacing: 0.15em; text-transform: lowercase; color: var(--muted); margin-bottom: 0.6rem; }
+.part-intro p { font-style: italic; max-width: 32rem; margin: 1.5rem auto 0; }
+/* The sea star below the title. */
+.title-art { text-align: center; margin: -1rem 0 3rem; }
+.title-art img { width: 16rem; max-width: 60%; }
+@media (prefers-color-scheme: dark) { .title-art img { filter: invert(0.88); } }
+/* Chapter headings: "Chapter 4" above the title, as in the PDF, rather than
+   a bare number before it. */
+h1 > .header-section-number { display: block; font-size: 1rem; font-variant: small-caps;
+  letter-spacing: 0.1em; text-transform: lowercase; color: var(--muted); margin-bottom: 0.4rem; }
+h1 > .header-section-number::before { content: "Chapter "; }
+/* The edition with a page for each chapter: links to the neighboring pages,
+   at the top and bottom of every page. */
+.pagenav { display: flex; flex-wrap: wrap; gap: 0.4em 1em; font-size: 0.95rem;
+  border-bottom: 1px solid var(--rule); padding-bottom: 0.6em; margin-bottom: 1rem; }
+.pagenav-bottom { border-bottom: none; border-top: 1px solid var(--rule);
+  padding: 0.6em 0 0; margin: 4rem 0 0; }
+.pagenav span { flex: 1 1 0; }
+.pagenav .pagenav-contents { flex: 0 0 auto; text-align: center; }
+.pagenav .pagenav-next { text-align: right; }
+.pagenav a { text-decoration: none; }
+.pagenav a:hover { text-decoration: underline; }
+.pagenav-prev a::before { content: "← "; }
+.pagenav-next a::after { content: " →"; }

@@ -1,0 +1,118 @@
+---
+title: Asynchronous Programming with Seastar
+subtitle: Draft
+date: November 2026
+author: Edited by Nadav Har'El
+lang: en-US
+
+# The book's structure, read by tools/build.py. Every entry names a file in
+# chapters/ (without .md). A chapter file must start with a level-1 heading
+# whose label is "ch:" (or "app:" for an appendix) followed by the file name,
+# for example "# Coroutines {#ch:coroutines}". Refer to a chapter, appendix or
+# part by its label, as in "[chapter](#ch:coroutines)", and the build replaces
+# the text by "chapter 4"; never write chapter numbers by hand.
+book:
+  front:
+    - preface
+  parts:
+    - id: introduction
+      title: Getting to know Seastar
+      intro: >-
+        What Seastar is and why it was built, a first tour of programming
+        with it, and how to set it up for programs of your own. Shoal gets
+        its skeleton.
+      chapters:
+        - case-for-seastar
+        - tutorial-introduction
+        - getting-started
+    - id: one-shard
+      title: Coroutines on one shard
+      intro: >-
+        Everything you need to write asynchronous code on a single core:
+        coroutines and futures, how Seastar schedules them, concurrency,
+        object lifetime, time, coordination and error handling. Shoal
+        becomes a working single-shard Redis-compatible server.
+      chapters:
+        - coroutines
+        - how-seastar-runs-your-code
+        - futures-and-promises
+        - concurrency-within-a-shard
+        - object-lifetime
+        - time
+        - coordination
+        - errors-and-shutdown
+    - id: many-cores
+      title: Many cores
+      intro: >-
+        Using every core without sharing: how Seastar divides the machine
+        into shards, how shards talk to each other, and how to design an
+        application around them. Shoal spreads across all the cores.
+      chapters:
+        - shared-nothing
+        - talking-between-shards
+        - designing-a-sharded-application
+    - id: io
+      title: I/O
+      intro: >-
+        Networking and storage in depth, and the I/O scheduler that keeps
+        latency low while the disks are busy. Shoal moves its values to
+        disk.
+      chapters:
+        - networking
+        - files-and-storage
+        - io-scheduler
+    - id: performance
+      title: Isolation and performance
+      intro: >-
+        Keeping a Seastar application fast and responsive under load:
+        isolating its components from each other, managing memory, working
+        with code that isn't asynchronous, and finding and preventing
+        stalls.
+      chapters:
+        - scheduling-groups
+        - memory
+        - threads
+        - stalls
+    - id: more-seastar
+      title: More Seastar
+      intro: >-
+        Seastar's original programming style, continuations, which is still
+        the fastest way to write some code; how coroutines work underneath;
+        and two of Seastar's biggest subsystems: the HTTP server and client,
+        and RPC. Shoal gains an administration API and replication.
+      chapters:
+        - continuations
+        - how-coroutines-work
+        - http
+        - rpc
+    - id: production
+      title: From development to production
+      intro: >-
+        Observing, testing, debugging and deploying a Seastar application,
+        and upgrading the Seastar it uses. Shoal gains metrics and a test
+        suite.
+      chapters:
+        - observability
+        - testing
+        - debugging-and-profiling
+        - deploying-and-tuning
+        - upgrading-seastar
+    - id: world
+      title: Seastar in the world
+      intro: >-
+        The projects built on Seastar, and the lessons their large code
+        bases teach.
+      chapters:
+        - who-uses-seastar
+        - lessons-from-large-code-bases
+  appendices:
+    - building-seastar
+    - command-line-options
+    - api-map
+    - shoal-reference
+    - glossary
+    - toolbox
+    - cpp-corners
+  back:
+    - colophon
+---
