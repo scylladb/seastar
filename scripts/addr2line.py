@@ -72,10 +72,24 @@ class Addr2Line:
         self._parent = parent
         self._binary = binary
 
+        # The module name may come from untrusted input (e.g. a pasted
+        # backtrace), and both `file` and addr2line treat an argument
+        # starting with '-' or '@' as an option or a response file,
+        # which could be abused to read arbitrary files.  A genuine
+        # module is a readable regular file, so refuse anything that
+        # looks like an option or that is not one (e.g. a directory,
+        # /dev/zero or a FIFO, which would make addr2line hang or run
+        # out of memory), and treat such a module as missing so that
+        # its addresses are passed through unresolved, as addr2line
+        # would do for a module it cannot open.
+        reason = self._reject_reason()
+        if reason is not None:
+            print(f"WARNING: ignoring module '{self._binary}': {reason}", file=sys.stderr)
+            self._missing = True
+            return
+
         # Print warning if binary has no debug info according to `file`.
-        # Note: no message is printed for system errors as they will be
-        # printed also by addr2line later on.
-        output = subprocess.check_output(["file", self._binary])
+        output = subprocess.check_output(["file", "--", self._binary])
         s = output.decode("utf-8")
         if s.find('ELF') >= 0 and s.find('debug_info', len(self._binary)) < 0:
             print('{}'.format(s))
@@ -111,6 +125,18 @@ class Addr2Line:
         self._input.flush()
         res = self._output.readline()
         self._missing = res == ''
+
+    def _reject_reason(self) -> Optional[str]:
+        """Returns why the module path cannot be used, or None if it can."""
+        if self._binary.startswith(('-', '@')):
+            return 'looks like a command line option'
+        if not os.path.exists(self._binary):
+            return 'not found'
+        if not os.path.isfile(self._binary):
+            return 'not a regular file'
+        if not os.access(self._binary, os.R_OK):
+            return 'not readable'
+        return None
 
     @property
     def _input(self):
