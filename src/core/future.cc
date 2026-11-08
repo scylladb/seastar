@@ -190,15 +190,6 @@ future_state_base::future_state_base(nested_exception_marker, future_state_base&
     }
 }
 
-void future_state_base::rethrow_exception() && {
-    // Move ex out so future::~future() knows we've handled it
-    std::rethrow_exception(std::move(*this).get_exception());
-}
-
-void future_state_base::rethrow_exception() const& {
-    std::rethrow_exception(_u.ex);
-}
-
 namespace internal {
 
 void report_failed_future(const std::exception_ptr& eptr) noexcept {
