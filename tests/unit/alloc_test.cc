@@ -30,6 +30,8 @@
 #include <seastar/util/log.hh>
 #include <seastar/util/memory_diagnostics.hh>
 
+#include <algorithm>
+#include <cstring>
 #include <memory>
 #include <new>
 #include <limits>
@@ -1022,19 +1024,107 @@ static void check_large_span_sized_free(void* p, size_t size, Free do_free) {
 
 #endif
 
-SEASTAR_TEST_CASE(test_sized_free_after_shrinking_realloc) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+
+// realloc(p, size) must leave the object in the pool that free_sized(p, size)
+// takes from the size, moving it (`moves`) when it is elsewhere.
+static void check_realloc_then_sized_free(void* p, size_t size, bool moves) {
+    BOOST_REQUIRE(p);
+#ifdef SEASTAR_HEAPPROF
+    moves = false; // sized frees read the page there, so realloc never needs to move
+#endif
+    auto old_usable = malloc_usable_size(p);
+    ::memset(p, 0x5a, old_usable);
+    void* q = realloc(p, size);
+    BOOST_REQUIRE(q);
+    BOOST_REQUIRE_EQUAL(q != p, moves);
+    auto kept = std::min(size, old_usable);
+    BOOST_REQUIRE(std::all_of(static_cast<char*>(q), static_cast<char*>(q) + kept, [] (char c) { return c == 0x5a; }));
+    if (size > 4 * memory::page_size) {
+        check_large_span_sized_free(q, size, [size] (void* p) { free_sized(p, size); });
+        return;
+    }
+#ifndef SEASTAR_HEAPPROF
+    // Under heap profiling realloc keeps the object, so its class is not malloc(size)'s.
+    void* r = malloc(size);
+    BOOST_REQUIRE_EQUAL(malloc_usable_size(q), malloc_usable_size(r));
+    free(r);
+#endif
+    free_sized(q, size);
+}
+
+#endif
+
+SEASTAR_TEST_CASE(test_realloc_keeps_size_class) {
 #ifndef SEASTAR_DEFAULT_ALLOCATOR
 #ifdef SEASTAR_HEAPPROF
     // Sampling would keep a small-pool page and skew free_memory().
     memory::scoped_heap_profiling no_sampling(0);
 #endif
-    for (auto size : sized_free_sizes) {
-        BOOST_TEST_CONTEXT("size " << size) {
-            // realloc() shrinks a large allocation in place, keeping it a large span.
-            void* p = realloc(malloc(100000), size);
-            BOOST_REQUIRE(p);
-            BOOST_REQUIRE_GE(malloc_usable_size(p), memory::page_size);
-            check_large_span_sized_free(p, size, [size] (void* p) { free_sized(p, size); });
+    constexpr auto page = memory::page_size;
+    constexpr auto max_small = 4 * page;
+    // A large span shrinks in place only while it stays above max_small_allocation.
+    for (auto size : {size_t(1), size_t(100), page, max_small}) {
+        BOOST_TEST_CONTEXT("large to " << size) {
+            check_realloc_then_sized_free(malloc(100000), size, true);
+        }
+    }
+    check_realloc_then_sized_free(malloc(100000), max_small + 1, false);
+
+    // A small object stays put only within its size-class index: 20 and 32 share an object size, not an index.
+    void* p = malloc(20);
+    check_realloc_then_sized_free(p, malloc_usable_size(p), true);
+    p = malloc(1000);
+    check_realloc_then_sized_free(p, malloc_usable_size(p) - 1, false);
+    p = malloc(1000);
+    check_realloc_then_sized_free(p, malloc_usable_size(p), false);
+    check_realloc_then_sized_free(malloc(1000), 100, true);
+
+    // An aligned object's class need not be malloc()'s class for the same size.
+    void* unaligned = malloc(100);
+    auto unaligned_usable = malloc_usable_size(unaligned);
+    free(unaligned);
+    BOOST_REQUIRE_EQUAL(posix_memalign(&p, 64, 100), 0);
+    check_realloc_then_sized_free(p, 100, malloc_usable_size(p) != unaligned_usable);
+    // Above page alignment, a small size still gets a large span.
+    p = aligned_alloc(2 * page, 100);
+    check_realloc_then_sized_free(p, malloc_usable_size(p), true);
+#endif
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_sized_free_of_requested_size) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+#ifdef SEASTAR_HEAPPROF
+    memory::scoped_heap_profiling no_sampling(0);
+#endif
+    // The requested size must name the object's pool. The pool's free list is LIFO and nothing
+    // allocates in between, so the pool hands the object straight back. One free first, so a trim of
+    // a freshly refilled free list can't take the object. Through a volatile, or the compiler drops
+    // the allocation that is freed right away.
+    for (size_t size = 1; size <= 4 * memory::page_size; ++size) {
+        void* volatile warm = malloc(size);
+        free(warm);
+        void* p = malloc(size);
+        // Compare addresses: the compiler may assume a fresh allocation never equals a freed pointer.
+        auto addr = reinterpret_cast<uintptr_t>(p);
+        free_sized(p, size);
+        void* volatile again = malloc(size);
+        BOOST_REQUIRE_MESSAGE(reinterpret_cast<uintptr_t>(again) == addr, fmt::format("size {}", size));
+        free(again);
+    }
+    for (size_t align = sizeof(void*); align <= memory::page_size; align <<= 1) {
+        for (size_t size = 1; size <= 4 * memory::page_size; size += 7) {
+            void* p;
+            BOOST_REQUIRE_EQUAL(posix_memalign(&p, align, size), 0);
+            void* volatile warm = p;
+            free(warm);
+            BOOST_REQUIRE_EQUAL(posix_memalign(&p, align, size), 0);
+            auto addr = reinterpret_cast<uintptr_t>(p);
+            free_aligned_sized(p, align, size);
+            BOOST_REQUIRE_EQUAL(posix_memalign(&p, align, size), 0);
+            BOOST_REQUIRE_MESSAGE(reinterpret_cast<uintptr_t>(p) == addr, fmt::format("align {} size {}", align, size));
+            free(p);
         }
     }
 #endif

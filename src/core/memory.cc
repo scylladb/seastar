@@ -1856,6 +1856,42 @@ inline void free(void* obj) {
     }
 }
 
+/// Free of an object allocated with \c size and \c align (1 if unaligned): these name its pool, so the
+/// page, which often misses the cache, is not read. Heap profiling samples into other pools, so it reads it.
+[[gnu::always_inline]]
+inline void sized_free(void* obj, size_t size, size_t align) {
+#ifndef SEASTAR_HEAPPROF
+    size = std::max(size, sizeof(free_object));
+    if (__builtin_expect(cpu_pages::is_local_pointer(obj) && size <= max_small_allocation && align <= page_size, true)) {
+        auto& pool = cpu_mem.small_pools[small_pool_idx(size, align)];
+#ifdef SEASTAR_DEBUG_ALLOCATIONS
+        SEASTAR_ASSERT(cpu_mem.to_page(obj)->pool == &pool);
+#endif
+        alloc_stats::increment_local(alloc_stats::types::frees);
+        pool.deallocate(obj);
+        return;
+    }
+#endif
+    free(obj);
+}
+
+/// Whether a sized free of \c ptr with \c size, unaligned, finds the pool that holds it.
+static bool size_names_pool(void* ptr, size_t size) {
+#ifdef SEASTAR_HEAPPROF
+    // Sized frees read the page here, so any placement is fine.
+    (void)ptr;
+    (void)size;
+    return true;
+#else
+    auto& cpu = *cpu_pages::all_cpus[object_cpu_id(ptr)];
+    auto pool = cpu.to_page(ptr)->pool;
+    if (size > max_small_allocation) {
+        return !pool;
+    }
+    return pool == &cpu.small_pools[small_pool_idx(std::max(size, sizeof(free_object)), 1)];
+#endif
+}
+
 void shrink(void* obj, size_t new_size) {
     alloc_stats::increment_local(alloc_stats::types::frees);
     alloc_stats::increment_local(alloc_stats::types::allocs); // keep them balanced
@@ -2363,14 +2399,14 @@ extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
 void free_sized(void* ptr, size_t size) {
-    seastar::memory::free(ptr);
+    seastar::memory::sized_free(ptr, size, 1);
 }
 
 extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
 void free_aligned_sized(void* ptr, size_t alignment, size_t size) {
-    seastar::memory::free(ptr);
+    seastar::memory::sized_free(ptr, size, alignment);
 }
 
 extern "C"
@@ -2422,23 +2458,24 @@ void* realloc(void* ptr, size_t size) {
     }
     // if we're here, it's a non-null seastar memory ptr
     auto old_size = ptr ? object_size(ptr) : 0;
-    if (size == old_size) {
+    // free_sized() trusts the size, so keep the object only where the new size names its pool.
+    if (size == old_size && size_names_pool(ptr, size)) {
         return ptr;
     }
     if (size == 0) {
         ::free(ptr);
         return nullptr;
     }
-    if (size < old_size && cpu_pages::is_local_pointer(ptr)) {
+    if (size < old_size && cpu_pages::is_local_pointer(ptr) && size_names_pool(ptr, size)) {
         // local pointers can sometimes be shrunk by returning freed
         // pages to the buddy allocator
         seastar::memory::shrink(ptr, size);
         return ptr;
     }
 
-    // either a request to realloc larger than the existing allocation size
-    // or a cross-shard pointer: in either case we allocate a new local
-    // pointer and copy the contents
+    // either a request to realloc larger than the existing allocation size,
+    // a cross-shard pointer, or a new size that names another pool: in each
+    // case we allocate a new local pointer and copy the contents
     auto nptr = malloc(size);
     if (!nptr) {
         return nptr;
@@ -2594,13 +2631,13 @@ void operator delete[](void* ptr) noexcept {
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size) noexcept {
-    seastar::memory::free(ptr);
+    seastar::memory::sized_free(ptr, size, 1);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size) noexcept {
-    seastar::memory::free(ptr);
+    seastar::memory::sized_free(ptr, size, 1);
 }
 
 extern "C++"
@@ -2633,13 +2670,13 @@ void operator delete[](void* ptr, std::nothrow_t) noexcept {
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size, std::nothrow_t) noexcept {
-    seastar::memory::free(ptr);
+    seastar::memory::sized_free(ptr, size, 1);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size, std::nothrow_t) noexcept {
-    seastar::memory::free(ptr);
+    seastar::memory::sized_free(ptr, size, 1);
 }
 
 extern "C++"
@@ -2691,13 +2728,13 @@ void operator delete[](void* ptr, std::align_val_t a) noexcept {
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size, std::align_val_t a) noexcept {
-    seastar::memory::free(ptr);
+    seastar::memory::sized_free(ptr, size, size_t(a));
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size, std::align_val_t a) noexcept {
-    seastar::memory::free(ptr);
+    seastar::memory::sized_free(ptr, size, size_t(a));
 }
 
 extern "C++"
