@@ -548,8 +548,20 @@ protected:
     future_state_base(nested_exception_marker, future_state_base&& n, future_state_base&& old) noexcept;
     ~future_state_base() noexcept = default;
 
-    [[noreturn]] void rethrow_exception() &&;
-    [[noreturn]] void rethrow_exception() const&;
+    // These functions throw the exception when a coroutine co_awaits a
+    // failed future, or when get() is called on one. They must be inlined
+    // into their caller: as separate functions, they add a frame for the
+    // unwinder to go through, and a cleanup of the temporary exception_ptr,
+    // which makes the unwinder stop and restart, and both make catching
+    // the exception much slower. Neither GCC nor Clang inlines them
+    // without always_inline.
+    [[gnu::always_inline]] [[noreturn]] void rethrow_exception() && {
+        // Move ex out so future::~future() knows we've handled it
+        std::rethrow_exception(std::move(*this).get_exception());
+    }
+    [[gnu::always_inline]] [[noreturn]] void rethrow_exception() const& {
+        std::rethrow_exception(_u.ex);
+    }
 
 public:
 
