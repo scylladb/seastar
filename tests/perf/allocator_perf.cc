@@ -23,6 +23,11 @@
 
 #include <seastar/core/memory.hh>
 #include <sys/mman.h>
+#include <algorithm>
+#include <bit>
+#include <random>
+#include <utility>
+#include <vector>
 
 struct alloc_bench {
 
@@ -48,6 +53,11 @@ struct alloc_bench {
     struct cpp_operator_funcs {
         static void * alloc(size_t size) { return operator new(size); }
         static void free(void *p){ operator delete(p); }
+    };
+
+    struct cpp_sized_operator_funcs {
+        static void * alloc(size_t size) { return operator new(size); }
+        static void free(void *p){ operator delete(p, small_alloc_size); }
     };
 
     struct cpp_array_funcs {
@@ -88,6 +98,7 @@ PERF_TEST_F(alloc_bench, malloc_free)      { return alloc_test<small_alloc_size,
 PERF_TEST_F(alloc_bench, op_new_only)      { return alloc_test<small_alloc_size, MEASURE_ALLOC, cpp_operator_funcs>(); }
 PERF_TEST_F(alloc_bench, op_delete_only)   { return alloc_test<small_alloc_size, MEASURE_FREE, cpp_operator_funcs>(); }
 PERF_TEST_F(alloc_bench, op_new_delete)    { return alloc_test<small_alloc_size, MEASURE_BOTH, cpp_operator_funcs>(); }
+PERF_TEST_F(alloc_bench, op_sized_delete_only) { return alloc_test<small_alloc_size, MEASURE_FREE, cpp_sized_operator_funcs>(); }
 
 PERF_TEST_F(alloc_bench, new_array_only)   { return alloc_test<small_alloc_size, MEASURE_ALLOC, cpp_array_funcs>(); }
 PERF_TEST_F(alloc_bench, delete_array_only){ return alloc_test<small_alloc_size, MEASURE_FREE, cpp_array_funcs>(); }
@@ -152,6 +163,61 @@ PERF_TEST_F(alloc_bench, single_alloc_and_free_small_many_cross_page_alloc_more)
         free(_pointers[i]);
     }
 }
+
+// The default allocator's stats() report a fixed 1 GiB whatever -m is, so give it a fixed budget.
+static size_t memory_budget() {
+#ifdef SEASTAR_DEFAULT_ALLOCATOR
+    return size_t(256) << 20;
+#else
+    return seastar::memory::stats().total_memory();
+#endif
+}
+
+// Replaces random objects of a large live set.
+struct cold_free_bench {
+    static constexpr size_t object_size = 1024;
+    static constexpr size_t batch = 10000;
+
+    std::vector<void*> _objs;
+    std::vector<uint32_t> _idx;
+    size_t _pos = 0;
+
+    // 3 GiB of objects has 24 MiB of page metadata; capped so a small -m still runs.
+    // The cap covers each object, its pointer and its up to 4 index entries.
+    static size_t nr_objs() {
+        return std::min(size_t(3) << 30, memory_budget() / 2) / (object_size + sizeof(void*) + 4 * sizeof(uint32_t));
+    }
+
+    cold_free_bench() : _objs(nr_objs()), _idx(std::min(size_t(1) << 22, std::bit_floor(4 * _objs.size()))) {
+        for (auto& p : _objs) {
+            p = operator new(object_size);
+        }
+        std::mt19937 gen(1);
+        std::uniform_int_distribution<uint32_t> dist(0, _objs.size() - 1);
+        for (auto& i : _idx) {
+            i = dist(gen);
+        }
+    }
+    ~cold_free_bench() {
+        for (auto p : _objs) {
+            operator delete(p);
+        }
+    }
+
+    template <typename Free>
+    size_t churn(Free do_free) {
+        for (size_t n = 0; n < batch; ++n) {
+            auto& p = _objs[_idx[_pos++ & (_idx.size() - 1)]];
+            // Cleared first, so a throwing operator new leaves no freed pointer for the destructor.
+            do_free(std::exchange(p, nullptr));
+            p = operator new(object_size);
+        }
+        return batch;
+    }
+};
+
+PERF_TEST_F(cold_free_bench, unsized_delete) { return churn([] (void* p) { operator delete(p); }); }
+PERF_TEST_F(cold_free_bench, sized_delete) { return churn([] (void* p) { operator delete(p, object_size); }); }
 
 template <typename DistType>
 static size_t dist_bench() {
