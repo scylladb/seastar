@@ -902,6 +902,15 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     -Wno-error=deprecated-declarations)
 endif ()
 
+# Seastar defines a (deprecated) formatter for std::exception_ptr, for
+# applications that format one directly, only if {fmt} doesn't have its own:
+# see include/seastar/util/log.hh.
+include (CheckFmtExceptionPtrFormatter)
+if (NOT Fmt_HAS_EXCEPTION_PTR_FORMATTER)
+  target_compile_definitions (seastar
+    PUBLIC SEASTAR_PROVIDE_EXCEPTION_PTR_FORMATTER)
+endif ()
+
 if (CMAKE_CXX_STANDARD GREATER_EQUAL 23)
   include (CheckP2582R1)
   if (Cxx_Compiler_IMPLEMENTS_P2581R1)
