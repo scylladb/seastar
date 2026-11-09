@@ -68,6 +68,16 @@ public:
 /// fibers that are blocked on a condition variable to continue.
 /// This issimilar to POSIX's `pthread_cancel()`, with \ref wait()
 /// acting as a cancellation point.
+///
+/// The waits that take a predicate check it before waiting, and again
+/// after a waiter is woken up: \ref wait() in its loop, after each wakeup,
+/// and \ref when() inside \ref signal() or \ref broadcast(). Either way, a
+/// waiter that was woken up continues later, as a separate task, and until
+/// it does, other fibers may run, and may make the predicate false again. So when such a wait ends, the
+/// predicate was true at some moment after the wait began, but may no
+/// longer be. A waiter whose condition other fibers can make false again,
+/// for example by taking an item from a queue that several fibers read,
+/// must check it again after the wait.
 
 class condition_variable {
 private:
@@ -262,7 +272,8 @@ public:
     }
 
     /// Waits until condition variable is notified and pred() == true, otherwise
-    /// wait again.
+    /// wait again. The predicate may no longer hold when the wait ends: see
+    /// \ref condition_variable.
     ///
     /// \param pred predicate that checks that awaited condition is true
     ///
@@ -277,7 +288,8 @@ public:
     }
 
     /// Waits until condition variable is notified and pred() == true or timeout is reached, otherwise
-    /// wait again.
+    /// wait again. The predicate may no longer hold when the wait ends: see
+    /// \ref condition_variable.
     ///
     /// \param timeout time point at which wait will exit with a timeout
     /// \param pred predicate that checks that awaited condition is true
@@ -294,7 +306,8 @@ public:
     }
 
     /// Waits until condition variable is notified and pred() == true or timeout is reached, otherwise
-    /// wait again.
+    /// wait again. The predicate may no longer hold when the wait ends: see
+    /// \ref condition_variable.
     ///
     /// \param timeout duration after which wait will exit with a timeout
     /// \param pred predicate that checks that awaited condition is true
@@ -346,7 +359,8 @@ public:
 
     /// Coroutine/co_await only waiter.
     /// Waits until condition variable is notified and pred() == true, otherwise
-    /// wait again.
+    /// wait again. The predicate may no longer hold when the wait ends: see
+    /// \ref condition_variable.
     ///
     /// \param pred predicate that checks that awaited condition is true. A
     ///        predicate given as an lvalue isn't copied, so it must stay alive
@@ -362,7 +376,8 @@ public:
 
     /// Coroutine/co_await only waiter.
     /// Waits until condition variable is notified and pred() == true or timeout is reached, otherwise
-    /// wait again.
+    /// wait again. The predicate may no longer hold when the wait ends: see
+    /// \ref condition_variable.
     ///
     /// \param timeout time point at which wait will exit with a timeout
     /// \param pred predicate that checks that awaited condition is true. A
@@ -380,7 +395,8 @@ public:
 
     /// Coroutine/co_await only waiter.
     /// Waits until condition variable is notified and pred() == true or timeout is reached, otherwise
-    /// wait again.
+    /// wait again. The predicate may no longer hold when the wait ends: see
+    /// \ref condition_variable.
     ///
     /// \param timeout duration after which wait will exit with a timeout
     /// \param pred predicate that checks that awaited condition is true. A
