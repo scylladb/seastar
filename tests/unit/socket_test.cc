@@ -38,6 +38,7 @@
 #include <seastar/core/sleep.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/core/with_scheduling_group.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/posix-stack.hh>
 #include <stdexcept>
@@ -626,4 +627,35 @@ SEASTAR_THREAD_TEST_CASE(inet_local_remote_address_sanity) {
 
     ss.wait_input_shutdown().get();
     BOOST_CHECK(ss.remote_address().is_unspecified());
+}
+
+// The bytes a socket receives are charged to the scheduling group of the
+// read, also when the receive completes outside of the task that issued it,
+// as it does on io_uring when the read has to wait for data.
+SEASTAR_THREAD_TEST_CASE(socket_bytes_received_scheduling_group_test) {
+    auto sg = create_scheduling_group("recv_test", 100).get();
+    auto destroy_sg = defer([sg] () noexcept { destroy_scheduling_group(sg).get(); });
+    auto sg_id = internal::scheduling_group_index(sg);
+
+    server_socket ss = seastar::listen(ipv4_addr("127.0.0.1", 0), listen_options{ .reuse_address = true });
+    auto accept_f = ss.accept();
+    connected_socket client = connect(ss.local_address()).get();
+    connected_socket server = accept_f.get().connection;
+    auto in = client.input();
+    auto out = server.output();
+
+    auto sg_before = engine().net().stats(sg_id).bytes_received;
+    auto read_f = with_scheduling_group(sg, [&in] {
+        return in.read();
+    });
+    // Let the read find no data and wait for it.
+    seastar::sleep(std::chrono::milliseconds(10)).get();
+    out.write("hello").get();
+    out.flush().get();
+    auto buf = read_f.get();
+    BOOST_REQUIRE_EQUAL(std::string_view(buf.get(), buf.size()), "hello");
+    BOOST_REQUIRE_EQUAL(engine().net().stats(sg_id).bytes_received - sg_before, 5u);
+
+    out.close().get();
+    in.close().get();
 }

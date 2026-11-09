@@ -1602,12 +1602,22 @@ protected:
     class read_completion_base : public promise_completion_base<temporary_buffer<char>> {
     protected:
         temporary_buffer<char> _buffer;
+        // Told about the buffer received, for a recv_some(); null for a
+        // read_some().
+        internal::buffer_allocator* _ba;
     public:
-        explicit read_completion_base(temporary_buffer<char> buffer)
-            : _buffer(std::move(buffer)) {}
+        explicit read_completion_base(temporary_buffer<char> buffer, internal::buffer_allocator* ba = nullptr)
+            : _buffer(std::move(buffer)), _ba(ba) {}
         void complete(size_t bytes) noexcept override {
             _buffer.trim(bytes);
-            _result.set_value(std::move(_buffer));
+            try {
+                if (_ba) {
+                    _ba->received(_buffer);
+                }
+                _result.set_value(std::move(_buffer));
+            } catch (...) {
+                _result.set_exception(std::current_exception());
+            }
             delete this;
         }
         char* get_write() {
@@ -2042,6 +2052,7 @@ public:
                         fd.speculate_epoll(EPOLLIN);
                     }
                     buffer.trim(*r);
+                    ba->received(buffer);
                     return make_ready_future<temporary_buffer<char>>(std::move(buffer));
                 }
             } catch (...) {
@@ -2051,8 +2062,8 @@ public:
         class recv_some_completion final : public read_completion_base {
             pollable_fd_state& _fd;
         public:
-            recv_some_completion(pollable_fd_state& fd, temporary_buffer<char> buffer)
-                : read_completion_base(std::move(buffer))
+            recv_some_completion(pollable_fd_state& fd, temporary_buffer<char> buffer, internal::buffer_allocator* ba)
+                : read_completion_base(std::move(buffer), ba)
                 , _fd(fd) {}
             void complete(size_t bytes) noexcept final {
                 if (bytes == _buffer.size()) {
@@ -2061,7 +2072,7 @@ public:
                 read_completion_base::complete(bytes);
             }
         };
-        auto desc = std::make_unique<recv_some_completion>(fd, ba->allocate_buffer());
+        auto desc = std::make_unique<recv_some_completion>(fd, ba->allocate_buffer(), ba);
         auto req = internal::io_request::make_recv(fd.fd.get(), desc->get_write(), desc->get_size(), 0);
         return submit_request(std::move(desc), std::move(req));
     }
@@ -2539,7 +2550,7 @@ public:
 #endif
 
     virtual future<temporary_buffer<char>> recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) override {
-        auto desc = std::make_unique<read_completion_base>(ba->allocate_buffer());
+        auto desc = std::make_unique<read_completion_base>(ba->allocate_buffer(), ba);
         auto req = internal::io_request::make_recv(fd.fd.get(), desc->get_write(), desc->get_size(), 0);
         return submit_request(std::move(desc), std::move(req));
     }
