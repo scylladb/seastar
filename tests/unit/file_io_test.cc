@@ -39,6 +39,7 @@
 #include <seastar/core/aligned_buffer.hh>
 #include <seastar/core/align.hh>
 #include <seastar/core/io_intent.hh>
+#include <seastar/core/io_queue.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/tmp_file.hh>
@@ -1310,6 +1311,24 @@ SEASTAR_TEST_CASE(test_rename) {
         BOOST_REQUIRE(file_exists(filename2).get());
         BOOST_REQUIRE(!file_exists(filename3).get());
     });
+}
+
+// A failed fdatasync() must reach the caller as an exceptional future, both
+// when it is submitted to the reactor backend (with_aio) and when it runs in
+// the thread pool.
+SEASTAR_THREAD_TEST_CASE(test_fdatasync_error) {
+    // fdatasync() of an O_PATH file descriptor fails with EBADF, and so does
+    // an fdatasync request for it on every backend.
+    auto fd = file_desc::open("/dev/null", O_PATH | O_CLOEXEC);
+    auto& sink = engine().get_io_queue().sink();
+    for (bool with_aio : {false, true}) {
+        BOOST_TEST_CONTEXT("with_aio=" << with_aio) {
+            BOOST_REQUIRE_EXCEPTION(posix_file_impl::fdatasync(with_aio, fd.get(), sink).get(), std::system_error,
+                    [] (const std::system_error& e) {
+                return e.code().value() == EBADF;
+            });
+        }
+    }
 }
 
 SEASTAR_TEST_CASE(test_query_statx_mem_align) {
