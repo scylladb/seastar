@@ -408,6 +408,7 @@ def main():
     args = get_command_line_parser().parse_args()
     comment = re.compile(r'^\s*#')
     pattern = re.compile(r"Reactor stalled for (?P<stall>\d+) ms on shard (?P<shard>\d+).*Backtrace:")
+    address_pattern = re.compile(r"(?<!\S)(?:\S+\+)?0x[0-9a-fA-F]+(?!\S)")
     expected_input_format = "Expected one or more lines ending with: 'Reactor stalled for <n> ms on shard <i>. Backtrace: <addr> [<addr> ...]'"
     address_threshold = int(args.address_threshold, 0)
     # map from stall time in ms to the count of the stall time
@@ -427,12 +428,12 @@ def main():
         if comment.search(s):
             continue
         # parse log line like:
-        # ... scylla[7795]: Reactor stalled for 860 ms on shard 4. Backtrace: 0x4f002d2 0x4efef30 0x4f001e0
+        # ... scylla[7795]: Reactor stalled for 860 ms on shard 4. Backtrace: 0x4f002d2 0x4efef30 0x4f001e0 (BuildId: 1a2b3c)
         m = pattern.search(s)
         if not m:
             continue
         # extract the time in ms
-        trace = s[m.span()[1]:].split()
+        trace = address_pattern.findall(s, m.end())
         t = int(m.group("stall"))
         # and the addresses after "Backtrace:"
         tally[t] = tally.pop(t, 0) + 1
