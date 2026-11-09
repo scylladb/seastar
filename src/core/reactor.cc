@@ -459,10 +459,10 @@ future<size_t> pollable_fd_state::write_some(net::packet& p) {
 #endif
 
 #if SEASTAR_API_LEVEL >= 9
-future<> pollable_fd_state::send_all(std::span<iovec> iovs) {
-    return send_some(iovs).then([this, iovs] (size_t size) {
+future<> pollable_fd_state::send_all(std::span<iovec> iovs, deleter d) {
+    return send_some(iovs).then([this, iovs, d = std::move(d)] (size_t size) mutable {
         auto niovs = internal::iovec_trim_front(iovs, size);
-        return niovs.empty() ? make_ready_future<>() : send_all(niovs);
+        return niovs.empty() ? make_ready_future<>() : send_all(niovs, std::move(d));
     });
 }
 
