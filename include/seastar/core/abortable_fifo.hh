@@ -41,6 +41,13 @@ concept aborter_ex = std::is_nothrow_invocable_r_v<void, Aborter, T&, const std:
 template <typename Aborter, typename T>
 concept aborter = std::is_nothrow_invocable_r_v<void, Aborter, T&> || aborter_ex<Aborter, T>;
 
+// An aborter that also wants to know when an aborted element has left the
+// container, for example to serve the elements behind it.
+template <typename Aborter>
+concept aborter_with_after_abort = requires (Aborter& a) {
+    { a.after_abort() } noexcept;
+};
+
 // This class satisfies 'aborter' concept and is used by default
 template<typename... T>
 struct noop_aborter {
@@ -53,6 +60,9 @@ struct noop_aborter {
 /// OnAbort is a functor which will be called with a reference to T right before it expires.
 /// T is removed and destroyed from the container immediately after OnAbort returns.
 /// OnAbort callback must not modify the container, it can only modify its argument.
+/// If OnAbort also has a noexcept member function after_abort(), it is called
+/// after the expired element has left the container (it is no longer counted,
+/// or reachable through front()), and may modify the container.
 ///
 /// The container can only be moved before any elements are pushed.
 ///
@@ -68,14 +78,7 @@ private:
         entry(T payload_, abortable_fifo& ef, abort_source& as)
                 : payload(std::move(payload_))
                 , sub(as.subscribe([this, &ef] (const std::optional<std::exception_ptr>& ex_opt) noexcept {
-                    if constexpr (aborter_ex<OnAbort, T>) {
-                        ef._on_abort(*payload, ex_opt);
-                    } else {
-                        ef._on_abort(*payload);
-                    }
-                    payload = std::nullopt;
-                    --ef._size;
-                    ef.drop_expired_front();
+                    ef.expire(*this, ex_opt);
                 })) {}
         entry() = default;
         entry(entry&& x) = delete;
@@ -92,6 +95,23 @@ private:
     chunked_fifo<entry> _list;
     OnAbort _on_abort;
     size_t _size = 0;
+
+    // Expires an element whose abort source was triggered. This may destroy
+    // the element, and with it the abort callback that called this function,
+    // so only the container may be used afterwards.
+    void expire(entry& e, const std::optional<std::exception_ptr>& ex_opt) noexcept {
+        if constexpr (aborter_ex<OnAbort, T>) {
+            _on_abort(*e.payload, ex_opt);
+        } else {
+            _on_abort(*e.payload);
+        }
+        e.payload = std::nullopt;
+        --_size;
+        drop_expired_front();
+        if constexpr (aborter_with_after_abort<OnAbort>) {
+            _on_abort.after_abort();
+        }
+    }
 
     // Ensures that front() is not expired by dropping expired elements from the front.
     void drop_expired_front() noexcept {
@@ -236,14 +256,7 @@ public:
         }
         SEASTAR_ASSERT(!e->sub);
         auto aborter = [this, e] (const std::optional<std::exception_ptr>& ex_opt) noexcept {
-            if constexpr (aborter_ex<OnAbort, T>) {
-                _on_abort(*e->payload, ex_opt);
-            } else {
-                _on_abort(*e->payload);
-            }
-            e->payload = std::nullopt;
-            --_size;
-            drop_expired_front();
+            expire(*e, ex_opt);
         };
         if (as.abort_requested()) {
             aborter(as.abort_requested_exception_ptr());

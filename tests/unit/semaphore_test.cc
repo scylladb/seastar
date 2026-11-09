@@ -26,6 +26,8 @@
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/semaphore.hh>
+#include <seastar/core/abort_source.hh>
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/map_reduce.hh>
@@ -522,4 +524,54 @@ SEASTAR_THREAD_TEST_CASE(test_immediate_abort_after_move_assign) {
     as.request_abort();
 
     BOOST_REQUIRE_THROW(get_units(sem, 1, as).get(), abort_requested_exception);
+}
+
+// When the waiter at the head of the wait list leaves it because it timed
+// out, the waiters behind it whose units are available must be served,
+// without waiting for the semaphore to be signaled again.
+// Reproduces https://github.com/scylladb/seastar/issues/3824
+SEASTAR_TEST_CASE(test_semaphore_timeout_of_first_waiter_serves_next) {
+    semaphore sem(100);
+    auto held = co_await get_units(sem, 60);        // 40 units left
+    auto big = get_units(sem, 50, 10ms);            // can't be served
+    auto small = get_units(sem, 10);                // fits, but is behind big
+    co_await sleep(50ms);                           // big has timed out
+    BOOST_REQUIRE_THROW(co_await std::move(big), semaphore_timed_out);
+    BOOST_REQUIRE_EQUAL(sem.waiters(), 0u);
+    auto small_units = co_await std::move(small);
+    BOOST_REQUIRE_EQUAL(sem.available_units(), 30);
+}
+
+// The same, when the waiter at the head of the wait list is aborted with an
+// abort_source.
+SEASTAR_TEST_CASE(test_semaphore_abort_of_first_waiter_serves_next) {
+    semaphore sem(100);
+    auto held = co_await get_units(sem, 60);        // 40 units left
+    abort_source as;
+    auto big = get_units(sem, 50, as);              // can't be served
+    auto small = get_units(sem, 10);                // fits, but is behind big
+    as.request_abort();
+    BOOST_REQUIRE_THROW(co_await std::move(big), semaphore_aborted);
+    BOOST_REQUIRE_EQUAL(sem.waiters(), 0u);
+    auto small_units = co_await std::move(small);
+    BOOST_REQUIRE_EQUAL(sem.available_units(), 30);
+}
+
+// A waiter that times out in the middle of the wait list, with a waiter
+// ahead of it that still can't be served, must not let the waiters behind
+// it overtake the one ahead.
+SEASTAR_TEST_CASE(test_semaphore_timeout_in_the_middle_keeps_order) {
+    semaphore sem(100);
+    auto held = co_await get_units(sem, 60);        // 40 units left
+    auto first = get_units(sem, 50);                // can't be served
+    auto middle = get_units(sem, 50, 10ms);         // will time out
+    auto last = get_units(sem, 10);                 // fits, but is behind first
+    co_await sleep(50ms);
+    BOOST_REQUIRE_THROW(co_await std::move(middle), semaphore_timed_out);
+    BOOST_REQUIRE_EQUAL(sem.waiters(), 2u);
+    BOOST_REQUIRE(!first.available());
+    BOOST_REQUIRE(!last.available());
+    held.return_all();
+    co_await std::move(first);
+    co_await std::move(last);
 }

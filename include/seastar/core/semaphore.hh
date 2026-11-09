@@ -192,6 +192,11 @@ private:
                 e.pr.set_exception(sem.get_aborted_exception());
             }
         }
+        // After a waiter left the wait list because it timed out or was
+        // aborted, the waiters that were behind it may now be served.
+        void after_abort() noexcept {
+            sem.wake_waiters();
+        }
     };
     internal::abortable_fifo<entry, expiry_handler> _wait_list;
 
@@ -228,6 +233,16 @@ private:
     }
     bool may_proceed(size_t nr) const noexcept {
         return has_available_units(nr) && _wait_list.empty();
+    }
+    // Serves the waiters at the front of the wait list, in order, while the
+    // available units are enough for them.
+    void wake_waiters() noexcept {
+        while (!_wait_list.empty() && has_available_units(_wait_list.front().nr)) {
+            auto& x = _wait_list.front();
+            _count -= x.nr;
+            x.pr.set_value();
+            _wait_list.pop_front();
+        }
     }
 public:
     /// Returns the maximum number of units the semaphore counter can hold
@@ -407,12 +422,7 @@ public:
             return;
         }
         _count += nr;
-        while (!_wait_list.empty() && has_available_units(_wait_list.front().nr)) {
-            auto& x = _wait_list.front();
-            _count -= x.nr;
-            x.pr.set_value();
-            _wait_list.pop_front();
-        }
+        wake_waiters();
     }
 
     /// Consume the specific number of units without blocking
