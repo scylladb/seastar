@@ -25,6 +25,7 @@
 #include <chrono>
 #include <exception>
 #include <functional>
+#include <type_traits>
 
 #include <seastar/core/future.hh>
 #include <seastar/core/coroutine.hh>
@@ -346,7 +347,7 @@ public:
     template<typename Pred>
     requires std::is_invocable_r_v<bool, Pred>
     auto when(Pred&& pred) noexcept {
-        return predicate_awaiter<Pred, awaiter>{std::forward<Pred>(pred), when()};
+        return predicate_awaiter<std::decay_t<Pred>, awaiter>{std::forward<Pred>(pred), when()};
     }
 
     /// Coroutine/co_await only waiter.
@@ -362,7 +363,7 @@ public:
     template<typename Clock = typename timer<>::clock, typename Duration = typename Clock::duration, typename Pred>
     requires std::is_invocable_r_v<bool, Pred>
     auto when(std::chrono::time_point<Clock, Duration> timeout, Pred&& pred) noexcept {
-        return predicate_awaiter<Pred, timeout_awaiter<Clock, Duration>>{std::forward<Pred>(pred), when(timeout)};
+        return predicate_awaiter<std::decay_t<Pred>, timeout_awaiter<Clock, Duration>>{std::forward<Pred>(pred), when(timeout)};
     }
 
     /// Coroutine/co_await only waiter.

@@ -393,3 +393,16 @@ SEASTAR_TEST_CASE(test_condition_variable_when_predicate_throws) {
                      return false;
              }), std::runtime_error);
 }
+
+// when() accepts a predicate that is an lvalue, as wait() does.
+SEASTAR_TEST_CASE(test_condition_variable_when_lvalue_predicate) {
+    condition_variable cv;
+    bool ready = false;
+    auto pred = [&] { return ready; };
+    auto w1 = cv.when(pred);
+    auto w2 = cv.when(1s, pred);
+    ready = true;
+    cv.broadcast();
+    co_await std::move(w1);
+    co_await std::move(w2);
+}
