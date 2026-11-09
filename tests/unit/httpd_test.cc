@@ -1403,7 +1403,7 @@ SEASTAR_TEST_CASE(test_client_retry_nested) {
                 input_stream<char> in = sk.input();
                     read_simple_http_request(in);
                     output_stream<char> out = sk.output();
-                    sstring r200("HTTP/1.1 200 OK\r\nHost: localhost\r\n\r\n");
+                    sstring r200("HTTP/1.1 200 OK\r\nHost: localhost\r\nConnection: close\r\n\r\n");
                     out.write(r200).get(); // now write complete response
                     out.flush().get();
                     out.close().get();
@@ -1414,7 +1414,7 @@ SEASTAR_TEST_CASE(test_client_retry_nested) {
                     input_stream<char> in = sk.input();
                     read_simple_http_request(in);
                     output_stream<char> out = sk.output();
-                    sstring r200("HTTP/1.1 200 OK\r\nHost: localhost\r\n\r\n");
+                    sstring r200("HTTP/1.1 200 OK\r\nHost: localhost\r\nConnection: close\r\n\r\n");
                     out.write(r200).get(); // now write complete response
                     out.flush().get();
                     out.close().get();
