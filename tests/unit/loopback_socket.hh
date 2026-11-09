@@ -59,6 +59,7 @@ private:
     loopback_error_injector* _error_injector;
     type _type;
     std::optional<promise<>> _shutdown;
+    bool _shut_down = false;
 public:
     loopback_buffer(loopback_error_injector* error_injection, type t) : _error_injector(error_injection), _type(t) {}
     future<> push(temporary_buffer<char>&& b) {
@@ -100,6 +101,7 @@ public:
     }
     void shutdown() noexcept {
         // it can be called by both -- reader and writer socket impls
+        _shut_down = true;
         if (_shutdown.has_value()) {
             _shutdown->set_value();
             _shutdown.reset();
@@ -116,6 +118,10 @@ public:
 
     future<> wait_input_shutdown() {
         SEASTAR_ASSERT(!_shutdown.has_value());
+        // A wait that starts after the shutdown resolves at once, as on a real socket.
+        if (_shut_down) {
+            return make_ready_future<>();
+        }
         _shutdown.emplace();
         return _shutdown->get_future();
     }
@@ -152,13 +158,18 @@ public:
     }
 #endif
     future<> close() override {
+        // The sink may be destroyed before close() resolves, so the shutdown below
+        // reaches the buffer through a reference held here, not through this.
         return smp::submit_to(_buffer->get_owner_shard(), [this] {
             return (*_buffer)->push({}).handle_exception_type([] (std::system_error& err) {
                 if (err.code().value() != EPIPE) {
                     throw err;
                 }
+            }).finally([buffer = _buffer.get()] {
+                // Like the FIN a real socket sends: the peer's wait_input_shutdown() resolves.
+                (*buffer)->shutdown();
             });
-        });
+        }).finally([buffer = _buffer] {});
     }
 
     bool can_batch_flushes() const noexcept override { return true; }
