@@ -22,6 +22,7 @@ import bisect
 import collections
 import os
 import re
+import shutil
 import sys
 import subprocess
 from enum import Enum
@@ -42,6 +43,24 @@ def notNone(o: Optional[T]) -> T:
     return o
 
 
+# Commands that list the section headers of an ELF file with `-S`, in
+# order of preference: llvm first, to go with the default llvm-addr2line,
+# then elfutils, then binutils.  The first one found in PATH is used.
+READELF_COMMANDS = ('llvm-readelf', 'eu-readelf', 'readelf')
+
+
+@cache
+def find_readelf() -> str:
+    """Returns the first of READELF_COMMANDS found in PATH, or exits."""
+    for cmd in READELF_COMMANDS:
+        if shutil.which(cmd):
+            return cmd
+    sys.exit(
+        f"none of {', '.join(READELF_COMMANDS)} found in PATH:"
+        " llvm, elfutils or binutils is required to resolve backtraces"
+    )
+
+
 class Addr2Line:
 
     # Matcher for a line that appears at the end a single decoded
@@ -59,6 +78,15 @@ class Addr2Line:
         r"(\?\? at \?\?:0\n)"  # llvm-addr2line pattern for LLVM 18 and newer
         r"|"
         r"(,\n)"  # llvm-addr2line pattern for LLVM 17 and older
+    )
+
+    # Matcher for a `.debug_info` (or compressed `.zdebug_info`) section
+    # line in the output of `readelf -S`, which starts with the section
+    # index in brackets for eu-readelf, llvm-readelf and binutils readelf
+    # alike, e.g.:
+    #  [34] .debug_info          PROGBITS     0000000000000000 01024e88 00289cbe  0        0   0  1
+    debug_info_section_pattern = re.compile(
+        r"^\s*\[\s*\d+\]\s+\.z?debug_info\s", flags=re.MULTILINE
     )
 
     def __init__(
@@ -88,11 +116,26 @@ class Addr2Line:
             self._missing = True
             return
 
-        # Print warning if binary has no debug info according to `file`.
-        output = subprocess.check_output(["file", "--", self._binary])
-        s = output.decode("utf-8")
-        if s.find('ELF') >= 0 and s.find('debug_info', len(self._binary)) < 0:
-            print('{}'.format(s))
+        # Make sure the module is an ELF file and print a warning if it
+        # has no debug info, according to its section headers as listed
+        # by readelf.  The path is made absolute so that it can never be
+        # taken for an option, since llvm-readelf does not accept `--`.
+        readelf = find_readelf()
+        res = subprocess.run(
+            [readelf, '-S', os.path.abspath(self._binary)],
+            capture_output=True,
+            text=True,
+            errors='replace',
+        )
+        if res.returncode != 0:
+            self._parent.debug(f"{readelf} failed on '{self._binary}': {res.stderr.strip()}")
+            print(
+                f"WARNING: ignoring module '{self._binary}': not a valid ELF file", file=sys.stderr
+            )
+            self._missing = True
+            return
+        if not Addr2Line.debug_info_section_pattern.search(res.stdout):
+            print(f"WARNING: module '{self._binary}' has no debug_info section")
 
         env = dict(os.environ)
         if not use_debuginfod:
