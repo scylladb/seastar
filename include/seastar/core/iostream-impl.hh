@@ -478,14 +478,15 @@ void add_to_flush_poller(output_stream<char>& x) noexcept;
 }
 
 template <typename CharType>
-future<> output_stream<CharType>::do_flush() noexcept {
+future<> output_stream<CharType>::put_pending() noexcept {
+  // share() and emplace_back() may allocate; if they throw, the data stays
+  // buffered and the flush fails.
+  try {
     if (_end) {
         if (_zc_bufs.empty()) {
             _buf.trim(_end);
             _end = 0;
-            return _fd.put(std::move(_buf)).then([this] {
-                return _fd.flush();
-            });
+            return _fd.put(std::move(_buf));
         } else {
             // Fold buffered tail into the zero-copy vector and flush together.
             _zc_bufs.emplace_back(_buf.share(0, _end));
@@ -496,12 +497,19 @@ future<> output_stream<CharType>::do_flush() noexcept {
     }
     if (!_zc_bufs.empty()) {
         _zc_len = 0;
-        return _fd.put(std::move(_zc_bufs)).then([this] {
-            return _fd.flush();
-        });
-    } else {
-        return _fd.flush();
+        return _fd.put(std::move(_zc_bufs));
     }
+    return make_ready_future<>();
+  } catch (...) {
+    return current_exception_as_future();
+  }
+}
+
+template <typename CharType>
+future<> output_stream<CharType>::do_flush() noexcept {
+    return put_pending().then([this] {
+        return _fd.flush();
+    });
 }
 
 template <typename CharType>
@@ -553,17 +561,37 @@ output_stream<CharType>::poll_flush() noexcept {
     _flush = false;
     _flushing = true; // make whoever wants to write into the fd to wait for flush to complete
 
+    // The sink flush is called from the put continuation rather than chained
+    // as a continuation of its own, so that a put that has to wait costs a
+    // single task here.
     // FIXME: future is discarded
-    (void)do_flush().then_wrapped([this] (future<> f) {
-        try {
-            f.get();
-        } catch (...) {
-            _ex = std::current_exception();
-            _fd.on_batch_flush_error();
+    (void)put_pending().then_wrapped([this] (future<> f) {
+        if (f.failed()) {
+            finish_poll_flush(std::move(f));
+            return;
         }
-        // if flush() was called while flushing flush once more
-        poll_flush();
+        auto flushed = _fd.flush();
+        if (flushed.available()) {
+            finish_poll_flush(std::move(flushed));
+        } else {
+            (void)std::move(flushed).then_wrapped([this] (future<> f) {
+                finish_poll_flush(std::move(f));
+            });
+        }
     });
+}
+
+template <typename CharType>
+void
+output_stream<CharType>::finish_poll_flush(future<> f) noexcept {
+    try {
+        f.get();
+    } catch (...) {
+        _ex = std::current_exception();
+        _fd.on_batch_flush_error();
+    }
+    // if flush() was called while flushing flush once more
+    poll_flush();
 }
 
 template <typename CharType>
