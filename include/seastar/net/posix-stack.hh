@@ -128,8 +128,14 @@ class posix_data_source_impl final : public data_source_impl, private internal::
     std::pmr::polymorphic_allocator<char>* _buffer_allocator;
     pollable_fd _fd;
     connected_socket_input_stream_config _config;
+    // Index of the scheduling group of the get() in progress. received() may
+    // run outside of any task, or inside an unrelated one, so it charges the
+    // bytes to this group rather than to the current one.
+    unsigned _read_sg_id = 0;
 private:
     virtual temporary_buffer<char> allocate_buffer() override;
+    // Adapts the buffer size to the amount received, and counts the bytes.
+    virtual void received(temporary_buffer<char>& b) override;
 public:
     explicit posix_data_source_impl(pollable_fd fd, connected_socket_input_stream_config config,
             std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator)
