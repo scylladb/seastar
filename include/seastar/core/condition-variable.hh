@@ -25,6 +25,7 @@
 #include <chrono>
 #include <exception>
 #include <functional>
+#include <type_traits>
 
 #include <seastar/core/future.hh>
 #include <seastar/core/coroutine.hh>
@@ -188,6 +189,12 @@ private:
         }
     };
 
+    // when() keeps a predicate given as an lvalue by reference (as std::ref
+    // does), and moves one given as an rvalue into its awaiter.
+    template<typename Pred>
+    using when_predicate = std::conditional_t<std::is_lvalue_reference_v<Pred>,
+            std::reference_wrapper<std::remove_reference_t<Pred>>, Pred>;
+
     boost::intrusive::list<waiter, boost::intrusive::constant_time_size<false>> _waiters;
     std::exception_ptr _ex; //"broken" exception
     bool _signalled = false; // set to true if signalled while no waiters
@@ -341,14 +348,16 @@ public:
     /// Waits until condition variable is notified and pred() == true, otherwise
     /// wait again.
     ///
-    /// \param pred predicate that checks that awaited condition is true
+    /// \param pred predicate that checks that awaited condition is true. A
+    ///        predicate given as an lvalue isn't copied, so it must stay alive
+    ///        until the wait ends.
     ///
     /// \return a future that becomes ready when \ref signal() is called
     ///         If the condition variable was \ref broken(), may contain an exception.
     template<typename Pred>
     requires std::is_invocable_r_v<bool, Pred>
     auto when(Pred&& pred) noexcept {
-        return predicate_awaiter<Pred, awaiter>{std::forward<Pred>(pred), when()};
+        return predicate_awaiter<when_predicate<Pred>, awaiter>{std::forward<Pred>(pred), when()};
     }
 
     /// Coroutine/co_await only waiter.
@@ -356,7 +365,9 @@ public:
     /// wait again.
     ///
     /// \param timeout time point at which wait will exit with a timeout
-    /// \param pred predicate that checks that awaited condition is true
+    /// \param pred predicate that checks that awaited condition is true. A
+    ///        predicate given as an lvalue isn't copied, so it must stay alive
+    ///        until the wait ends.
     ///
     /// \return a future that becomes ready when \ref signal() is called
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
@@ -364,7 +375,7 @@ public:
     template<typename Clock = typename timer<>::clock, typename Duration = typename Clock::duration, typename Pred>
     requires std::is_invocable_r_v<bool, Pred>
     auto when(std::chrono::time_point<Clock, Duration> timeout, Pred&& pred) noexcept {
-        return predicate_awaiter<Pred, timeout_awaiter<Clock, Duration>>{std::forward<Pred>(pred), when(timeout)};
+        return predicate_awaiter<when_predicate<Pred>, timeout_awaiter<Clock, Duration>>{std::forward<Pred>(pred), when(timeout)};
     }
 
     /// Coroutine/co_await only waiter.
@@ -372,7 +383,9 @@ public:
     /// wait again.
     ///
     /// \param timeout duration after which wait will exit with a timeout
-    /// \param pred predicate that checks that awaited condition is true
+    /// \param pred predicate that checks that awaited condition is true. A
+    ///        predicate given as an lvalue isn't copied, so it must stay alive
+    ///        until the wait ends.
     ///
     /// \return a future that becomes ready when \ref signal() is called
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
