@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import argparse
+import os
 import sys
 import re
 
@@ -56,6 +57,11 @@ def get_command_line_parser():
                         help='Let the symbolizer download missing debug info via'
                              ' DEBUGINFOD_URLS. Disabled by default: a lookup that'
                              ' stalls hangs the resolver.')
+    parser.add_argument('--module-root', metavar='DIR', default=None,
+                        help='Only resolve addresses in modules named in the backtraces that are'
+                             ' located under DIR (after resolving symlinks); any other such module'
+                             ' is treated as missing. The executable is not subject to this'
+                             ' restriction. Use it when the backtraces come from an untrusted source.')
     parser.add_argument('file', nargs='?',
                         type=argparse.FileType('r'),
                         default=sys.stdin,
@@ -405,7 +411,8 @@ def print_command_line_options(args):
 
 
 def main():
-    args = get_command_line_parser().parse_args()
+    parser = get_command_line_parser()
+    args = parser.parse_args()
     comment = re.compile(r'^\s*#')
     pattern = re.compile(r"Reactor stalled for (?P<stall>\d+) ms on shard (?P<shard>\d+).*Backtrace:")
     expected_input_format = "Expected one or more lines ending with: 'Reactor stalled for <n> ms on shard <i>. Backtrace: <addr> [<addr> ...]'"
@@ -413,11 +420,14 @@ def main():
     # map from stall time in ms to the count of the stall time
     tally = {}
     resolver = None
+    if args.module_root is not None and not os.path.isdir(args.module_root):
+        parser.error(f"--module-root: '{args.module_root}' is not a directory")
     if args.executable:
         resolver = addr2line.BacktraceResolver(executable=args.executable,
                                                concise=not args.full_function_names,
                                                cmd_path=args.addr2line,
-                                               use_debuginfod=args.use_debuginfod)
+                                               use_debuginfod=args.use_debuginfod,
+                                               module_root=args.module_root)
     if args.format == 'graph':
         render = Graph(resolver)
     else:

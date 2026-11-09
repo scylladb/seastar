@@ -96,9 +96,11 @@ class Addr2Line:
         concise: bool = False,
         cmd_path: str = "llvm-addr2line",
         use_debuginfod: bool = False,
+        module_root: Optional[str] = None,
     ):
         self._parent = parent
         self._binary = binary
+        self._module_root = module_root
 
         # The module name may come from untrusted input (e.g. a pasted
         # backtrace), and both `file` and addr2line treat an argument
@@ -173,6 +175,15 @@ class Addr2Line:
         """Returns why the module path cannot be used, or None if it can."""
         if self._binary.startswith(('-', '@')):
             return 'looks like a command line option'
+        if self._module_root is not None:
+            # Compare resolved paths so that neither symlinks nor '..'
+            # components can escape the root, and compare whole path
+            # components so that a sibling with the root as a prefix
+            # (e.g. '/opt/modules-evil' for '/opt/modules') is rejected.
+            root = os.path.realpath(self._module_root)
+            real = os.path.realpath(self._binary)
+            if os.path.commonpath([root, real]) != root:
+                return f"not under module root '{self._module_root}'"
         if not os.path.exists(self._binary):
             return 'not found'
         if not os.path.isfile(self._binary):
@@ -433,6 +444,7 @@ class BacktraceResolver:
         debug: bool = False,
         timing: bool = False,
         use_debuginfod: bool = False,
+        module_root: Optional[str] = None,
     ):
         self._debug = debug
         self._timing = timing
@@ -453,6 +465,7 @@ class BacktraceResolver:
         self._concise = concise
         self._cmd_path = cmd_path
         self._use_debuginfod = use_debuginfod
+        self._module_root = module_root
         self._known_modules: dict[str, Union[Addr2Line, KernelResolver]] = {}
         self._get_resolver_for_module(
             self._executable
@@ -481,12 +494,17 @@ class BacktraceResolver:
             if module == KERNEL_MODULE:
                 resolver = KernelResolver(self, kallsyms=self._kallsyms)
             else:
+                # The executable is given on the command line by the
+                # operator, so only modules named in the backtrace itself
+                # are confined to the module root.
+                module_root = self._module_root if module != self._executable else None
                 resolver = Addr2Line(
                     self,
                     module,
                     self._concise,
                     self._cmd_path,
                     use_debuginfod=self._use_debuginfod,
+                    module_root=module_root,
                 )
             self.debug(f'Adding resolver {resolver} for module: {module}')
             self._known_modules[module] = resolver
