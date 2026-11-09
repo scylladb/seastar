@@ -604,23 +604,29 @@ std::ostream& operator<<(std::ostream&, const std::system_error&);
 }
 #endif
 
-#if SEASTAR_FMT_VERSION < 120201
-
 // Seastar has no business defining a {fmt} formatter for std::exception_ptr,
 // a type it does not own; that is for the standard library or {fmt} to do (see
 // https://github.com/fmtlib/fmt/issues/4808). Until then we provide one, but
 // deprecate it in favour of seastar::formattable(), which wraps the pointer in
 // a Seastar-owned type. The deprecation is on parse() (which {fmt} odr-uses)
 // rather than on the specialization, so that it is diagnosed at the call site.
-template <>
-struct fmt::formatter<std::exception_ptr> {
+//
+// {fmt} has its own formatter for std::exception_ptr on its main branch, but
+// not in any release yet (12.2.1 doesn't have it), and FMT_VERSION can't tell
+// them apart: main reported 120201 too. So instead of checking the version,
+// this formatter is a partial specialization over the character type. When
+// {fmt}'s full specialization, formatter<std::exception_ptr>, exists, it is
+// more specialized, and is used instead of this one, without a clash. {fmt}
+// declares it in <fmt/std.h>, which <seastar/core/internal/fmt.hh> includes,
+// so it is always declared before this one is used.
+template <typename Char>
+requires std::same_as<Char, char>
+struct fmt::formatter<std::exception_ptr, Char> {
     [[deprecated("Use seastar::formattable(eptr) instead of formatting a std::exception_ptr directly")]]
     constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
     auto format(const std::exception_ptr& eptr, fmt::format_context& ctx) const -> decltype(ctx.out()) {
         return fmt::format_to(ctx.out(), "{}", seastar::formattable(eptr));
     }
 };
-
-#endif
 
 /// @}

@@ -19,6 +19,9 @@
  * Copyright (C) 2023 ScyllaDB Ltd.
  */
 
+#include <exception>
+#include <stdexcept>
+
 import seastar;
 
 using namespace seastar;
@@ -28,6 +31,11 @@ int main(int argc, char** argv) {
     seastar::app_template app;
     app.run(argc, argv, [] () -> future<> {
         applog.info("Hello world!");
+        // A compatibility check, as CI builds this demo with the C++ module:
+        // formatting a std::exception_ptr directly is deprecated (prefer
+        // seastar::formattable()), but applications still do it, and it must
+        // keep compiling through the module too (#3831).
+        applog.info("An exception: {}", std::make_exception_ptr(std::runtime_error("test")));
         return make_ready_future<>();
     });
 }

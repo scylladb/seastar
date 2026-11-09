@@ -915,10 +915,14 @@ using seastar::util::temporary_buffer_data_source;
 }
 
 // FIXME: deprecate and remove
+// This must match the partial specialization in <seastar/util/log.hh>
+// (see the comment there): a declaration of the full specialization here
+// would be preferred to it, and remain undefined.
 export namespace fmt {
 
-template <>
-struct formatter<std::exception_ptr>;
+template <typename Char>
+requires std::same_as<Char, char>
+struct formatter<std::exception_ptr, Char>;
 
 }
 
