@@ -844,6 +844,18 @@ posix_ap_server_socket_impl::move_connected_socket(int protocol, socket_address 
 
 future<temporary_buffer<char>>
 posix_data_source_impl::get() {
+    _split.reset();
+    return recv();
+}
+
+future<temporary_buffer<char>>
+posix_data_source_impl::get_split(internal::split_target target) {
+    _split = target;
+    return recv();
+}
+
+future<temporary_buffer<char>>
+posix_data_source_impl::recv() {
     _read_sg_id = internal::scheduling_group_index(current_scheduling_group());
     return _fd.recv_some(static_cast<internal::buffer_allocator*>(this));
 }
@@ -858,6 +870,12 @@ posix_data_source_impl::received(temporary_buffer<char>& b) {
         _config.buffer_size = std::max(_config.buffer_size, _config.min_buffer_size);
     }
     bytes_received[_read_sg_id] += b.size();
+    if (auto split = std::exchange(_split, std::nullopt)) {
+        // share() may allocate. If it throws, the receive fails with the
+        // exception, and the split keeps the bytes, counted above, for the
+        // next read, which does not receive them again.
+        split->split(b);
+    }
 }
 
 temporary_buffer<char>

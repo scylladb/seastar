@@ -28,6 +28,7 @@
 #include <seastar/core/internal/buffer_allocator.hh>
 #include <seastar/util/program-options.hh>
 
+#include <optional>
 #include <unordered_set>
 
 namespace seastar {
@@ -132,16 +133,24 @@ class posix_data_source_impl final : public data_source_impl, private internal::
     // run outside of any task, or inside an unrelated one, so it charges the
     // bytes to this group rather than to the current one.
     unsigned _read_sg_id = 0;
+    // The split requested by the get_split() in progress, if any.
+    std::optional<internal::split_target> _split;
 private:
     virtual temporary_buffer<char> allocate_buffer() override;
-    // Adapts the buffer size to the amount received, and counts the bytes.
+    // Adapts the buffer size to the amount received, counts the bytes, and
+    // applies _split.
     virtual void received(temporary_buffer<char>& b) override;
+    // Starts the receive of get() and get_split().
+    future<temporary_buffer<char>> recv();
 public:
     explicit posix_data_source_impl(pollable_fd fd, connected_socket_input_stream_config config,
             std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator)
             : _buffer_allocator(allocator), _fd(std::move(fd)), _config(config) {
     }
     future<temporary_buffer<char>> get() override;
+    /// Splits the received buffer in received(), where the receive completes,
+    /// rather than in a continuation.
+    future<temporary_buffer<char>> get_split(internal::split_target target) override;
     future<> close() override;
 };
 
