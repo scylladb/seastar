@@ -449,7 +449,7 @@ def main():
         #  (inlined by) seastar::reactor::block_notifier(int) at ./build/release/seastar/./seastar/src/core/reactor.cc:1240
         # ?? ??:0
         if address_threshold:
-            trace = list(dropwhile(lambda addr: int(addr, 0) >= address_threshold, trace))
+            trace = list(dropwhile(lambda addr: '+' not in addr and int(addr, 0) >= address_threshold, trace))
         if t >= args.tmin:
             if not trace:
                 print(f"""Invalid input line: '{s.strip()}'
