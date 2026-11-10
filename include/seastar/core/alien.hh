@@ -145,10 +145,10 @@ void run_on(instance& instance, unsigned shard, Func func) {
 
 namespace internal {
 template<typename Func>
-using return_value_t = typename futurize<std::invoke_result_t<Func>>::value_type;
+using return_value_t = typename futurize<std::invoke_result_t<Func&>>::value_type;
 
 template<typename Func,
-         bool = std::is_empty_v<return_value_t<Func>>>
+         bool = std::is_same_v<return_value_t<Func>, ::seastar::internal::monostate>>
 struct return_type_of {
     using type = void;
     static void set(std::promise<void>& p, return_value_t<Func>&&) {
@@ -157,7 +157,7 @@ struct return_type_of {
 };
 template<typename Func>
 struct return_type_of<Func, false> {
-    using return_tuple_t = typename futurize<std::invoke_result_t<Func>>::tuple_type;
+    using return_tuple_t = typename futurize<std::invoke_result_t<Func&>>::tuple_type;
     using type = std::tuple_element_t<0, return_tuple_t>;
     static void set(std::promise<type>& p, return_value_t<Func>&& t) {
         p.set_value(std::move(t));
@@ -174,14 +174,16 @@ template <typename Func> using return_type_t = typename return_type_of<Func>::ty
 ///          its lifetime will be extended by moving it.  If \c func is a reference,
 ///          the caller must guarantee that it will survive the call.
 /// \return whatever \c func returns, as a \c std::future<>
+/// Synchronous exceptions thrown by \c func are delivered through the returned future.
 /// \note the caller must keep the returned future alive until \c func returns
-template<std::invocable Func, typename T = internal::return_type_t<Func>>
+template<typename Func, typename T = internal::return_type_t<Func>>
+requires std::invocable<Func&>
 std::future<T> submit_to(instance& instance, unsigned shard, Func func) {
     std::promise<T> pr;
     auto fut = pr.get_future();
     run_on(instance, shard, [pr = std::move(pr), func = std::move(func)] () mutable noexcept {
         // std::future returned via std::promise above.
-        (void)func().then_wrapped([pr = std::move(pr)] (auto&& result) mutable {
+        (void)futurize_invoke(func).then_wrapped([pr = std::move(pr)] (auto&& result) mutable {
             try {
                 internal::return_type_of<Func>::set(pr, result.get());
             } catch (...) {
