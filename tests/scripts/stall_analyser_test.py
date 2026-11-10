@@ -363,6 +363,13 @@ class TestStallAnalyser(ScriptTestCase):
             -> continued at addr=0x12 above
             '''))
 
+    def test_percentiles_of_one_duration(self):
+        """A duration reaching several percentiles is each of them."""
+        output = self.analyse(stdin=stall(10, '0x12') + stall(10, '0x12') + stall(20, '0x12'))
+        self.assertIn('min=10 avg=13.3 median=10 p95=20 p99=20 p999=20 max=20\n', output)
+        output = self.analyse(stdin=stall(100, '0x12'))
+        self.assertIn('min=100 avg=100.0 median=100 p95=100 p99=100 p999=100 max=100\n', output)
+
 
 if __name__ == '__main__':
     unittest.main()

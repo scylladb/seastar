@@ -374,11 +374,11 @@ def print_stats(tally: dict, tmin: int) -> None:
         running_count += count
         if median is None and running_count >= total_count / 2:
             median = t
-        elif p95 is None and running_count >= (total_count * 95) / 100:
+        if p95 is None and running_count >= (total_count * 95) / 100:
             p95 = t
-        elif p99 is None and running_count >= (total_count * 99) / 100:
+        if p99 is None and running_count >= (total_count * 99) / 100:
             p99 = t
-        elif p999 is None and running_count >= (total_count * 999) / 1000:
+        if p999 is None and running_count >= (total_count * 999) / 1000:
             p999 = t
     print(f"Processed {total_count} stalls lasting a total of {total_time} milliseconds.")
     if tmin:
