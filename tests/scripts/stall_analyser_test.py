@@ -355,6 +355,15 @@ class TestStallAnalyser(ScriptTestCase):
             ++[0#1/1 100%] addr=0x22 total=100 count=1 avg=100
             '''))
 
+    def test_recursion(self):
+        """A recursive call counts the stall time of its backtrace once."""
+        output = self.analyse(stdin=stall(100, '0x12', '0x12', '0x12'))
+        self.assertEqual(graph(output), dedent('''\
+            ++[0#1/1 100%] addr=0x12 total=100 count=1 avg=100
+            ++           - addr=0x12
+            -> continued at addr=0x12 above
+            '''))
+
 
 if __name__ == '__main__':
     unittest.main()

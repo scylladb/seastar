@@ -157,11 +157,12 @@ class Graph:
         # where a code path that stalls may be called from multiple
         # call sites.
         node = None
+        linked = set[tuple[str, str]]()
         for addr in trace:
-            node = self.add(node, t, addr)
+            node = self.add(node, t, addr, linked)
         self.add_head(t, node)
 
-    def add(self, prev: Node, t: int, addr: str):
+    def add(self, prev: Node, t: int, addr: str, linked: set[tuple[str, str]]):
         if addr in self.nodes:
             n = self.nodes[addr]
         else:
@@ -170,8 +171,12 @@ class Graph:
         # The innermost frame of every backtrace is linked to the tail, and
         # the outermost one to the head by add_head(), so that the stall time
         # of each backtrace is accounted for in both directions.
+        # A recursive backtrace passes the same link several times, which
+        # counts its stall time once; linked holds the links passed so far.
         if prev:
-            prev.link_caller(t, n)
+            if (prev.addr, addr) not in linked:
+                linked.add((prev.addr, addr))
+                prev.link_caller(t, n)
         else:
             self.tail.link_caller(t, n)
         return n
