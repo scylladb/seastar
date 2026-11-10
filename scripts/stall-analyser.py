@@ -315,18 +315,17 @@ class StackCollapse:
         # in ms, but we use it for the count of samples.
         self.collapsed[';'.join(frames)] += count
 
-    def _annotate_func(self, line: str) -> str:
+    def _annotate_func(self, line: str, inlined: bool) -> str:
         # sample input:
-        #   (inlined by) position_in_partition::tri_compare::operator() at ././position_in_partition.hh:485
-        # sample output:
+        #   position_in_partition::tri_compare::operator() at ././position_in_partition.hh:485
+        # sample output, when inlined:
         #   position_in_partition::tri_compare::operator()_[i]
         if line.startswith("??"):
             return ""
 
-        inlined_prefix = ' (inlined by) '
-        inlined = line.startswith(inlined_prefix)
-        if inlined:
-            line = line[len(inlined_prefix):]
+        inlined_by_prefix = ' (inlined by) '
+        if line.startswith(inlined_by_prefix):
+            line = line[len(inlined_by_prefix):]
 
         matched = self.pattern.match(line)
         assert matched, f"bad line: {line}"
@@ -338,7 +337,9 @@ class StackCollapse:
 
     def _resolve(self, addr: str) -> Iterator[str]:
         lines = self.resolver.resolve_address(addr).splitlines()
-        return (self._annotate_func(line) for line in lines)
+        # addr2line prints the functions of an address innermost first,
+        # each but the last one inlined into the next one
+        return (self._annotate_func(line, i < len(lines) - 1) for i, line in enumerate(lines))
 
     def print_graph(self, *_) -> None:
         for stack, count in self.collapsed.items():

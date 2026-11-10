@@ -264,7 +264,7 @@ class TestStallAnalyser(ScriptTestCase):
         output = self.analyse('--executable', EXECUTABLE, '--format', 'trace',
                               stdin=2 * stall(100, '0x12', '0x21', '0x30') + stall(50, '0x22'))
         self.assertEqual(output, dedent('''\
-            caller_21_[i];inlined_21;func_12 200
+            caller_21;inlined_21_[i];func_12 200
             func_22 50
             '''))
 
