@@ -35,6 +35,21 @@ class buffer_allocator {
 public:
     virtual ~buffer_allocator() = default;
     virtual temporary_buffer<char> allocate_buffer() = 0;
+    /// Called with the buffer that a successful recv_some() filled, trimmed
+    /// to the number of bytes received (empty at end of stream), before the
+    /// future of the receive is made ready. This lets the owner of the
+    /// allocator act on what was received without a continuation of its own.
+    /// read_some() does not call it.
+    ///
+    /// It is called from wherever the backend completes the receive:
+    /// synchronously inside recv_some() when data is already available, in a
+    /// continuation of the poll for readability, or while the reactor reaps
+    /// I/O completions, which happens outside of any task, and also inside an
+    /// unrelated task that needs a free submission queue entry. So it must
+    /// not rely on current_scheduling_group(), and the allocator must stay
+    /// alive until every receive that uses it completes. If it throws, the
+    /// receive fails with the exception.
+    virtual void received(temporary_buffer<char>&) {}
 };
 
 

@@ -21,6 +21,7 @@
 
 #include <seastar/core/iostream.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include <seastar/util/alloc_failure_injector.hh>
 #include <functional>
 #include <sstream>
 #include <stdexcept>
@@ -313,3 +314,56 @@ SEASTAR_THREAD_TEST_CASE(test_read_invariants) {
         });
     });
 }
+
+// data_source::get_split() of a source that does not override it returns at
+// most max bytes of the buffer get() returns, keeps the rest, and reports
+// end of stream.
+SEASTAR_THREAD_TEST_CASE(test_default_get_split) {
+    struct split_case {
+        size_t max;
+        std::string_view returned;
+        std::string_view rest;
+    };
+    const split_case cases[] = {
+        {3, "abc", "de"},
+        {5, "abcde", ""},
+        {7, "abcde", ""},
+        {0, "", "abcde"},
+    };
+    for (const auto& c : cases) {
+        std::vector<temporary_buffer<char>> bufs;
+        bufs.emplace_back("abcde", 5);
+        data_source src(std::make_unique<tracking_data_source_impl>(std::move(bufs)));
+
+        temporary_buffer<char> rest;
+        bool eof = true;
+        auto buf = src.get_split({.max = c.max, .rest = &rest, .eof = &eof}).get();
+        BOOST_REQUIRE_EQUAL(std::string_view(buf.get(), buf.size()), c.returned);
+        BOOST_REQUIRE_EQUAL(std::string_view(rest.get(), rest.size()), c.rest);
+        BOOST_REQUIRE(!eof);
+
+        temporary_buffer<char> eof_rest;
+        buf = src.get_split({.max = c.max, .rest = &eof_rest, .eof = &eof}).get();
+        BOOST_REQUIRE(buf.empty());
+        BOOST_REQUIRE(eof_rest.empty());
+        BOOST_REQUIRE(eof);
+        src.close().get();
+    }
+}
+
+#ifdef SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
+// If sharing the buffer to split it fails, split_target::split() keeps all of
+// it in rest, so that the data stays buffered for the next read.
+SEASTAR_THREAD_TEST_CASE(test_split_keeps_data_on_alloc_failure) {
+    // A buffer that owns its memory directly, so that sharing it allocates.
+    temporary_buffer<char> buf("abcde", 5);
+    temporary_buffer<char> rest;
+    bool eof = true;
+    const internal::split_target target{.max = 3, .rest = &rest, .eof = &eof};
+    memory::local_failure_injector().fail_after(0);
+    BOOST_REQUIRE_THROW(target.split(buf), std::bad_alloc);
+    memory::local_failure_injector().cancel();
+    BOOST_REQUIRE_EQUAL(std::string_view(rest.get(), rest.size()), "abcde");
+    BOOST_REQUIRE(!eof);
+}
+#endif

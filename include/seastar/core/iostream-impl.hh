@@ -24,6 +24,7 @@
 #pragma once
 
 #include <algorithm>
+#include <limits>
 #include <numeric>
 #include <stdexcept>
 #include <seastar/core/coroutine.hh>
@@ -34,6 +35,13 @@
 #include <seastar/util/variant_utils.hh>
 
 namespace seastar {
+
+inline future<temporary_buffer<char>> data_source_impl::get_split(internal::split_target target) {
+    return get().then([target] (temporary_buffer<char> buf) {
+        target.split(buf);
+        return buf;
+    });
+}
 
 inline future<temporary_buffer<char>> data_source_impl::skip(uint64_t n)
 {
@@ -281,11 +289,7 @@ input_stream<CharType>::read_up_to(size_t n) noexcept {
         if (_eof) {
             return make_ready_future<tmp_buf>();
         } else {
-            return _fd.get().then([this, n] (tmp_buf buf) {
-                _eof = buf.empty();
-                _buf = std::move(buf);
-                return read_up_to(n);
-            });
+            return _fd.get_split({.max = n, .rest = &_buf, .eof = &_eof});
         }
     } else if (_buf.size() <= n) {
         // easy case: steal buffer, return to caller
@@ -309,10 +313,7 @@ input_stream<CharType>::read() noexcept {
         return make_ready_future<tmp_buf>();
     }
     if (_buf.empty()) {
-        return _fd.get().then([this] (tmp_buf buf) {
-            _eof = buf.empty();
-            return make_ready_future<tmp_buf>(std::move(buf));
-        });
+        return _fd.get_split({.max = std::numeric_limits<size_t>::max(), .rest = &_buf, .eof = &_eof});
     } else {
         return make_ready_future<tmp_buf>(std::move(_buf));
     }
