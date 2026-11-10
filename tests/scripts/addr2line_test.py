@@ -338,6 +338,21 @@ class TestAddr2Line(ScriptTestCase):
 
             '''))
 
+    def test_before_negative_match(self):
+        """With --before -1, --match matches all lines since the previous backtrace."""
+        output = self.resolve('--before', '-1', '--match', 'wanted',
+                              stdin='wanted\nother\nBacktrace:\n  0x12\nlast\nBacktrace:\n  0x22\n')
+        self.assertEqual(output, dedent('''\
+            wanted
+            other
+            Backtrace:
+            [Backtrace #0]
+            func_12(char const*) at gib/ber.cc:18
+
+            last
+            Backtrace:
+            '''))
+
 
 if __name__ == '__main__':
     unittest.main()

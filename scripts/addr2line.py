@@ -372,9 +372,11 @@ class BacktraceResolver:
         self._current_backtrace: list[tuple[str, str]] = []
         self._prefix = None
         self._before_lines = before_lines
-        # with negative before_lines, non-backtrace lines are printed right away
+        # with negative before_lines, non-backtrace lines are printed right
+        # away and, with context_re, the queue keeps all of them since the
+        # last backtrace to match them against it
         self._before_lines_queue: collections.deque[str] = collections.deque(
-            maxlen=max(before_lines, 0)
+            maxlen=before_lines if before_lines >= 0 else None
         )
         self._i = 0
         self._known_backtraces: dict[str, int] = {}
@@ -471,8 +473,9 @@ class BacktraceResolver:
             self._before_lines_queue.clear()
             return
 
-        for line in self._before_lines_queue:
-            sys.stdout.write(line)
+        if self._before_lines > 0:
+            for line in self._before_lines_queue:
+                sys.stdout.write(line)
 
         if not self._prefix is None:
             print(self._prefix)
@@ -516,6 +519,8 @@ class BacktraceResolver:
             if self._before_lines > 0:
                 self._before_lines_queue.append(line)
             elif self._before_lines < 0:
+                if self._context_re is not None:
+                    self._before_lines_queue.append(line)
                 sys.stdout.write(line)  # line already has a trailing newline
             else:
                 pass  # when == 0 no non-backtrace lines are printed
