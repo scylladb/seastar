@@ -384,6 +384,24 @@ class TestAddr2Line(ScriptTestCase):
         self.assertEqual(output.count('[Backtrace'), 1)
         self.assertNotIn('func_22', output)
 
+    def test_before_negative_match(self):
+        """With --before -1, --match matches all lines before a backtrace."""
+        output = self.resolve('--before', '-1', '--match', 'wanted',
+                              stdin='other\nBacktrace:\n  0x12\nwanted\nBacktrace:\n  0x22\nBacktrace:\n  0x32\n')
+        self.assertEqual(output, dedent('''\
+            other
+            Backtrace:
+            wanted
+            Backtrace:
+            [Backtrace #0]
+            func_22(char const*) at gib/ber.cc:34
+
+            Backtrace:
+            [Backtrace #1]
+            func_32(char const*) at gib/ber.cc:50
+
+            '''))
+
 
 if __name__ == '__main__':
     unittest.main()

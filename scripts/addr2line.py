@@ -374,12 +374,14 @@ class BacktraceResolver:
         self._before_lines = before_lines
         # The last before_lines non-backtrace lines, which --match looks at.
         # The last _unprinted_lines of them are not printed yet and precede
-        # the next backtrace. With negative before_lines, non-backtrace lines
-        # are printed right away.
+        # the next backtrace.
         self._before_lines_queue: collections.deque[str] = collections.deque(
             maxlen=max(before_lines, 0)
         )
         self._unprinted_lines = 0
+        # with negative before_lines, non-backtrace lines are printed right
+        # away and --match looks at all of them, which takes a flag
+        self._context_line_matched = False
         self._i = 0
         self._known_backtraces: dict[str, int] = {}
         if context_re is not None:
@@ -458,6 +460,9 @@ class BacktraceResolver:
         if self._context_re is None:
             return True
 
+        if self._context_line_matched:
+            return True
+
         if any(self._context_re.search(x) for x in self._before_lines_queue):
             return True
 
@@ -474,10 +479,11 @@ class BacktraceResolver:
             self._current_backtrace = []
             return
 
-        queue = self._before_lines_queue
-        for i in range(len(queue) - self._unprinted_lines, len(queue)):
-            sys.stdout.write(queue[i])
-        self._unprinted_lines = 0
+        if self._before_lines > 0:
+            queue = self._before_lines_queue
+            for i in range(len(queue) - self._unprinted_lines, len(queue)):
+                sys.stdout.write(queue[i])
+            self._unprinted_lines = 0
 
         if not self._prefix is None:
             print(self._prefix)
@@ -522,6 +528,8 @@ class BacktraceResolver:
                     self._unprinted_lines + 1, len(self._before_lines_queue)
                 )
             elif self._before_lines < 0:
+                if self._context_re is not None and self._context_re.search(line):
+                    self._context_line_matched = True
                 sys.stdout.write(line)  # line already has a trailing newline
             else:
                 pass  # when == 0 no non-backtrace lines are printed
