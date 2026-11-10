@@ -154,8 +154,21 @@ struct prometheus_test_fixture {
                             [histogram = make_historgam()]() { return histogram->to_metrics_histogram(); });
                 } else if (test_conf.type == data_type::SUMMARY) {
                     // SUMMARY doesn't support specifying labels
-                    return make_summary(metric_name, sm::description(metric_name),
-                            [histogram = make_historgam()]() { return histogram->to_metrics_histogram(); });
+                    return make_summary(metric_name, sm::description(metric_name), [] {
+                        return sm::histogram{
+                            .sample_count = 7,
+                            .sample_sum = 28,
+                            .buckets = {
+                                {.count = 1, .upper_bound = 0.0},
+                                {.count = 1, .upper_bound = 1e-7},
+                                {.count = 4, .upper_bound = 0.5},
+                                {.count = 7, .upper_bound = 0.95},
+                                {.count = 7, .upper_bound = 0.99},
+                                {.count = 7, .upper_bound = 0.9999999},
+                                {.count = 7, .upper_bound = 1.0},
+                            },
+                        };
+                    });
                 }
                 BOOST_FAIL("unknown data type");
                 __builtin_unreachable();
@@ -293,27 +306,15 @@ SEASTAR_TEST_CASE(test_basic_summary) {
     return prometheus_test_fixture::run_metrics_test(cfg, {},
         R"(# HELP seastar_group_1_metric_0 metric_0)" "\n"
         R"(# TYPE seastar_group_1_metric_0 summary)" "\n"
-        R"(seastar_group_1_metric_0_sum{shard="0"} 6.42072e+06)" "\n"
-        R"(seastar_group_1_metric_0_count{shard="0"} 53)" "\n"
-        R"(seastar_group_1_metric_0{quantile="2.000000",shard="0"} 3)" "\n"
-        R"(seastar_group_1_metric_0{quantile="4.000000",shard="0"} 6)" "\n"
-        R"(seastar_group_1_metric_0{quantile="8.000000",shard="0"} 8)" "\n"
-        R"(seastar_group_1_metric_0{quantile="16.000000",shard="0"} 11)" "\n"
-        R"(seastar_group_1_metric_0{quantile="32.000000",shard="0"} 14)" "\n"
-        R"(seastar_group_1_metric_0{quantile="64.000000",shard="0"} 16)" "\n"
-        R"(seastar_group_1_metric_0{quantile="128.000000",shard="0"} 19)" "\n"
-        R"(seastar_group_1_metric_0{quantile="256.000000",shard="0"} 22)" "\n"
-        R"(seastar_group_1_metric_0{quantile="512.000000",shard="0"} 24)" "\n"
-        R"(seastar_group_1_metric_0{quantile="1024.000000",shard="0"} 27)" "\n"
-        R"(seastar_group_1_metric_0{quantile="2048.000000",shard="0"} 30)" "\n"
-        R"(seastar_group_1_metric_0{quantile="4096.000000",shard="0"} 32)" "\n"
-        R"(seastar_group_1_metric_0{quantile="8192.000000",shard="0"} 35)" "\n"
-        R"(seastar_group_1_metric_0{quantile="16384.000000",shard="0"} 37)" "\n"
-        R"(seastar_group_1_metric_0{quantile="32768.000000",shard="0"} 40)" "\n"
-        R"(seastar_group_1_metric_0{quantile="65536.000000",shard="0"} 43)" "\n"
-        R"(seastar_group_1_metric_0{quantile="131072.000000",shard="0"} 45)" "\n"
-        R"(seastar_group_1_metric_0{quantile="262144.000000",shard="0"} 48)" "\n"
-        R"(seastar_group_1_metric_0{quantile="1000000.000000",shard="0"} 51)" "\n"
+        R"(seastar_group_1_metric_0_sum{shard="0"} 28)" "\n"
+        R"(seastar_group_1_metric_0_count{shard="0"} 7)" "\n"
+        R"(seastar_group_1_metric_0{quantile="0",shard="0"} 1)" "\n"
+        R"(seastar_group_1_metric_0{quantile="1e-07",shard="0"} 1)" "\n"
+        R"(seastar_group_1_metric_0{quantile="0.5",shard="0"} 4)" "\n"
+        R"(seastar_group_1_metric_0{quantile="0.95",shard="0"} 7)" "\n"
+        R"(seastar_group_1_metric_0{quantile="0.99",shard="0"} 7)" "\n"
+        R"(seastar_group_1_metric_0{quantile="0.9999999",shard="0"} 7)" "\n"
+        R"(seastar_group_1_metric_0{quantile="1",shard="0"} 7)" "\n"
     );
 }
 
