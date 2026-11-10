@@ -375,8 +375,11 @@ class BacktraceResolver:
         self._before_lines = before_lines
         # The last before_lines non-backtrace lines, which --match looks at.
         # The last _unprinted_lines of them are not printed yet and precede
-        # the next backtrace.
-        self._before_lines_queue: collections.deque[str] = collections.deque(maxlen=before_lines)
+        # the next backtrace. With negative before_lines, non-backtrace lines
+        # are printed right away.
+        self._before_lines_queue: collections.deque[str] = collections.deque(
+            maxlen=max(before_lines, 0)
+        )
         self._unprinted_lines = 0
         self._i = 0
         self._known_backtraces: dict[str, int] = {}

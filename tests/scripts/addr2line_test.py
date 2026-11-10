@@ -297,6 +297,18 @@ class TestAddr2Line(ScriptTestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn('OK', res.stderr)
 
+    def test_before_negative(self):
+        """With --before -1, all lines are printed."""
+        output = self.resolve('--before', '-1', stdin='first line\nBacktrace:\n  0x12\nlast line\n')
+        self.assertEqual(output, dedent('''\
+            first line
+            Backtrace:
+            [Backtrace #0]
+            func_12(char const*) at gib/ber.cc:18
+
+            last line
+            '''))
+
     def test_context_of_one_backtrace(self):
         """The lines preceding a backtrace are its context only, printed once."""
         output = self.resolve(stdin='context\nfirst: 0x12 0x22\nsecond: 0x32 0x42\n')
