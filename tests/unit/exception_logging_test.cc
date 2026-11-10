@@ -227,6 +227,22 @@ BOOST_AUTO_TEST_CASE(format_error_test) {
     BOOST_REQUIRE_NE(log_msg.str().find(fmt), std::string::npos);
 }
 
+// A compatibility test. Seastar no longer recommends formatting a
+// std::exception_ptr directly (use seastar::formattable() instead), and its
+// own code no longer does, so nothing else in Seastar checks that this still
+// works. But applications still do it heavily, for example when logging
+// std::current_exception() (ScyllaDB does it in more than a hundred places),
+// so it must keep compiling: with Seastar's deprecated formatter, or with
+// {fmt}'s own when {fmt} has one. Reproduces #3831: with {fmt} 12.2.1, which
+// has no such formatter, Seastar didn't define one either, and this didn't
+// compile.
+BOOST_AUTO_TEST_CASE(format_exception_ptr_directly) {
+    auto eptr = std::make_exception_ptr(std::runtime_error("test message"));
+    auto msg = fmt::format("{}", eptr);
+    BOOST_TEST_MESSAGE(msg);
+    BOOST_REQUIRE_NE(msg.find("test message"), std::string::npos);
+}
+
 BOOST_AUTO_TEST_CASE(throw_with_backtrace_exception_logging) {
     std::ostringstream log_msg;
     try {
