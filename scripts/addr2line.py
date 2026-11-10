@@ -249,7 +249,6 @@ class BacktraceResolver:
             token = fr"(?:{path}\+)?{addr}"
             build_id = r"\(BuildId: [0-9a-fA-F]+\)"
             full_addr_match = fr"(?:(?P<path>{path})\s*\+\s*)?(?P<addr>{addr})"
-            ignore_addr_match = fr"(?:(?P<path>{path})\s*\+\s*)?(?:{addr})"
 
             self.asan_ignore_re = re.compile(f"^=.*$", flags=re.IGNORECASE)
             self.separator_re = re.compile(r'^\W*-+\W*$')
@@ -262,7 +261,7 @@ class BacktraceResolver:
             )
             self.address_re = re.compile(full_addr_match, flags=re.IGNORECASE)
             self.syslog_re = re.compile(
-                fr"^(?:#\d+\s+)(?P<addr>{addr})(?:.*\s+)\({ignore_addr_match}\)\s*$",
+                fr"^(?:#\d+\s+)(?:{addr})(?:.*\s+)\({full_addr_match}\)\s*$",
                 flags=re.IGNORECASE,
             )
             self.kernel_re = re.compile(fr'^.*kernel callstack: (?P<addrs>(?:{addr}\s*)+)$')
