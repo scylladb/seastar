@@ -193,6 +193,22 @@ struct prometheus_test_fixture {
             fmt::format("actual output doesn't match expected\nexpected output:\n{}\nactual output:\n{}",
             expected, ss.str()));
     }
+
+    // The text representation of the registered metrics, aggregated.
+    static seastar::future<std::string> write_aggregated_text() {
+        std::stringstream ss;
+        output_stream<char> out{data_sink{std::make_unique<testing::memory_data_sink_impl>(ss, 10)}};
+        co_await prometheus::details::test_access{}.write_body({},
+            sp::details::write_body_args{
+                .filter = always_true,
+                .family_filter = [](std::string_view) { return true; },
+                .use_protobuf_format = false,
+                .show_help = true,
+                .enable_aggregation = true
+            },
+            std::move(out));
+        co_return ss.str();
+    }
 };
 
 SEASTAR_TEST_CASE(test_basic_counter) {
@@ -396,6 +412,105 @@ SEASTAR_TEST_CASE(test_counter_with_aggregation) {
         R"(# TYPE seastar_group_1_metric counter)" "\n"
         R"(seastar_group_1_metric{shard="0"} 246)" "\n"
     );
+}
+
+// Metrics of the same name registered with and without labels to aggregate by: each is
+// aggregated as it was registered, whichever was registered first.
+SEASTAR_TEST_CASE(test_counter_with_mixed_aggregation) {
+    for (bool aggregated_first : {false, true}) {
+        co_await smp::invoke_on_all([] {
+            remove_existing_metrics();
+        });
+
+        sm::label id("id");
+        sm::label kind("kind");
+        auto aggregated = [&] (std::string_view id_value) {
+            return sm::make_counter("metric", sm::description("metric description"), {id(id_value), kind("aggregated")}, [] { return 123; })
+                    .aggregate({id});
+        };
+        auto not_aggregated = [&] (std::string_view id_value) {
+            return sm::make_counter("metric", sm::description("metric description"), {id(id_value), kind("not_aggregated")}, [] { return 123; });
+        };
+        std::vector<sm::impl::metric_definition_impl> impls;
+        if (aggregated_first) {
+            impls = {aggregated("a"), aggregated("b"), not_aggregated("c"), not_aggregated("d")};
+        } else {
+            impls = {not_aggregated("c"), not_aggregated("d"), aggregated("a"), aggregated("b")};
+        }
+        std::vector<sm::metric_definition> defs;
+        for (const auto& impl : impls) {
+            defs.emplace_back(impl);
+        }
+        sm::metric_groups test_metrics;
+        test_metrics.add_group("group-1", defs);
+
+        auto actual = co_await prometheus_test_fixture::write_aggregated_text();
+
+        std::string_view expected =
+            R"(# HELP seastar_group_1_metric metric description)" "\n"
+            R"(# TYPE seastar_group_1_metric counter)" "\n"
+            R"(seastar_group_1_metric{id="c",kind="not_aggregated",shard="0"} 123)" "\n"
+            R"(seastar_group_1_metric{id="d",kind="not_aggregated",shard="0"} 123)" "\n"
+            R"(seastar_group_1_metric{kind="aggregated",shard="0"} 246)" "\n";
+        BOOST_REQUIRE_MESSAGE(expected == actual,
+            fmt::format("aggregated_first={}: actual output doesn't match expected\nexpected output:\n{}\nactual output:\n{}",
+            aggregated_first, expected, actual));
+    }
+}
+
+// A metric registered on every shard, aggregated by the shard label, is summed over
+// the shards into a single series.
+SEASTAR_TEST_CASE(test_counter_aggregated_over_shards) {
+    static thread_local std::optional<sm::metric_groups> shard_metrics;
+
+    co_await smp::invoke_on_all([] {
+        remove_existing_metrics();
+        sm::label id("id");
+        shard_metrics.emplace();
+        shard_metrics->add_group("group-1", {
+            sm::make_counter("metric", sm::description("metric description"), {id("a")}, [] { return 123; })
+                    .aggregate({sm::shard_label})
+        });
+    });
+
+    auto actual = co_await prometheus_test_fixture::write_aggregated_text();
+
+    co_await smp::invoke_on_all([] {
+        shard_metrics.reset();
+    });
+
+    auto expected = fmt::format(
+        "# HELP seastar_group_1_metric metric description\n"
+        "# TYPE seastar_group_1_metric counter\n"
+        "seastar_group_1_metric{{id=\"a\"}} {}\n", 123 * this_smp_shard_count());
+    BOOST_REQUIRE_MESSAGE(expected == actual,
+        fmt::format("actual output doesn't match expected\nexpected output:\n{}\nactual output:\n{}", expected, actual));
+}
+
+// Metrics aggregated by the same labels, listed in a different order, are summed together.
+SEASTAR_TEST_CASE(test_counter_aggregated_by_reordered_labels) {
+    co_await smp::invoke_on_all([] {
+        remove_existing_metrics();
+    });
+
+    sm::label x("x");
+    sm::label y("y");
+    sm::metric_groups test_metrics;
+    test_metrics.add_group("group-1", {
+        sm::make_counter("metric", sm::description("metric description"), {x("1"), y("1")}, [] { return 123; })
+                .aggregate({x, y}),
+        sm::make_counter("metric", sm::description("metric description"), {x("2"), y("2")}, [] { return 123; })
+                .aggregate({y, x}),
+    });
+
+    auto actual = co_await prometheus_test_fixture::write_aggregated_text();
+
+    std::string_view expected =
+        R"(# HELP seastar_group_1_metric metric description)" "\n"
+        R"(# TYPE seastar_group_1_metric counter)" "\n"
+        R"(seastar_group_1_metric{shard="0"} 246)" "\n";
+    BOOST_REQUIRE_MESSAGE(expected == actual,
+        fmt::format("actual output doesn't match expected\nexpected output:\n{}\nactual output:\n{}", expected, actual));
 }
 
 SEASTAR_TEST_CASE(test_label_value_escaping) {
