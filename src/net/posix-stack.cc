@@ -873,7 +873,7 @@ future<> posix_data_sink_impl::put(std::span<temporary_buffer<char>> bufs) {
     auto [ total, del ] = _vecs.populate(bufs);
     auto sg_id = internal::scheduling_group_index(current_scheduling_group());
     bytes_sent[sg_id] += total;
-    return _fd.send_all(_vecs.v).finally([del = std::move(del)] {} );
+    return _fd.send_all(_vecs.v, std::move(del));
 }
 #else
 future<>
