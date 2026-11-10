@@ -238,6 +238,8 @@ class io_queue::priority_class_data {
     };
 
     boost::container::static_vector<bandwidth_throttler, 2> _bw;
+    // The group the class belongs to, nullptr for classes in the root group
+    priority_class_group_data* _pcg;
 
 public:
     void update_shares(uint32_t shares) noexcept {
@@ -254,12 +256,13 @@ public:
         , _total_queue_time(0)
         , _total_execution_time(0)
         , _starvation_time(0)
+        , _pcg(pcg)
     {
         // The per-class throttler is not tied to any group, so it throttles
         // the class itself -- hence the nullptr here
         _bw.emplace_back(pg, *this, nullptr);
         if (pg.parent != nullptr) {
-            _bw.emplace_back(*pg.parent, *this, pcg);
+            _bw.emplace_back(*pg.parent, *this, _pcg);
         }
     }
     priority_class_data(const priority_class_data&) = delete;
