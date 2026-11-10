@@ -391,6 +391,18 @@ class TestStallAnalyser(ScriptTestCase):
                               stdin=stall(100, '0x12', '/nonexistent/libfoo.so+0x9a2c2'))
         self.assertEqual(output, '/nonexistent/libfoo.so 0x9a2c2;func_12 100\n')
 
+    def test_library_name_with_plus(self):
+        """A library name containing '+' is split from the offset at the last '+'."""
+        self.write_file('libstdc++.so.6', 'Not a library, resolved by the fake llvm-addr2line.\n')
+        output = self.analyse('--executable', EXECUTABLE, '--address-threshold', '0',
+                              stdin=stall(100, '0x12', 'libstdc++.so.6+0x22'))
+        self.assertEqual(graph(output), dedent('''\
+            ++[0#1/1 100%] addr=0x12 total=100 count=1 avg=100:
+            |              func_12 at gib/ber.cc:18
+            ++           - addr=libstdc++.so.6+0x22:
+            |              func_22 at gib/ber.cc:34
+            '''))
+
 
 if __name__ == '__main__':
     unittest.main()
