@@ -336,6 +336,9 @@ class StackCollapse:
         return func
 
     def _resolve(self, addr: str) -> Iterator[str]:
+        # without an executable, frames are the addresses themselves
+        if not self.resolver:
+            return iter([addr])
         lines = self.resolver.resolve_address(addr).splitlines()
         # addr2line prints the functions of an address innermost first,
         # each but the last one inlined into the next one
