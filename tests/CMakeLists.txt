@@ -40,3 +40,5 @@ add_subdirectory (unit)
 
 # Fuzz tests.
 add_subdirectory (fuzz)
+
+add_subdirectory (scripts)

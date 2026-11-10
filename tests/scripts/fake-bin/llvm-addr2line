@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+#
+# This file is open source software, licensed to you under the terms
+# of the Apache License, Version 2.0 (the "License").  See the NOTICE file
+# distributed with this work for additional information regarding copyright
+# ownership.  You may not use this file except in compliance with the License.
+#
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# Copyright (C) 2026 ScyllaDB
+#
+
+"""
+Stand-in for llvm-addr2line which resolves addresses to made-up locations.
+
+Accepts the arguments passed by scripts/addr2line.py (`-Cfpia -e <binary>`),
+reads one address per line from stdin and answers each in the llvm-addr2line
+`-fpia` output format:
+  * an address divisible by 16 resolves to an unknown location,
+  * an address equal to 1 modulo 16 resolves to an inlined call (two lines),
+  * any other address resolves to a single function.
+A line which is not a hexadecimal address resolves to an unknown location
+without the address prefix, the same as llvm-addr2line does for `,`.
+When the binary given by `-e` does not exist, reads one line and exits,
+the same as binutils addr2line does.
+"""
+
+import os
+import sys
+
+binary = sys.argv[sys.argv.index('-e') + 1]
+if not os.path.exists(binary):
+    sys.stdin.readline()
+    sys.exit(1)
+
+for line in sys.stdin:
+    addr = line.strip()
+    try:
+        value = int(addr, 16)
+    except ValueError:
+        print('?? at ??:0', flush=True)
+        continue
+    if value % 16 == 0:
+        body = '?? at ??:0'
+    elif value % 16 == 1:
+        body = (f'inlined_{value:x} at gib/ber.hh:{value % 97}\n'
+                f' (inlined by) caller_{value:x}(int) at gib/ber.cc:{value % 89}')
+    else:
+        body = f'func_{value:x}(char const*) at gib/ber.cc:{value % 101}'
+    print(f'{addr}: {body}', flush=True)
