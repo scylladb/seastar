@@ -145,32 +145,23 @@ struct io_group::priority_class_data {
     }
 };
 
-// Plugs and unplugs a class, or a group on behalf of one of its classes,
-// according to the bandwidth cap configured for it
+// Plugs and unplugs its owner, a class or a group, according to the
+// bandwidth cap configured for it. There's exactly one throttler per owner:
+// the "timer armed" state doubles as "owner is unplugged", so two
+// throttlers on one plug state would each see only their own timer
+template <typename Owner>
 class bandwidth_throttler {
     io_group::priority_class_data::token_bucket_t& _tb;
     uint64_t _replenish_head;
-    io_queue& _queue;
-    io_queue::priority_class_data& _pc;
-    // The group this throttler works on behalf of, nullptr if it throttles
-    // the class itself
-    io_queue::priority_class_group_data* _pcg;
+    Owner& _owner;
     timer<lowres_clock> _replenish;
 
     void throttle() noexcept {
-        if (_pcg != nullptr) {
-            _queue.throttle_priority_class_group(*_pcg);
-        } else {
-            _queue.throttle_priority_class(_pc);
-        }
+        _owner.throttle();
     }
 
     void unthrottle() noexcept {
-        if (_pcg != nullptr) {
-            _queue.unthrottle_priority_class_group(*_pcg);
-        } else {
-            _queue.unthrottle_priority_class(_pc);
-        }
+        _owner.unthrottle();
     }
 
     void try_to_replenish() noexcept {
@@ -184,11 +175,9 @@ class bandwidth_throttler {
     }
 
 public:
-    bandwidth_throttler(io_group::priority_class_data& pg, io_queue& q, io_queue::priority_class_data& pc, io_queue::priority_class_group_data* pcg) noexcept
-            : _tb(pg.tb)
-            , _queue(q)
-            , _pc(pc)
-            , _pcg(pcg)
+    bandwidth_throttler(io_group::priority_class_data::token_bucket_t& tb, Owner& owner) noexcept
+            : _tb(tb)
+            , _owner(owner)
             , _replenish([this] { try_to_replenish(); })
     {}
 
@@ -203,15 +192,18 @@ public:
     }
 };
 
-
 // Shard-local mirror of a scheduling supergroup, the way priority_class_data
 // is one of a scheduling group. Classes that belong to a supergroup point at
 // the respective entry of the io_queue::_priority_groups vector.
 struct io_queue::priority_class_group_data {
     const scheduling_supergroup _ssg;
+    io_queue& _queue;
+    bandwidth_throttler<priority_class_group_data> _bw;
 
-    explicit priority_class_group_data(scheduling_supergroup ssg) noexcept
+    priority_class_group_data(scheduling_supergroup ssg, io_queue& q, io_group::priority_class_group_data& gpg) noexcept
         : _ssg(ssg)
+        , _queue(q)
+        , _bw(gpg.tb, *this)
     {
         SEASTAR_ASSERT(!_ssg.is_root());
     }
@@ -219,9 +211,16 @@ struct io_queue::priority_class_group_data {
     // The group as the fair_queue names it. Groups are only ever made for
     // non-root supergroups, so the index is always there
     unsigned fq_group() const noexcept { return _ssg.index(); }
+
+    void throttle() noexcept { _queue.throttle_priority_class_group(*this); }
+    void unthrottle() noexcept { _queue.unthrottle_priority_class_group(*this); }
+
+    // Account tokens dispatched by a member class against the group cap
+    void grab(uint64_t tokens) noexcept { _bw.grab(tokens); }
 };
 
 class io_queue::priority_class_data {
+    io_queue& _queue;
     const scheduling_group _sg;
     uint32_t _shares;
     struct {
@@ -240,8 +239,9 @@ class io_queue::priority_class_data {
     std::chrono::duration<double> _total_execution_time;
     std::chrono::duration<double> _starvation_time;
     io_queue::clock_type::time_point _activated;
-
-    boost::container::static_vector<bandwidth_throttler, 2> _bw;
+    // Throttler for the class' own bandwidth cap. The cap of the group the
+    // class is in, if any, is throttled by the group itself
+    bandwidth_throttler<priority_class_data> _bw;
     // The group the class belongs to, nullptr for classes in the root group
     priority_class_group_data* _pcg;
 
@@ -251,7 +251,8 @@ public:
     }
 
     priority_class_data(scheduling_group sg, uint32_t shares, io_queue& q, io_group::priority_class_data& pg, priority_class_group_data* pcg)
-        : _sg(sg)
+        : _queue(q)
+        , _sg(sg)
         , _shares(shares)
         , _nr_queued(0)
         , _nr_executing(0)
@@ -259,14 +260,9 @@ public:
         , _total_queue_time(0)
         , _total_execution_time(0)
         , _starvation_time(0)
+        , _bw(pg.tb, *this)
         , _pcg(pcg)
     {
-        // The per-class throttler is not tied to any group, so it throttles
-        // the class itself -- hence the nullptr here
-        _bw.emplace_back(pg, q, *this, nullptr);
-        if (pg.parent != nullptr) {
-            _bw.emplace_back(*pg.parent, q, *this, _pcg);
-        }
     }
     priority_class_data(const priority_class_data&) = delete;
     priority_class_data(priority_class_data&&) = delete;
@@ -275,6 +271,9 @@ public:
         SEASTAR_ASSERT(_nr_queued == 0);
         SEASTAR_ASSERT(_nr_executing == 0);
     }
+
+    void throttle() noexcept { _queue.throttle_priority_class(*this); }
+    void unthrottle() noexcept { _queue.unthrottle_priority_class(*this); }
 
     void on_queue() noexcept {
         _nr_queued++;
@@ -294,8 +293,9 @@ public:
         }
 
         auto tokens = io_group::priority_class_data::tokens(dnl.length());
-        for (auto& bw : _bw) {
-            bw.grab(tokens);
+        _bw.grab(tokens);
+        if (_pcg != nullptr) {
+            _pcg->grab(tokens);
         }
     }
 
@@ -917,8 +917,9 @@ io_queue::priority_class_group_data& io_queue::find_or_create_class_group(schedu
     for (auto&& s : _streams) {
         s.fq.ensure_priority_group(ssg.index(), ssg.get_shares());
     }
-    return find_or_create(_priority_groups, ssg.index(), [ssg] {
-        return std::make_unique<priority_class_group_data>(ssg);
+    return find_or_create(_priority_groups, ssg.index(), [this, ssg] {
+        auto& gpg = _group->find_or_create_class_group(ssg);
+        return std::make_unique<priority_class_group_data>(ssg, *this, gpg);
     });
 }
 
