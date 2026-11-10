@@ -176,7 +176,8 @@ class TestStallAnalyser(ScriptTestCase):
             '''))
 
     def test_address_threshold(self):
-        """Leading frames at or above --address-threshold, 0x100000000 by default, are dropped."""
+        """Frames up to and including the first one at or above --address-threshold, 0x100000000 by default,
+        are dropped; 0 keeps all frames."""
         stalls = stall(100, '0x7f0000000010', '0x12')
         self.assertEqual(graph(self.analyse(stdin=stalls)), dedent('''\
             ++[0#1/1 100%] addr=0x12 total=100 count=1 avg=100
@@ -280,6 +281,16 @@ class TestStallAnalyser(ScriptTestCase):
         self.assertEqual(res.returncode, 1)
         self.assertIn(f"Invalid input line: '{line}'", res.stderr)
 
+    def test_empty_backtrace(self):
+        """A stall report without addresses is ignored below --minimum and fails otherwise."""
+        line = 'Reactor stalled for 10 ms on shard 0. Backtrace:'
+        output = self.analyse('--minimum', '20', stdin=line + '\n' + stall(50, '0x22'))
+        self.assertIn('Of which, 1 lasted 20 milliseconds or longer.\n', output)
+        res = self.run_script('--minimum', '5', input=line + '\n')
+        self.assertEqual(res.returncode, 1)
+        self.assertIn(f"Invalid input line: '{line}'", res.stderr)
+        self.assertNotIn('Traceback', res.stderr)
+
     def test_broken_pipe(self):
         """The analyser exits successfully when its stdout reader goes away."""
         read_end, write_end = os.pipe()
@@ -291,6 +302,36 @@ class TestStallAnalyser(ScriptTestCase):
             os.close(write_end)
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertNotIn('Traceback', res.stderr)
+
+    def test_trampoline_in_library(self):
+        """Frames up to and including the first one in a library are dropped."""
+        output = self.analyse(stdin=stall(100, '0x22', 'libc.so.6+0x3e6f0', '0x12'))
+        self.assertEqual(graph(output), dedent('''\
+            ++[0#1/1 100%] addr=0x12 total=100 count=1 avg=100
+            '''))
+
+    def test_frames_after_trampoline(self):
+        """Library frames following the trampoline, e.g. of a stall in libc, are kept."""
+        output = self.analyse(stdin=stall(100, '0x12', 'libc.so.6+0x3e6f0', 'libc.so.6+0x1a2b3', '0x22'))
+        self.assertEqual(graph(output), dedent('''\
+            ++[0#1/1 100%] addr=libc.so.6+0x1a2b3 total=100 count=1 avg=100
+            ++           - addr=0x22
+            '''))
+
+    def test_shared_seastar(self):
+        """With Seastar in a shared library, the trampoline is the first frame in another library."""
+        output = self.analyse(stdin=stall(100, 'libseastar.so+0x12', 'libseastar.so+0x22',
+                                          'libc.so.6+0x3e6f0', 'libseastar.so+0x32'))
+        self.assertEqual(graph(output), dedent('''\
+            ++[0#1/1 100%] addr=libseastar.so+0x32 total=100 count=1 avg=100
+            '''))
+
+    def test_stall_detector_frames_dropped(self):
+        """Frames up to and including the trampoline are dropped, wherever it is."""
+        output = self.analyse(stdin=stall(100, '0x12', '0x32', '0x7f0000000010', '0x22'))
+        self.assertEqual(graph(output), dedent('''\
+            ++[0#1/1 100%] addr=0x22 total=100 count=1 avg=100
+            '''))
 
 
 if __name__ == '__main__':

@@ -6,7 +6,7 @@ import re
 
 import addr2line
 from collections import defaultdict
-from itertools import chain, dropwhile
+from itertools import chain
 from typing import Iterator, Self
 
 
@@ -34,7 +34,8 @@ def get_command_line_parser():
     When given an executable, addresses are decoding using `addr2line`
     """)
     parser.add_argument('--address-threshold', default='0x100000000',
-                        help='Skip common backtrace prefix terminated by one or more addresses greater or equal to the threshold (0=disabled)')
+                        help='Skip the stall detector frames up to and including the signal trampoline, the first frame'
+                             ' at or above the threshold or in a library other than the innermost frame\'s (0=disabled)')
     parser.add_argument('-e', '--executable',
                         help='Decode addresses to lines using given executable')
     parser.add_argument('-f', '--full-function-names', action='store_const', const=True, default=False,
@@ -389,6 +390,28 @@ def print_stats(tally: dict, tmin: int) -> None:
     print(f"min={min_time} avg={avg_time:.1f} median={median} p95={p95} p99={p99} p999={p999} max={max_time}")
 
 
+def skip_stall_detector_frames(trace: list[str], address_threshold: int) -> list[str]:
+    """
+    Returns the frames following the signal trampoline, which ends the frames
+    of the stall detector, or all frames when the trace has no trampoline.
+
+    The trampoline is the first library frame: an address at or above
+    address_threshold, or an address prefixed by a library other than the
+    one of the innermost frame, which is the library of the stall detector
+    when Seastar is a shared library.
+
+    An empty trace is returned as is.
+    """
+    if not trace:
+        return trace
+    innermost_library = trace[0].rpartition('+')[0]
+    for i, addr in enumerate(trace):
+        library, _, offset = addr.rpartition('+')
+        if library != innermost_library if library else int(offset, 0) >= address_threshold:
+            return trace[i + 1:]
+    return trace
+
+
 def print_command_line_options(args):
     varargs = vars(args)
     clopts = ""
@@ -450,7 +473,7 @@ def main():
         #  (inlined by) seastar::reactor::block_notifier(int) at ./build/release/seastar/./seastar/src/core/reactor.cc:1240
         # ?? ??:0
         if address_threshold:
-            trace = list(dropwhile(lambda addr: int(addr, 0) >= address_threshold, trace))
+            trace = skip_stall_detector_frames(trace, address_threshold)
         if t >= args.tmin:
             if not trace:
                 print(f"""Invalid input line: '{s.strip()}'
