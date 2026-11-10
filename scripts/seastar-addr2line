@@ -346,7 +346,7 @@ class TestStringMethods(unittest.TestCase):
                 {
                     'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
                     'prefix': None,
-                    'addresses': [{'path': '/path/to/scylla', 'addr': '0x19c01681'}],
+                    'addresses': [{'path': '/path/to/scylla', 'addr': '0xdeadbeef'}],
                 },
             ),
             (
@@ -354,7 +354,7 @@ class TestStringMethods(unittest.TestCase):
                 {
                     'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
                     'prefix': None,
-                    'addresses': [{'path': 'libc.so.6', 'addr': '0x00007fd2dab4f950'}],
+                    'addresses': [{'path': 'libc.so.6', 'addr': '0x26950'}],
                 },
             ),
             (
@@ -362,7 +362,7 @@ class TestStringMethods(unittest.TestCase):
                 {
                     'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
                     'prefix': None,
-                    'addresses': [{'path': '/path/to/scylla', 'addr': '0x00000000015c4cd3'}],
+                    'addresses': [{'path': '/path/to/scylla', 'addr': '0x15c4cd3'}],
                 },
             ),
             ('kernel callstack: ', None),
