@@ -328,7 +328,9 @@ class StackCollapse:
             line = line[len(inlined_by_prefix):]
 
         matched = self.pattern.match(line)
-        assert matched, f"bad line: {line}"
+        if not matched:
+            # an address in a missing library, printed as it is
+            return line.strip()
         func = matched.groups()[0]
         # annotations
         if inlined:
@@ -339,7 +341,9 @@ class StackCollapse:
         # without an executable, frames are the addresses themselves
         if not self.resolver:
             return iter([addr])
-        lines = self.resolver.resolve_address(addr).splitlines()
+        # addresses prefixed by their library are resolved in that library
+        module, _, address = addr.rpartition('+')
+        lines = self.resolver.resolve_address(address, module=module or None).splitlines()
         # addr2line prints the functions of an address innermost first,
         # each but the last one inlined into the next one
         return (self._annotate_func(line, i < len(lines) - 1) for i, line in enumerate(lines))

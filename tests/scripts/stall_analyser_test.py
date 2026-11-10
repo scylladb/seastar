@@ -379,6 +379,18 @@ class TestStallAnalyser(ScriptTestCase):
             0x32 50
             '''))
 
+    def test_trace_format_library_addresses(self):
+        """--format=trace resolves addresses prefixed by their library in that library."""
+        output = self.analyse('--executable', EXECUTABLE, '--format', 'trace', '--address-threshold', '0',
+                              stdin=stall(100, '0x12', 'gibberish+0x21'))
+        self.assertEqual(output, 'caller_21;inlined_21_[i];func_12 100\n')
+
+    def test_trace_format_missing_library(self):
+        """--format=trace prints an address in a missing library as library and offset."""
+        output = self.analyse('--executable', EXECUTABLE, '--format', 'trace', '--address-threshold', '0',
+                              stdin=stall(100, '0x12', '/nonexistent/libfoo.so+0x9a2c2'))
+        self.assertEqual(output, '/nonexistent/libfoo.so 0x9a2c2;func_12 100\n')
+
 
 if __name__ == '__main__':
     unittest.main()
