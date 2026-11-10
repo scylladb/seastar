@@ -83,11 +83,13 @@ class TestAddr2Line(ScriptTestCase):
             '''))
 
     def test_file_and_addresses(self):
-        """Giving both --file and addresses prints the usage, then resolves the file."""
+        """Giving both --file and addresses fails with the usage."""
         backtrace = self.write_file('backtrace.log', 'Backtrace: 0x12\n')
-        output = self.resolve('--file', backtrace, '0x22')
-        self.assertIn('Cannot use both -f and ADDRESS\nusage: ', output)
-        self.assertTrue(output.endswith('[Backtrace #0]\nfunc_12(char const*) at gib/ber.cc:18\n\n'))
+        res = self.run_script('--executable', EXECUTABLE, '--file', backtrace, '0x22')
+        self.assertEqual(res.returncode, 2)
+        self.assertEqual(res.stdout, '')
+        self.assertTrue(res.stderr.startswith('usage: '))
+        self.assertIn('error: cannot use both -f and ADDRESS\n', res.stderr)
 
     def test_terminal(self):
         """Input typed on a terminal ends with an empty line."""

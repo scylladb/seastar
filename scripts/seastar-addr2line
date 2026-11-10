@@ -501,8 +501,7 @@ There are three operational modes:
     args = cmdline_parser.parse_args()
 
     if args.addresses and args.file:
-        print("Cannot use both -f and ADDRESS")
-        cmdline_parser.print_help()
+        cmdline_parser.error("cannot use both -f and ADDRESS")
 
     if args.file:
         lines = open(args.file, 'r')
