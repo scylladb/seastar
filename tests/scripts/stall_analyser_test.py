@@ -370,6 +370,15 @@ class TestStallAnalyser(ScriptTestCase):
         output = self.analyse(stdin=stall(100, '0x12'))
         self.assertIn('min=100 avg=100.0 median=100 p95=100 p99=100 p999=100 max=100\n', output)
 
+    def test_trace_format_unresolved(self):
+        """Without --executable, --format=trace prints the addresses."""
+        output = self.analyse('--format', 'trace',
+                              stdin=2 * stall(100, '0x12', '0x22') + stall(50, '0x32'))
+        self.assertEqual(output, dedent('''\
+            0x22;0x12 200
+            0x32 50
+            '''))
+
 
 if __name__ == '__main__':
     unittest.main()
