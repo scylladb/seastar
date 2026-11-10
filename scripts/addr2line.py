@@ -20,6 +20,7 @@
 
 import bisect
 import collections
+import itertools
 import os
 import re
 import sys
@@ -372,7 +373,11 @@ class BacktraceResolver:
         self._current_backtrace: list[tuple[str, str]] = []
         self._prefix = None
         self._before_lines = before_lines
+        # The last before_lines non-backtrace lines, which --match looks at.
+        # The last _unprinted_lines of them are not printed yet and precede
+        # the next backtrace.
         self._before_lines_queue: collections.deque[str] = collections.deque(maxlen=before_lines)
+        self._unprinted_lines = 0
         self._i = 0
         self._known_backtraces: dict[str, int] = {}
         if context_re is not None:
@@ -467,8 +472,9 @@ class BacktraceResolver:
             self._current_backtrace = []
             return
 
-        for line in self._before_lines_queue:
-            sys.stdout.write(line)
+        unprinted = itertools.islice(reversed(self._before_lines_queue), self._unprinted_lines)
+        sys.stdout.write("".join(reversed(list(unprinted))))
+        self._unprinted_lines = 0
 
         if not self._prefix is None:
             print(self._prefix)
@@ -509,6 +515,9 @@ class BacktraceResolver:
             self._print_current_backtrace()
             if self._before_lines > 0:
                 self._before_lines_queue.append(line)
+                self._unprinted_lines = min(
+                    self._unprinted_lines + 1, len(self._before_lines_queue)
+                )
             elif self._before_lines < 0:
                 sys.stdout.write(line)  # line already has a trailing newline
             else:
