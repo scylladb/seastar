@@ -90,6 +90,9 @@ struct test_config {
     aggr_mode aggregation_mode = aggr_mode::NO_AGGR;
     bool same_metric_name = false;
     std::optional<sm::label_instance> extra_label;
+    // if set, HISTOGRAM and SUMMARY metrics return this value instead of
+    // the one built by make_historgam()
+    std::optional<sm::histogram> histogram;
 };
 
 static constexpr uint64_t histo_min = 1, histo_max = 1000000;
@@ -150,10 +153,18 @@ struct prometheus_test_fixture {
                     return
                     sm::make_gauge(metric_name, sm::description(desc), labels, [] { return 123.4; });
                 } else if (test_conf.type == data_type::HISTOGRAM) {
+                    if (test_conf.histogram) {
+                        return make_histogram(metric_name, sm::description(metric_name), labels,
+                                [histogram = *test_conf.histogram]() { return histogram; });
+                    }
                     return make_histogram(metric_name, sm::description(metric_name), labels,
                             [histogram = make_historgam()]() { return histogram->to_metrics_histogram(); });
                 } else if (test_conf.type == data_type::SUMMARY) {
                     // SUMMARY doesn't support specifying labels
+                    if (test_conf.histogram) {
+                        return make_summary(metric_name, sm::description(metric_name),
+                                [histogram = *test_conf.histogram]() { return histogram; });
+                    }
                     return make_summary(metric_name, sm::description(metric_name),
                             [histogram = make_historgam()]() { return histogram->to_metrics_histogram(); });
                 }
@@ -224,7 +235,7 @@ SEASTAR_TEST_CASE(test_histo_no_labels) {
     return prometheus_test_fixture::run_metrics_test(cfg, {},
         R"(# HELP seastar_group_1_metric_0 metric_0)" "\n"
         R"(# TYPE seastar_group_1_metric_0 histogram)" "\n"
-        R"(seastar_group_1_metric_0_sum{} 6.42072e+06)" "\n"
+        R"(seastar_group_1_metric_0_sum{} 6420722)" "\n"
         R"(seastar_group_1_metric_0_count{} 53)" "\n"
         R"(seastar_group_1_metric_0_bucket{le="2.000000"} 3)" "\n"
         R"(seastar_group_1_metric_0_bucket{le="4.000000"} 6)" "\n"
@@ -263,7 +274,7 @@ SEASTAR_TEST_CASE(test_basic_histogram) {
     return prometheus_test_fixture::run_metrics_test(cfg, {},
         R"(# HELP seastar_group_1_metric_0 metric_0)" "\n"
         R"(# TYPE seastar_group_1_metric_0 histogram)" "\n"
-        R"(seastar_group_1_metric_0_sum{label-0="label-0-0",shard="0"} 6.42072e+06)" "\n"
+        R"(seastar_group_1_metric_0_sum{label-0="label-0-0",shard="0"} 6420722)" "\n"
         R"(seastar_group_1_metric_0_count{label-0="label-0-0",shard="0"} 53)" "\n"
         R"(seastar_group_1_metric_0_bucket{label-0="label-0-0",le="2.000000",shard="0"} 3)" "\n"
         R"(seastar_group_1_metric_0_bucket{label-0="label-0-0",le="4.000000",shard="0"} 6)" "\n"
@@ -293,7 +304,7 @@ SEASTAR_TEST_CASE(test_basic_summary) {
     return prometheus_test_fixture::run_metrics_test(cfg, {},
         R"(# HELP seastar_group_1_metric_0 metric_0)" "\n"
         R"(# TYPE seastar_group_1_metric_0 summary)" "\n"
-        R"(seastar_group_1_metric_0_sum{shard="0"} 6.42072e+06)" "\n"
+        R"(seastar_group_1_metric_0_sum{shard="0"} 6420722)" "\n"
         R"(seastar_group_1_metric_0_count{shard="0"} 53)" "\n"
         R"(seastar_group_1_metric_0{quantile="2.000000",shard="0"} 3)" "\n"
         R"(seastar_group_1_metric_0{quantile="4.000000",shard="0"} 6)" "\n"
@@ -314,6 +325,42 @@ SEASTAR_TEST_CASE(test_basic_summary) {
         R"(seastar_group_1_metric_0{quantile="131072.000000",shard="0"} 45)" "\n"
         R"(seastar_group_1_metric_0{quantile="262144.000000",shard="0"} 48)" "\n"
         R"(seastar_group_1_metric_0{quantile="1000000.000000",shard="0"} 51)" "\n"
+    );
+}
+
+// The sum of a histogram or summary is a double. It must be printed with
+// all its digits, not rounded to 6 significant digits (1.23457e+08).
+// Reproduces #3776.
+static sm::histogram histogram_with_large_sum() {
+    sm::histogram h;
+    h.sample_count = 2;
+    h.sample_sum = 123456789.25;
+    h.buckets.push_back(sm::histogram_bucket{2, 1.0});
+    return h;
+}
+
+SEASTAR_TEST_CASE(test_histogram_sum_precision) {
+    test_config cfg{data_type::HISTOGRAM};
+    cfg.histogram = histogram_with_large_sum();
+    return prometheus_test_fixture::run_metrics_test(cfg, {},
+        R"(# HELP seastar_group_1_metric_0 metric_0)" "\n"
+        R"(# TYPE seastar_group_1_metric_0 histogram)" "\n"
+        R"(seastar_group_1_metric_0_sum{label-0="label-0-0",shard="0"} 123456789.25)" "\n"
+        R"(seastar_group_1_metric_0_count{label-0="label-0-0",shard="0"} 2)" "\n"
+        R"(seastar_group_1_metric_0_bucket{label-0="label-0-0",le="1.000000",shard="0"} 2)" "\n"
+        R"(seastar_group_1_metric_0_bucket{label-0="label-0-0",le="+Inf",shard="0"} 2)" "\n"
+    );
+}
+
+SEASTAR_TEST_CASE(test_summary_sum_precision) {
+    test_config cfg{data_type::SUMMARY};
+    cfg.histogram = histogram_with_large_sum();
+    return prometheus_test_fixture::run_metrics_test(cfg, {},
+        R"(# HELP seastar_group_1_metric_0 metric_0)" "\n"
+        R"(# TYPE seastar_group_1_metric_0 summary)" "\n"
+        R"(seastar_group_1_metric_0_sum{shard="0"} 123456789.25)" "\n"
+        R"(seastar_group_1_metric_0_count{shard="0"} 2)" "\n"
+        R"(seastar_group_1_metric_0{quantile="1.000000",shard="0"} 2)" "\n"
     );
 }
 
