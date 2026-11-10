@@ -4,6 +4,15 @@ metrics:
   values: [1000,2000,3000]
   labels:
     private: "1"
+  exemplars:
+  - labels:
+      trace_id: "0af7651916cd43dd8448eb211c80319c"
+    value: 3000
+    timestamp: 1520879607.789
+  - labels:
+      trace_id: "b7ad6b7169203331"
+    value: 2000
+    timestamp: 1520879606.5
 - name: gag1
   type: gauge
   values: [5]
