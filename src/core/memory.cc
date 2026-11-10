@@ -472,8 +472,7 @@ small_pool::idx_to_size(unsigned idx) {
     // max_align_t. Clang relies in this property to use aligned mov
     // instructions (e.g. movaps)
     //
-    // Note this function is used at initialization time only, so it doesn't
-    // need to be especially fast.
+    // Also used on the aligned allocation fast path.
     if (s > alignof(std::max_align_t)) {
 	s = align_up(s, alignof(std::max_align_t));
     }
@@ -672,7 +671,6 @@ struct cpu_pages {
     void free_span_no_merge(pageidx start, uint32_t nr_pages);
     void free_span_unaligned(pageidx start, uint32_t nr_pages);
     void free(void* ptr);
-    void free(void* ptr, size_t size);
     static bool try_free_fastpath(void* ptr);
     static bool is_local_pointer(void* ptr);
     static void do_foreign_free(void* ptr);
@@ -1009,8 +1007,9 @@ cpu_pages::allocate_large(unsigned n_pages, bool should_sample) {
 
 void*
 cpu_pages::allocate_large_aligned(unsigned align_pages, unsigned n_pages, bool should_sample) {
+    // A buddy span is only aligned to its own size, so take at least align_pages.
+    n_pages = std::max(n_pages, align_pages);
     check_large_allocation(n_pages * page_size);
-    // buddy allocation is always aligned
     return allocate_large_and_trim(n_pages, should_sample);
 }
 
@@ -1157,28 +1156,6 @@ inline void cpu_pages::free(void* ptr) {
     }
 }
 
-void cpu_pages::free(void* ptr, size_t size) {
-#ifdef SEASTAR_HEAPPROF
-    // sized free can avoid accessing the `page` structure as an optimization.
-    // With memory sampling we always need to check the pool though to see
-    // whether this allocation was sampled. Hence, just defer to the non-sized
-    // implementation
-    (void) size;
-    free(ptr);
-#else
-    // match action on allocate() so hit the right pool
-    if (size <= sizeof(free_object)) {
-        size = sizeof(free_object);
-    }
-    if (size <= max_small_allocation) {
-        auto pool = &small_pools[small_pool::size_to_idx(size)];
-        pool->deallocate(ptr);
-    } else {
-        free_large(ptr);
-    }
-#endif
-}
-
 // Is the passed pointer a local pointer, i.e., allocated on the current shard from the
 // per-shard allocator.
 [[gnu::always_inline]]
@@ -1209,24 +1186,11 @@ cpu_pages::try_free_fastpath(void* ptr) {
     return false;
 }
 
-/// Helper to allow a single implementation for sized and non-sized functions.
-/// Indicator to allow a single implementation for sized and non-sized functions.
-/// The size parameter will be either no_size tag type or size_t, and most
-/// of the implementation can be shared, using constexpr if or other dispatch
-/// in the places where there should be a difference of behavior.
-struct no_size {};
-
-template <typename S>
-requires std::same_as<S, size_t> || std::same_as<S, no_size>
 [[gnu::noinline]]
-static void free_slowpath(void* obj, S size) {
+static void free_slowpath(void* obj) {
     if (cpu_pages::is_local_pointer(obj)) {
         alloc_stats::increment_local(alloc_stats::types::frees);
-        if constexpr (std::is_same_v<decltype(size), no_size>) {
-            cpu_mem.free(obj);
-        } else {
-            cpu_mem.free(obj, size);
-        }
+        cpu_mem.free(obj);
     } else {
         cpu_pages::do_foreign_free(obj);
     }
@@ -1633,7 +1597,10 @@ void* allocate_large_aligned(size_t align, size_t size, bool should_sample) {
     if (!size_in_pages) {
         return nullptr;
     }
-    unsigned align_in_pages = std::max(align, page_size) >> page_bits;
+    size_t align_in_pages = std::max(align, page_size) >> page_bits;
+    if (align_in_pages > std::numeric_limits<unsigned>::max()) {
+        return nullptr;
+    }
     return cpu_mem.allocate_large_aligned(align_in_pages, *size_in_pages, should_sample);
 }
 
@@ -1655,16 +1622,28 @@ static void init_cpu_mem() {
 static constexpr int debug_allocation_pattern = 0xab;
 #endif
 
-enum class alignment_t { aligned, unaligned };
+/// Index of the small pool serving \c size. For aligned allocations, pick the
+/// smallest pool whose object size is a multiple of \c align: objects sit at
+/// page-aligned span start + k * object_size. The power-of-two class bounds the search.
+[[gnu::always_inline]]
+inline unsigned small_pool_idx(size_t size, size_t align) {
+    // Classes above max_align_t are multiples of it: malloc()'s class fits (align 0 too).
+    if (__builtin_expect(align <= alignof(std::max_align_t) && size > alignof(std::max_align_t), true)) {
+        return small_pool::size_to_idx(size);
+    }
+    align = size_t(1) << log2ceil(std::max(align, size_t(1))); // as glibc's memalign; avoids align - 1 wrapping
+    auto idx = small_pool::size_to_idx(std::max(size, align));
+    while (small_pool::idx_to_size(idx) & (align - 1)) {
+        ++idx;
+    }
+    dassert(idx < small_pool_array<false>::nr_small_pools);
+    return idx;
+}
 
 #ifdef SEASTAR_HEAPPROF
-template<alignment_t alignment>
-void* allocate_from_sampled_small_pool(size_t size) {
+void* allocate_from_sampled_small_pool(size_t size, size_t align) {
     size = object_size_with_alloc_site(size);
-    if constexpr (alignment == alignment_t::aligned) {
-        size = 1 << log2ceil(size);
-    }
-    auto idx = small_pool::size_to_idx(size);
+    auto idx = small_pool_idx(size, align);
     auto& pool = cpu_mem.sampled_small_pools[idx];
     dassert(size <= pool.object_size());
     void* ptr = pool.allocate();
@@ -1686,25 +1665,17 @@ void* allocate_from_sampled_small_pool(size_t size) {
 /// touch anything but the small pool free list, it is safe to call on a thread
 /// which isn't a reactor thread (it will simply fail, since such a thread's
 /// free lists are empty).
-template<alignment_t alignment>
 [[gnu::always_inline]]
-inline void* try_allocate_from_small_pool(size_t size) {
-    if constexpr (alignment == alignment_t::aligned) {
-        size = 1 << log2ceil(size);
-    }
-    auto idx = small_pool::size_to_idx(size);
+inline void* try_allocate_from_small_pool(size_t size, size_t align) {
+    auto idx = small_pool_idx(size, align);
     auto& pool = cpu_mem.small_pools[idx];
     dassert(size <= pool.object_size());
     return pool.try_allocate();
 }
 
-template<alignment_t alignment>
-void* allocate_from_small_pool(size_t size)
+void* allocate_from_small_pool(size_t size, size_t align)
 {
-    if constexpr (alignment == alignment_t::aligned) {
-        size = 1 << log2ceil(size);
-    }
-    auto idx = small_pool::size_to_idx(size);
+    auto idx = small_pool_idx(size, align);
     auto& pool = cpu_mem.small_pools[idx];
     dassert(size <= pool.object_size());
     return pool.allocate();
@@ -1773,11 +1744,11 @@ void *allocate_slowpath(size_t size) {
     if (size <= max_small_allocation) {
 #ifdef SEASTAR_HEAPPROF
         if (should_sample) {
-            ptr = allocate_from_sampled_small_pool<alignment_t::unaligned>(size);
+            ptr = allocate_from_sampled_small_pool(size, 1);
         } else
 #endif
         {
-            ptr = allocate_from_small_pool<alignment_t::unaligned>(size);
+            ptr = allocate_from_small_pool(size, 1);
         }
     } else {
         ptr = allocate_large(size, should_sample);
@@ -1800,7 +1771,7 @@ inline void* allocate(size_t size) {
         // allocation fails and we fall into the slow path, which sorts out
         // where the memory should come from. This keeps the fast path free of
         // an extra thread-local load and branch.
-        if (auto ptr = try_allocate_from_small_pool<alignment_t::unaligned>(size)) {
+        if (auto ptr = try_allocate_from_small_pool(size, 1)) {
             return finish_allocation(ptr, size);
         }
     }
@@ -1809,42 +1780,44 @@ inline void* allocate(size_t size) {
 }
 
 // Adjust the size of an aligned allocation to something our small pools can
-// serve: they only hand out objects of at least sizeof(free_object) bytes, and
-// only guarantee alignment for power-of-two sizes.
+// serve: they only hand out objects of at least sizeof(free_object) bytes.
 [[gnu::always_inline]]
-static inline size_t adjust_aligned_allocation_size(size_t align, size_t size) {
-    if (size <= sizeof(free_object)) {
-        size = std::max(sizeof(free_object), align);
-    }
-    return size;
+static inline size_t adjust_aligned_allocation_size(size_t size) {
+    return std::max(size, sizeof(free_object));
 }
 
 void* allocate_aligned_slowpath(size_t align, size_t size) {
+    align = size_t(1) << log2ceil(std::clamp(align, size_t(1), std::numeric_limits<size_t>::max() / 2 + 1)); // 0 acts like malloc; non-power-of-two rounds up, as glibc; huge saturates at 2^63
     if (!is_reactor_thread) {
         if (original_aligned_alloc_func) {
             alloc_stats::increment(alloc_stats::types::foreign_mallocs);
-            return original_aligned_alloc_func(align, size);
+            // Other libcs require size to be a multiple of align.
+            if (size > std::numeric_limits<size_t>::max() - (align - 1)) {
+                errno = ENOMEM;
+                return nullptr;
+            }
+            return original_aligned_alloc_func(align, align_up(size, align));
         }
         // original_aligned_alloc_func might be null for allocations before main
         // in constructors before original_aligned_alloc_func ctor is called
         init_cpu_mem();
     }
-    size = adjust_aligned_allocation_size(align, size);
+    size = adjust_aligned_allocation_size(size);
     // On the fast path we've already called maybe_sample (foreign threads
     // never sample, as their sampler is disabled, so calling it there is
     // harmless).
-    bool should_sample = cpu_mem.definitely_sample(size);
+    // Sample by the memory taken, which is at least align.
+    bool should_sample = cpu_mem.definitely_sample(std::max(size, align));
     void* ptr;
     if (size <= max_small_allocation && align <= page_size) {
-        // Our small allocator only guarantees alignment for power-of-two
-        // allocations which are not larger than a page.
+        // Small pool spans are page-aligned, so larger alignments go to the large allocator.
 #ifdef SEASTAR_HEAPPROF
         if (should_sample) {
-            ptr = allocate_from_sampled_small_pool<alignment_t::aligned>(size);
+            ptr = allocate_from_sampled_small_pool(size, align);
         } else
 #endif
         {
-            ptr = allocate_from_small_pool<alignment_t::aligned>(size);
+            ptr = allocate_from_small_pool(size, align);
         }
     } else {
         ptr = allocate_large_aligned(align, size, should_sample);
@@ -1858,12 +1831,12 @@ void* allocate_aligned_slowpath(size_t align, size_t size) {
 /// shares the non-inlined allocate_aligned_slowpath() fallback.
 [[gnu::always_inline]]
 inline void* allocate_aligned(size_t align, size_t size) {
-    auto adjusted_size = adjust_aligned_allocation_size(align, size);
-    if (__builtin_expect(!cpu_mem.maybe_sample(adjusted_size)
+    auto adjusted_size = adjust_aligned_allocation_size(size);
+    if (__builtin_expect(!cpu_mem.maybe_sample(std::max(adjusted_size, align))
                 && adjusted_size <= max_small_allocation && align <= page_size, true)) {
         // See the note in allocate() about why is_reactor_thread isn't checked
         // here.
-        if (auto ptr = try_allocate_from_small_pool<alignment_t::aligned>(adjusted_size)) {
+        if (auto ptr = try_allocate_from_small_pool(adjusted_size, align)) {
             return finish_allocation(ptr, adjusted_size);
         }
     }
@@ -1876,30 +1849,11 @@ inline void* allocate_aligned(size_t align, size_t size) {
 /// of free into all the variations of the top level dallocation functions like
 /// free, delete, sized delete, etc. The slow path is not inline and is shared
 /// by all implementations.
-///
-/// The S template object allows us to handle both sized and unsized allocations
-/// in the same code path.
-template <typename S = no_size>
 [[gnu::always_inline]]
-inline void free(void* obj, S size = {}) {
+inline void free(void* obj) {
     if (!__builtin_expect(cpu_pages::try_free_fastpath(obj), true)) {
-        free_slowpath(obj, size);
+        free_slowpath(obj);
     }
-}
-
-void free_aligned(void* obj, size_t align, size_t size) {
-    if (size <= sizeof(free_object)) {
-        size = sizeof(free_object);
-    }
-#ifndef SEASTAR_HEAPPROF
-    // See comment in the sized-free implementation below. With heap profiling we
-    // can skip this as sized-free defers to non-sized-free
-    if (size <= max_small_allocation && align <= page_size) {
-        // Same adjustment as allocate_aligned()
-        size = 1 << log2ceil(size);
-    }
-#endif
-    free(obj, size);
 }
 
 void shrink(void* obj, size_t new_size) {
@@ -2409,14 +2363,14 @@ extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
 void free_sized(void* ptr, size_t size) {
-    seastar::memory::free(ptr, size);
+    seastar::memory::free(ptr);
 }
 
 extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
 void free_aligned_sized(void* ptr, size_t alignment, size_t size) {
-    seastar::memory::free_aligned(ptr, alignment, size);
+    seastar::memory::free(ptr);
 }
 
 extern "C"
@@ -2516,7 +2470,6 @@ int posix_memalign(void** ptr, size_t align, size_t size) noexcept {
     if (try_trigger_error_injector()) {
         return ENOMEM;
     }
-    size = std::max(size, align);
     void* allocated = allocate_aligned(align, size);
     if (!allocated) {
         return ENOMEM;
@@ -2549,7 +2502,6 @@ void* memalign(size_t align, size_t size) noexcept {
     if (try_trigger_error_injector()) {
         return nullptr;
     }
-    size = seastar::align_up(size, align);
     return allocate_aligned(align, size);
 }
 
@@ -2642,13 +2594,13 @@ void operator delete[](void* ptr) noexcept {
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size) noexcept {
-    seastar::memory::free(ptr, size);
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size) noexcept {
-    seastar::memory::free(ptr, size);
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
@@ -2681,13 +2633,13 @@ void operator delete[](void* ptr, std::nothrow_t) noexcept {
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size, std::nothrow_t) noexcept {
-    seastar::memory::free(ptr, size);
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size, std::nothrow_t) noexcept {
-    seastar::memory::free(ptr, size);
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
@@ -2739,17 +2691,13 @@ void operator delete[](void* ptr, std::align_val_t a) noexcept {
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size, std::align_val_t a) noexcept {
-    if (ptr) {
-        seastar::memory::free_aligned(ptr, size_t(a), size);
-    }
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size, std::align_val_t a) noexcept {
-    if (ptr) {
-        seastar::memory::free_aligned(ptr, size_t(a), size);
-    }
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
@@ -2893,10 +2841,6 @@ internal::per_shard_memory(size_t total_memory, unsigned nr_shards) {
 
 void
 internal::global_setup(unsigned nr_shards) {
-}
-
-void free(void* ptr, size_t size) {
-    ::free(ptr);
 }
 
 }
