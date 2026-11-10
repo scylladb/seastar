@@ -46,14 +46,17 @@ void increase_internal_errors_counter() noexcept {
 }
 
 template <typename Message>
-static void log_error_and_backtrace(logger& logger, const Message& msg) noexcept {
+static void log_error_and_backtrace(logger& logger, const Message& msg, bool will_abort) noexcept {
     internal::increase_internal_errors_counter();
-    logger.error("{}, at: {}", msg, current_backtrace());
+    logger.error("{}{} at: {}",
+                 will_abort ? "Aborting on internal error: " : "",
+                 msg, current_backtrace());
 }
 
 void seastar::on_internal_error(logger& logger, std::string_view msg) {
-    log_error_and_backtrace(logger, msg);
-    if (abort_on_internal_error.load()) {
+    const bool will_abort = abort_on_internal_error.load();
+    log_error_and_backtrace(logger, msg, will_abort);
+    if (will_abort) {
         abort();
     } else {
         throw_with_backtrace<std::runtime_error>(std::string(msg));
@@ -61,8 +64,9 @@ void seastar::on_internal_error(logger& logger, std::string_view msg) {
 }
 
 void seastar::on_internal_error(logger& logger, std::exception_ptr ex) {
-    log_error_and_backtrace(logger, seastar::formattable(ex));
-    if (abort_on_internal_error.load()) {
+    const bool will_abort = abort_on_internal_error.load();
+    log_error_and_backtrace(logger, seastar::formattable(ex), will_abort);
+    if (will_abort) {
         abort();
     } else {
         std::rethrow_exception(std::move(ex));
@@ -70,13 +74,14 @@ void seastar::on_internal_error(logger& logger, std::exception_ptr ex) {
 }
 
 void seastar::on_internal_error_noexcept(logger& logger, std::string_view msg) noexcept {
-    log_error_and_backtrace(logger, msg);
-    if (abort_on_internal_error.load()) {
+    const bool will_abort = abort_on_internal_error.load();
+    log_error_and_backtrace(logger, msg, will_abort);
+    if (will_abort) {
         abort();
     }
 }
 
 void seastar::on_fatal_internal_error(logger& logger, std::string_view msg) noexcept {
-    log_error_and_backtrace(logger, msg);
+    log_error_and_backtrace(logger, msg, true);
     abort();
 }
