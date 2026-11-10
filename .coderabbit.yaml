@@ -12,3 +12,9 @@ reviews:
   # description is the author's cover letter, and becomes the message of
   # the merge commit.
   high_level_summary_in_walkthrough: true
+  # No poem in the walkthrough, and no fortune cookie while the review runs.
+  poem: false
+  in_progress_fortune: false
+chat:
+  # No ASCII/emoji art in chat replies.
+  art: false
