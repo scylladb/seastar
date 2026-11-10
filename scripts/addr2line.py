@@ -465,6 +465,7 @@ class BacktraceResolver:
 
         if not self._backtrace_context_matches():
             self._current_backtrace = []
+            self._before_lines_queue.clear()
             return
 
         for line in self._before_lines_queue:
@@ -483,6 +484,7 @@ class BacktraceResolver:
             )
             print("")  # To separate traces with an empty line
             self._current_backtrace = []
+            self._before_lines_queue.clear()
             return
 
         self._known_backtraces[backtrace] = self._i
@@ -499,6 +501,7 @@ class BacktraceResolver:
         print("")  # To separate traces with an empty line
 
         self._current_backtrace = []
+        self._before_lines_queue.clear()
         self._i += 1
 
     def __call__(self, line: str):

@@ -297,6 +297,35 @@ class TestAddr2Line(ScriptTestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn('OK', res.stderr)
 
+    def test_context_of_one_backtrace(self):
+        """The lines preceding a backtrace are its context only, printed once."""
+        output = self.resolve(stdin='context\nfirst: 0x12 0x22\nsecond: 0x32 0x42\n')
+        self.assertEqual(output, dedent('''\
+            context
+            first:
+            [Backtrace #0]
+            func_12(char const*) at gib/ber.cc:18
+            func_22(char const*) at gib/ber.cc:34
+
+            second:
+            [Backtrace #1]
+            func_32(char const*) at gib/ber.cc:50
+            func_42(char const*) at gib/ber.cc:66
+
+            '''))
+
+    def test_match_context_of_one_backtrace(self):
+        """--match matches the context of a backtrace only against that backtrace."""
+        output = self.resolve('--match', 'wanted', stdin='wanted\nfirst: 0x12 0x22\nsecond: 0x32 0x42\n')
+        self.assertEqual(output, dedent('''\
+            wanted
+            first:
+            [Backtrace #0]
+            func_12(char const*) at gib/ber.cc:18
+            func_22(char const*) at gib/ber.cc:34
+
+            '''))
+
 
 if __name__ == '__main__':
     unittest.main()
