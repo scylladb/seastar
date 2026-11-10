@@ -4529,7 +4529,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     std::vector<reactor*> reactors(_shard_count);
     if (smp_opts.memory) {
 #ifdef SEASTAR_DEFAULT_ALLOCATOR
-        seastar_logger.warn("Seastar compiled with default allocator, --memory option won't take effect");
+        seastar_logger.warn("Seastar compiled with default allocator, --memory will not limit allocation");
 #endif
         rc.total_memory = parse_memory_size(smp_opts.memory.get_value());
 #ifdef SEASTAR_HAVE_DPDK
@@ -4608,11 +4608,16 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     std::optional<memory::internal::numa_layout> layout;
     if (smp_opts.memory_allocator == memory_allocator::seastar) {
         layout = memory::configure(allocations[0].mem, mbind, use_transparent_hugepages, hugepages_path);
+        memory::internal::set_shard_layout(*layout);
     } else {
         // #2148 - if running seastar allocator but options that contradict this, we still need to
         // init memory at least minimally, otherwise a bunch of stuff breaks.
         // Previously, we got away wth this by accident due to #2137.
         memory::configure_minimal();
+#ifdef SEASTAR_DEFAULT_ALLOCATOR
+        // Both allocator options are malloc here, so report the same share.
+        memory::internal::set_shard_layout(memory::configure(allocations[0].mem, mbind, use_transparent_hugepages, hugepages_path));
+#endif
     }
 
     backend_configurator->verify_allocations(allocations);
@@ -4801,11 +4806,15 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             }
             if (smp_opts.memory_allocator == memory_allocator::seastar) {
                 auto another_layout = memory::configure(allocation.mem, mbind, use_transparent_hugepages, hugepages_path);
+                memory::internal::set_shard_layout(another_layout);
                 auto guard = std::lock_guard(mtx);
                 *layout = memory::internal::merge(std::move(*layout), std::move(another_layout));
             } else {
                 // See comment above (shard 0)
                 memory::configure_minimal();
+#ifdef SEASTAR_DEFAULT_ALLOCATOR
+                memory::internal::set_shard_layout(memory::configure(allocation.mem, mbind, use_transparent_hugepages, hugepages_path));
+#endif
             }
             if (heapprof_sampling_rate) {
                 memory::set_heap_profiling_sampling_rate(heapprof_sampling_rate);
