@@ -26,6 +26,7 @@
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/maybe_yield.hh>
 #include <seastar/coroutine/try_future.hh>
+#include <seastar/coroutine/at_coroutine_exit.hh>
 #include <seastar/coroutine/generator.hh>
 #include <seastar/core/circular_buffer_fixed_capacity.hh>
 #include <seastar/util/later.hh>
@@ -320,6 +321,43 @@ future<size_t> co_await_per_field_direct() {
     co_return CORO_BENCH_ITERS;
 }
 
+// Opt-in variant of per_field_process(): returns future<with_at_exit<int>> but
+// registers no at-exit function.  Measures the pure cost of opting into the
+// coroutine::schedule_at_coroutine_exit() facility (a non-trivial final_awaiter
+// at final_suspend, which blocks frame elision, plus the return-promise
+// indirection) when the facility is not actually used.  with_at_exit<int> decays
+// to int, so the caller side is identical to per_field_process().
+[[gnu::noinline]] future<coroutine::with_at_exit<int>> per_field_at_exit_unused(int v) {
+    perf_tests::do_not_optimize(v);
+    co_return v + 1;
+}
+
+// Opt-in variant that registers a single, immediately-ready at-exit function.
+// Measures the full cost of the facility on the ready path (at_coroutine_exit
+// allocation, the final_awaiter running the function stack, and resolving the
+// return promise from the proxy promise).
+[[gnu::noinline]] future<coroutine::with_at_exit<int>> per_field_at_exit_used(int v) {
+    co_await coroutine::schedule_at_coroutine_exit([] { return make_ready_future<>(); });
+    perf_tests::do_not_optimize(v);
+    co_return v + 1;
+}
+
+// Processes N fields in a loop, co_awaiting an opt-in (with_at_exit) coroutine
+// per field.  Process is per_field_at_exit_unused or per_field_at_exit_used.
+template<size_t NFields, auto Process>
+future<size_t> co_await_per_field_at_exit() {
+    perf_tests::start_measuring_time();
+    for (size_t record = 0; record < CORO_BENCH_ITERS; ++record) {
+        int acc = 0;
+        for (size_t i = 0; i < NFields; ++i) {
+            acc = co_await Process(acc);
+        }
+        perf_tests::do_not_optimize(acc);
+    }
+    perf_tests::stop_measuring_time();
+    co_return CORO_BENCH_ITERS;
+}
+
 } // anonymous namespace
 
 PERF_TEST_F(coroutine_test, cont_empty) { return co_await_in_loop(bench_empty_cont); }
@@ -355,6 +393,20 @@ PERF_TEST_F(coroutine_test, coro_per_field_1) { return co_await_per_field_direct
 PERF_TEST_F(coroutine_test, coro_per_field_10) { return co_await_per_field_direct<10>(); }
 
 PERF_TEST_F(coroutine_test, coro_per_field_40) { return co_await_per_field_direct<40>(); }
+
+// Opt-in (with_at_exit) counterparts of coro_per_field_*, with the at-exit
+// facility unused (registers no function) vs used (registers one ready function).
+PERF_TEST_F(coroutine_test, coro_per_field_at_exit_unused_1) { return co_await_per_field_at_exit<1, per_field_at_exit_unused>(); }
+
+PERF_TEST_F(coroutine_test, coro_per_field_at_exit_unused_10) { return co_await_per_field_at_exit<10, per_field_at_exit_unused>(); }
+
+PERF_TEST_F(coroutine_test, coro_per_field_at_exit_unused_40) { return co_await_per_field_at_exit<40, per_field_at_exit_unused>(); }
+
+PERF_TEST_F(coroutine_test, coro_per_field_at_exit_used_1) { return co_await_per_field_at_exit<1, per_field_at_exit_used>(); }
+
+PERF_TEST_F(coroutine_test, coro_per_field_at_exit_used_10) { return co_await_per_field_at_exit<10, per_field_at_exit_used>(); }
+
+PERF_TEST_F(coroutine_test, coro_per_field_at_exit_used_40) { return co_await_per_field_at_exit<40, per_field_at_exit_used>(); }
 
 // Benchmark unbuffered generator: one suspension per element
 PERF_TEST_C(coroutine_test, unbuffered_generator)
