@@ -226,6 +226,11 @@ public:
     data_sink sink() override;
 
     void shutdown_input() override {
+        // wait_input_shutdown() is forwarded to the underlying socket and
+        // completes when *that* input is shut down. close() may first spend
+        // bye_timeout reading the peer, and on the native stack closing the
+        // TLS streams only close_write()s, so abort the underlying input first.
+        _session->socket().shutdown_input();
         _session->close();
     }
     void shutdown_output() override {
