@@ -19,6 +19,7 @@
  * Copyright 2019 ScyllaDB
  */
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -430,6 +431,7 @@ bool aio_storage_context::can_sleep() const {
 
 aio_general_context::aio_general_context(size_t nr)
         : iocbs(new iocb*[nr])
+        , begin(iocbs.get())
         , last(iocbs.get())
         , end(iocbs.get() + nr)
 {
@@ -441,33 +443,70 @@ aio_general_context::~aio_general_context() {
 }
 
 void aio_general_context::queue(linux_abi::iocb* iocb) {
-    SEASTAR_ASSERT(last < end);
-    *last++ = iocb;
+    // Keep FIFO order: once anything is in the backlog, newer iocbs must go
+    // behind it even if remove() has since freed room in the array.
+    if (last < end && iocbs_backlog.empty()) {
+        *last++ = iocb;
+    } else {
+        iocbs_backlog.push_back(iocb);
+    }
 }
 
 size_t aio_general_context::flush() {
-    auto begin = iocbs.get();
-    using clock = std::chrono::steady_clock;
-    constexpr clock::time_point no_time_point = clock::time_point(clock::duration(0));
-    auto retry_until = no_time_point;
+    auto original_begin = begin;
     while (begin != last) {
         auto r = io_submit(io_context, last - begin, begin);
         if (__builtin_expect(r > 0, true)) {
             begin += r;
             continue;
         }
-        // errno == EAGAIN is expected here. We don't explicitly assert that
-        // since the assert below prevents an endless loop for any reason.
-        if (retry_until == no_time_point) {
-            // allow retrying for 1 second
-            retry_until = clock::now() + 1s;
-        } else {
-            SEASTAR_ASSERT(clock::now() < retry_until);
+        SEASTAR_ASSERT(r < 0);
+        // Abort on any error other than EAGAIN, as those indicate an internal
+        // error on our side (see io_submit(2)).
+        if (errno != EAGAIN) {
+            on_fatal_internal_error(seastar_logger, format("aio_general_context::flush: io_submit failed with unexpected system error: {}", errno));
+        }
+        // EAGAIN means the completion ring has no free slot. The kernel reserves
+        // one slot per in-flight iocb at io_submit() time and frees it only when
+        // userspace reaps the completion (see fs/aio.c get_reqs_available() and
+        // refill_reqs_available()). A poll on an idle fd never completes, so the
+        // number of in-flight polls is bounded by the number of open fds, not by
+        // the ring size, and retrying here can never succeed: nothing is reaped
+        // while we spin. Return a short flush instead and let the reactor reap
+        // completions; the remaining iocbs are submitted on a later flush.
+        break;
+    }
+
+    auto nr = begin - original_begin;
+
+    if (begin == last) {
+        // If we have succesfully committed all iocbs (begin == last) then we
+        // reset the pointers. Further at this point we move iocbs from the
+        // backlog to the main `iocbs` array if there are any.
+        // Note that the pending range may also have been emptied by remove(),
+        // in which case nr == 0 but the backlog still needs to be refilled.
+        // We only do this once `iocbs` is fully empty to get batching behaviour
+        // and avoid degenarate cases where only one element gets submitted
+        // which would result in excessive shifting of the elements in `iocbs`
+        // array or the backlog.
+        begin = iocbs.get();
+        last = iocbs.get();
+
+        if (!iocbs_backlog.empty()) {
+            auto max_to_copy = std::min(size_t(end - begin), iocbs_backlog.size());
+            last = std::move(iocbs_backlog.begin(), iocbs_backlog.begin() + max_to_copy, begin);
+            iocbs_backlog.erase(iocbs_backlog.begin(), iocbs_backlog.begin() + max_to_copy);
         }
     }
-    auto nr = last - iocbs.get();
-    last = iocbs.get();
+
     return nr;
+}
+
+void aio_general_context::remove(linux_abi::iocb* iocb) {
+    // Only [begin, last) and the backlog hold unsubmitted iocbs; entries
+    // before `begin` were already handed to the kernel, which copied them.
+    last = std::remove(begin, last, iocb);
+    std::erase(iocbs_backlog, iocb);
 }
 
 completion_with_iocb::completion_with_iocb(int fd, int events, void* user_data)
@@ -546,6 +585,11 @@ void preempt_io_context::request_preemption() {
     // monitored.
     _hrtimer_aio_completion.maybe_queue(_context);
     _context.flush();
+    // A short flush leaves the hrtimer iocb queued in userspace, so the aio
+    // ring cannot make need_preempt() true yet.
+    if (_context.has_pending()) {
+        return;
+    }
 
     // The kernel is not obliged to deliver the completion immediately, so wait for it
     while (!need_preempt()) {
@@ -671,6 +715,15 @@ void reactor_backend_aio::wait_and_process_events(const sigset_t* active_sigmask
     _hrtimer_poll_completion.maybe_queue(_polling_io);
     _smp_wakeup_aio_completion.maybe_queue(_polling_io);
     _polling_io.flush();
+    if (_polling_io.has_pending() && timeout != 0) {
+        // A short flush left iocbs queued in userspace. They can only be
+        // submitted after completions are reaped, and io_pgetevents() wakes us
+        // on any completion, so sleeping is fine. Bound the wait, though, in
+        // case the hrtimer or smp-wakeup poll is itself still unsubmitted and
+        // cannot wake us. Busy-polling here would pin the CPU for as long as
+        // the ring stays full.
+        timeout = 1;
+    }
     await_events(timeout, active_sigmask);
     _preempting_io.service_preempting_io(); // clear task quota timer
 }
@@ -751,6 +804,14 @@ future<> reactor_backend_aio::poll_rdhup(pollable_fd_state& fd) {
 
 void reactor_backend_aio::forget(pollable_fd_state& fd) noexcept {
     auto* pfd = static_cast<aio_pollable_fd_state*>(&fd);
+    // A short flush may have left this fd's iocbs queued in userspace. They
+    // are embedded in pfd, so drop them from the queue before freeing it or a
+    // later flush() would hand io_submit() dangling pointers.
+    if (_polling_io.has_pending()) {
+        for (auto events : {POLLIN, POLLOUT, POLLRDHUP}) {
+            _polling_io.remove(pfd->get_iocb(events));
+        }
+    }
     delete pfd;
     // ?
 }
