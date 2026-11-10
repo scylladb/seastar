@@ -372,7 +372,10 @@ class BacktraceResolver:
         self._current_backtrace: list[tuple[str, str]] = []
         self._prefix = None
         self._before_lines = before_lines
-        self._before_lines_queue: collections.deque[str] = collections.deque(maxlen=before_lines)
+        # with negative before_lines, non-backtrace lines are printed right away
+        self._before_lines_queue: collections.deque[str] = collections.deque(
+            maxlen=max(before_lines, 0)
+        )
         self._i = 0
         self._known_backtraces: dict[str, int] = {}
         if context_re is not None:
