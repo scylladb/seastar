@@ -137,7 +137,7 @@ public:
     // can be moved to private once reactor::read_directory is removed
     static future<size_t> read_directory(int fd, char* buffer, size_t buffer_size);
     // can be moved to private once reactor::fdatasync is removed
-    static future<> fdatasync(bool with_aio, int fd, internal::io_sink& sink);
+    static future<> fdatasync(bool with_aio, int fd, internal::io_sink& sink) noexcept;
 
 private:
     void configure_io_lengths() noexcept;

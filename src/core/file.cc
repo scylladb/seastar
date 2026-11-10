@@ -235,7 +235,7 @@ reactor::fdatasync(int fd) noexcept {
     return posix_file_impl::fdatasync(_cfg.have_aio_fsync, fd, _io_sink);
 }
 
-future<> posix_file_impl::fdatasync(bool with_aio, int fd, internal::io_sink& sink) {
+future<> posix_file_impl::fdatasync(bool with_aio, int fd, internal::io_sink& sink) noexcept {
     if (with_aio) {
         // Does not go through the I/O queue, but has to be deleted
         struct fsync_io_desc final : public io_completion {
@@ -256,20 +256,27 @@ future<> posix_file_impl::fdatasync(bool with_aio, int fd, internal::io_sink& si
             }
         };
 
-        auto desc = new fsync_io_desc;
+        // Return the completion's own future, so that the caller's
+        // continuation runs directly when the I/O completes.
+        fsync_io_desc* desc;
+        try {
+            desc = new fsync_io_desc;
+        } catch (...) {
+            return current_exception_as_future();
+        }
         auto fut = desc->get_future();
-        auto req = internal::io_request::make_fdatasync(fd);
-        sink.submit(desc, std::move(req));
-        co_await std::move(fut);
-        co_return;
+        sink.submit(desc, internal::io_request::make_fdatasync(fd));
+        return fut;
     }
-    syscall_result<int> sr = co_await engine()._thread_pool->submit<syscall_result<int>>(
+    return engine()._thread_pool->submit<syscall_result<int>>(
             internal::thread_pool_submit_reason::file_operation, [fd] {
         return wrap_syscall<int>(::fdatasync(fd));
+    }).then([] (syscall_result<int> sr) {
+        if (sr.failed()) {
+            return make_exception_future<>(sr.make_system_error_ptr());
+        }
+        return make_ready_future<>();
     });
-    if (sr.failed()) {
-        co_await coroutine::return_exception_ptr(sr.make_system_error_ptr());
-    }
 }
 
 future<struct stat>
