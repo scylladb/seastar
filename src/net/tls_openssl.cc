@@ -2078,7 +2078,7 @@ private:
         return ssl_ctx;
     }
 
-    static std::optional<sstring> get_dn_string(X509_NAME* name) {
+    static std::optional<sstring> get_dn_string(const X509_NAME* name) {
         auto out = bio_ptr(BIO_new(BIO_s_mem()));
         unsigned long flags = ASN1_STRFLGS_RFC2253 | XN_FLAG_SEP_COMMA_PLUS | XN_FLAG_FN_SN | XN_FLAG_DUMP_UNKNOWN_FIELDS;
         if (-1 == X509_NAME_print_ex(out.get(), name, 0, flags)) {
