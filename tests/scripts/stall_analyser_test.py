@@ -310,6 +310,28 @@ class TestStallAnalyser(ScriptTestCase):
             ++[0#1/1 100%] addr=0x12 total=100 count=1 avg=100
             '''))
 
+    def test_innermost_frame_seen_as_caller(self):
+        """A backtrace keeps its stall time after its innermost frame is seen as a caller."""
+        output = self.analyse(stdin=stall(100, '0x22') + stall(50, '0x12', '0x22'))
+        self.assertEqual(graph(output), dedent('''\
+            ++[0#1/2 67%] addr=0x22 total=100 count=1 avg=100
+            ++[0#2/2 33%] addr=0x12 total=50 count=1 avg=50
+            ++          - addr=0x22
+            -> continued at addr=0x22 above
+            '''))
+
+    def test_top_down_outermost_frame_seen_as_callee(self):
+        """Top-down, a backtrace keeps its stall time after its outermost frame is seen as a callee."""
+        output = self.analyse('--direction', 'top-down',
+                              stdin=stall(100, '0x12', '0x22') + stall(50, '0x12', '0x22', '0x32'))
+        self.assertEqual(graph(output), dedent('''\
+            ++[0#1/2 67%] addr=0x22 total=100 count=1 avg=100
+            | ++[1#1/1 100%] addr=0x12 total=150 count=2 avg=75
+            ++[0#2/2 33%] addr=0x32 total=50 count=1 avg=50
+            ++          - addr=0x22
+            -> continued at addr=0x22 above
+            '''))
+
     def test_frames_after_trampoline(self):
         """Library frames following the trampoline, e.g. of a stall in libc, are kept."""
         output = self.analyse(stdin=stall(100, '0x12', 'libc.so.6+0x3e6f0', 'libc.so.6+0x1a2b3', '0x22'))

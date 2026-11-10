@@ -110,10 +110,6 @@ class Node:
             n.callees[self.addr] = self.Link(self, t)
         return n
 
-    def unlink_caller(self, addr: str) -> None:
-        link = self.callers.pop(addr)
-        link.node.callees.pop(self.addr)
-
     def link_callee(self, t: int, n) -> Self:
         if n.addr in self.callees:
             link = self.callees[n.addr]
@@ -123,10 +119,6 @@ class Node:
             self.callees[n.addr] = self.Link(n, t)
             n.callers[self.addr] = self.Link(self, t)
         return n
-
-    def unlink_callee(self, addr: str) -> None:
-        link = self.callees.pop(addr)
-        link.node.callers.pop(self.addr)
 
     def sorted_links(self, links: list, descending=True) -> list:
         return sorted([l for l in links if l.node.addr], reverse=descending)
@@ -175,13 +167,12 @@ class Graph:
         else:
             n = Node(addr)
             self.nodes[addr] = n
+        # The innermost frame of every backtrace is linked to the tail, and
+        # the outermost one to the head by add_head(), so that the stall time
+        # of each backtrace is accounted for in both directions.
         if prev:
-            if prev.addr in self.head.callees:
-                self.head.unlink_callee(prev.addr)
             prev.link_caller(t, n)
-            if addr in self.tail.callers:
-                self.tail.unlink_caller(addr)
-        elif not n.callees or addr in self.tail.callers:
+        else:
             self.tail.link_caller(t, n)
         return n
 
