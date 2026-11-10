@@ -207,7 +207,46 @@ struct metrics_perf_fixture {
         // if histogram metrics are used there are N buckets per metric, plus 2 for count and sum
         co_return series_count * iterations * (type == data_type::HISTOGRAM ? histo_buckets + 2 : 1);
     }
+    // Cost of a metadata rebuild per series, with and without aggregation keys.
+    template <typename COUNTER_TYPE = size_t>
+    seastar::future<size_t> run_rebuild_bench(size_t series_per_family, bool enable_aggregation) {
+        using namespace seastar;
+        using namespace seastar::metrics;
+        remove_existing_metrics();
+        metric_groups perf_metrics;
+        label label_0{"some-long-label-name-this-happens-in-real-life"};
+        label label_1{"short"};
+        label label_2("fixed-label");
+        auto label_template = fmt::runtime("label_value_medium_long_{}");
+        std::vector<metric_definition> defs;
+        for (auto label_id : irange(series_per_family)) {
+            std::vector<label_instance> labels{label_0(fmt::format(label_template, label_id)), label_1(fmt::format(label_template, label_id)), label_2("a fixed value")};
+            auto impl = make_counter("gauge0", description("d"), labels, [] { return (COUNTER_TYPE)1; });
+            if (enable_aggregation) {
+                impl.aggregate({label_0, label_1});
+            }
+            defs.emplace_back(std::move(impl));
+        }
+        perf_metrics.add_group("group-0", defs);
+        constexpr int iterations = 100;
+        auto impl = seastar::metrics::impl::get_local_impl();
+        perf_tests::start_measuring_time();
+        for ([[maybe_unused]] auto _: irange(iterations)) {
+            impl->dirty();
+            auto md = impl->metadata();
+            perf_tests::do_not_optimize(md);
+        }
+        perf_tests::stop_measuring_time();
+        co_return series_per_family * iterations;
+    }
 };
+
+PERF_TEST_CN(metrics_perf_fixture, test_rebuild_noaggr) {
+    co_return co_await run_rebuild_bench(10000, false);
+}
+PERF_TEST_CN(metrics_perf_fixture, test_rebuild_aggr) {
+    co_return co_await run_rebuild_bench(10000, true);
+}
 
 PERF_TEST_CN(metrics_perf_fixture, test_few_metrics) {
     // only 1 series added, but note there are some seastar metrics
