@@ -183,17 +183,17 @@ class TestAddr2Line(ScriptTestCase):
             ''') + '/nonexistent/lib.so 0x32 \n\n')
 
     def test_sanitizer_backtrace(self):
-        """Frames of sanitizer reports are resolved, the address of the error is not."""
+        """Frames of sanitizer reports are resolved at their offset in the module in parentheses."""
         output = self.resolve(stdin=dedent('''\
             ==1==ERROR: AddressSanitizer: heap-use-after-free on address 0x60700019c710
-                #0 0x14d24642  (gibberish+0x14d24642)
-            #1 0x00007fd2dab4f950 abort (gibberish + 0x26950)
+                #0 0x55d4c0b5e2a2  (gibberish+0x12)
+            #1 0x00007fd2dab4f952 abort (gibberish + 0x22)
             '''))
         self.assertEqual(output, dedent('''\
             ==1==ERROR: AddressSanitizer: heap-use-after-free on address 0x60700019c710
             [Backtrace #0]
-            func_14d24642(char const*) at gib/ber.cc:4
-            ?? at ??:0
+            func_12(char const*) at gib/ber.cc:18
+            func_22(char const*) at gib/ber.cc:34
 
             '''))
 
