@@ -68,13 +68,9 @@ def get_command_line_parser():
 class Node:
     def __init__(self, addr: str):
         self.addr = addr
-        x = addr.find('+')
-        if x >= 0:
-            self.addr_only = addr[x + 1:]
-            self.module = addr[:x]
-        else:
-            self.addr_only = addr
-            self.module = None
+        # the library name itself may contain '+', e.g. libstdc++.so.6
+        module, _, self.addr_only = addr.rpartition('+')
+        self.module = module or None
         self.callers = {}
         self.callees = {}
         self.printed = False
