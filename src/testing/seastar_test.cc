@@ -33,55 +33,37 @@
 #include <seastar/core/on_internal_error.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/testing/on_internal_error.hh>
+#include <seastar/util/log.hh>
 
 namespace seastar {
 
 namespace testing {
 
 // #3165 - build a message for a possibly nested exception chain.
-static boost::execution_exception::location
-add_exception_message(const std::exception* ep, bool rec, char *out, char *end) {
-    auto pfx = rec ? "; Caused by " : "";
-
-    if (ep) {
-        out = fmt::format_to_n(out, end - out, "{}{}: {}", pfx, seastar::pretty_type_name(typeid(*ep)), ep->what()).out;
-    } else {
-        auto tp = abi::__cxa_current_exception_type();
-        out = fmt::format_to_n(out, end - out, "{}{}", pfx, tp ? seastar::pretty_type_name(*tp) : "<unknown>").out;
-    }
-
-    boost::execution_exception::location loc;
-    if (auto* be = dynamic_cast<const boost::exception*>(ep)) {
-        auto sloc = boost::exception_detail::get_exception_throw_location(*be);
-        if (rec) {
-            out = fmt::format_to_n(out, end - out, "({}:{}:{})", sloc.file_name(), sloc.function_name(), sloc.line()).out;
-        }
-        loc = boost::execution_exception::location(sloc.file_name(), sloc.line(), sloc.function_name());
-    }
-
-    *out = 0; // see initial invoke below. always valid
-
-    if (ep) {
-        try {
-            std::rethrow_if_nested(*ep);
-        } catch (std::exception& e) {
-            add_exception_message(&e, true, out, end);
-        } catch (...) {
-            add_exception_message(nullptr, true, out, end);
-        }
-    }
-
-    return loc;
-}
-
-static future<> repackage_exception_and_rethrow(const std::exception* ep) {
+static future<> repackage_exception_and_rethrow(std::exception_ptr eptr) {
     // Note: using a static buffer for formatting, same as boost::test code,
     // so we make it less prone to fail in failure handling for OOM
     // situations etc.
     static const int REPORT_ERROR_BUFFER_SIZE = 4096;
     static char buf[REPORT_ERROR_BUFFER_SIZE];
 
-    auto loc = add_exception_message(ep, false, buf, buf + sizeof(buf) - 1);
+    // Rendering the chain is left to seastar::formattable(), which already
+    // knows about nested exceptions of both the seastar and the std flavour,
+    // system_error details, backtraces, and objects not derived from
+    // std::exception.
+    *fmt::format_to_n(buf, sizeof(buf) - 1, "{}", seastar::formattable(eptr)).out = 0;
+
+    // Boost reports a single location, so only the outermost one is of
+    // interest here.
+    boost::execution_exception::location loc;
+    try {
+        std::rethrow_exception(eptr);
+    } catch (const boost::exception& be) {
+        auto sloc = boost::exception_detail::get_exception_throw_location(be);
+        loc = boost::execution_exception::location(sloc.file_name(), sloc.line(), sloc.function_name());
+    } catch (...) {
+    }
+
     return make_exception_future<>(boost::execution_exception(boost::execution_exception::cpp_exception_error, buf, loc));
 }
 
@@ -99,13 +81,7 @@ void seastar_test::run() {
         // the info into an execution_exception, potentially including
         // nestedness etc.
         return futurize_invoke(std::bind(&seastar_test::run_test_case, this)).handle_exception([](std::exception_ptr e) {
-            try {
-                std::rethrow_exception(e);
-            } catch (std::exception& e) {
-                return repackage_exception_and_rethrow(&e);
-            } catch (...) {
-                return repackage_exception_and_rethrow(nullptr);
-            }
+            return repackage_exception_and_rethrow(std::move(e));
         });
     });
 }
