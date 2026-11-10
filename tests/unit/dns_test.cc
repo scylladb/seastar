@@ -116,6 +116,26 @@ static future<> serve_split_tcp_dns_response(server_socket& listener) {
     co_await in.close();
 }
 
+// Answers every query with an A record, until the channel's input shuts down.
+static future<> serve_udp_dns(datagram_channel& channel) {
+    for (;;) {
+        auto f = co_await coroutine::as_future(channel.receive());
+        if (f.failed()) {
+            f.ignore_ready_future();
+            co_return;
+        }
+        auto dgram = f.get();
+        std::string query;
+        for (auto& b : dgram.get_buffers()) {
+            query.append(b.get(), b.size());
+        }
+        // make_tcp_dns_a_response() prefixes the message with its length.
+        auto response = make_tcp_dns_a_response(temporary_buffer<char>(query.data(), query.size()));
+        temporary_buffer<char> buf(response.data() + 2, response.size() - 2);
+        co_await channel.send(dgram.get_src(), std::span(&buf, 1));
+    }
+}
+
 // Closes every connection after reading its query, until abort_accept().
 static future<> serve_tcp_dns_and_close(server_socket& listener) {
     for (;;) {
@@ -227,6 +247,30 @@ SEASTAR_TEST_CASE(test_timeout_udp,
     }).finally([d]{
         return d->close();
     });
+}
+
+// 127.0.0.2 never answers. When the query times out there, the resolver must
+// read the answer from 127.0.0.1 as soon as it arrives, not on its next timer
+// tick, so the query takes one timeout rather than two.
+SEASTAR_TEST_CASE(test_udp_failover_after_timeout) {
+    auto channel = make_bound_datagram_channel(socket_address(inet_address("127.0.0.1"), 0));
+    auto server = serve_udp_dns(channel);
+
+    dns_resolver::options opts;
+    opts.servers = std::vector<inet_address>({ inet_address("127.0.0.2"), inet_address("127.0.0.1") });
+    opts.udp_port = channel.local_address().port();
+    opts.timeout = std::chrono::seconds(1);
+
+    auto d = ::make_lw_shared<dns_resolver>(engine().net(), opts);
+    auto start = std::chrono::steady_clock::now();
+    auto f = co_await coroutine::as_future(d->get_host_by_name("failover.seastar.test", inet_address::family::INET));
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
+    co_await d->close();
+    channel.shutdown_input();
+    co_await std::move(server);
+
+    BOOST_REQUIRE(!f.get().addr_entries.empty());
+    BOOST_REQUIRE_LT(elapsed.count(), 1500);
 }
 
 // NOTE: cannot really test timeout in TCP mode, because seastar sockets do not support
