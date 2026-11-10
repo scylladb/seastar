@@ -297,6 +297,81 @@ class TestAddr2Line(ScriptTestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn('OK', res.stderr)
 
+    def test_context_of_one_backtrace(self):
+        """The lines preceding a backtrace are its context only, printed once."""
+        output = self.resolve(stdin='context\nfirst: 0x12 0x22\nsecond: 0x32 0x42\n')
+        self.assertEqual(output, dedent('''\
+            context
+            first:
+            [Backtrace #0]
+            func_12(char const*) at gib/ber.cc:18
+            func_22(char const*) at gib/ber.cc:34
+
+            second:
+            [Backtrace #1]
+            func_32(char const*) at gib/ber.cc:50
+            func_42(char const*) at gib/ber.cc:66
+
+            '''))
+
+    def test_match_window(self):
+        """--match looks at the last --before lines, also when they were printed with a previous backtrace."""
+        output = self.resolve('--match', 'wanted', stdin='wanted\nfirst: 0x12 0x22\nsecond: 0x32 0x42\n')
+        self.assertEqual(output, dedent('''\
+            wanted
+            first:
+            [Backtrace #0]
+            func_12(char const*) at gib/ber.cc:18
+            func_22(char const*) at gib/ber.cc:34
+
+            second:
+            [Backtrace #1]
+            func_32(char const*) at gib/ber.cc:50
+            func_42(char const*) at gib/ber.cc:66
+
+            '''))
+
+    def test_match_all_stacks_of_report(self):
+        """With --match, all the stacks of a sanitizer report are resolved, each with its own context lines."""
+        report = dedent('''\
+            ==1==ERROR: AddressSanitizer: heap-use-after-free on address 0x60200000eff0
+            READ of size 4 at 0x60200000eff0 thread T0
+                #0 0x4f002d2 in reader (gibberish+0x12)
+                #1 0x4f002e3 in main (gibberish+0x22)
+
+            freed by thread T0 here:
+                #0 0x4f00412 in operator delete (gibberish+0x32)
+
+            previously allocated by thread T0 here:
+                #0 0x4f00512 in operator new (gibberish+0x42)
+            ''')
+        output = self.resolve('--before', '10', '--match', 'heap-use-after-free', stdin=report)
+        self.assertEqual(output, dedent('''\
+            ==1==ERROR: AddressSanitizer: heap-use-after-free on address 0x60200000eff0
+            READ of size 4 at 0x60200000eff0 thread T0
+            [Backtrace #0]
+            func_12(char const*) at gib/ber.cc:18
+            func_22(char const*) at gib/ber.cc:34
+
+
+            freed by thread T0 here:
+            [Backtrace #1]
+            func_32(char const*) at gib/ber.cc:50
+
+
+            previously allocated by thread T0 here:
+            [Backtrace #2]
+            func_42(char const*) at gib/ber.cc:66
+
+            '''))
+
+    def test_match_window_limit(self):
+        """--match does not match lines further back than --before."""
+        output = self.resolve('--before', '2', '--match', 'wanted',
+                              stdin='wanted\nfirst: 0x12\nline\nline\nsecond: 0x22\n')
+        self.assertEqual(output.count('[Backtrace'), 1)
+        self.assertNotIn('func_22', output)
+
 
 if __name__ == '__main__':
     unittest.main()
