@@ -145,6 +145,65 @@ struct io_group::priority_class_data {
     }
 };
 
+// Plugs and unplugs a class, or a group on behalf of one of its classes,
+// according to the bandwidth cap configured for it
+class bandwidth_throttler {
+    io_group::priority_class_data::token_bucket_t& _tb;
+    uint64_t _replenish_head;
+    io_queue& _queue;
+    io_queue::priority_class_data& _pc;
+    // The group this throttler works on behalf of, nullptr if it throttles
+    // the class itself
+    io_queue::priority_class_group_data* _pcg;
+    timer<lowres_clock> _replenish;
+
+    void throttle() noexcept {
+        if (_pcg != nullptr) {
+            _queue.throttle_priority_class_group(*_pcg);
+        } else {
+            _queue.throttle_priority_class(_pc);
+        }
+    }
+
+    void unthrottle() noexcept {
+        if (_pcg != nullptr) {
+            _queue.unthrottle_priority_class_group(*_pcg);
+        } else {
+            _queue.unthrottle_priority_class(_pc);
+        }
+    }
+
+    void try_to_replenish() noexcept {
+        _tb.replenish(io_queue::clock_type::now());
+        auto delta = _tb.deficiency(_replenish_head);
+        if (delta > 0) {
+            _replenish.arm(std::chrono::duration_cast<std::chrono::microseconds>(_tb.duration_for(delta)));
+        } else {
+            unthrottle();
+        }
+    }
+
+public:
+    bandwidth_throttler(io_group::priority_class_data& pg, io_queue& q, io_queue::priority_class_data& pc, io_queue::priority_class_group_data* pcg) noexcept
+            : _tb(pg.tb)
+            , _queue(q)
+            , _pc(pc)
+            , _pcg(pcg)
+            , _replenish([this] { try_to_replenish(); })
+    {}
+
+    void grab(uint64_t tokens) noexcept {
+        auto ph = _tb.grab(tokens);
+        auto delta = _tb.deficiency(ph);
+        if (delta > 0) {
+            throttle();
+            _replenish_head = ph;
+            _replenish.arm(std::chrono::duration_cast<std::chrono::microseconds>(_tb.duration_for(delta)));
+        }
+    }
+};
+
+
 // Shard-local mirror of a scheduling supergroup, the way priority_class_data
 // is one of a scheduling group. Classes that belong to a supergroup point at
 // the respective entry of the io_queue::_priority_groups vector.
@@ -163,7 +222,6 @@ struct io_queue::priority_class_group_data {
 };
 
 class io_queue::priority_class_data {
-    io_queue& _queue;
     const scheduling_group _sg;
     uint32_t _shares;
     struct {
@@ -183,60 +241,6 @@ class io_queue::priority_class_data {
     std::chrono::duration<double> _starvation_time;
     io_queue::clock_type::time_point _activated;
 
-    class bandwidth_throttler {
-        io_group::priority_class_data::token_bucket_t& _tb;
-        uint64_t _replenish_head;
-        priority_class_data& _pc;
-        // The group this throttler works on behalf of, nullptr if it throttles
-        // the class itself
-        priority_class_group_data* _pcg;
-        timer<lowres_clock> _replenish;
-
-        void throttle() noexcept {
-            if (_pcg != nullptr) {
-                _pc._queue.throttle_priority_class_group(*_pcg);
-            } else {
-                _pc._queue.throttle_priority_class(_pc);
-            }
-        }
-
-        void unthrottle() noexcept {
-            if (_pcg != nullptr) {
-                _pc._queue.unthrottle_priority_class_group(*_pcg);
-            } else {
-                _pc._queue.unthrottle_priority_class(_pc);
-            }
-        }
-
-        void try_to_replenish() noexcept {
-            _tb.replenish(io_queue::clock_type::now());
-            auto delta = _tb.deficiency(_replenish_head);
-            if (delta > 0) {
-                _replenish.arm(std::chrono::duration_cast<std::chrono::microseconds>(_tb.duration_for(delta)));
-            } else {
-                unthrottle();
-            }
-        }
-
-    public:
-        bandwidth_throttler(io_group::priority_class_data& pg, priority_class_data& pc, priority_class_group_data* pcg) noexcept
-                : _tb(pg.tb)
-                , _pc(pc)
-                , _pcg(pcg)
-                , _replenish([this] { try_to_replenish(); })
-        {}
-
-        void grab(uint64_t tokens) noexcept {
-            auto ph = _tb.grab(tokens);
-            auto delta = _tb.deficiency(ph);
-            if (delta > 0) {
-                throttle();
-                _replenish_head = ph;
-                _replenish.arm(std::chrono::duration_cast<std::chrono::microseconds>(_tb.duration_for(delta)));
-            }
-        }
-    };
-
     boost::container::static_vector<bandwidth_throttler, 2> _bw;
     // The group the class belongs to, nullptr for classes in the root group
     priority_class_group_data* _pcg;
@@ -247,8 +251,7 @@ public:
     }
 
     priority_class_data(scheduling_group sg, uint32_t shares, io_queue& q, io_group::priority_class_data& pg, priority_class_group_data* pcg)
-        : _queue(q)
-        , _sg(sg)
+        : _sg(sg)
         , _shares(shares)
         , _nr_queued(0)
         , _nr_executing(0)
@@ -260,9 +263,9 @@ public:
     {
         // The per-class throttler is not tied to any group, so it throttles
         // the class itself -- hence the nullptr here
-        _bw.emplace_back(pg, *this, nullptr);
+        _bw.emplace_back(pg, q, *this, nullptr);
         if (pg.parent != nullptr) {
-            _bw.emplace_back(*pg.parent, *this, _pcg);
+            _bw.emplace_back(*pg.parent, q, *this, _pcg);
         }
     }
     priority_class_data(const priority_class_data&) = delete;
