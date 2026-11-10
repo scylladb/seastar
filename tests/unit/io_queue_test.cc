@@ -21,9 +21,12 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
+#include <deque>
 #include <ratio>
+#include <thread>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/testing/random.hh>
@@ -85,8 +88,8 @@ struct io_queue_for_tests {
     io_queue queue;
     timer<> kicker;
 
-    io_queue_for_tests(const io_queue::config& cfg = io_queue::config{0})
-        : group(std::make_shared<io_group>(cfg, 1))
+    io_queue_for_tests(const io_queue::config& cfg = io_queue::config{0}, const io_group* peer = nullptr)
+        : group(std::make_shared<io_group>(cfg, 1, peer))
         , sink()
         , queue(group, sink)
         , kicker([this] { kick(); })
@@ -118,6 +121,26 @@ struct io_queue_for_tests {
 
     fair_queue& get_fair_queue() {
         return queue._streams[0].fq;
+    }
+
+    double rate_correction() const {
+        return queue._rate_correction;
+    }
+
+    uint64_t time_in_disk_us() const {
+        return queue._time_in_disk_us;
+    }
+
+    // Gives the queue's rate correction, in place of the queue's timer, what
+    // the queue measured in a period that ends at `now`: the requests that
+    // completed and the seconds they spent in the disk, and the seconds of its
+    // bucket's capacity it sent
+    void measured(uint64_t completed, double in_disk, double sent, io_queue::clock_type::time_point now) {
+        queue._averaging_decay_timer.cancel();
+        queue._completed_in_disk += completed;
+        queue._time_in_disk_us += in_disk * 1e6;
+        queue._sent += io_throttler::tokens_capacity(sent);
+        queue.update_rate_correction(now);
     }
 
     struct pending_waits {
@@ -1152,6 +1175,131 @@ SEASTAR_THREAD_TEST_CASE(test_2_class_group_bandwidth_throttler_fair_shares) {
     BOOST_REQUIRE_LE(float(bw0) / float(bw1), 4.05);
     BOOST_REQUIRE_GE(float(bw0) / float(bw1), 3.95);
     BOOST_REQUIRE_LE(combined_bandwidth(m0, m1), bandwidth + burst + bw_slack);
+}
+
+static io_queue::config rate_correction_config() {
+    internal::disk_config_params disk_config(1);
+    internal::disk_params disk;
+    disk.read_bytes_rate = disk.write_bytes_rate = 1 << 30;
+    disk.read_req_rate = disk.write_req_rate = 100000;
+    auto cfg = disk_config.generate_config(disk, 0, 1);
+    cfg.disk_latency_threshold = std::chrono::milliseconds(5);
+    cfg.with_metrics = false;
+    return cfg;
+}
+
+// An hour of a disk whose drive delivers `performance` times the rates
+// it is configured with, simulated event by event. A load keeps 128 writes
+// of 128KiB in the queue and in the drive. The queue prices them as it does,
+// corrected, its bucket lets them through at the configured rates, and the
+// drive serves them one at a time. Once a simulated second, the queue's rate
+// correction is given the time the writes spent in the drive and how much of
+// the bucket the queue sent. Returns the correction after every second.
+static std::vector<double> simulate_rate_correction(double performance) {
+    io_queue_for_tests tio(rate_correction_config());
+    auto dnl = internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 128 << 10);
+    // What a write takes of the bucket, which fills at a second per second
+    auto cost = [&] { return io_throttler::capacity_tokens(tio.queue.request_capacity(dnl)); };
+    const double service = cost() / performance;
+    const double limit = io_throttler::capacity_tokens(internal::get_throttler(tio.queue, 0).maximum_capacity());
+    // The writes waiting in the queue, and when the writes in the drive were
+    // dispatched and are done
+    unsigned waiting = 128;
+    std::deque<std::pair<double, double>> in_drive;
+    double now = 0, tokens = 0, free_at = 0, in_disk = 0, sent = 0;
+    uint64_t completed = 0;
+    std::vector<double> correction;
+    auto start = io_queue::clock_type::now();
+    for (int second = 1; second <= 3600; second++) {
+        const double write_cost = cost();
+        for (;;) {
+            double done = in_drive.empty() ? second : in_drive.front().second;
+            double ready = waiting ? now + std::max(write_cost - tokens, 0.0) : second;
+            double next = std::min({done, ready, double(second)});
+            tokens = std::min(tokens + next - now, limit);
+            now = next;
+            if (!in_drive.empty() && done == now) {
+                completed++;
+                in_disk += now - in_drive.front().first;
+                in_drive.pop_front();
+                waiting++;
+            } else if (waiting && ready == now) {
+                tokens -= write_cost;
+                sent += write_cost;
+                waiting--;
+                free_at = std::max(free_at, now) + service;
+                in_drive.emplace_back(now, free_at);
+            } else {
+                break;
+            }
+        }
+        tio.measured(std::exchange(completed, 0), std::exchange(in_disk, 0), std::exchange(sent, 0), start + std::chrono::seconds(second));
+        correction.push_back(tio.rate_correction());
+        maybe_yield().get();
+    }
+    return correction;
+}
+
+SEASTAR_THREAD_TEST_CASE(test_disk_rate_correction) {
+    // How much of its configured rates the drive delivers, and the limits the
+    // correction must stay within once it gets there. The correction moves in
+    // steps of 0.005, which floating point arithmetic hits only approximately,
+    // so the limits lie half a step beyond the corrections allowed: 0.8875
+    // allows 0.89 and not 0.885. The drive at 20% may go down to 0.18 for a
+    // while, as a deep queue in it takes the correction past its rate.
+    for (auto [performance, lower_limit, upper_limit] : std::initializer_list<std::array<double, 3>>{
+            {0.9, 0.8875, 0.9125}, {1.0, 0.9875, 1.0025}, {1.1, 0.9975, 1.0025}, {0.2, 0.1775, 0.2125}}) {
+        auto correction = simulate_rate_correction(performance);
+        auto within_limits = [&] (double c) { return lower_limit < c && c < upper_limit; };
+        auto first = std::ranges::find_if(correction, within_limits);
+        BOOST_REQUIRE_MESSAGE(first != correction.end(), "drive at " << performance << ": correction never within limits");
+        for (auto it = first; it != correction.end(); ++it) {
+            BOOST_REQUIRE_MESSAGE(within_limits(*it), "drive at " << performance << ": correction " << *it
+                    << " after " << it - correction.begin() + 1 << "s, within limits since " << first - correction.begin() + 1 << "s");
+        }
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(test_disk_rate_correction_leaves_reactor_delay_out) {
+    io_queue_for_tests tio;
+    io_completion* write = nullptr;
+    auto f = tio.queue_request(get_default_pc(), internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 4096),
+            internal::io_request::make_write(0, 0, nullptr, 4096, false), nullptr, {});
+    seastar::sleep(std::chrono::milliseconds(10)).get();
+    tio.queue.poll_io_queue();
+    tio.sink.drain([&write] (const internal::io_request&, io_completion* desc) { write = desc; return true; });
+    // The reactor is blocked after the dispatch, and the write completes
+    // before it polls again: none of it is time in the disk
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    write->complete_with(4096);
+    f.get();
+    BOOST_REQUIRE_EQUAL(tio.time_in_disk_us(), 0);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_disk_rate_correction_needs_every_group) {
+    auto cfg = rate_correction_config();
+    io_queue_for_tests first(cfg), second(cfg, first.group.get());
+    auto now = io_queue::clock_type::now();
+    // A second in which 1000 writes spent `in_disk` in the drive, and the
+    // first group, or both groups, sent all that their buckets let through
+    auto measure = [&] (double in_disk, bool both_send) {
+        now += std::chrono::seconds(1);
+        first.measured(1000, 1000 * in_disk, 1.0, now);
+        second.measured(0, 0, both_send ? 1.0 : 0.0, now);
+    };
+    for (int i = 0; i < 20; i++) {
+        measure(0.02, true);
+    }
+    auto corrected = first.rate_correction();
+    BOOST_REQUIRE_LT(corrected, 1.0);
+    for (int i = 0; i < 120; i++) {
+        measure(0.0005, false);
+    }
+    BOOST_REQUIRE_EQUAL(first.rate_correction(), corrected);
+    for (int i = 0; i < 120; i++) {
+        measure(0.0005, true);
+    }
+    BOOST_REQUIRE_GT(first.rate_correction(), corrected);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_get_all_io_queues) {
