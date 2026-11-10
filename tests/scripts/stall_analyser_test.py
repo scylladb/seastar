@@ -269,10 +269,12 @@ class TestStallAnalyser(ScriptTestCase):
             '''))
 
     def test_no_input(self):
-        """Input without any stall report fails."""
-        res = self.run_script(input='no stall reports here\n')
-        self.assertEqual(res.returncode, 1)
-        self.assertIn('No input data found.', res.stderr)
+        """Input without any stall report fails, in every output format."""
+        for output_format in ['graph', 'trace']:
+            with self.subTest(output_format):
+                res = self.run_script('--format', output_format, input='no stall reports here\n')
+                self.assertEqual(res.returncode, 1)
+                self.assertIn('No input data found.', res.stderr)
 
     def test_no_backtrace(self):
         """A stall report without frames below the address threshold fails."""

@@ -303,6 +303,9 @@ class StackCollapse:
                                       at\s                   #
                                       [^:]+:(?:\?|\d+)       # <source>:<line number>''', re.X)
 
+    def __bool__(self):
+        return bool(self.collapsed)
+
     def process_trace(self, frames: list[str], count: int) -> None:
         # each stall report is mapped to a line of perf samples
         # so the output looks like:
