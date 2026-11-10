@@ -403,6 +403,14 @@ class TestStallAnalyser(ScriptTestCase):
             |              func_22 at gib/ber.cc:34
             '''))
 
+    def test_small_root_branches_summarised(self):
+        """The summary of small outermost branches shows their average stall time."""
+        output = self.analyse(stdin=stall(100, '0x12') + stall(1, '0x22'))
+        self.assertEqual(graph(output), dedent('''\
+            ++[0#1/2 99%] addr=0x12 total=100 count=1 avg=100
+            ++[0#2/2 1%] 1 more branches total=1 count=1 avg=1
+            '''))
+
 
 if __name__ == '__main__':
     unittest.main()
