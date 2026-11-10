@@ -52,14 +52,14 @@ def script_command(script: str) -> list[str]:
     return command + [str(SCRIPTS_DIR / script)]
 
 
-def script_env(env_extra: dict[str, str]) -> dict[str, str]:
+def script_env() -> dict[str, str]:
     """
-    Returns the environment the scripts run in, extended by env_extra.
+    Returns the environment the scripts run in.
 
     PATH starts with fake-bin/, so the scripts run the fake llvm-addr2line,
     c++filt and file(1).
     """
-    env = dict(os.environ, PYTHONUTF8='1', **env_extra)
+    env = dict(os.environ, PYTHONUTF8='1')
     env['PATH'] = os.pathsep.join([str(FAKE_BIN_DIR), env.get('PATH', os.defpath)])
     coverage_file = os.environ.get('SCRIPTS_COVERAGE')
     if coverage_file:
@@ -89,17 +89,15 @@ class ScriptTestCase(unittest.TestCase):
         (self.workdir / name).write_text(content)
         return name
 
-    def run_script(self, *args: str, env_extra: dict[str, str] | None = None,
-                   **kwargs) -> subprocess.CompletedProcess:
+    def run_script(self, *args: str, **kwargs) -> subprocess.CompletedProcess:
         """
         Runs the script with the given arguments in the working directory.
 
-        env_extra extends the environment of the script. The keyword arguments
-        are passed to subprocess.run(); stdout and stderr are captured as text
-        unless given.
+        The keyword arguments are passed to subprocess.run(); stdout and stderr
+        are captured as text unless given.
         """
         kwargs.setdefault('stdout', subprocess.PIPE)
         kwargs.setdefault('stderr', subprocess.PIPE)
         return subprocess.run(script_command(self.SCRIPT) + list(args),
-                              cwd=self.workdir, env=script_env(env_extra or {}), text=True,
+                              cwd=self.workdir, env=script_env(), text=True,
                               timeout=120, **kwargs)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import argparse
+import os
 import sys
 import re
 
@@ -488,8 +489,11 @@ Please run `stall-analyser.py --help` for usage instruction""", file=sys.stderr)
             print_command_line_options(args)
             print_stats(tally, args.tmin)
         render.print_graph(args.direction, args.width, args.branch_threshold)
+        sys.stdout.flush()
     except BrokenPipeError:
-        pass
+        # Python flushes stdout again at exit, which would fail the same
+        # way, so point stdout to /dev/null.
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
 
 
 if __name__ == '__main__':

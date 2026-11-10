@@ -296,8 +296,7 @@ class TestStallAnalyser(ScriptTestCase):
         read_end, write_end = os.pipe()
         os.close(read_end)
         try:
-            res = self.run_script(input=stall(100, '0x12'), stdout=write_end,
-                             env_extra={'PYTHONUNBUFFERED': '1'})
+            res = self.run_script(input=stall(100, '0x12'), stdout=write_end)
         finally:
             os.close(write_end)
         self.assertEqual(res.returncode, 0, res.stderr)
