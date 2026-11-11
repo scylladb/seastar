@@ -59,6 +59,19 @@ SEASTAR_TEST_CASE(test_incomplete_content) {
     });
 }
 
+// A skip that runs past the end of the stream consumed nothing it can account for,
+// so the remaining count must not claim the body was read.
+SEASTAR_TEST_CASE(test_skip_past_incomplete_content) {
+    return seastar::async([] {
+        auto inp = util::as_input_stream(temporary_buffer<char>::copy_of("asdfghjkl;"));
+        size_t remaining = 0;
+        auto content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(inp, 20, remaining)));
+
+        BOOST_REQUIRE_THROW(content_strm.skip(20).get(), std::exception);
+        BOOST_REQUIRE_GT(remaining, 0);
+    });
+}
+
 SEASTAR_TEST_CASE(test_complete_content) {
     return seastar::async([] {
       {
