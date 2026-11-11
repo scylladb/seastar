@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 
 import argparse
+import os
 import sys
 import re
 
 import addr2line
 from collections import defaultdict
-from itertools import chain, dropwhile
+from itertools import chain
 from typing import Iterator, Self
 
 
@@ -34,7 +35,8 @@ def get_command_line_parser():
     When given an executable, addresses are decoding using `addr2line`
     """)
     parser.add_argument('--address-threshold', default='0x100000000',
-                        help='Skip common backtrace prefix terminated by one or more addresses greater or equal to the threshold (0=disabled)')
+                        help='Skip the stall detector frames up to and including the signal trampoline, the first frame'
+                             ' at or above the threshold or in a library other than the innermost frame\'s (0=disabled)')
     parser.add_argument('-e', '--executable',
                         help='Decode addresses to lines using given executable')
     parser.add_argument('-f', '--full-function-names', action='store_const', const=True, default=False,
@@ -66,13 +68,9 @@ def get_command_line_parser():
 class Node:
     def __init__(self, addr: str):
         self.addr = addr
-        x = addr.find('+')
-        if x >= 0:
-            self.addr_only = addr[x + 1:]
-            self.module = addr[:x]
-        else:
-            self.addr_only = addr
-            self.module = None
+        # the library name itself may contain '+', e.g. libstdc++.so.6
+        module, _, self.addr_only = addr.rpartition('+')
+        self.module = module or None
         self.callers = {}
         self.callees = {}
         self.printed = False
@@ -109,10 +107,6 @@ class Node:
             n.callees[self.addr] = self.Link(self, t)
         return n
 
-    def unlink_caller(self, addr: str) -> None:
-        link = self.callers.pop(addr)
-        link.node.callees.pop(self.addr)
-
     def link_callee(self, t: int, n) -> Self:
         if n.addr in self.callees:
             link = self.callees[n.addr]
@@ -122,10 +116,6 @@ class Node:
             self.callees[n.addr] = self.Link(n, t)
             n.callers[self.addr] = self.Link(self, t)
         return n
-
-    def unlink_callee(self, addr: str) -> None:
-        link = self.callees.pop(addr)
-        link.node.callers.pop(self.addr)
 
     def sorted_links(self, links: list, descending=True) -> list:
         return sorted([l for l in links if l.node.addr], reverse=descending)
@@ -164,23 +154,27 @@ class Graph:
         # where a code path that stalls may be called from multiple
         # call sites.
         node = None
+        linked = set[tuple[str, str]]()
         for addr in trace:
-            node = self.add(node, t, addr)
+            node = self.add(node, t, addr, linked)
         self.add_head(t, node)
 
-    def add(self, prev: Node, t: int, addr: str):
+    def add(self, prev: Node, t: int, addr: str, linked: set[tuple[str, str]]):
         if addr in self.nodes:
             n = self.nodes[addr]
         else:
             n = Node(addr)
             self.nodes[addr] = n
+        # The innermost frame of every backtrace is linked to the tail, and
+        # the outermost one to the head by add_head(), so that the stall time
+        # of each backtrace is accounted for in both directions.
+        # A recursive backtrace passes the same link several times, which
+        # counts its stall time once; linked holds the links passed so far.
         if prev:
-            if prev.addr in self.head.callees:
-                self.head.unlink_callee(prev.addr)
-            prev.link_caller(t, n)
-            if addr in self.tail.callers:
-                self.tail.unlink_caller(addr)
-        elif not n.callees or addr in self.tail.callers:
+            if (prev.addr, addr) not in linked:
+                linked.add((prev.addr, addr))
+                prev.link_caller(t, n)
+        else:
             self.tail.link_caller(t, n)
         return n
 
@@ -289,7 +283,7 @@ Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if
                     prefix = _prefix(next_prefix_list)
                     p = '++'
                     rel = omitted_total / total
-                    avg = round(omitted_total / omitted_count) if count else 0
+                    avg = round(omitted_total / omitted_count)
                     l = f"[{level+1}#{omitted_idx}/{last_idx} {round(100*rel)}%]"
                     print(f"{prefix}{p}{l} {last_idx - omitted_idx + 1} more branches total={omitted_total} count={omitted_count} avg={avg}")
 
@@ -309,6 +303,9 @@ class StackCollapse:
                                       at\s                   #
                                       [^:]+:(?:\?|\d+)       # <source>:<line number>''', re.X)
 
+    def __bool__(self):
+        return bool(self.collapsed)
+
     def process_trace(self, frames: list[str], count: int) -> None:
         # each stall report is mapped to a line of perf samples
         # so the output looks like:
@@ -317,21 +314,22 @@ class StackCollapse:
         # in ms, but we use it for the count of samples.
         self.collapsed[';'.join(frames)] += count
 
-    def _annotate_func(self, line: str) -> str:
+    def _annotate_func(self, line: str, inlined: bool) -> str:
         # sample input:
-        #   (inlined by) position_in_partition::tri_compare::operator() at ././position_in_partition.hh:485
-        # sample output:
+        #   position_in_partition::tri_compare::operator() at ././position_in_partition.hh:485
+        # sample output, when inlined:
         #   position_in_partition::tri_compare::operator()_[i]
         if line.startswith("??"):
             return ""
 
-        inlined_prefix = ' (inlined by) '
-        inlined = line.startswith(inlined_prefix)
-        if inlined:
-            line = line[len(inlined_prefix):]
+        inlined_by_prefix = ' (inlined by) '
+        if line.startswith(inlined_by_prefix):
+            line = line[len(inlined_by_prefix):]
 
         matched = self.pattern.match(line)
-        assert matched, f"bad line: {line}"
+        if not matched:
+            # an address in a missing library, printed as it is
+            return line.strip()
         func = matched.groups()[0]
         # annotations
         if inlined:
@@ -339,8 +337,15 @@ class StackCollapse:
         return func
 
     def _resolve(self, addr: str) -> Iterator[str]:
-        lines = self.resolver.resolve_address(addr).splitlines()
-        return (self._annotate_func(line) for line in lines)
+        # without an executable, frames are the addresses themselves
+        if not self.resolver:
+            return iter([addr])
+        # addresses prefixed by their library are resolved in that library
+        module, _, address = addr.rpartition('+')
+        lines = self.resolver.resolve_address(address, module=module or None).splitlines()
+        # addr2line prints the functions of an address innermost first,
+        # each but the last one inlined into the next one
+        return (self._annotate_func(line, i < len(lines) - 1) for i, line in enumerate(lines))
 
     def print_graph(self, *_) -> None:
         for stack, count in self.collapsed.items():
@@ -376,17 +381,39 @@ def print_stats(tally: dict, tmin: int) -> None:
         running_count += count
         if median is None and running_count >= total_count / 2:
             median = t
-        elif p95 is None and running_count >= (total_count * 95) / 100:
+        if p95 is None and running_count >= (total_count * 95) / 100:
             p95 = t
-        elif p99 is None and running_count >= (total_count * 99) / 100:
+        if p99 is None and running_count >= (total_count * 99) / 100:
             p99 = t
-        elif p999 is None and running_count >= (total_count * 999) / 1000:
+        if p999 is None and running_count >= (total_count * 999) / 1000:
             p999 = t
     print(f"Processed {total_count} stalls lasting a total of {total_time} milliseconds.")
     if tmin:
         print(f"Of which, {processed_count} lasted {tmin} milliseconds or longer.")
     avg_time = total_time / total_count if total_count else 0
     print(f"min={min_time} avg={avg_time:.1f} median={median} p95={p95} p99={p99} p999={p999} max={max_time}")
+
+
+def skip_stall_detector_frames(trace: list[str], address_threshold: int) -> list[str]:
+    """
+    Returns the frames following the signal trampoline, which ends the frames
+    of the stall detector, or all frames when the trace has no trampoline.
+
+    The trampoline is the first library frame: an address at or above
+    address_threshold, or an address prefixed by a library other than the
+    one of the innermost frame, which is the library of the stall detector
+    when Seastar is a shared library.
+
+    An empty trace is returned as is.
+    """
+    if not trace:
+        return trace
+    innermost_library = trace[0].rpartition('+')[0]
+    for i, addr in enumerate(trace):
+        library, _, offset = addr.rpartition('+')
+        if library != innermost_library if library else int(offset, 0) >= address_threshold:
+            return trace[i + 1:]
+    return trace
 
 
 def print_command_line_options(args):
@@ -450,7 +477,7 @@ def main():
         #  (inlined by) seastar::reactor::block_notifier(int) at ./build/release/seastar/./seastar/src/core/reactor.cc:1240
         # ?? ??:0
         if address_threshold:
-            trace = list(dropwhile(lambda addr: int(addr, 0) >= address_threshold, trace))
+            trace = skip_stall_detector_frames(trace, address_threshold)
         if t >= args.tmin:
             if not trace:
                 print(f"""Invalid input line: '{s.strip()}'
@@ -469,8 +496,11 @@ Please run `stall-analyser.py --help` for usage instruction""", file=sys.stderr)
             print_command_line_options(args)
             print_stats(tally, args.tmin)
         render.print_graph(args.direction, args.width, args.branch_threshold)
+        sys.stdout.flush()
     except BrokenPipeError:
-        pass
+        # Python flushes stdout again at exit, which would fail the same
+        # way, so point stdout to /dev/null.
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
 
 
 if __name__ == '__main__':
