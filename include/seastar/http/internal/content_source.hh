@@ -94,6 +94,35 @@ public:
 };
 
 /*
+ * An input_stream wrapper for a reply body that has neither Content-Length nor
+ * "chunked" encoding, so it runs until the server closes the connection
+ * (RFC 9112, section 6.3). The remaining counter stays at its maximum until the
+ * end of the stream, like the chunked one.
+ * */
+class close_delimited_source_impl : public data_source_impl {
+    input_stream<char>& _inp;
+    size_t& _remaining_bytes;
+public:
+    close_delimited_source_impl(input_stream<char>& inp, size_t& remaining)
+        : _inp(inp), _remaining_bytes(remaining) {
+        _remaining_bytes = std::numeric_limits<size_t>::max();
+    }
+
+    virtual future<temporary_buffer<char>> get() override {
+        return _inp.read().then([this] (temporary_buffer<char> buf) {
+            if (buf.empty()) {
+                _remaining_bytes = 0;
+            }
+            return buf;
+        });
+    }
+
+    virtual future<> close() override {
+        return make_ready_future<>();
+    }
+};
+
+/*
  * An input_stream wrapper that decodes a request body
  * with "chunked" encoding.
  * */

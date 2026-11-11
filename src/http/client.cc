@@ -416,10 +416,17 @@ public:
 // RFC 9110 6.4.1 and 15.4.5: a 1xx, a 204 and a 304 carry no body whatever
 // Content-Length says, and neither does the answer to a HEAD. Reading one would
 // take the bytes of the next reply on the connection for this one's body.
-static input_stream<char> make_body_stream(connection& con, const request& req, reply& rep) {
+input_stream<char> client::make_body_stream(connection& con, const request& req, reply& rep) {
     if (req._method == "HEAD" || reply::classify_status(rep._status) == reply::status_class::informational
             || rep._status == reply::status_type::no_content || rep._status == reply::status_type::not_modified) {
         return input_stream<char>(data_source(std::make_unique<skip_body_source>(rep)));
+    }
+    if (!seastar::internal::case_insensitive_cmp()(rep.get_header("Transfer-Encoding"), "chunked")
+            && rep.get_header("Content-Length").empty()) {
+        // Neither framing: the body ends where the connection does (RFC 9112 6.3), so no
+        // reply can follow it.
+        con._persistent = false;
+        return input_stream<char>(data_source(std::make_unique<httpd::internal::close_delimited_source_impl>(con._read_buf, rep.left_content_length)));
     }
     return con.in(rep);
 }

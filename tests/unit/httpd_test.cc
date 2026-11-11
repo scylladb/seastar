@@ -1224,6 +1224,55 @@ SEASTAR_TEST_CASE(test_client_chunked_body_ends_early) {
     });
 }
 
+// A reply body with neither Content-Length nor chunked encoding runs until the server
+// closes the connection: the handler gets all of it, and the connection is not reused.
+SEASTAR_TEST_CASE(test_client_reads_close_delimited_reply_body) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        const sstring body = "a body that ends when the connection does";
+        future<> server = ss.accept().then([&body] (accept_result ar) {
+            return seastar::async([sk = std::move(ar.connection), &body] () mutable {
+                input_stream<char> in = sk.input();
+                output_stream<char> out = sk.output();
+                read_simple_http_request(in);
+                out.write(sstring("HTTP/1.1 200 OK\r\nHost: localhost\r\n\r\n") + body).get();
+                out.flush().get();
+                out.close().get();
+            });
+        }).then([&ss] {
+            return ss.accept().then([] (accept_result ar) {
+                return seastar::async([sk = std::move(ar.connection)] () mutable {
+                    input_stream<char> in = sk.input();
+                    output_stream<char> out = sk.output();
+                    read_simple_http_request(in);
+                    out.write(sstring("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n")).get();
+                    out.flush().get();
+                    out.close().get();
+                });
+            });
+        });
+
+        auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
+        sstring got;
+        cln.make_request(http::request::make("GET", "test", "/test"), [&got] (const http::reply&, input_stream<char>&& in) {
+            return do_with(std::move(in), [&got] (auto& in) {
+                return util::read_entire_stream_contiguous(in).then([&got] (sstring s) {
+                    got = std::move(s);
+                });
+            });
+        }).get();
+        BOOST_REQUIRE_EQUAL(got, body);
+        cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply&, input_stream<char>&&) {
+            return make_ready_future<>();
+        }).get();
+        BOOST_REQUIRE_EQUAL(cln.total_new_connections_nr(), 2);
+
+        cln.close().get();
+        server.get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_client_head_empty_body) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);
