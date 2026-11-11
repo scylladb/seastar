@@ -59,11 +59,15 @@ client_ref::~client_ref() {
 
 // A pooled connection outlives the request that opened it, so the shutdown
 // waiter must not bind to the caller's scheduling group, which may be destroyed.
-static future<> wait_input_shutdown_in_default_group(connected_socket& fd, shared_ptr<connection> me) {
+future<> connection::wait_input_shutdown_in_default_group(connected_socket& fd, shared_ptr<connection> me) {
     auto* sg = seastar::internal::current_scheduling_group_ptr();
     auto prev = std::exchange(*sg, default_scheduling_group());
     auto restore = defer([sg, prev] () noexcept { *sg = prev; });
-    return fd.wait_input_shutdown().finally([me = std::move(me)] {});
+    // A connection the peer shut down while it was in use must not go back to the pool:
+    // this was its last owner there, so it would be destroyed without being closed.
+    return fd.wait_input_shutdown().finally([me = std::move(me)] {
+        me->_persistent = false;
+    });
 }
 
 connection::connection(connected_socket&& fd, internal::client_ref cr)
@@ -102,10 +106,12 @@ future<connection::reply_ptr> connection::maybe_wait_for_continue(const request&
     }
 
     return _write_buf.flush().then([this] {
-        return recv_reply().then([] (reply_ptr rep) {
+        return recv_reply().then([this] (reply_ptr rep) {
             if (rep->_status == reply::status_type::continue_) {
                 return make_ready_future<reply_ptr>(nullptr);
             } else {
+                // The request body is never sent, and the server may still be waiting to read it.
+                _persistent = false;
                 return make_ready_future<reply_ptr>(std::move(rep));
             }
         });
@@ -167,6 +173,9 @@ future<connection::reply_ptr> connection::do_make_request(const request& req) {
                 });
             });
         });
+    }).handle_exception([this] (std::exception_ptr ex) {
+        _persistent = false;
+        return make_exception_future<reply_ptr>(std::move(ex));
     });
 }
 
@@ -183,12 +192,44 @@ future<reply> connection::make_request(request req) {
     });
 }
 
-input_stream<char> connection::in(reply& rep) {
-    if (seastar::internal::case_insensitive_cmp()(rep.get_header("Transfer-Encoding"), "chunked")) {
-        return input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(_read_buf, rep.chunk_extensions, rep.trailing_headers, rep.left_content_length)));
-    }
+namespace {
 
-    return input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(_read_buf, rep.content_length, rep.left_content_length)));
+// A body read that failed leaves the stream somewhere inside the body, with nothing to
+// tell where the next reply starts, so the connection cannot be reused.
+class failure_drops_connection_source : public data_source_impl {
+    data_source _src;
+    bool& _persistent;
+
+    future<temporary_buffer<char>> watch(future<temporary_buffer<char>> f) {
+        return f.handle_exception([this] (std::exception_ptr ex) {
+            _persistent = false;
+            return make_exception_future<temporary_buffer<char>>(std::move(ex));
+        });
+    }
+public:
+    failure_drops_connection_source(std::unique_ptr<data_source_impl> src, bool& persistent)
+        : _src(std::move(src)), _persistent(persistent) {}
+    future<temporary_buffer<char>> get() override {
+        return watch(_src.get());
+    }
+    future<temporary_buffer<char>> skip(uint64_t n) override {
+        return watch(_src.skip(n));
+    }
+    future<> close() override {
+        return _src.close();
+    }
+};
+
+}
+
+input_stream<char> connection::in(reply& rep) {
+    std::unique_ptr<data_source_impl> src;
+    if (seastar::internal::case_insensitive_cmp()(rep.get_header("Transfer-Encoding"), "chunked")) {
+        src = std::make_unique<httpd::internal::chunked_source_impl>(_read_buf, rep.chunk_extensions, rep.trailing_headers, rep.left_content_length);
+    } else {
+        src = std::make_unique<httpd::internal::content_length_source_impl>(_read_buf, rep.content_length, rep.left_content_length);
+    }
+    return input_stream<char>(data_source(std::make_unique<failure_drops_connection_source>(std::move(src), _persistent)));
 }
 
 void connection::shutdown() noexcept {
@@ -363,7 +404,7 @@ future<> client::maybe_retry_request(std::exception_ptr ex,
             return make_exception_future<>(std::move(ex));
         }
         ++_http_stats[method].retries;
-        return with_new_connection([this, &req, &handle, as, expected](connection& con) {
+        return with_connection([this, &req, &handle, as, expected](connection& con) {
                                        return do_make_request(con, req, handle, as, expected);
                                    },
                                    as).handle_exception([this, retry_count, method, &req, &handle, &strategy, as, expected](std::exception_ptr ex) {
@@ -416,10 +457,17 @@ public:
 // RFC 9110 6.4.1 and 15.4.5: a 1xx, a 204 and a 304 carry no body whatever
 // Content-Length says, and neither does the answer to a HEAD. Reading one would
 // take the bytes of the next reply on the connection for this one's body.
-static input_stream<char> make_body_stream(connection& con, const request& req, reply& rep) {
+input_stream<char> client::make_body_stream(connection& con, const request& req, reply& rep) {
     if (req._method == "HEAD" || reply::classify_status(rep._status) == reply::status_class::informational
             || rep._status == reply::status_type::no_content || rep._status == reply::status_type::not_modified) {
         return input_stream<char>(data_source(std::make_unique<skip_body_source>(rep)));
+    }
+    if (!seastar::internal::case_insensitive_cmp()(rep.get_header("Transfer-Encoding"), "chunked")
+            && rep.get_header("Content-Length").empty()) {
+        // Neither framing: the body ends where the connection does (RFC 9112 6.3), so no
+        // reply can follow it.
+        con._persistent = false;
+        return input_stream<char>(data_source(std::make_unique<httpd::internal::close_delimited_source_impl>(con._read_buf, rep.left_content_length)));
     }
     return con.in(rep);
 }
@@ -428,51 +476,55 @@ future<> client::do_make_request(connection& con, const request& req, reply_hand
     auto sub = as ? as->subscribe([&con] () noexcept { con.shutdown(); }) : std::nullopt;
     return con.do_make_request(req).then([this, &con, &req, &handle, expected] (connection::reply_ptr reply) mutable {
         auto& rep = *reply;
-        if (expected.has_value() && rep._status != expected.value()) {
-            if (!http_log.is_enabled(log_level::debug)) {
+        // A handler may also throw instead of returning a failed future, and that must
+        // reach drain_reply() as well, or the connection goes back to the pool mid-body.
+        auto handled = futurize_invoke([&con, &req, &handle, &rep, expected] () -> future<> {
+            if (expected.has_value() && rep._status != expected.value()) {
+                // Not read, only made so the reply knows how much of the body is left.
+                auto in = make_body_stream(con, req, rep);
                 return make_exception_future<>(httpd::unexpected_status_error(rep._status));
             }
-
-            return do_with(make_body_stream(con, req, rep), [reply = std::move(reply)] (auto& in) mutable {
-                return util::read_entire_stream_contiguous(in).then([reply = std::move(reply)] (auto message) {
-                    http_log.debug("request finished with {}: {}", reply->_status, message);
-                    return make_exception_future<>(httpd::unexpected_status_error(reply->_status));
-                });
-            });
-        }
-
-        auto in = make_body_stream(con, req, rep);
-        return handle(rep, std::move(in)).then([this, reply = std::move(reply), &con] {
-            if (reply->left_content_length > 0) {
-                auto bytes_left = reply->left_content_length;
-                /*
-                 * Reply with known body size (content_length_source_impl) tracks this counter
-                 * carefully and sets it with the exact number of bytes left to be read. If this
-                 * value is low enough, it's cheaper to read the body up to the end and instantly
-                 * discard it rather than to close the connection and establish a new one for
-                 * next request.
-                 *
-                 * Reply with "dynamic" body (chunked_source_impl) will set this counter to zero
-                 * after reading all body contents, otherwise it will be set to maximum uint64_t
-                 * value, so the below check will be false in this case.
-                 *
-                 * The "HEAD" reply doesn't have body and will report zero left bytes.
-                 */
-                if (bytes_left <= _max_bytes_to_drain) {
-                    http_log.trace("content was not fully consumed, {} bytes were left behind, skipping and returning the connection to the pool", bytes_left);
-                    return con._read_buf.skip(bytes_left);
-                }
-                http_log.trace("content was not fully consumed, content length is {} but {} left, will close the connection",
-                               reply->content_length,
-                               reply->left_content_length);
-                con._persistent = false;
-            }
-            return make_ready_future<>();
+            return handle(rep, make_body_stream(con, req, rep));
         });
-    }).handle_exception([&con] (auto ex) mutable {
-        con._persistent = false;
-        return make_exception_future<>(std::move(ex));
+        return handled.then_wrapped([this, reply = std::move(reply), &con] (future<> f) {
+            return drain_reply(con, *reply, f.failed() ? f.get_exception() : std::exception_ptr{});
+        });
     }).finally([sub = std::move(sub)] {});
+}
+
+// Skips what the handler left of the reply body, so that the connection can be reused, or closes
+// the connection when that is too much. Then resolves with the handler's outcome, ex if it failed.
+future<> client::drain_reply(connection& con, const reply& rep, std::exception_ptr ex) const {
+    /*
+     * Reply with known body size (content_length_source_impl) tracks this counter
+     * carefully and sets it with the exact number of bytes left to be read. If this
+     * value is low enough, it's cheaper to read the body up to the end and instantly
+     * discard it rather than to close the connection and establish a new one for
+     * next request.
+     *
+     * Reply with "dynamic" body (chunked_source_impl) will set this counter to zero
+     * after reading all body contents, otherwise it will be set to maximum uint64_t
+     * value, so the below check will be false in this case.
+     *
+     * The "HEAD" reply doesn't have body and will report zero left bytes.
+     */
+    auto bytes_left = rep.left_content_length;
+    if (bytes_left == 0 || !con._persistent) {
+        return ex ? make_exception_future<>(std::move(ex)) : make_ready_future();
+    }
+    if (bytes_left > _max_bytes_to_drain) {
+        http_log.trace("content was not fully consumed, content length is {} but {} left, will close the connection", rep.content_length, bytes_left);
+        con._persistent = false;
+        return ex ? make_exception_future<>(std::move(ex)) : make_ready_future();
+    }
+    http_log.trace("content was not fully consumed, {} bytes were left behind, skipping and returning the connection to the pool", bytes_left);
+    return con._read_buf.skip(bytes_left).then_wrapped([&con, ex = std::move(ex)] (future<> skipped) mutable {
+        if (skipped.failed()) {
+            skipped.ignore_ready_future();
+            con._persistent = false;
+        }
+        return ex ? make_exception_future<>(std::move(ex)) : make_ready_future();
+    });
 }
 
 future<> client::close() noexcept {

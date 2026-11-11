@@ -1224,6 +1224,104 @@ SEASTAR_TEST_CASE(test_client_chunked_body_ends_early) {
     });
 }
 
+// A reply body with neither Content-Length nor chunked encoding runs until the server
+// closes the connection: the handler gets all of it, and the connection is not reused.
+SEASTAR_TEST_CASE(test_client_reads_close_delimited_reply_body) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        const sstring body = "a body that ends when the connection does";
+        future<> server = ss.accept().then([&body] (accept_result ar) {
+            return seastar::async([sk = std::move(ar.connection), &body] () mutable {
+                input_stream<char> in = sk.input();
+                output_stream<char> out = sk.output();
+                read_simple_http_request(in);
+                out.write(sstring("HTTP/1.1 200 OK\r\nHost: localhost\r\n\r\n") + body).get();
+                out.flush().get();
+                out.close().get();
+            });
+        }).then([&ss] {
+            return ss.accept().then([] (accept_result ar) {
+                return seastar::async([sk = std::move(ar.connection)] () mutable {
+                    input_stream<char> in = sk.input();
+                    output_stream<char> out = sk.output();
+                    read_simple_http_request(in);
+                    out.write(sstring("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n")).get();
+                    out.flush().get();
+                    out.close().get();
+                });
+            });
+        });
+
+        auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
+        sstring got;
+        cln.make_request(http::request::make("GET", "test", "/test"), [&got] (const http::reply&, input_stream<char>&& in) {
+            return do_with(std::move(in), [&got] (auto& in) {
+                return util::read_entire_stream_contiguous(in).then([&got] (sstring s) {
+                    got = std::move(s);
+                });
+            });
+        }).get();
+        BOOST_REQUIRE_EQUAL(got, body);
+        cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply&, input_stream<char>&&) {
+            return make_ready_future<>();
+        }).get();
+        BOOST_REQUIRE_EQUAL(cln.total_new_connections_nr(), 2);
+
+        cln.close().get();
+        server.get();
+    });
+}
+
+// A final reply instead of 100 Continue leaves the request body unsent, while the server
+// may still be reading it, so the connection must not carry the next request.
+SEASTAR_TEST_CASE(test_client_drops_connection_after_refused_expect_continue) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        auto serve = [] (accept_result ar, sstring first_reply) {
+            return seastar::async([sk = std::move(ar.connection), first_reply] () mutable {
+                input_stream<char> in = sk.input();
+                output_stream<char> out = sk.output();
+                read_simple_http_request(in);
+                out.write(first_reply).get();
+                out.flush().get();
+                // Whatever arrives next is a request the client should not have sent here.
+                while (!in.read().get().empty()) {
+                    out.write(sstring("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n")).get();
+                    out.flush().get();
+                }
+                out.close().get();
+            });
+        };
+        future<> server = ss.accept().then([&ss, serve] (accept_result ar) {
+            auto first = serve(std::move(ar), "HTTP/1.1 417 Expectation Failed\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n");
+            auto second = ss.accept().then([serve] (accept_result ar) {
+                return serve(std::move(ar), "HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n");
+            }).handle_exception([] (auto) {});
+            return when_all_succeed(std::move(first), std::move(second)).discard_result();
+        });
+
+        auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
+        auto req = http::request::make("PUT", "test", "/test");
+        req._headers["Expect"] = "100-continue";
+        req.write_body("txt", sstring("a body the server never asked for"));
+        cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&&) {
+            BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::expectation_failed);
+            return make_ready_future<>();
+        }).get();
+        cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply& rep, input_stream<char>&&) {
+            BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::ok);
+            return make_ready_future<>();
+        }).get();
+        BOOST_REQUIRE_EQUAL(cln.total_new_connections_nr(), 2);
+
+        cln.close().get();
+        ss.abort_accept();
+        server.get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_client_head_empty_body) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);
@@ -1305,7 +1403,7 @@ SEASTAR_TEST_CASE(test_client_retry_nested) {
                 input_stream<char> in = sk.input();
                     read_simple_http_request(in);
                     output_stream<char> out = sk.output();
-                    sstring r200("HTTP/1.1 200 OK\r\nHost: localhost\r\n\r\n");
+                    sstring r200("HTTP/1.1 200 OK\r\nHost: localhost\r\nConnection: close\r\n\r\n");
                     out.write(r200).get(); // now write complete response
                     out.flush().get();
                     out.close().get();
@@ -1316,7 +1414,7 @@ SEASTAR_TEST_CASE(test_client_retry_nested) {
                     input_stream<char> in = sk.input();
                     read_simple_http_request(in);
                     output_stream<char> out = sk.output();
-                    sstring r200("HTTP/1.1 200 OK\r\nHost: localhost\r\n\r\n");
+                    sstring r200("HTTP/1.1 200 OK\r\nHost: localhost\r\nConnection: close\r\n\r\n");
                     out.write(r200).get(); // now write complete response
                     out.flush().get();
                     out.close().get();
@@ -1650,6 +1748,252 @@ SEASTAR_TEST_CASE(test_client_retry_body_ends_early) {
         });
 
         when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
+// Returns false when the client closed the connection before sending a request.
+static bool read_http_request_or_eof(input_stream<char>& in) {
+    sstring req;
+    while (!req.ends_with("\r\n\r\n")) {
+        auto r = in.read().get();
+        if (r.empty()) {
+            return false;
+        }
+        req += sstring(r.get(), r.size());
+    }
+    return true;
+}
+
+// Answers requests with `replies` in order, on as many connections as the client opens,
+// so a test can count the client's connections instead of hanging on an unanswered dial.
+// Ends after abort_accept() once the client has closed every connection.
+static future<> serve_replies(server_socket& ss, std::vector<sstring> replies) {
+    return seastar::async([&ss, replies = std::move(replies)] {
+        size_t next = 0;
+        std::vector<future<>> connections;
+        while (true) {
+            accept_result ar;
+            try {
+                ar = ss.accept().get();
+            } catch (...) {
+                break;
+            }
+            connections.push_back(seastar::async([sk = std::move(ar.connection), &replies, &next] () mutable {
+                input_stream<char> in = sk.input();
+                output_stream<char> out = sk.output();
+                try {
+                    while (next < replies.size() && read_http_request_or_eof(in)) {
+                        out.write(replies[next++]).get();
+                        out.flush().get();
+                    }
+                } catch (...) {
+                    // The client is allowed to drop the connection mid-reply.
+                }
+                out.close().handle_exception([] (auto) {}).get();
+            }));
+        }
+        when_all(connections.begin(), connections.end()).discard_result().get();
+    });
+}
+
+static sstring make_reply(sstring status, size_t body_length) {
+    return format("HTTP/1.1 {}\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{}", status, body_length, sstring(body_length, 'a'));
+}
+
+// A handler that read a whole reply and then failed, as clients do for an error status,
+// leaves the connection as reusable as a successful one.
+SEASTAR_TEST_CASE(test_client_keeps_connection_after_handler_error) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        auto server = serve_replies(ss, {make_reply("503 Service Unavailable", 64), make_reply("200 OK", 0)});
+
+        auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
+        BOOST_REQUIRE_THROW(cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply& rep, input_stream<char>&& in) {
+            return do_with(std::move(in), [] (auto& in) {
+                return util::read_entire_stream_contiguous(in).then([] (auto) {
+                    return make_exception_future<>(std::runtime_error("refused"));
+                });
+            });
+        }).get(), std::runtime_error);
+        cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply& rep, input_stream<char>&& in) {
+            BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::ok);
+            return make_ready_future<>();
+        }).get();
+        BOOST_REQUIRE_EQUAL(cln.total_new_connections_nr(), 1);
+
+        cln.close().get();
+        ss.abort_accept();
+        server.get();
+    });
+}
+
+// An unexpected status leaves a short body unread, which is drained to keep the
+// connection.
+SEASTAR_TEST_CASE(test_client_keeps_connection_after_unexpected_status) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        auto server = serve_replies(ss, {make_reply("404 Not Found", 64), make_reply("200 OK", 0)});
+
+        auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
+        BOOST_REQUIRE_THROW(cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply&, input_stream<char>&&) {
+            BOOST_FAIL("the handler must not see an unexpected status");
+            return make_ready_future<>();
+        }, http::reply::status_type::ok).get(), httpd::unexpected_status_error);
+        cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply&, input_stream<char>&&) {
+            return make_ready_future<>();
+        }, http::reply::status_type::ok).get();
+        BOOST_REQUIRE_EQUAL(cln.total_new_connections_nr(), 1);
+
+        cln.close().get();
+        ss.abort_accept();
+        server.get();
+    });
+}
+
+// A handler that failed without reading a short body: the rest is drained to keep the
+// connection.
+SEASTAR_TEST_CASE(test_client_drains_body_after_handler_error) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        auto server = serve_replies(ss, {make_reply("503 Service Unavailable", 64), make_reply("200 OK", 0)});
+
+        auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
+        BOOST_REQUIRE_THROW(cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply&, input_stream<char>&&) {
+            return make_exception_future<>(std::runtime_error("refused"));
+        }).get(), std::runtime_error);
+        cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply& rep, input_stream<char>&&) {
+            BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::ok);
+            return make_ready_future<>();
+        }).get();
+        BOOST_REQUIRE_EQUAL(cln.total_new_connections_nr(), 1);
+
+        cln.close().get();
+        ss.abort_accept();
+        server.get();
+    });
+}
+
+// A handler that throws instead of returning a failed future gets the same treatment:
+// the rest of the body is drained, so the next request does not read it as a reply.
+SEASTAR_TEST_CASE(test_client_drains_body_after_handler_throws) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        auto server = serve_replies(ss, {make_reply("503 Service Unavailable", 64), make_reply("200 OK", 0)});
+
+        auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
+        BOOST_REQUIRE_THROW(cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply&, input_stream<char>&&) -> future<> {
+            throw std::runtime_error("refused");
+        }).get(), std::runtime_error);
+        cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply& rep, input_stream<char>&&) {
+            BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::ok);
+            return make_ready_future<>();
+        }).get();
+        BOOST_REQUIRE_EQUAL(cln.total_new_connections_nr(), 1);
+
+        cln.close().get();
+        ss.abort_accept();
+        server.get();
+    });
+}
+
+// A chunked body that breaks its framing leaves no way to find where the next reply
+// starts, so the connection is dropped even though the handler read to the error.
+static void check_drops_connection_after_bad_chunk(size_t max_bytes_to_drain) {
+    loopback_connection_factory lcf(1);
+    auto ss = lcf.get_server_socket();
+    auto server = serve_replies(ss, {
+        "HTTP/1.1 200 OK\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nabcdXX",
+        make_reply("200 OK", 0)});
+
+    auto cln = http::client(std::make_unique<loopback_http_factory>(lcf), 1, http::client::retry_requests::no, max_bytes_to_drain);
+    BOOST_REQUIRE_THROW(cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply&, input_stream<char>&& in) {
+        return do_with(std::move(in), [] (auto& in) {
+            return util::read_entire_stream_contiguous(in).discard_result();
+        });
+    }).get(), std::exception);
+    cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply& rep, input_stream<char>&&) {
+        BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::ok);
+        return make_ready_future<>();
+    }).get();
+    BOOST_REQUIRE_EQUAL(cln.total_new_connections_nr(), 2);
+
+    cln.close().get();
+    ss.abort_accept();
+    server.get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_client_drops_connection_after_bad_chunk) {
+    check_drops_connection_after_bad_chunk(128 * 1024);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_client_drops_connection_after_bad_chunk_unlimited_drain) {
+    check_drops_connection_after_bad_chunk(std::numeric_limits<size_t>::max());
+}
+
+// A pooled connection the server closes leaves the pool by itself, so the next request
+// dials instead of failing on it. The retry relies on this: it takes a pooled connection.
+SEASTAR_TEST_CASE(test_client_drops_pooled_connection_closed_by_server) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        auto reply_once = [] (accept_result ar) {
+            return seastar::async([sk = std::move(ar.connection)] () mutable {
+                input_stream<char> in = sk.input();
+                output_stream<char> out = sk.output();
+                read_simple_http_request(in);
+                out.write(make_reply("200 OK", 0)).get();
+                out.flush().get();
+                out.close().get();
+            });
+        };
+        future<> server = ss.accept().then(reply_once).then([&ss, reply_once] {
+            return ss.accept().then(reply_once);
+        });
+
+        auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
+        auto send_request = [&cln] {
+            cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply& rep, input_stream<char>&&) {
+                BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::ok);
+                return make_ready_future<>();
+            }).get();
+        };
+        send_request();
+        for (int i = 0; i < 1000 && cln.idle_connections_nr() != 0; i++) {
+            seastar::thread::yield();
+        }
+        BOOST_REQUIRE_EQUAL(cln.idle_connections_nr(), 0);
+        send_request();
+        BOOST_REQUIRE_EQUAL(cln.total_new_connections_nr(), 2);
+
+        cln.close().get();
+        server.get();
+    });
+}
+
+// A handler that failed with more body unread than is worth draining leaves the
+// connection mid-reply, so it cannot be reused.
+SEASTAR_TEST_CASE(test_client_drops_connection_after_handler_error_mid_body) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        auto server = serve_replies(ss, {make_reply("200 OK", 256 * 1024), make_reply("200 OK", 0)});
+
+        auto cln = http::client(std::make_unique<loopback_http_factory>(lcf));
+        BOOST_REQUIRE_THROW(cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply&, input_stream<char>&&) {
+            return make_exception_future<>(std::runtime_error("gave up"));
+        }).get(), std::runtime_error);
+        cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply&, input_stream<char>&&) {
+            return make_ready_future<>();
+        }).get();
+        BOOST_REQUIRE_EQUAL(cln.total_new_connections_nr(), 2);
+
+        cln.close().get();
+        ss.abort_accept();
+        server.get();
     });
 }
 
@@ -2780,6 +3124,12 @@ future<> test_client_close_connection(bool chunked) {
                     } catch (...) {
                         break;
                     }
+                }
+                // A keep-alive server keeps the connection until the client closes it. Closing
+                // it here would race the client's second request, which reuses the connection.
+                try {
+                    while (!in.read().get().empty()) {}
+                } catch (...) {
                 }
                 out.close().handle_exception_type([](std::system_error& ex){
                     if (ex.code().value() == EPIPE) {
