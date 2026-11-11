@@ -219,6 +219,7 @@ private:
                                  abort_source* as);
 
     future<> do_make_request(connection& con, const request& req, reply_handler& handle, abort_source*, std::optional<reply::status_type> expected);
+    static input_stream<char> make_body_stream(connection& con, const request& req, reply& rep);
 
 public:
     /**
