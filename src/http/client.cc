@@ -59,11 +59,15 @@ client_ref::~client_ref() {
 
 // A pooled connection outlives the request that opened it, so the shutdown
 // waiter must not bind to the caller's scheduling group, which may be destroyed.
-static future<> wait_input_shutdown_in_default_group(connected_socket& fd, shared_ptr<connection> me) {
+future<> connection::wait_input_shutdown_in_default_group(connected_socket& fd, shared_ptr<connection> me) {
     auto* sg = seastar::internal::current_scheduling_group_ptr();
     auto prev = std::exchange(*sg, default_scheduling_group());
     auto restore = defer([sg, prev] () noexcept { *sg = prev; });
-    return fd.wait_input_shutdown().finally([me = std::move(me)] {});
+    // A connection the peer shut down while it was in use must not go back to the pool:
+    // this was its last owner there, so it would be destroyed without being closed.
+    return fd.wait_input_shutdown().finally([me = std::move(me)] {
+        me->_persistent = false;
+    });
 }
 
 connection::connection(connected_socket&& fd, internal::client_ref cr)
