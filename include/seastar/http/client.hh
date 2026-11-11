@@ -108,6 +108,8 @@ class connection : public enable_shared_from_this<connection> {
     // responds with older version, this flag will be dropped (see recv_reply())
     bool _persistent = true;
 
+    static future<> wait_input_shutdown_in_default_group(connected_socket& fd, shared_ptr<connection> me);
+
 public:
     /**
      * \brief Create an http connection
