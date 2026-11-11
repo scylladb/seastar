@@ -102,10 +102,12 @@ future<connection::reply_ptr> connection::maybe_wait_for_continue(const request&
     }
 
     return _write_buf.flush().then([this] {
-        return recv_reply().then([] (reply_ptr rep) {
+        return recv_reply().then([this] (reply_ptr rep) {
             if (rep->_status == reply::status_type::continue_) {
                 return make_ready_future<reply_ptr>(nullptr);
             } else {
+                // The request body is never sent, and the server may still be waiting to read it.
+                _persistent = false;
                 return make_ready_future<reply_ptr>(std::move(rep));
             }
         });
