@@ -56,6 +56,10 @@ struct native_stack_options : public program_options::option_group {
     ///
     /// Default: \ref ipv4_udp::default_queue_size.
     program_options::value<int> udpv4_queue_size;
+    /// \brief TCP TIME_WAIT retention period in seconds (must be positive).
+    ///
+    /// Default: 60.
+    program_options::value<unsigned> tcp_time_wait_duration;
     /// \brief Use DHCP discovery.
     ///
     /// Default: \p true.
