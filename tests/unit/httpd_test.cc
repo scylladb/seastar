@@ -1612,6 +1612,57 @@ SEASTAR_TEST_CASE(test_request_body_ends_early) {
     });
 }
 
+// A streaming handler that answers without reading a chunked body leaves the server to
+// read the rest of it, after the handler has destroyed the request. The chunk extensions
+// and the trailer parsed then must not be stored into that request.
+SEASTAR_TEST_CASE(test_stream_chunked_body_left_unread) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        server.set_content_streaming(true);
+        loopback_socket_impl lsi(lcf);
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+
+        future<> client = seastar::async([&lsi] {
+            connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get();
+            input_stream<char> input(c_socket.input());
+            output_stream<char> output(c_socket.output());
+            auto read_reply = [&input] {
+                sstring received;
+                while (received.find("unread") == sstring::npos) {
+                    auto buf = input.read().get();
+                    BOOST_REQUIRE(!buf.empty());
+                    received += sstring(buf.get(), buf.size());
+                }
+                BOOST_REQUIRE(received.starts_with("HTTP/1.1 200 OK"));
+            };
+
+            output.write(sstring("PUT /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n")).get();
+            output.flush().get();
+            // The handler answers before the body ends: the request is gone by then.
+            read_reply();
+            // The rest of the body: a last chunk with an extension, and a trailer.
+            output.write(sstring("0;ext=1\r\nTrailer-Field: value\r\n\r\n")).get();
+            output.flush().get();
+            // The body was read to its end, so the connection can be reused.
+            output.write(sstring("PUT /test HTTP/1.1\r\nHost: test\r\nContent-Length: 0\r\n\r\n")).get();
+            output.flush().get();
+            read_reply();
+            output.close().get();
+            input.close().get();
+        });
+
+        server._routes.put(PUT, "/test", new function_handler([] (const_req) {
+            return sstring("unread");
+        }, "txt"));
+        server.do_accepts(0).get();
+
+        client.get();
+        BOOST_REQUIRE_EQUAL(server.read_errors(), 0u);
+        server.stop().get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_client_retry_body_ends_early) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);
