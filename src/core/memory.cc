@@ -1010,8 +1010,7 @@ cpu_pages::allocate_large(unsigned n_pages, bool should_sample) {
 void*
 cpu_pages::allocate_large_aligned(unsigned align_pages, unsigned n_pages, bool should_sample) {
     check_large_allocation(n_pages * page_size);
-    // buddy allocation is always aligned
-    return allocate_large_and_trim(n_pages, should_sample);
+    return allocate_large_and_trim(std::max(align_pages, n_pages), should_sample);
 }
 
 disable_backtrace_temporarily::disable_backtrace_temporarily()
@@ -1633,8 +1632,11 @@ void* allocate_large_aligned(size_t align, size_t size, bool should_sample) {
     if (!size_in_pages) {
         return nullptr;
     }
-    unsigned align_in_pages = std::max(align, page_size) >> page_bits;
-    return cpu_mem.allocate_large_aligned(align_in_pages, *size_in_pages, should_sample);
+    auto align_in_pages = std::max(align, page_size) >> page_bits;
+    if (align_in_pages > std::numeric_limits<unsigned>::max()) {
+        return nullptr;
+    }
+    return cpu_mem.allocate_large_aligned(static_cast<unsigned>(align_in_pages), *size_in_pages, should_sample);
 }
 
 void free_large(void* ptr) {
@@ -1809,14 +1811,15 @@ inline void* allocate(size_t size) {
 }
 
 // Adjust the size of an aligned allocation to something our small pools can
-// serve: they only hand out objects of at least sizeof(free_object) bytes, and
-// only guarantee alignment for power-of-two sizes.
+// serve: objects must be at least as large as their alignment and the free-list
+// link. Larger alignments are handled by allocate_large_aligned(). The
+// small-pool allocation paths round this size up to a power of two.
 [[gnu::always_inline]]
 static inline size_t adjust_aligned_allocation_size(size_t align, size_t size) {
-    if (size <= sizeof(free_object)) {
-        size = std::max(sizeof(free_object), align);
+    if (align <= page_size) {
+        size = std::max(size, align);
     }
-    return size;
+    return std::max(size, sizeof(free_object));
 }
 
 void* allocate_aligned_slowpath(size_t align, size_t size) {
@@ -1888,9 +1891,11 @@ inline void free(void* obj, S size = {}) {
 }
 
 void free_aligned(void* obj, size_t align, size_t size) {
-    if (size <= sizeof(free_object)) {
-        size = sizeof(free_object);
+    if (align > page_size) {
+        free(obj);
+        return;
     }
+    size = adjust_aligned_allocation_size(align, size);
 #ifndef SEASTAR_HEAPPROF
     // See comment in the sized-free implementation below. With heap profiling we
     // can skip this as sized-free defers to non-sized-free
