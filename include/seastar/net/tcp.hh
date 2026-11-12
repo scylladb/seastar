@@ -28,6 +28,7 @@
 #include <random>
 #include <span>
 #include <system_error>
+#include <stdexcept>
 #include <type_traits>
 #include <seastar/core/internal/md5.hh>
 #include <seastar/core/shared_ptr.hh>
@@ -410,9 +411,6 @@ private:
         static constexpr uint16_t _max_nr_retransmit{5};
         timer<clock_type> _retransmit;
         timer<clock_type> _persist;
-        // RFC 9293 defines MSL as two minutes; TIME_WAIT lasts twice MSL.
-        static constexpr std::chrono::seconds _msl{120};
-        static constexpr auto _time_wait_duration = 2 * _msl;
         timer<clock_type> _time_wait;
         uint16_t _nr_full_seg_received = 0;
         struct isn_secret {
@@ -528,6 +526,10 @@ private:
         void fast_retransmit();
         void update_rto(clock_type::time_point tx_time);
         void update_cwnd(uint32_t acked_bytes);
+        void clear_receive_data() noexcept {
+            _rcv.data.clear();
+            _rcv.data_size = 0;
+        }
         void clear_transmit_state();
         void cleanup(receive_data_cleanup mode = receive_data_cleanup::discard);
         uint32_t can_send() {
@@ -641,7 +643,13 @@ private:
             _state = TIME_WAIT;
             clear_transmit_state();
             _rcv.out_of_order.map.clear();
-            _time_wait.rearm(clock_type::now() + _time_wait_duration);
+            if (!_conn) {
+                // The connection destructor cleared the data buffered at that time,
+                // but more data may have arrived while the TCP close was in progress.
+                // Discard it now that there is no reader and TIME_WAIT accepts no more data.
+                clear_receive_data();
+            }
+            _time_wait.rearm(clock_type::now() + _tcp._time_wait_duration);
             // Replace queued FINs and old ACKs with an ACK for the received FIN.
             // An existing output request will pick up this new packet.
             output_one();
@@ -688,6 +696,7 @@ private:
         friend class connection;
     };
     inet_type& _inet;
+    std::chrono::seconds _time_wait_duration{60};
     std::unordered_map<connid, lw_shared_ptr<tcb>, connid_hash> _tcbs;
     std::unordered_map<uint16_t, listener*> _listening;
     std::random_device _rd;
@@ -791,6 +800,17 @@ public:
     };
 public:
     explicit tcp(inet_type& inet);
+    /// Set the TIME_WAIT retention period. The default is 60 seconds.
+    /// Applies when a timer is next armed or rearmed; existing deadlines
+    /// remain unchanged.
+    /// \param duration A positive retention period.
+    /// \throws std::invalid_argument if duration is not positive.
+    void set_time_wait_duration(std::chrono::seconds duration) {
+        if (duration <= std::chrono::seconds::zero()) {
+            throw std::invalid_argument("TCP TIME_WAIT duration must be positive");
+        }
+        _time_wait_duration = duration;
+    }
     void received(packet p, ipaddr from, ipaddr to);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off);
     listener listen(uint16_t port, size_t queue_length = 100);
@@ -998,6 +1018,7 @@ template <typename InetTraits>
 tcp<InetTraits>::connection::~connection() {
     if (_tcb) {
         _tcb->_conn = nullptr;
+        _tcb->clear_receive_data();
         close_read();
         close_write();
     }
@@ -1287,9 +1308,10 @@ void tcp<InetTraits>::tcb::input_handle_time_wait_state(tcp_hdr* th, packet p) {
 
     // Fifth step / TIME-WAIT:
     // Acknowledge it, and restart the 2 MSL timeout.
-    if (th->f_fin && th->f_ack && th->ack <= _snd.next
+    if (th->f_fin && th->f_ack
+            && th->ack >= _snd.unacknowledged && th->ack <= _snd.next
             && th->seq + int32_t(payload_len) + 1 == _rcv.next) {
-        _time_wait.rearm(clock_type::now() + _time_wait_duration);
+        _time_wait.rearm(clock_type::now() + _tcp._time_wait_duration);
         return output();
     }
 
@@ -1306,8 +1328,8 @@ void tcp<InetTraits>::tcb::input_handle_time_wait_state(tcp_hdr* th, packet p) {
     // Fifth step / ACK:
     // All incoming segments whose ACK value doesn't satisfy the above
     // condition MUST be discarded and an ACK sent back.
-    // FIXME: only the SND.NXT upper bound; no RFC 5961 §5.2 lower bound.
-    if (th->ack > _snd.next) {
+    // A stale ACK must not advance RCV.NXT or renew TIME_WAIT.
+    if (th->ack < _snd.unacknowledged || th->ack > _snd.next) {
         return output();
     }
     // Sixth step / TIME-WAIT:
@@ -1323,7 +1345,7 @@ void tcp<InetTraits>::tcb::input_handle_time_wait_state(tcp_hdr* th, packet p) {
     // Remain in the TIME-WAIT state. Restart the 2 MSL time-wait timeout.
     if (th->f_fin && th->seq + int32_t(payload_len) == _rcv.next) {
         _rcv.next += 1;
-        _time_wait.rearm(clock_type::now() + _time_wait_duration);
+        _time_wait.rearm(clock_type::now() + _tcp._time_wait_duration);
         return output();
     }
 }
@@ -2182,8 +2204,7 @@ void tcp<InetTraits>::tcb::cleanup(receive_data_cleanup mode) {
     _time_wait.cancel();
     _rcv.out_of_order.map.clear();
     if (mode == receive_data_cleanup::discard) {
-        _rcv.data_size = 0;
-        _rcv.data.clear();
+        clear_receive_data();
     }
     remove_from_tcbs();
 }

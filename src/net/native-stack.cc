@@ -217,6 +217,7 @@ native_network_stack::native_network_stack(const native_stack_options& opts, std
     : _netif(std::move(dev))
     , _inet(&_netif) {
     _inet.get_udp().set_queue_size(opts.udpv4_queue_size.get_value());
+    _inet.get_tcp().set_time_wait_duration(std::chrono::seconds(opts.tcp_time_wait_duration.get_value()));
     _dhcp = opts.host_ipv4_addr.defaulted()
             && opts.gw_ipv4_addr.defaulted()
             && opts.netmask_ipv4_addr.defaulted() && opts.dhcp.get_value();
@@ -343,6 +344,9 @@ native_stack_options::native_stack_options()
     , udpv4_queue_size(*this, "udpv4-queue-size",
                 ipv4_udp::default_queue_size,
                 "Default size of the UDPv4 per-channel packet queue")
+    , tcp_time_wait_duration(*this, "tcp-time-wait-duration",
+                60u,
+                "TCP TIME_WAIT retention period in seconds (must be positive)")
     , dhcp(*this, "dhcp",
                 true,
                         "Use DHCP discovery")

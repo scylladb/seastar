@@ -25,6 +25,8 @@
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/util/later.hh>
 
+#include <bitset>
+#include <memory>
 #include <optional>
 #include <string_view>
 
@@ -61,8 +63,11 @@ constexpr unsigned FIN = 1, SYN = 2, RST = 4, ACK = 16;
 const ipv4_address local("10.0.0.1"), peer("10.0.0.2");
 
 static void inject(protocol& stack, uint16_t port, tcp_seq seq, tcp_seq ack,
-        unsigned flags, std::string_view data = {}) {
+        unsigned flags, std::string_view data = {}, std::shared_ptr<bool> released = {}) {
     packet p(data.data(), data.size());
+    if (released) {
+        p = packet(std::move(p), make_deleter([released] { *released = true; }));
+    }
     auto bytes = p.prepend_uninitialized_header(tcp_hdr::len);
     tcp_hdr h{};
     h.src_port = 80;
@@ -145,24 +150,30 @@ SEASTAR_THREAD_TEST_CASE(tcp_time_wait) {
     expect_ack(inet, next, remote);
 
     advance_to(started + 10s);
-    inject(stack, port, original_fin, next - 1, FIN | ACK, "abc");
+    inject(stack, port, original_fin, next, FIN | ACK, "abc");
     expect_ack(inet, next, remote);
 
-    // At 245s the original 240s deadline has passed, but the renewed one has not.
-    advance_to(started + 245s);
+    // At 65s the original 60s deadline has passed, but the renewed one has not.
+    advance_to(started + 65s);
     inject(stack, port, remote, next + 1, ACK);
     expect_ack(inet, next, remote);
 
-    // A FIN at RCV.NXT advances it once and renews TIME_WAIT until 485s.
+    // A FIN at RCV.NXT advances it once and renews TIME_WAIT until 125s.
     inject(stack, port, remote, next, FIN | ACK);
     remote += 1;
     expect_ack(inet, next, remote);
 
-    advance_to(started + 255s);
+    advance_to(started + 75s);
     inject(stack, port, remote, next + 1, ACK);
     expect_ack(inet, next, remote);
 
-    advance_to(started + 495s);
+    // A stale ACK must neither advance RCV.NXT nor renew the 125s deadline.
+    inject(stack, port, remote - 1, next - 1, FIN | ACK);
+    expect_ack(inet, next, remote);
+    inject(stack, port, remote, next - 1, FIN | ACK);
+    expect_ack(inet, next, remote);
+
+    advance_to(started + 126s);
     inject(stack, port, remote, next + 1, ACK);
     BOOST_REQUIRE(take(inet).f_rst);
     auto data = conn.read();
@@ -171,4 +182,79 @@ SEASTAR_THREAD_TEST_CASE(tcp_time_wait) {
     BOOST_REQUIRE_EQUAL(conn.read().len(), 0u);
     yield().get();
     BOOST_REQUIRE(!inet.provider());
+}
+
+SEASTAR_THREAD_TEST_CASE(tcp_time_wait_releases_unread_data) {
+    for (bool destroy_before_time_wait : {false, true}) {
+        wire inet;
+        protocol stack(inet);
+        std::optional<protocol::connection> conn(stack.connect(socket_address(ipv4_addr("10.0.0.2", 80))));
+        auto port = conn->local_port();
+        auto syn = take(inet);
+        auto remote = make_seq(5000);
+        inject(stack, port, remote, syn.seq + 1, SYN | ACK);
+        conn->connected().get();
+        remote += 1;
+        expect_ack(inet, syn.seq + 1, remote);
+        conn->close_write();
+        if (destroy_before_time_wait) {
+            conn.reset();
+        }
+        auto fin = take(inet);
+        BOOST_REQUIRE(fin.f_fin);
+        auto next = fin.seq + 1;
+        auto released = std::make_shared<bool>(false);
+        inject(stack, port, remote, next, ACK | FIN, "abc", released);
+        remote += 4;
+        expect_ack(inet, next, remote);
+        BOOST_REQUIRE_EQUAL(*released, destroy_before_time_wait);
+        conn.reset();
+        BOOST_REQUIRE(*released);
+
+        // Release the retained TCB before destroying the test stack.
+        advance_to(manual_clock::now() + 61s);
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(tcp_time_wait_port_exhaustion) {
+    wire inet;
+    protocol stack(inet);
+    std::bitset<65536> used;
+    unsigned eligible = 0;
+    for (unsigned port = 41952; port <= 65535; ++port) {
+        auto id = protocol::connid{local, peer, uint16_t(port), 80};
+        if (inet._inet.nif.hash2cpu(id.hash(inet._inet.nif.rss_key())) == this_shard_id()) {
+            ++eligible;
+        }
+    }
+    BOOST_REQUIRE(eligible > 0);
+    auto destination = socket_address(ipv4_addr("10.0.0.2", 80));
+    for (unsigned i = 0; i < eligible; ++i) {
+        auto conn = stack.connect(destination);
+        auto port = conn.local_port();
+        BOOST_REQUIRE(!used.test(port));
+        used.set(port);
+        auto syn = take(inet);
+        auto remote = make_seq(5000);
+        inject(stack, port, remote, syn.seq + 1, SYN | ACK);
+        conn.connected().get();
+        remote += 1;
+        expect_ack(inet, syn.seq + 1, remote);
+        conn.close_write();
+        auto fin = take(inet);
+        inject(stack, port, remote, fin.seq + 1, ACK | FIN);
+        expect_ack(inet, fin.seq + 1, remote + 1);
+    }
+    BOOST_REQUIRE_EXCEPTION(stack.connect(destination), std::system_error,
+            [] (const std::system_error& e) { return e.code().value() == EADDRNOTAVAIL; });
+    advance_to(manual_clock::now() + 61s);
+    // Expired tuples are available again, and replies reach the new TCB.
+    auto conn = stack.connect(destination);
+    auto port = conn.local_port();
+    BOOST_REQUIRE(used.test(port));
+    auto syn = take(inet);
+    inject(stack, port, make_seq(7000), syn.seq + 1, SYN | ACK);
+    conn.connected().get();
+    expect_ack(inet, syn.seq + 1, make_seq(7001));
+    inject(stack, port, make_seq(7001), syn.seq + 1, RST | ACK);
 }
