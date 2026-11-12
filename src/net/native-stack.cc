@@ -170,6 +170,9 @@ public:
     static future<std::unique_ptr<network_stack>> create(const program_options::option_group& opts) {
         auto ns_opts = dynamic_cast<const native_stack_options*>(&opts);
         SEASTAR_ASSERT(ns_opts);
+        if (ns_opts->tcp_time_wait_duration.get_value() == 0) {
+            throw std::invalid_argument("TCP TIME_WAIT duration must be positive");
+        }
         if (this_shard_id() == 0) {
             create_native_net_device(*ns_opts);
         }

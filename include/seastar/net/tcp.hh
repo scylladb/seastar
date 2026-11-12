@@ -1346,6 +1346,9 @@ void tcp<InetTraits>::tcb::input_handle_time_wait_state(tcp_hdr* th, packet p) {
     if (th->f_fin && th->seq + int32_t(payload_len) == _rcv.next) {
         _rcv.next += 1;
         _time_wait.rearm(clock_type::now() + _tcp._time_wait_duration);
+        // A pending output request may already have an ACK with the old RCV.NXT.
+        _packetq.clear();
+        output_one();
         return output();
     }
 }

@@ -139,8 +139,11 @@ SEASTAR_THREAD_TEST_CASE(tcp_time_wait) {
     auto next = fin.seq + 1;
     inject(stack, port, remote, next, ACK);
     inject(stack, port, remote, next, FIN | ACK, "abc");
-    auto original_fin = remote;
     remote += 3 + 1;
+    // Advance RCV.NXT before consuming the ACK queued on TIME_WAIT entry.
+    inject(stack, port, remote, next, FIN | ACK);
+    auto original_fin = remote;
+    remote += 1;
     expect_ack(inet, next, remote);
     auto started = manual_clock::now();
 
@@ -150,7 +153,7 @@ SEASTAR_THREAD_TEST_CASE(tcp_time_wait) {
     expect_ack(inet, next, remote);
 
     advance_to(started + 10s);
-    inject(stack, port, original_fin, next, FIN | ACK, "abc");
+    inject(stack, port, original_fin, next, FIN | ACK);
     expect_ack(inet, next, remote);
 
     // At 65s the original 60s deadline has passed, but the renewed one has not.
