@@ -150,13 +150,26 @@ future<> connection::read() {
     });
 }
 
-static input_stream<char> make_content_stream(http::request* req, input_stream<char>& buf) {
+namespace {
+
+struct content_stream {
+    input_stream<char> stream;
+    // The stream's source for a chunked body, which stores the chunk extensions and the
+    // trailer into the request until detached from it. Null otherwise.
+    internal::chunked_source_impl* chunked = nullptr;
+};
+
+}
+
+static content_stream make_content_stream(http::request* req, input_stream<char>& buf) {
     // Create an input stream based on the requests body encoding or lack thereof
     if (seastar::internal::case_insensitive_cmp()(req->get_header("Transfer-Encoding"), "chunked")) {
         req->content_length = 0;
-        return input_stream<char>(data_source(std::make_unique<internal::chunked_source_impl>(buf, req->chunk_extensions, req->trailing_headers)));
+        auto source = std::make_unique<internal::chunked_source_impl>(buf, req->chunk_extensions, req->trailing_headers);
+        auto* chunked = source.get();
+        return {input_stream<char>(data_source(std::move(source))), chunked};
     } else {
-        return input_stream<char>(data_source(std::make_unique<internal::content_length_source_impl>(buf, req->content_length)));
+        return {input_stream<char>(data_source(std::make_unique<internal::content_length_source_impl>(buf, req->content_length)))};
     }
 }
 
@@ -277,16 +290,17 @@ future<> connection::read_one() {
         };
 
         return maybe_reply_continue().then([this] (std::unique_ptr<http::request> req) {
-            return do_with(make_content_stream(req.get(), _read_buf), sstring(req->_version), std::move(req), [this] (input_stream<char>& content_stream, sstring& version, std::unique_ptr<http::request>& req) {
+            auto body = make_content_stream(req.get(), _read_buf);
+            return do_with(std::move(body.stream), sstring(req->_version), std::move(req), [this, chunked = body.chunked] (input_stream<char>& content_stream, sstring& version, std::unique_ptr<http::request>& req) {
                 bool streaming = _server.get_content_streaming();
-                return set_request_content(std::move(req), &content_stream, streaming).then([this, &content_stream, streaming] (std::unique_ptr<http::request> req) {
+                return set_request_content(std::move(req), &content_stream, streaming).then([this, &content_stream, streaming, chunked] (std::unique_ptr<http::request> req) {
                     if (!streaming) {
                         // The body was read before the handler was called.
                         request_read();
                     }
                     return _replies.not_full().then([this, req = std::move(req)] () mutable {
                         return generate_reply(std::move(req));
-                    }).then([this, &content_stream](bool done) {
+                    }).then([this, &content_stream, chunked](bool done) {
                         // Or-ed rather than assigned: stop_reading() may have set it
                         // while this request was in flight, and a keep-alive request
                         // reports false, which would put the connection back to waiting
@@ -302,6 +316,13 @@ future<> connection::read_one() {
                         // ended early raises. The reply is already generated and the
                         // peer that would receive an error is the one that went away,
                         // so only the connection is left to decide, and it is done.
+                        //
+                        // The request is gone by now (the handler owned it), so
+                        // the chunked parser must not store what it parses from
+                        // the rest of the body (chunk extensions, trailer) there.
+                        if (chunked) {
+                            chunked->detach_request();
+                        }
                         return content_stream.read().then_wrapped([this] (future<temporary_buffer<char>> f) {
                             if (f.failed()) {
                                 f.ignore_ready_future();
