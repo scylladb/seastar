@@ -216,9 +216,13 @@ class Metrics:
 
 
 class TestPrometheus(unittest.TestCase):
+    # This class uses the default load balancing of the exporter. In
+    # practice, shard 0 then serves all scrapes. Shard 0 also has all the
+    # test metrics. TestPrometheusNonMetricsShard uses a shard without them.
     exporter_path = None
     exporter_process = None
     exporter_config = None
+    serve_on_shard: Optional[int] = None
     port = 10001
     prometheus = None
     prometheus_scrape_interval = 15
@@ -229,6 +233,8 @@ class TestPrometheus(unittest.TestCase):
                 '--port', f'{cls.port}',
                 '--conf', cls.exporter_config,
                 '--smp=2']
+        if cls.serve_on_shard is not None:
+            args += ['--serve-on-shard', f'{cls.serve_on_shard}']
         cls.exporter_process = subprocess.Popen(args,
                                                 stdout=subprocess.PIPE,
                                                 stderr=subprocess.DEVNULL,
@@ -298,6 +304,23 @@ class TestPrometheus(unittest.TestCase):
                 values = list(metrics.get())
                 self.assertEqual(len(values), test.found)
 
+    def test_filtering_by_hidden_label(self) -> None:
+        # A label whose name starts with '__' is a hidden label. The text
+        # output does not contain hidden labels. A scrape can filter by them.
+        metrics = self._get_metrics(labels={'__level': 'basic'})
+        values = list(metrics.get())
+        name = f'{Metrics.prefix}_{Metrics.group}_level_basic'
+        self.assertEqual([(e.name, e.value) for e in values], [(name, 11)])
+        self.assertNotIn('__level', values[0].labels)
+
+    def test_filtering_by_unknown_label(self) -> None:
+        # No metric has a label named 'unknown'. Thus, the parameter is not
+        # a label filter, and the output contains all the metrics.
+        unfiltered = list(self._get_metrics().get())
+        filtered = list(self._get_metrics(labels={'unknown': 'dne'}).get())
+        self.assertTrue(unfiltered)
+        self.assertEqual([e.name for e in filtered], [e.name for e in unfiltered])
+
     def test_aggregated(self) -> None:
         name = 'counter_1'
         # see also rest_api_httpd.cc::aggregate_by_name
@@ -325,6 +348,8 @@ class TestPrometheus(unittest.TestCase):
                     self.assertIsNotNone(msg)
                 else:
                     self.assertIsNone(msg)
+                # __help__ is a command, not a label filter. The metric stays.
+                self.assertTrue(list(metrics.get(name)))
 
     @staticmethod
     def _from_native_histogram(values) -> dict[float, float]:
@@ -374,6 +399,17 @@ class TestPrometheus(unittest.TestCase):
                                          metric_name,
                                          metric_type)
             self.assertEqual(res, e.value)
+
+
+class TestPrometheusNonMetricsShard(TestPrometheus):
+    # Shard 1 serves all scrapes. Shard 0 registers all the test metrics,
+    # their labels and the metric family configs. Thus, if a result depends
+    # on the serving shard, a test fails.
+    serve_on_shard = 1
+    port = 10002
+
+    def test_protobuf(self) -> None:
+        self.skipTest("the test reads an external Prometheus, not this exporter")
 
 
 if __name__ == '__main__':

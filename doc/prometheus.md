@@ -56,6 +56,16 @@ You can filter by any label using regular expressions. If you use multiple label
 A missing label is considered an empty string. The expression should match the entire label value;
 to match a missing label, you can use `label=` or `label=^$`.
 
+A query parameter is a label filter only if a metric uses, or used, a label
+with that name. Seastar does not use the other parameters as label filters.
+For example, if no metric ever had a `color` label, `?color=red` returns all
+metrics.
+
+A label whose name starts with `__` is a hidden label. In the text format,
+Seastar does not send hidden labels. You can filter by a hidden label. For
+example, if some metrics have the label `__level="basic"`, `?__level=basic`
+returns only these metrics.
+
 Here are a few examples:
 
 To return all metrics from shard 1 or shard 0:
