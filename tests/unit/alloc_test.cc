@@ -133,35 +133,37 @@ SEASTAR_TEST_CASE(test_large_alignment_larger_than_size) {
     static constexpr size_t size = memory::page_size;
     static_assert(large_align > size);
 
-    std::vector<void*> allocations;
+    std::vector<std::unique_ptr<void, decltype(&free)>> allocations;
     allocations.reserve(4);
     for (unsigned i = 0; i != 4; ++i) {
         void* p = nullptr;
-        BOOST_REQUIRE_EQUAL(posix_memalign(&p, large_align, size), 0);
-        BOOST_REQUIRE(p != nullptr);
-        BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(p) % large_align, 0);
-        allocations.push_back(p);
+        auto result = posix_memalign(&p, large_align, size);
+        std::unique_ptr<void, decltype(&free)> allocation(p, free);
+        BOOST_REQUIRE_EQUAL(result, 0);
+        BOOST_REQUIRE(allocation != nullptr);
+        BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(allocation.get()) % large_align, 0);
+        allocations.push_back(std::move(allocation));
     }
-    for (auto p : allocations) {
-        free(p);
-    }
+    allocations.clear();
 
-    auto aligned = memalign(large_align, size);
+    std::unique_ptr<void, decltype(&free)> aligned(memalign(large_align, size), free);
     BOOST_REQUIRE(aligned != nullptr);
-    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(aligned) % large_align, 0);
-    free(aligned);
+    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(aligned.get()) % large_align, 0);
+    aligned.reset();
 
     // aligned_alloc requires size to be a multiple of alignment.
-    aligned = aligned_alloc(large_align, large_align);
+    aligned.reset(aligned_alloc(large_align, large_align));
     BOOST_REQUIRE(aligned != nullptr);
-    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(aligned) % large_align, 0);
-    free(aligned);
+    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(aligned.get()) % large_align, 0);
+    aligned.reset();
 
     void* (*volatile aligned_new)(size_t, std::align_val_t) = ::operator new;
-    auto p = aligned_new(size, std::align_val_t(large_align));
+    auto delete_aligned = [] (void* p) {
+        ::operator delete(p, size, std::align_val_t(large_align));
+    };
+    std::unique_ptr<void, decltype(delete_aligned)> p(aligned_new(size, std::align_val_t(large_align)), delete_aligned);
     BOOST_REQUIRE(p != nullptr);
-    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(p) % large_align, 0);
-    ::operator delete(p, size, std::align_val_t(large_align));
+    BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(p.get()) % large_align, 0);
 
     return make_ready_future<>();
 }
@@ -203,15 +205,15 @@ SEASTAR_TEST_CASE(test_small_aligned_new_with_alignment_larger_than_size) {
     void* (*volatile aligned_new)(size_t, std::align_val_t) = ::operator new;
     for (size_t alignment : {size_t(64), memory::page_size}) {
         for (size_t size : {size_t(0), size_t(1), size_t(32)}) {
-            std::vector<void*> allocations;
+            auto delete_aligned = [size, alignment] (void* p) {
+                ::operator delete(p, size, std::align_val_t(alignment));
+            };
+            std::vector<std::unique_ptr<void, decltype(delete_aligned)>> allocations;
             allocations.reserve(4);
             for (unsigned i = 0; i != 4; ++i) {
-                auto p = aligned_new(size, std::align_val_t(alignment));
-                BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(p) % alignment, 0);
-                allocations.push_back(p);
-            }
-            for (auto p : allocations) {
-                ::operator delete(p, size, std::align_val_t(alignment));
+                std::unique_ptr<void, decltype(delete_aligned)> p(aligned_new(size, std::align_val_t(alignment)), delete_aligned);
+                BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(p.get()) % alignment, 0);
+                allocations.push_back(std::move(p));
             }
         }
     }
@@ -232,7 +234,8 @@ SEASTAR_TEST_CASE(test_aligned_new_with_overflowing_alignment) {
             auto rejected = p == nullptr;
             ::operator delete(p, std::align_val_t(alignment));
             BOOST_REQUIRE(rejected);
-            BOOST_REQUIRE_THROW((void)aligned_new(size, std::align_val_t(alignment)), std::bad_alloc);
+            BOOST_REQUIRE_THROW(::operator delete(aligned_new(size, std::align_val_t(alignment)),
+                    std::align_val_t(alignment)), std::bad_alloc);
         }
     }
 #endif
