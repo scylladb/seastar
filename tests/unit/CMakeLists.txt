@@ -380,7 +380,8 @@ seastar_add_test (abortable_fifo
 seastar_add_test (io_queue
   SOURCES io_queue_test.cc)
 
-if (Seastar_LTTNG)
+# The test runs io_tester, so it needs the applications to be built.
+if (Seastar_LTTNG AND Seastar_APPS)
   add_custom_target (test_unit_io_trace_lttng_run
     COMMAND ${CMAKE_COMMAND} -E env ${Seastar_TEST_ENVIRONMENT}
       ${CMAKE_CURRENT_SOURCE_DIR}/io_trace_test.py
