@@ -3,7 +3,11 @@ Contributing to Seastar
 
 # Sending Patches
 
-Seastar follows a patch-submission workflow similar to that of the Linux kernel. Send patches to `seastar-dev` with a DCO sign-off. Use `git send-email` to send your patch.
+There are two ways to send changes to Seastar: open a
+[GitHub pull request](https://github.com/scylladb/seastar/pulls), or send
+patches to the mailing list, as described below.
+
+Seastar's mailing-list workflow is similar to that of the Linux kernel. Send patches to `seastar-dev` with a DCO sign-off. Use `git send-email` to send your patch.
 
 Example:
 
