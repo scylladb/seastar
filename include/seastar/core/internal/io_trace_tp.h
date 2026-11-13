@@ -45,7 +45,7 @@ TRACEPOINT_EVENT(
     TP_ARGS(
         int,          fd,         /* file descriptor of the request */
         const void *, req_id,     /* unique request identifier (pointer) */
-        int, direction,           /* 0 = read, 1 = write */
+        int, direction,           /* 0 = write, 1 = read */
         unsigned int, pclass,     /* scheduling group / priority class id */
         uint64_t, offset,         /* file offset of the request */
         uint64_t, length          /* request size in bytes */

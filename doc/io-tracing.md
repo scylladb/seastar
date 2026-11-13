@@ -2,9 +2,9 @@
 
 Seastar includes optional LTTng-UST tracepoints in the I/O scheduler that
 allow low-overhead recording of I/O request lifecycle events. The
-tracepoints must be explicitly enabled at build time via
-`-DSeastar_LTTNG=ON`, but have near-zero cost (~3 ns per tracepoint) when
-tracing is not active.
+tracepoints are built in by default (the CMake option `Seastar_LTTNG` is
+`ON`), and have near-zero cost (~3 ns per tracepoint) when tracing is not
+active.
 
 ## Prerequisites
 
@@ -18,11 +18,9 @@ sudo apt install lttng-tools liblttng-ust-dev
 sudo dnf install lttng-tools lttng-ust-devel
 ```
 
-Build Seastar with LTTng support enabled:
-
-```bash
-cmake -DSeastar_LTTNG=ON ...
-```
+Seastar is built with LTTng support by default (`-DSeastar_LTTNG=ON`,
+or `configure.py --enable-lttng`); building it requires `lttng-ust`, which
+`install-dependencies.sh` installs.
 
 Verify that the tracepoints are present:
 
@@ -39,14 +37,14 @@ All tracepoints belong to the `seastar_io` provider.
 
 | Tracepoint            | Description                                  | Key Fields                              |
 |-----------------------|----------------------------------------------|-----------------------------------------|
-| `io_queue_queued`     | Request enqueued into the I/O fair queue      | dev_id, req_id, direction, pclass, offset, length |
-| `io_queue_dispatched` | Request dispatched to the I/O backend         | dev_id, req_id                          |
-| `io_queue_completed`  | Request completed successfully                | dev_id, req_id                          |
-| `io_queue_cancelled`  | Request cancelled before dispatch             | dev_id, req_id                          |
+| `io_queue_queued`     | Request enqueued into the I/O fair queue      | fd, req_id, direction, pclass, offset, length |
+| `io_queue_dispatched` | Request dispatched to the I/O backend         | req_id                                  |
+| `io_queue_completed`  | Request completed successfully                | req_id                                  |
+| `io_queue_cancelled`  | Request cancelled before dispatch             | req_id                                  |
 
 ### Field Descriptions
 
-- **dev_id** — I/O queue device identifier (corresponds to a mount point)
+- **fd** — The file descriptor of the file that the request reads or writes
 - **req_id** — Unique request identifier (pointer value), stable across
   queued → dispatched → completed lifecycle
 - **direction** — `0` = write, `1` = read
@@ -112,12 +110,12 @@ part of your system startup.
 ### Example Output
 
 ```
-[17:33:21.510589059] (+?.?????????) host seastar_io:io_queue_queued: { cpu_id = 0 }, { dev_id = 0, req_id = 0x601000175C80, direction = 0, pclass = 0, offset = 0, length = 4096 }
-[17:33:21.510592245] (+0.000003186) host seastar_io:io_queue_dispatched: { cpu_id = 0 }, { dev_id = 0, req_id = 0x601000175C80 }
-[17:33:21.518178549] (+0.007586304) host seastar_io:io_queue_completed: { cpu_id = 0 }, { dev_id = 0, req_id = 0x601000175C80 }
-[17:33:21.521191175] (+0.003012626) host seastar_io:io_queue_queued: { cpu_id = 0 }, { dev_id = 0, req_id = 0x601000175C80, direction = 1, pclass = 0, offset = 0, length = 4096 }
-[17:33:21.521194281] (+0.000003106) host seastar_io:io_queue_dispatched: { cpu_id = 0 }, { dev_id = 0, req_id = 0x601000175C80 }
-[17:33:21.521265876] (+0.000071595) host seastar_io:io_queue_completed: { cpu_id = 0 }, { dev_id = 0, req_id = 0x601000175C80 }
+[17:33:21.510589059] (+?.?????????) host seastar_io:io_queue_queued: { cpu_id = 0 }, { fd = 12, req_id = 0x601000175C80, direction = 0, pclass = 0, offset = 0, length = 4096 }
+[17:33:21.510592245] (+0.000003186) host seastar_io:io_queue_dispatched: { cpu_id = 0 }, { req_id = 0x601000175C80 }
+[17:33:21.518178549] (+0.007586304) host seastar_io:io_queue_completed: { cpu_id = 0 }, { req_id = 0x601000175C80 }
+[17:33:21.521191175] (+0.003012626) host seastar_io:io_queue_queued: { cpu_id = 0 }, { fd = 12, req_id = 0x601000175C80, direction = 1, pclass = 0, offset = 0, length = 4096 }
+[17:33:21.521194281] (+0.000003106) host seastar_io:io_queue_dispatched: { cpu_id = 0 }, { req_id = 0x601000175C80 }
+[17:33:21.521265876] (+0.000071595) host seastar_io:io_queue_completed: { cpu_id = 0 }, { req_id = 0x601000175C80 }
 ```
 
 Here you can see a write (`direction = 0`) at offset 0 taking 7.5 ms
@@ -149,15 +147,15 @@ bpftrace -e 'usdt:./your_app:seastar_io:io_queue_queued { @ops = count(); }
 
 # Histogram of I/O request sizes
 bpftrace -e 'usdt:./your_app:seastar_io:io_queue_queued {
-    @sizes = hist(arg6);
+    @sizes = hist(arg5);
 }'
 
 # Measure queue latency (time from queued to dispatched)
 bpftrace -e '
 usdt:./your_app:seastar_io:io_queue_queued { @start[arg1] = nsecs; }
-usdt:./your_app:seastar_io:io_queue_dispatched /@start[arg1]/ {
-    @queue_lat = hist(nsecs - @start[arg1]);
-    delete(@start[arg1]);
+usdt:./your_app:seastar_io:io_queue_dispatched /@start[arg0]/ {
+    @queue_lat = hist(nsecs - @start[arg0]);
+    delete(@start[arg0]);
 }'
 ```
 
@@ -166,8 +164,10 @@ usdt:./your_app:seastar_io:io_queue_dispatched /@start[arg1]/ {
 Seastar runs one shard per thread, and LTTng-UST records events into
 per-thread ring buffers.  Each event carries the virtual thread ID
 (`vtid`) in its context, which maps 1:1 to a shard.  Seastar names
-its reactor threads `reactor-N` where `N` is the shard number, so
-resolving the mapping is straightforward.
+the threads of shards 1 and above `reactor-N`, where `N` is the shard
+number; shard 0 runs on the program's main thread, which keeps the
+program's name (see the note below), so resolving the mapping is
+straightforward.
 
 ### Adding Thread Context
 
@@ -178,11 +178,11 @@ lttng add-context -u -t vtid -t procname
 ```
 
 After this, every event will carry the OS thread ID and the thread
-name (e.g., `reactor-0`, `reactor-3`).  Example output:
+name (e.g., `your_app` for shard 0, `reactor-3`).  Example output:
 
 ```
-[17:33:21.510589059] host seastar_io:io_queue_queued: { cpu_id = 0 }, { vtid = 12345, procname = "reactor-0" }, { dev_id = 0, req_id = 0x601000175C80, direction = 0, ... }
-[17:33:21.510592245] host seastar_io:io_queue_dispatched: { cpu_id = 1 }, { vtid = 12346, procname = "reactor-1" }, { dev_id = 0, req_id = 0x601000180A00 }
+[17:33:21.510589059] host seastar_io:io_queue_queued: { cpu_id = 0 }, { vtid = 12345, procname = "your_app" }, { fd = 12, req_id = 0x601000175C80, direction = 0, ... }
+[17:33:21.510592245] host seastar_io:io_queue_dispatched: { cpu_id = 1 }, { vtid = 12346, procname = "reactor-1" }, { req_id = 0x601000180A00 }
 ```
 
 ### Filtering Events by Shard
@@ -190,8 +190,8 @@ name (e.g., `reactor-0`, `reactor-3`).  Example output:
 With `babeltrace2`, filter to a specific shard by thread name:
 
 ```bash
-# Show only shard 0 events
-babeltrace2 /tmp/io-trace --filter 'procname == "reactor-0"'
+# Show only shard 1 events
+babeltrace2 /tmp/io-trace --filter 'procname == "reactor-1"'
 
 # Show only shard 2 events (using vtid if known)
 babeltrace2 /tmp/io-trace --filter 'vtid == 12347'
@@ -201,8 +201,8 @@ With `lttng enable-event` you can restrict recording to specific threads
 from the start (reduces trace volume in production):
 
 ```bash
-# Only trace shard 0 (by thread name, requires lttng 2.13+)
-lttng enable-event -u 'seastar_io:*' --filter 'procname == "reactor-0"'
+# Only trace shard 1 (by thread name, requires lttng 2.13+)
+lttng enable-event -u 'seastar_io:*' --filter 'procname == "reactor-1"'
 ```
 
 ### Resolving Shard ↔ Thread Mapping
@@ -211,8 +211,8 @@ If you didn't add `procname` context, the mapping can be reconstructed:
 
 ```bash
 # While the Seastar app is running, dump thread names:
-ls /proc/<pid>/task/*/comm
-# Output: reactor-0, reactor-1, ...
+cat /proc/<pid>/task/*/comm
+# Output: your_app, reactor-1, reactor-2, ...
 
 # Or from within the trace itself: vtid values are consistent, so
 # a single lookup at capture time is enough.
@@ -236,8 +236,8 @@ mapping is stable for the lifetime of the process.
 # Print all events with timestamps (same format as lttng view)
 babeltrace2 /tmp/io-trace
 
-# Filter for a specific device
-babeltrace2 /tmp/io-trace --filter 'dev_id == 0'
+# Filter for a specific file
+babeltrace2 /tmp/io-trace --filter 'fd == 12'
 
 # Convert to JSON for scripting
 babeltrace2 --output-format=json /tmp/io-trace > trace.json
@@ -246,9 +246,9 @@ babeltrace2 --output-format=json /tmp/io-trace > trace.json
 Example `babeltrace2` output (same format as `lttng view`):
 
 ```
-[17:33:21.521875455] (+0.000609579) host seastar_io:io_queue_queued: { cpu_id = 0 }, { dev_id = 0, req_id = 0x601000175C80, direction = 0, pclass = 0, offset = 0, length = 4096 }
-[17:33:21.521879041] (+0.000003586) host seastar_io:io_queue_dispatched: { cpu_id = 0 }, { dev_id = 0, req_id = 0x601000175C80 }
-[17:33:21.521960435] (+0.000081394) host seastar_io:io_queue_completed: { cpu_id = 0 }, { dev_id = 0, req_id = 0x601000175C80 }
+[17:33:21.521875455] (+0.000609579) host seastar_io:io_queue_queued: { cpu_id = 0 }, { fd = 12, req_id = 0x601000175C80, direction = 0, pclass = 0, offset = 0, length = 4096 }
+[17:33:21.521879041] (+0.000003586) host seastar_io:io_queue_dispatched: { cpu_id = 0 }, { req_id = 0x601000175C80 }
+[17:33:21.521960435] (+0.000081394) host seastar_io:io_queue_completed: { cpu_id = 0 }, { req_id = 0x601000175C80 }
 ```
 
 ### Computing I/O Latencies
@@ -275,8 +275,8 @@ and custom analysis views.
 
 ## Building Without LTTng
 
-By default (`-DSeastar_LTTNG=OFF`), Seastar builds without tracepoints
-(zero overhead).  To enable tracing, pass `-DSeastar_LTTNG=ON` — this
-requires `lttng-ust-devel` to be installed and will fail at configure
-time if the library is not found.  The `SEASTAR_HAVE_LTTNG_UST`
+By default (`-DSeastar_LTTNG=ON`), Seastar builds with the tracepoints,
+and configuring it fails if `lttng-ust` is not installed.  To build
+without them (zero overhead), pass `-DSeastar_LTTNG=OFF`, or
+`configure.py --disable-lttng`.  The `SEASTAR_HAVE_LTTNG_UST`
 preprocessor macro indicates whether tracing is compiled in.

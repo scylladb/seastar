@@ -318,8 +318,8 @@ Use when element moves are expensive or latency is critical.
 
 ```cpp
 generator<const T&, T, circular_buffer_fixed_capacity<T, 128>> produce() {
-    co_yield element;           // Individual elements
-    co_yield std::span(data);   // Ranges
+    co_yield element;                          // Individual elements
+    co_yield elements_of(std::span(data));     // Ranges, which must fit in the buffer
 }
 ```
 
