@@ -710,6 +710,14 @@ std::vector<socket_address> http_server::listening_addresses() const {
     return _listeners | std::views::transform(&listener_entry::addr) | std::ranges::to<std::vector>();
 }
 
+void http_server::set_listen_backlog(int backlog) {
+    // A listener that is removed or stopped has an aborted socket, and the
+    // call does nothing on it.
+    for (auto& listener : _listeners) {
+        listener.socket.set_listen_backlog(backlog);
+    }
+}
+
 future<> http_server::stop() {
     future<> tasks_done = _task_gate.close();
     // A listener whose gate is already closed is being removed, and that removal is
@@ -919,6 +927,10 @@ future<> http_server_control::listen(socket_address addr, listen_options lo) {
 
 future<> http_server_control::listen(socket_address addr, listen_options lo, http_server::server_credentials_ptr credentials) {
     return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, listen_options, http_server::server_credentials_ptr)>(&http_server::listen, addr, lo, credentials);
+}
+
+future<> http_server_control::set_listen_backlog(int backlog) {
+    return _server_dist->invoke_on_all(&http_server::set_listen_backlog, backlog);
 }
 
 sharded<http_server>& http_server_control::server() {
