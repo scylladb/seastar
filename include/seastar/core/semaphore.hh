@@ -244,6 +244,49 @@ private:
             _wait_list.pop_front();
         }
     }
+    // The slow paths of wait(), for when the units aren't available at once.
+    // They are kept out of line, so that wait() itself stays small enough for
+    // the compiler to inline it, and taking free units costs no call.
+    [[gnu::noinline]]
+    future<> wait_slow(time_point timeout, size_t nr) noexcept {
+        if (_ex) {
+            return make_exception_future(_ex);
+        }
+        if (Clock::now() >= timeout) [[unlikely]] {
+            return make_exception_future(get_timeout_exception());
+        }
+        try {
+            entry& e = _wait_list.emplace_back(promise<>(), nr);
+            auto f = e.pr.get_future();
+            if (timeout != time_point::max()) {
+                e.timer.emplace(timeout);
+                abort_source& as = e.timer->abort_source();
+                _wait_list.make_back_abortable(as);
+            }
+            return f;
+        } catch (...) {
+            return make_exception_future(std::current_exception());
+        }
+    }
+
+    [[gnu::noinline]]
+    future<> wait_slow(abort_source& as, size_t nr) noexcept {
+        if (_ex) {
+            return make_exception_future(_ex);
+        }
+        if (as.abort_requested()) [[unlikely]] {
+            return make_exception_future(get_aborted_exception());
+        }
+        try {
+            entry& e = _wait_list.emplace_back(promise<>(), nr);
+            // taking future here since make_back_abortable may expire the entry
+            auto f = e.pr.get_future();
+            _wait_list.make_back_abortable(as);
+            return f;
+        } catch (...) {
+            return make_exception_future(std::current_exception());
+        }
+    }
 public:
     /// Returns the maximum number of units the semaphore counter can hold
     static constexpr size_t max_counter() noexcept {
@@ -336,24 +379,7 @@ public:
             _count -= nr;
             return make_ready_future<>();
         }
-        if (_ex) {
-            return make_exception_future(_ex);
-        }
-        if (Clock::now() >= timeout) [[unlikely]] {
-            return make_exception_future(get_timeout_exception());
-        }
-        try {
-            entry& e = _wait_list.emplace_back(promise<>(), nr);
-            auto f = e.pr.get_future();
-            if (timeout != time_point::max()) {
-                e.timer.emplace(timeout);
-                abort_source& as = e.timer->abort_source();
-                _wait_list.make_back_abortable(as);
-            }
-            return f;
-        } catch (...) {
-            return make_exception_future(std::current_exception());
-        }
+        return wait_slow(timeout, nr);
     }
 
     /// Waits until at least a specific number of units are available in the
@@ -375,21 +401,7 @@ public:
             _count -= nr;
             return make_ready_future<>();
         }
-        if (_ex) {
-            return make_exception_future(_ex);
-        }
-        if (as.abort_requested()) [[unlikely]] {
-            return make_exception_future(get_aborted_exception());
-        }
-        try {
-            entry& e = _wait_list.emplace_back(promise<>(), nr);
-            // taking future here since make_back_abortable may expire the entry
-            auto f = e.pr.get_future();
-            _wait_list.make_back_abortable(as);
-            return f;
-        } catch (...) {
-            return make_exception_future(std::current_exception());
-        }
+        return wait_slow(as, nr);
     }
 
     /// Waits until at least a specific number of units are available in the
