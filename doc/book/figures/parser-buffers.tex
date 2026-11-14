@@ -1,0 +1,47 @@
+% Figure for chapter 16, "A parser that keeps its place": two pipelined
+% requests, which the stream delivers in three buffers that cut them
+% anywhere: here in the middle of the line "$3", and in the middle of the
+% argument "hello". Version 8 joins a line's beginning to the next buffer,
+% copying both (an argument it copies, once, without a join); version 9's
+% parser keeps its place at each cut, and never joins.
+\begin{tikzpicture}[x=1mm, y=1mm,
+    buf/.style={coolbox, font=\ttfamily\footnotesize, minimum height=6mm,
+                inner xsep=1mm},
+    joined/.style={box, font=\ttfamily\footnotesize, minimum height=6mm,
+                   inner xsep=1mm},
+    state/.style={note, text width=27mm, align=flush left},
+    copy/.style={->, draw=fighot, dash pattern=on 2.2pt off 1.65pt,
+                 line width=0.77pt},
+  ]
+  \newcommand\nl{$\hookleftarrow$}
+  % The three buffers, as the stream delivers them.
+  \node[buf, anchor=west] (b1) at (0, 0) {*3\nl\$3\nl SET\nl\$};
+  \node[buf, anchor=west] (b2) at ($(b1.east) + (4, 0)$) {3\nl key\nl\$5\nl hel};
+  \node[buf, anchor=west] (b3) at ($(b2.east) + (4, 0)$)
+    {lo\nl*2\nl\$3\nl GET\nl\$3\nl key\nl};
+  \node[note, anchor=south west] at (b1.north west) {buffer 1};
+  \node[note, anchor=south west] at (b2.north west) {buffer 2};
+  \node[note, anchor=south west] at (b3.north west) {buffer 3};
+  \node[title, anchor=east] at (-3, 0) {read};
+  % The cuts.
+  \coordinate (c1) at ($(b1.east)!0.5!(b2.west)$);
+  \coordinate (c2) at ($(b2.east)!0.5!(b3.west)$);
+  \draw[draw=fignote, rare] ($(c1) + (0, 5)$) -- ($(c1) + (0, -38)$);
+  \draw[draw=fignote, rare] ($(c2) + (0, 5)$) -- ($(c2) + (0, -38)$);
+
+  % Version 8: a line cut in two is joined to the next buffer.
+  \node[title, anchor=east] at (-3, -16) {version 8};
+  \node[joined, anchor=west] (j) at ($(b2.west) + (0, -16)$)
+    {\$3\nl key\nl\$5\nl hel};
+  \draw[copy] ($(b1.south east) + (-2, 0)$) -- ($(j.north west) + (2, 0)$);
+  \draw[copy] (b2.south) -- (j.north);
+  \node[note, anchor=east, text width=30mm, align=flush right]
+    at ($(j.west) + (-2, 0)$) {joined, and both pieces copied};
+
+  % Version 9: the parser keeps its place at each cut.
+  \node[title, anchor=east] at (-3, -32) {version 9};
+  \node[state, anchor=west] at ($(c1) + (2, -32)$)
+    {in a line, with no digits yet};
+  \node[state, anchor=west] at ($(c2) + (2, -32)$)
+    {in an argument, with 3 of its 5 bytes};
+\end{tikzpicture}

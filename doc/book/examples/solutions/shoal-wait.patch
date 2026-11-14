@@ -1,0 +1,183 @@
+# A solution in solutions/rpc.md: Shoal v14 with WAIT, which waits until the replica applied the changes made so far
+# tools/check_examples.py applies it to a copy of shoal/v14,
+# builds it, and runs the tests.
+# base: shoal/v14
+--- a/commands.cc
++++ b/commands.cc
+@@ -752,6 +752,35 @@
+         db.local().replica ? "slave" : "master"));
+ }
+
++// snippet: wait
++// WAIT numreplicas timeout: waits until a replica applied every change
++// made so far, on every shard, or until the timeout, in milliseconds
++// (0: no timeout), and returns how many replicas did: 0 or 1, since a
++// primary has at most one. With numreplicas 0, it doesn't wait. This waits
++// for changes that other clients made too, which Redis's WAIT doesn't.
++future<std::optional<reply>> wait(sharded<store>& db, request req,
++                                  abort_source&) {
++    auto replicas = parse_integer(req[1]);
++    auto ms = parse_integer(req[2]);
++    if (!replicas || !ms || *replicas < 0 || *ms < 0) {
++        co_return error_reply("value is not an integer or out of range");
++    }
++    if (db.local().replica) {
++        co_return error_reply("WAIT cannot be used with replica instances");
++    }
++    auto deadline = lowres_clock::now();
++    if (*replicas > 0) {
++        deadline = *ms ? deadline + std::chrono::milliseconds(*ms)
++                       : lowres_clock::time_point::max();
++    }
++    bool applied = co_await db.map_reduce0([deadline] (store& s) {
++        return s.feed ? s.feed->wait_for_replica(s.feed->end(), deadline)
++                      : make_ready_future<bool>(false);
++    }, true, std::logical_and<bool>());
++    co_return integer_reply(applied ? 1 : 0);
++}
++// end snippet: wait
++
+ // DBSIZE: the number of keys, on all the shards together.
+ future<std::optional<reply>> dbsize(sharded<store>& db, request,
+                                       abort_source&) {
+@@ -1185,6 +1214,7 @@
+     {"flushall", {.arity = -1, .run = flushall, .write = true}},
+     {"bgrewriteaof", {.arity = 1, .run = bgrewriteaof}},
+     {"shutdown", {.arity = -1, .run = shutdown}},
++    {"wait", {.arity = 3, .run = wait}},
+ };
+ // end snippet: table
+
+@@ -1531,6 +1561,7 @@
+                 co_await coroutine::maybe_yield();
+             }
+         } while (position != 0);
++        feed.end_snapshot(snapshot);
+     } catch (broken_condition_variable&) {
+         // Shoal is stopping.
+     }
+--- a/feed.cc
++++ b/feed.cc
+@@ -67,9 +67,34 @@
+ uint64_t replication_feed::start_snapshot() {
+     // Wakes the previous snapshot, if it's waiting, to see that it's over.
+     _fetching.broadcast();
++    _synced = std::numeric_limits<uint64_t>::max();
+     return ++_snapshots;
+ }
+
++// snippet: wait-for-replica
++void replication_feed::end_snapshot(uint64_t snapshot) {
++    if (snapshot == _snapshots) {
++        _synced = _end;
++        _fetching.broadcast();
++    }
++}
++
++future<bool> replication_feed::wait_for_replica(
++        uint64_t offset, lowres_clock::time_point deadline) {
++    // A replica fetches from an offset only after it applied all the
++    // changes before it; but they include all the keys only after the
++    // snapshot that it started from.
++    try {
++        co_await _fetching.wait(deadline, [&] {
++            return _fetched >= std::max(offset, _synced);
++        });
++        co_return true;
++    } catch (condition_variable_timed_out&) {
++        co_return false;
++    }
++}
++// end snippet: wait-for-replica
++
+ future<bool> replication_feed::wait_for_fetch(size_t n, uint64_t snapshot) {
+     co_await _fetching.wait([&] {
+         return _end - _fetched <= n || _snapshots != snapshot;
+--- a/feed.hh
++++ b/feed.hh
+@@ -8,6 +8,7 @@
+ #include <seastar/core/temporary_buffer.hh>
+ #include <cstdint>
+ #include <deque>
++#include <limits>
+ #include <string_view>
+
+ // snippet: feed
+@@ -26,6 +27,9 @@
+     uint64_t _fetched = 0;          // the offset of the latest fetch
+     size_t _limit;
+     uint64_t _snapshots = 0;        // the snapshots started so far
++    // The offset after the latest snapshot's last request, once it's
++    // written: from there on, a replica has all the keys.
++    uint64_t _synced = std::numeric_limits<uint64_t>::max();
+     condition_variable _grown;      // signaled when changes are appended
+     condition_variable _fetching;   // signaled by every fetch
+ public:
+@@ -54,6 +58,14 @@
+     // whether the snapshot of this number may go on: false once a newer
+     // snapshot starts.
+     future<bool> wait_for_fetch(size_t n, uint64_t snapshot);
++    // At the end of the snapshot of this number: if it's still the
++    // latest, a replica that fetched everything until here has all the
++    // keys.
++    void end_snapshot(uint64_t snapshot);
++    // Waits until a replica has applied the changes before offset, or the
++    // deadline passes, and returns whether it has.
++    future<bool> wait_for_replica(uint64_t offset,
++                                  lowres_clock::time_point deadline);
+     // Ends the waits of fetch() and wait_for_fetch(), as Shoal stops.
+     void stop();
+ private:
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,50 @@
++# Tests of WAIT, the solution of chapter 26's exercise 1.
++import time
++
++import pytest
++import redis
++
++from test_v14 import eventually, start_primary, start_replica
++
++
++# Check that WAIT returns 1 once the replica applied the changes, which
++# it then has.
++def test_wait(start_server):
++    _, p, port = start_primary(start_server)
++    _, r = start_replica(start_server, port)
++    for i in range(20):
++        p.set(f'wait:{i}', i)
++        assert p.wait(1, 10000) == 1
++        assert r.get(f'wait:{i}') == str(i).encode()
++
++
++# Check that a replica that just started, which gets the keys from a
++# snapshot, has them when WAIT returns. Valkey's WAIT returns 1 before
++# its new replica has keys that were written before it connected.
++def test_wait_after_sync(start_server):
++    if start_server.is_valkey:
++        pytest.skip("Valkey's WAIT doesn't wait for the snapshot")
++    _, p, port = start_primary(start_server)
++    p.mset({f'sync:{i}': i for i in range(10000)})
++    _, r = start_replica(start_server, port)
++    assert p.wait(1, 10000) == 1
++    assert r.dbsize() == 10000
++
++
++# Check that WAIT without a replica returns 0 after the timeout, and that
++# WAIT 0 doesn't wait.
++def test_wait_without_replica(start_server):
++    _, p, _ = start_primary(start_server)
++    p.set('alone', 'x')
++    start = time.time()
++    assert p.wait(1, 200) == 0
++    assert time.time() - start >= 0.19
++    assert p.wait(0, 0) == 0
++
++
++# Check that a replica refuses WAIT.
++def test_wait_on_replica(start_server):
++    _, p, port = start_primary(start_server)
++    _, r = start_replica(start_server, port)
++    with pytest.raises(redis.exceptions.ResponseError):
++        r.wait(1, 100)

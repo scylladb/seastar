@@ -1,0 +1,54 @@
+% The style shared by all the book's figures (tools/build.py typesets each
+% figures/NAME.tex with this file, in a document of its own). Figures are
+% drawn at their final size, at most the width of the text (about 130 mm
+% on a B5 page), so that their labels are a size or two smaller than the
+% text, as in every figure. Colors differ in lightness, not only in hue,
+% and shapes and line styles carry the meaning, so that figures also read
+% well in grayscale.
+\usetikzlibrary{arrows.meta, positioning, calc, fit, backgrounds}
+% No extra space after punctuation, which LaTeX adds by default.
+\frenchspacing
+% The two sizes of labels: ordinary ones, and notes and smaller labels.
+\renewcommand\small{\fontsize{8.8pt}{10.5pt}\selectfont}
+\renewcommand\footnotesize{\fontsize{7.7pt}{9.3pt}\selectfont}
+
+\definecolor{figink}{HTML}{333333}      % lines
+\definecolor{fignote}{HTML}{555555}     % secondary labels
+\definecolor{figfill}{HTML}{F2F2F2}     % ordinary boxes
+\definecolor{fighot}{HTML}{A8322D}      % contention: locks, bouncing lines
+\definecolor{fighotfill}{HTML}{F6DCDA}
+\definecolor{figcool}{HTML}{1A5C96}     % data a shard owns, messages, tasks
+\definecolor{figcoolfill}{HTML}{DCE8F3}
+
+\tikzset{
+  every picture/.style={font=\sffamily\small, line width=0.66pt, draw=figink,
+                        text=black, >={Triangle[length=1.75mm, width=1.75mm]}},
+  box/.style={draw=figink, fill=figfill, rounded corners=3pt, align=center,
+              inner xsep=1.6mm, inner ysep=1.1mm},
+  hotbox/.style={box, draw=fighot, fill=fighotfill, line width=0.77pt},
+  coolbox/.style={box, draw=figcool, fill=figcoolfill, line width=0.72pt},
+  plainbox/.style={box, fill=white},
+  title/.style={font=\sffamily\fontsize{9.5pt}{11.5pt}\selectfont\bfseries},
+  note/.style={font=\sffamily\footnotesize, text=fignote, align=center},
+  % Arrows: ordinary, contended (dashed, so that they stay distinct in
+  % grayscale), and messages or tasks.
+  flow/.style={->, draw=figink},
+  bounce/.style={<->, draw=fighot, dash pattern=on 2.2pt off 1.65pt, line width=0.77pt},
+  message/.style={->, draw=figcool, line width=0.77pt},
+  % Arrows between two boxes stop just short of them.
+  gap/.style={shorten <=0.4mm, shorten >=0.5mm},
+  % Dashes, for what happens rarely: short ones for lines, long ones for boxes.
+  rare/.style={dash pattern=on 2.2pt off 1.65pt},
+  rarebox/.style={dash pattern=on 3.3pt off 2.2pt},
+  % A small padlock.
+  lock/.pic={
+    \draw[fighot, line width=0.9pt] (-1mm,0) -- (-1mm,0.9mm) arc[start angle=180, end angle=0, radius=1mm] -- (1mm,0);
+    \fill[fighot, rounded corners=0.3mm] (-1.5mm,-2mm) rectangle (1.5mm,0.2mm);
+  },
+  % A short queue of messages, three small blocks, narrow enough to sit
+  % between two boxes 4 mm apart.
+  queue/.pic={
+    \foreach \x in {-0.95mm, 0mm, 0.95mm}
+      \fill[figcool] (\x-0.35mm,-0.95mm) rectangle (\x+0.35mm,0.95mm);
+  },
+}

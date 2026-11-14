@@ -1,0 +1,54 @@
+% Figure for chapter 9, "How timers work": a timer set, with 8-bit times
+% instead of 64-bit ones. A timer goes to the bucket numbered by the
+% position of the highest bit in which its time differs from the time of
+% the last check, counted from the left: far timers go to low-numbered
+% buckets, near ones to high-numbered ones.
+\begin{tikzpicture}[
+    bucket/.style={plainbox, minimum width=11mm, minimum height=6mm,
+                   inner sep=0pt, font=\sffamily\footnotesize},
+    tmr/.style={coolbox, minimum width=11mm, inner xsep=0.6mm,
+                inner ysep=0.8mm, font=\sffamily\scriptsize, align=center},
+    bits/.style={font=\ttfamily\scriptsize},
+  ]
+  % The highest differing bit, set apart in a way that survives grayscale.
+  \newcommand\hb[1]{\underline{\textbf{#1}}}
+  % The buckets, 0 to 7, and the one for timers already due.
+  \foreach \i in {0, ..., 7} {
+    \node[bucket] (b\i) at (\i*13mm, 0) {\i};
+  }
+  \node[bucket, rarebox] (bdue) at (8*13mm + 2mm, 0) {due};
+  \node[note, anchor=south] at ([yshift=1mm]b0.north) {far};
+  \node[note, anchor=south] at ([yshift=1mm]b7.north) {near};
+  \draw[flow, draw=fignote] ([yshift=4mm, xshift=4mm]b0.north east)
+    -- ([yshift=4mm, xshift=-4mm]b7.north west)
+    node[midway, above, note] {expire sooner};
+
+  % The time of the last check.
+  \node[font=\sffamily\footnotesize, anchor=south] (lastlabel)
+    at ([yshift=11mm]$(b0.north)!0.5!(b7.north)$)
+    {the last check: 80 = {\ttfamily 01010000}};
+
+  % The timers, each listed under its bucket.
+  \node[tmr, anchor=north] (t200) at ([yshift=-3mm]b0.south)
+    {200 \\ {\ttfamily \hb{1}1001000}};
+  \node[tmr, anchor=north] (t120) at ([yshift=-3mm]b2.south)
+    {120 \\ {\ttfamily 01\hb{1}11000}};
+  \node[tmr, anchor=north] (t95) at ([yshift=-3mm]b4.south)
+    {95 \\ {\ttfamily 0101\hb{1}111}};
+  \node[tmr, anchor=north] (t92) at ([yshift=-2mm]t95.south)
+    {92 \\ {\ttfamily 0101\hb{1}100}};
+  \node[tmr, anchor=north] (t83) at ([yshift=-3mm]b6.south)
+    {83 \\ {\ttfamily 010100\hb{1}1}};
+  \node[tmr, anchor=north] (t81) at ([yshift=-3mm]b7.south)
+    {81 \\ {\ttfamily 0101000\hb{1}}};
+  \foreach \b/\t in {b0/t200, b2/t120, b4/t95, t95/t92, b6/t83, b7/t81}
+    \draw[message, gap] (\b.south) -- (\t.north);
+
+  % Notes on the operations.
+  \node[note, anchor=north west, align=left]
+    at ([yshift=-5mm]t92.south -| b0.west)
+    {\textbf{arm:} find the bucket, and add the timer to its list. \\
+     \textbf{cancel:} remove the timer from its list. \\
+     \textbf{time passes:} take whole the buckets whose timers are all due, \\
+     and sort out only the timers of the bucket at the boundary.};
+\end{tikzpicture}

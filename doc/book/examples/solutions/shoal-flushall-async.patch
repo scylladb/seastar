@@ -1,0 +1,57 @@
+# A solution in solutions/how-seastar-runs-your-code.md: shoal-flushall-async, Shoal v2 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v2, builds it, and runs the tests.
+# base: shoal/v2
+--- a/commands.cc
++++ b/commands.cc
+@@ -189,6 +189,14 @@
+ }
+ // end snippet: keys
+
++// snippet: destroy-gently
++// Destroys data gradually, in the background. The data is a parameter, so
++// it lives in this coroutine's frame until the coroutine ends.
++future<> destroy_gently(store data) {
++    co_await clear_gently(data);
++}
++// end snippet: destroy-gently
++
+ // snippet: flushall
+ // FLUSHALL [ASYNC | SYNC]
+ future<> flushall(store& db, const request& req, output_stream<char>& out) {
+@@ -199,7 +207,12 @@
+     // Move all the data out of the store, which is quick, and leaves the
+     // store empty. Then destroy it gradually.
+     store old = std::exchange(db, store());
+-    co_await clear_gently(old);
++    if (req.size() == 2 && lowercase(req[1]) == "async") {
++        // Reply at once, and destroy the old data in the background.
++        (void)destroy_gently(std::move(old));
++    } else {
++        co_await clear_gently(old);
++    }
+     co_await out.write(simple_string_reply("OK"));
+ }
+ // end snippet: flushall
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,19 @@
++# Tests for the solution of chapter 5's exercise 5: FLUSHALL ASYNC replies
++# at once, and destroys the old data in the background. Like all of
++# Shoal's tests, they pass against Valkey too.
++from test_v1 import unique_key
++
++
++# Check that FLUSHALL ASYNC deletes the keys, and that a key set right
++# after it survives: only the keys that existed when it was invoked are
++# deleted.
++def test_flushall_async_keeps_new_keys(r):
++    old, new = unique_key(), unique_key()
++    pipe = r.pipeline(transaction=False)
++    for i in range(10000):
++        pipe.set(f'{old}-{i}', 'x')
++    pipe.execute()
++    assert r.execute_command('FLUSHALL', 'ASYNC') in (True, b'OK')
++    r.set(new, 'kept')
++    assert r.get(f'{old}-0') is None
++    assert r.get(new) == b'kept'

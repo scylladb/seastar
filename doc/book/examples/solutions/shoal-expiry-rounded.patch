@@ -1,0 +1,152 @@
+# A solution in solutions/time.md: shoal-expiry-rounded, Shoal v5 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v5, builds it, and runs the tests.
+# base: shoal/v5
+--- a/commands.cc
++++ b/commands.cc
+@@ -1,4 +1,5 @@
+-// Shoal's commands, and the data they work on.
++// Shoal's commands, and the data they work on, with a log of the expiry
++// timer's calls.
+ #include "commands.hh"
+ #include <seastar/core/coroutine.hh>
+ #include <seastar/coroutine/maybe_yield.hh>
+@@ -72,6 +73,11 @@
+ // Sets a key's expiration time, replacing any old one.
+ void expire_key_at(store& db, const sstring& key, entry& e,
+                    expiry_clock::time_point when) {
++    if (db.round_expiry) {
++        auto seconds = std::chrono::ceil<std::chrono::seconds>(
++            when.time_since_epoch());
++        when = expiry_clock::time_point(seconds);
++    }
+     if (e.expires) {
+         db.expirations.erase(db.expirations.iterator_to(*e.expires));
+     } else {
+@@ -91,26 +97,47 @@
+ // How many keys the timer's function deletes before it lets other work run.
+ constexpr int expire_batch = 1000;
+
+-// The expiry timer's function: deletes the keys whose expiration time has
++// The expiry timer's work: deletes the keys whose expiration time has
+ // passed, and arms the timer again for the next one. A timer's function
+ // can't yield, so it deletes only a batch of keys, and if more are due,
+-// arms the timer to run again right after other work.
+-void expire_keys(store& db) {
++// arms the timer to run again right after other work, and returns false;
++// it returns true when no more keys are due.
++bool expire_some_keys(store& db) {
+     auto now = expiry_clock::now();
+     for (int i = 0; i < expire_batch; i++) {
+         if (db.expirations.empty()) {
+-            return;
++            return true;
+         }
+         auto& first = *db.expirations.begin();
+         if (first.when > now) {
+             db.expiry_timer.rearm(first.when);
+-            return;
++            return true;
+         }
+         erase_key(db, db.data.find(*first.key));
++        db.expired_keys++;
+     }
+-    // A whole batch expired, and more keys may be due: expire the next
+-    // batch as soon as the reactor has let other work run.
+     db.expiry_timer.rearm(now);
++    return false;
++}
++
++// Calls expire_some_keys(), measures how long it took, and when no more
++// keys are due, logs the calls since the last log.
++void expire_keys(store& db) {
++    auto start = std::chrono::steady_clock::now();
++    bool done = expire_some_keys(db);
++    auto took = std::chrono::steady_clock::now() - start;
++    db.expiry_calls++;
++    db.longest_call = std::max(db.longest_call, took);
++    db.all_calls += took;
++    if (done) {
++        using ms = std::chrono::duration<double, std::milli>;
++        shoal_log.info("{} calls deleted {} keys, in {:.1f} ms; the "
++                       "longest call took {:.2f} ms", db.expiry_calls,
++                       db.expired_keys, ms(db.all_calls).count(),
++                       ms(db.longest_call).count());
++        db.expiry_calls = db.expired_keys = 0;
++        db.longest_call = db.all_calls = {};
++    }
+ }
+ // end snippet: expire-keys
+
+--- a/commands.hh
++++ b/commands.hh
+@@ -6,6 +6,7 @@
+ #include <seastar/core/lowres_clock.hh>
+ #include <seastar/core/timer.hh>
+ #include <boost/intrusive/set.hpp>
++#include <chrono>
+ #include <memory>
+ #include <unordered_map>
+
+@@ -35,6 +36,16 @@
+     std::unordered_map<sstring, entry> data;
+     boost::intrusive::multiset<expiration> expirations;
+     timer<expiry_clock> expiry_timer;
++    // Whether to round expiration times up to whole seconds, so that keys
++    // expire together (--round-expiry).
++    bool round_expiry = false;
++    // For the measurement: the calls of the timer's function since the
++    // last log, how many keys they deleted, the longest call, and all of
++    // them together.
++    size_t expiry_calls = 0;
++    size_t expired_keys = 0;
++    std::chrono::steady_clock::duration longest_call{};
++    std::chrono::steady_clock::duration all_calls{};
+
+     store();
+     store(const store&) = delete;      // the timer's function points to it
+--- a/main.cc
++++ b/main.cc
+@@ -1,4 +1,5 @@
+-// Shoal, version 5: a Redis-compatible key-value server on a single shard.
++// Shoal, version 5, with --round-expiry, and a log of the expiry timer's
++// calls: a Redis-compatible key-value server on a single shard.
+ #include "commands.hh"
+ #include "pubsub.hh"
+ #include <seastar/core/app-template.hh>
+@@ -26,6 +27,7 @@
+     delivery pubsub_delivery;
+     size_t pubsub_max_pending;
+     size_t pubsub_max_total_pending;
++    bool round_expiry;
+ };
+
+ // snippet: serve
+@@ -95,6 +97,7 @@
+ // snippet: shoal-main
+ future<> shoal_main(options opts) {
+     store db;
++    db.round_expiry = opts.round_expiry;
+     pubsub ps(opts.pubsub_delivery, opts.pubsub_max_pending,
+               opts.pubsub_max_total_pending);
+     listen_options lo;
+@@ -151,7 +154,10 @@
+         ("pubsub-max-total-pending", bpo::value<size_t>()->default_value(0),
+          "when all subscribers' unsent messages use more than this many "
+          "bytes, disconnect those that are behind (default: a quarter of "
+-         "the shard's memory)");
++         "the shard's memory)")
++        ("round-expiry", bpo::bool_switch(),
++         "round expiration times up to whole seconds, so that keys expire "
++         "together");
+     return app.run(argc, argv, [&app] {
+         auto& config = app.configuration();
+         return shoal_main(options{
+@@ -161,6 +167,7 @@
+             .pubsub_max_pending = config["pubsub-max-pending"].as<size_t>(),
+             .pubsub_max_total_pending = max_total_pending(
+                 config["pubsub-max-total-pending"].as<size_t>()),
++            .round_expiry = config["round-expiry"].as<bool>(),
+         });
+     });
+ }

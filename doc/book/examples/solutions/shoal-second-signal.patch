@@ -1,0 +1,75 @@
+# A solution in solutions/clean-shutdown.md: shoal-second-signal, Shoal v7 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v7, builds it, and runs the tests.
+# base: shoal/v7
+--- a/main.cc
++++ b/main.cc
+@@ -1,4 +1,5 @@
+-// Shoal, version 7: a Redis-compatible key-value server on a single shard.
++// Shoal, version 7, which gives up at once on a second signal: a
++// Redis-compatible key-value server on a single shard.
+ #include "commands.hh"
+ #include "pubsub.hh"
+ #include <seastar/core/app-template.hh>
+@@ -159,11 +160,22 @@
+         .request_memory_limit = opts.max_request_memory,
+     };
+     // snippet: signals
+-    // Stop when the user presses Ctrl-C (SIGINT), or kill sends SIGTERM.
+-    // Seastar can't remove a signal handler, so before db is destroyed,
+-    // replace these with handlers that do nothing.
+-    handle_signal(SIGINT, [&db] { db.stopping.request_abort(); });
+-    handle_signal(SIGTERM, [&db] { db.stopping.request_abort(); });
++    // Stop when the user presses Ctrl-C (SIGINT), or kill sends SIGTERM. A
++    // second signal, while stopping, gives up on the connections at once,
++    // without waiting for the grace period. Seastar can't remove a signal
++    // handler, so before db is destroyed, replace these with handlers that
++    // do nothing.
++    auto on_signal = [&db] {
++        if (!db.stopping.abort_requested()) {
++            db.stopping.request_abort();
++        } else if (!db.giving_up.abort_requested()) {
++            shoal_log.info("a second signal: giving up on the connections "
++                           "still open");
++            db.giving_up.request_abort();
++        }
++    };
++    handle_signal(SIGINT, on_signal);
++    handle_signal(SIGTERM, on_signal);
+     auto forget_signals = defer([] () noexcept {
+         handle_signal(SIGINT, [] {});
+         handle_signal(SIGTERM, [] {});
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,31 @@
++# Tests for the solution of chapter 12's exercise 4: a second SIGINT or
++# SIGTERM, while the server stops, gives up on the connections at once.
++# ./run gives Shoal a grace period of a second; Valkey doesn't wait at
++# all. Like all of Shoal's tests, they pass against Valkey too.
++import signal
++import socket
++import time
++
++import pytest
++import redis
++
++from test_v7 import command
++
++
++# Check that a second signal stops a server that waits for a client that
++# doesn't read its replies, well before the grace period ends.
++@pytest.mark.parametrize('how', ['SIGINT', 'SIGTERM'])
++def test_second_signal_gives_up(own_server, how):
++    address = own_server.address
++    r = redis.Redis(*address)
++    r.set('test_stop_big', 'x' * 1000000)
++    # 100 replies of a megabyte each are far more than the sockets' buffers
++    # hold, so the server can't send them all.
++    lazy = socket.create_connection(address, timeout=10)
++    lazy.sendall(command('GET', 'test_stop_big') * 100)
++    r.ping()
++    own_server.process.send_signal(getattr(signal, how))
++    time.sleep(0.1)
++    own_server.process.send_signal(getattr(signal, how))
++    assert own_server.process.wait(timeout=0.7) == 0
++    lazy.close()

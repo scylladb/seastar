@@ -1,0 +1,170 @@
+# A solution in solutions/coordination.md: shoal-brpop, Shoal v6 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v6, builds it, and runs the tests.
+# base: shoal/v6
+--- a/commands.cc
++++ b/commands.cc
+@@ -457,12 +457,17 @@
+             return;
+         }
+         auto& l = std::get<list_value>(it->second.value);
+-        auto element = std::move(l.front());
+-        l.pop_front();
++        blocked_pop& b = *waiters->second.front();
++        auto element = std::move(b.front ? l.front() : l.back());
++        if (b.front) {
++            l.pop_front();
++        } else {
++            l.pop_back();
++        }
+         if (l.empty()) {
+             erase_key(db, it);
+         }
+-        end_wait(db, *waiters->second.front(), std::pair(key, std::move(element)));
++        end_wait(db, b, std::pair(key, std::move(element)));
+     }
+ }
+ // end snippet: serve-blocked
+@@ -574,8 +579,8 @@
+
+ // snippet: blpop
+ // BLPOP key [key ...] timeout
+-future<> blpop(store& db, const request& req, output_stream<char>& out,
+-               abort_source& hung_up) {
++future<> bpop(store& db, const request& req, output_stream<char>& out,
++              abort_source& hung_up, bool front) {
+     auto timeout = parse_timeout(req.back());
+     if (!timeout) {
+         co_return co_await out.write(
+@@ -597,8 +602,12 @@
+         if (l) {
+             // Pop the element before writing: the write may wait, and
+             // while it does, other commands may change the list.
+-            auto element = std::move(l->front());
+-            l->pop_front();
++            auto element = std::move(front ? l->front() : l->back());
++            if (front) {
++                l->pop_front();
++            } else {
++                l->pop_back();
++            }
+             if (l->empty()) {
+                 erase_key(db, it);
+             }
+@@ -608,6 +617,7 @@
+     // Otherwise wait, at the end of each key's line of waiting clients,
+     // until a push to one of them, the timeout, or the client hanging up.
+     blocked_pop b;
++    b.front = front;
+     for (size_t i = 1; i + 1 < req.size(); i++) {
+         auto& waiting = db.blocked[req[i]];
+         b.places.emplace_back(req[i], waiting.insert(waiting.end(), &b));
+@@ -632,6 +642,16 @@
+     }
+     co_await out.write(reply(result->first, result->second));
+ }
++
++future<> blpop(store& db, const request& req, output_stream<char>& out,
++               abort_source& hung_up) {
++    return bpop(db, req, out, hung_up, true);
++}
++
++future<> brpop(store& db, const request& req, output_stream<char>& out,
++               abort_source& hung_up) {
++    return bpop(db, req, out, hung_up, false);
++}
+ // end snippet: blpop
+
+ // snippet: table
+@@ -664,6 +684,7 @@
+     {"llen", {.arity = 2, .run = llen}},
+     {"lrange", {.arity = 4, .run_long = lrange}},
+     {"blpop", {.arity = -3, .run_long = blpop}},
++    {"brpop", {.arity = -3, .run_long = brpop}},
+     {"keys", {.arity = 2, .run_long = keys}},
+     {"flushall", {.arity = -1, .run_long = flushall}},
+ };
+--- a/commands.hh
++++ b/commands.hh
+@@ -52,6 +52,7 @@
+     // Its place in the list of waiting clients of each of its keys.
+     std::vector<std::pair<sstring, std::list<blocked_pop*>::iterator>> places;
+     bool waiting = true;
++    bool front = true;      // BLPOP pops the first element, BRPOP the last
+ };
+ // end snippet: blocked-pop
+
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,71 @@
++# Tests for the solution of chapter 10's exercise 1: BRPOP, which is BLPOP
++# popping from the end of the list. Like all of Shoal's tests, they pass
++# against Valkey too.
++import threading
++
++import redis
++
++from test_v6 import unique_key, wait_blocked
++
++
++# Starts BLPOP or BRPOP (pop is 'blpop' or 'brpop') on a connection of its
++# own, in a thread, and returns the thread and a list that receives the
++# reply.
++def pop_in_thread(server, pop, keys, timeout):
++    host, port = server
++    result = []
++    client = redis.Redis(host=host, port=port)
++
++    def run():
++        try:
++            result.append(getattr(client, pop)(keys, timeout))
++        finally:
++            client.close()
++    t = threading.Thread(target=run)
++    t.start()
++    return t, result
++
++
++# Check that BRPOP takes the last element at once, if the list has one.
++def test_brpop_immediate(r):
++    k = unique_key()
++    r.rpush(k, 'a', 'b')
++    assert r.brpop([k], 1) == (k.encode(), b'b')
++    assert r.lrange(k, 0, -1) == [b'a']
++
++
++# Check that BRPOP times out with nil.
++def test_brpop_timeout(r):
++    assert r.brpop([unique_key()], 0.1) is None
++
++
++# Check that when a client blocked in BRPOP and then one blocked in BLPOP
++# wait on the same key, a push of three elements gives the first the last
++# element, and the second the first element, and leaves the middle one.
++def test_brpop_then_blpop(r, server):
++    k = unique_key()
++    t1, result1 = pop_in_thread(server, 'brpop', [k], 5)
++    wait_blocked(r, 1)
++    t2, result2 = pop_in_thread(server, 'blpop', [k], 5)
++    wait_blocked(r, 2)
++    r.rpush(k, 'a', 'b', 'c')
++    t1.join()
++    t2.join()
++    assert result1 == [(k.encode(), b'c')]
++    assert result2 == [(k.encode(), b'a')]
++    assert r.lrange(k, 0, -1) == [b'b']
++
++
++# Check the same, with the client blocked in BLPOP first.
++def test_blpop_then_brpop(r, server):
++    k = unique_key()
++    t1, result1 = pop_in_thread(server, 'blpop', [k], 5)
++    wait_blocked(r, 1)
++    t2, result2 = pop_in_thread(server, 'brpop', [k], 5)
++    wait_blocked(r, 2)
++    r.rpush(k, 'a', 'b', 'c')
++    t1.join()
++    t2.join()
++    assert result1 == [(k.encode(), b'a')]
++    assert result2 == [(k.encode(), b'c')]
++    assert r.lrange(k, 0, -1) == [b'b']

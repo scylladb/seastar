@@ -1,0 +1,33 @@
+/* Stylesheet for the EPUB edition. E-readers let the reader choose the font,
+   its size and the colors, so this sets as little as possible: code blocks,
+   tables, and the part pages. */
+code, pre {
+  font-family: "Source Code Pro", "DejaVu Sans Mono", monospace;
+  font-size: 0.85em;
+}
+pre {
+  white-space: pre-wrap;
+  background: #f3f3f0;
+  padding: 0.5em;
+  border-radius: 3px;
+}
+table { border-collapse: collapse; margin: 1em 0; }
+th, td { border-bottom: 1px solid #ccc; padding: 0.2em 0.5em; text-align: left; }
+blockquote { margin: 1em 1.5em; font-style: italic; }
+/* C++ corners: a box with a rule on the left, not a quotation. */
+.corner { border-left: 3px solid #6b94bd; background: #f2f6f9; padding: 0.1em 0.8em; margin: 1em 0; }
+.corner pre { background: none; }
+.sidebar { border-left: 3px solid #888; background: #f5f5f5; padding: 0.1em 0.8em; margin: 1em 0; }
+.sidebar pre { background: none; }
+.part-intro { text-align: center; font-style: italic; margin: 3em 1em; }
+.part-intro h1 { font-style: normal; }
+.part-number { display: block; font-variant: small-caps; font-size: 0.7em; }
+.titlepage .edt::before { content: "Edited by "; }
+
+/* A code block taken from a file is labeled with the file's path. */
+.code-file {
+  text-align: right;
+  font-size: 0.8em;
+  color: #666;
+  margin-bottom: -0.6em;
+}

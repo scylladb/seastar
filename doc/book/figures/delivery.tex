@@ -1,0 +1,59 @@
+% Figure for chapter 7, "Delivering a message": one PUBLISH, three
+% subscribers, of which the second never reads, and what each of the three
+% ways of delivering waits for.
+\begin{tikzpicture}[
+    publish/.style={coolbox, minimum width=14mm, minimum height=6mm, inner sep=0,
+                    font=\ttfamily\footnotesize, rounded corners=1.65pt},
+    sub/.style={box, minimum width=14mm, minimum height=7mm, inner sep=0,
+                font=\sffamily\footnotesize, align=center, rounded corners=1.65pt},
+    status/.style={font=\sffamily\footnotesize, align=center, anchor=north,
+                   text width=15mm, inner sep=0.5mm},
+  ]
+  % A panel: its title, the PUBLISH, what the PUBLISH is doing, and the
+  % three subscribers. #1: a name for the panel's nodes; #2: its left edge;
+  % #3: its title; #4: the status; #5: the status's color; #6, #7, #8: the
+  % subscribers' states.
+  \newcommand\panel[8]{
+    \node[title, anchor=base] at (#2+20mm, 0) {#3};
+    \node[publish] (#1p) at (#2+7mm, -11mm) {PUBLISH};
+    \node[status, text=#5] (#1s) at ([yshift=-1mm]#1p.south) {#4};
+    \node[sub] (#11) at (#2+33mm, -12mm) {#6};
+    \node[sub, hotbox] (#12) at (#2+33mm, -21mm) {#7};
+    \node[sub] (#13) at (#2+33mm, -30mm) {#8};
+  }
+  % Messages not yet written, waiting in the chain of subscriber 2 of panel
+  % #1: #2 of them. The PUBLISH's write to it ends at the last.
+  \newcommand\pending[2]{
+    \foreach \i in {1, ..., #2}
+      \fill[figcool] ($(#12.west) + ({-0.6mm - \i*1.7mm}, -1.6mm)$)
+        rectangle ++(1.1mm, 3.2mm);
+    \draw[flow, gap] (#1p.east) -- ($(#12.west) + ({-0.6mm - #2*1.7mm}, 0)$);
+  }
+  % A write the PUBLISH started, and that's done, to subscriber #2 of panel #1.
+  \newcommand\started[2]{
+    \draw[flow, gap] (#1p.east) -- (#1#2.west);
+  }
+
+  % One after the other: waits for each write before the next.
+  \panel{seq}{0}{One after the other}{stuck, waiting for 2's write}{fighot}
+    {1: got it}{2: never \\[-2pt] reads}{3: not yet}
+  \started{seq}{1}
+  \pending{seq}{1}
+  \draw[figink!45, rare, gap] (seqp.east) -- (seq3.west);
+
+  % All at once: starts all the writes, then waits for all of them.
+  \panel{par}{43mm}{All at once}{stuck, waiting for 2's write}{fighot}
+    {1: got it}{2: never \\[-2pt] reads}{3: got it}
+  \started{par}{1}
+  \pending{par}{1}
+  \started{par}{3}
+
+  % In the background: only adds the message to each chain, and replies.
+  \panel{bg}{86mm}{In the background}{replied at once}{figcool}
+    {1: got it}{2: never \\[-2pt] reads}{3: got it}
+  \started{bg}{1}
+  \pending{bg}{4}
+  \started{bg}{3}
+  \node[note, text=fighot, anchor=north east, align=right] at ([yshift=-0.8mm]bg3.south east)
+    {2 is disconnected \\ after 32 MB pending};
+\end{tikzpicture}

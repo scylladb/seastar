@@ -1,0 +1,134 @@
+% LaTeX additions for the book, included in the preamble by tools/build.py.
+\usepackage{microtype}
+% Figures turned on their side, for wide pictures (bookfilter.py's sideways="true").
+\usepackage{rotating}
+% Definition lists (appendix B's options): the term in the text's font, on a
+% line of its own, and its description indented below it.
+\usepackage{enumitem}
+\setlist[description]{font=\normalfont, style=nextline, leftmargin=1.5em}
+\KOMAoptions{headings=standardclasses,open=any}
+\addtokomafont{disposition}{\rmfamily\bfseries}
+\addtokomafont{chapter}{\Huge}
+\usepackage[automark]{scrlayer-scrpage}
+\pagestyle{scrheadings}
+\clearpairofpagestyles
+\ohead{\pagemark}
+% Left pages show the chapter. Right pages show the section in force at the
+% top of the page, rather than LaTeX's default, the first section that
+% starts on the page, which may begin only in its last lines.
+% tools/bookfilter.py places each section's mark at the end of the text
+% before its heading, ahead of the point where a page break can come, so
+% that a section starting at the very top of a page names that page too.
+% Before the first section of a chapter, show the chapter.
+\rehead{\leftmark}
+\lohead{\Ifstr{\righttopmark}{}{\leftmark}{\righttopmark}}
+\setkomafont{pageheadfoot}{\normalfont\small\itshape}
+% Code blocks: light gray background, slightly smaller monospace font.
+\usepackage{xcolor}
+\definecolor{shadecolor}{gray}{0.95}
+\usepackage{framed}
+% For the C++ corners below. Load it before redefining verbatim, because it
+% loads the verbatim package, which would replace the definition.
+\usepackage{tcolorbox}
+\tcbuselibrary{breakable}
+% Wrap code lines that are too long for the page, marking the break with an
+% arrow. A line breaks at a space if it can, otherwise after a slash, a
+% semicolon or a "::" (fvextra keeps a run of the same character
+% together), so that long paths, path lists and C++ names, as in a
+% backtrace, don't run off the page.
+% Code blocks without a language are shaded like highlighted ones.
+\usepackage{fvextra}
+\fvset{breaklines=true,breakafter={/;:}}
+\makeatletter
+\@ifundefined{Shaded}{}{\renewenvironment{Shaded}{\begin{snugshade}\small}{\end{snugshade}}}
+\@ifundefined{Highlighting}{}{%
+  \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\},breaklines=true,breakafter={/;:},breaknonspaceingroup=true}}
+\makeatother
+\renewenvironment{verbatim}
+  {\VerbatimEnvironment\begin{snugshade}\small\begin{Verbatim}[breaklines=true]}
+  {\end{Verbatim}\end{snugshade}}
+% C++ corners (tools/bookfilter.py): a light box with a rule on its
+% left, so that they don't look like quotations. Like the shading of code
+% blocks, the box extends past the text on both sides, so the corner's text
+% keeps the full width. Code blocks in a corner have no shading of their
+% own (it takes the box's color), since the box already sets them apart.
+% The box is a pale tint of the links' blue, and the rule a stronger one,
+% chosen so that in gray (0.3 R + 0.59 G + 0.11 B, which xcolor uses, and
+% the gray edition selects) they become exactly the grays 0.96 and 0.55.
+\definecolor{cornerback}{rgb}{0.948,0.963,0.977}
+\definecolor{cornerrule}{rgb}{0.42,0.581,0.742}
+\newtcolorbox{cppcorner}{breakable, colframe=cornerrule, colback=cornerback, sharp corners,
+  boxrule=0pt, leftrule=1.5pt,
+  left=3.5mm, right=3mm, top=2mm, bottom=2mm, grow to left by=5mm, grow to right by=3mm,
+  before skip=\medskipamount, after skip=\medskipamount,
+  before upper={\colorlet{shadecolor}{cornerback}\parskip=\medskipamount}}
+% Other sidebars, such as "About the name": the same box in gray, a shade
+% lighter than code blocks, so that only the C++ corners carry the color.
+\newtcolorbox{sidebar}{breakable, colframe=black!45, colback=black!4, sharp corners,
+  boxrule=0pt, leftrule=1.5pt,
+  left=3.5mm, right=3mm, top=2mm, bottom=2mm, grow to left by=5mm, grow to right by=3mm,
+  before skip=\medskipamount, after skip=\medskipamount,
+  before upper={\colorlet{shadecolor}{cornerback}\parskip=\medskipamount}}
+% A code block taken from a file (tools/bookfilter.py) is labeled with the
+% file's path, small and gray, just above the block, as a caption, ending at
+% the right edge of the shading (which extends \fboxsep past the text). If
+% fewer than six lines are left on the page (the label, and a few lines of
+% code), the label goes to the next
+% page with the code: the test of LaTeX's needspace package, which compares
+% the space left on the page with what's needed, and breaks the page if it
+% isn't there. (A stretchable break before the label, which we used first,
+% isn't enough: when the code didn't fit at all, framed.sty ended the page
+% after the label, alone.) The shaded box below adds \topsep above itself
+% (framed.sty's \OuterFrameSep), which can stretch and shrink; on a page
+% that LaTeX squeezes to fit, it would bring the label down onto the box.
+% So the space here cancels \topsep's shrink, and the gap
+% between the label and the box is never smaller than it should be.
+% Finally, \@nobreaktrue, as after a section heading: framed.sty's
+% \MakeFramed adds breakpoints of its own above the box (\penalty-30 and
+% \penalty0) unless it's set.
+\makeatletter
+\newcommand{\codefile}[1]{%
+  \par\penalty-100
+  \begingroup
+    \dimen@=6\baselineskip
+    \dimen@ii=\pagegoal \advance\dimen@ii by -\pagetotal
+    \ifdim\dimen@>\dimen@ii \ifdim\dimen@ii>\z@ \vfil\fi \break\fi
+  \endgroup
+  \addvspace{\smallskipamount}%
+  \noindent\makebox[\linewidth][r]{\footnotesize\color{black!55}\texttt{#1}\hspace{-\fboxsep}}\par
+  \nopagebreak
+  \vskip -0.9\baselineskip minus -\glueshrink\topsep
+  \nopagebreak\@nobreaktrue}
+\makeatother
+% Figures' captions, a size smaller than the text, as books usually set them,
+% and inset on both sides, so that they don't look like the text around them.
+\setkomafont{caption}{\small}
+\setkomafont{captionlabel}{\small\bfseries}
+\setcapmargin{1.5em}
+% Let a figure fill most of a page with text, at its top or bottom. LaTeX's
+% defaults put any figure taller than half a page on a page of its own,
+% alone in the middle of a mostly empty page.
+\renewcommand{\topfraction}{0.85}
+\renewcommand{\bottomfraction}{0.6}
+\renewcommand{\textfraction}{0.1}
+\renewcommand{\floatpagefraction}{0.8}
+% Tables: more space between rows, so that rows whose cells wrap to several
+% lines don't run into each other.
+\renewcommand{\arraystretch}{1.5}
+% The index (tools/bookfilter.py writes the \index commands and \printindex;
+% tools/build.py runs makeindex with style/book.ist between LaTeX runs).
+\usepackage{makeidx}
+\makeindex
+% Set the index two sizes smaller than the text, as books usually do, so
+% that more of it fits on a page, and ragged right, so that long names in
+% code font break after "::" instead of stretching the spaces in their
+% lines.
+\AddToHook{env/theindex/begin}{\footnotesize\raggedright}
+% The font of the code names in the index (tools/bookfilter.py): the
+% text's code font, narrowed to 85% of its width, so that most names fit
+% on one line of a column. A proportional font fits even more, but no
+% longer looks like code; Latin Modern Mono Light Condensed, a narrow
+% monospace font, is too light and small next to the text.
+\newfontfamily\indexcodefont{Source Code Pro}[Scale=MatchLowercase,
+  FakeStretch=0.85]
+\newcommand{\indexcode}[1]{{\indexcodefont #1}}

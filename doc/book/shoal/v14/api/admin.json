@@ -1,0 +1,102 @@
+{
+    "apiVersion": "1",
+    "swaggerVersion": "1.2",
+    "basePath": "{{Protocol}}://{{Host}}",
+    "resourcePath": "/v1",
+    "produces": ["application/json"],
+    "apis": [
+        {
+            "path": "/v1/info",
+            "operations": [{
+                "method": "GET",
+                "summary": "The keys and the memory of all the shards together",
+                "type": "info",
+                "nickname": "get_info",
+                "produces": ["application/json"],
+                "parameters": []
+            }]
+        },
+        {
+            "path": "/v1/shards",
+            "operations": [{
+                "method": "GET",
+                "summary": "The keys and the memory of each shard",
+                "type": "array",
+                "items": {"type": "shard_info"},
+                "nickname": "get_shards",
+                "produces": ["application/json"],
+                "parameters": []
+            }]
+        },
+        {
+            "path": "/v1/keys",
+            "operations": [{
+                "method": "GET",
+                "summary": "The keys that match a pattern, as KEYS returns them",
+                "type": "array",
+                "items": {"type": "string"},
+                "nickname": "get_keys",
+                "produces": ["application/json"],
+                "parameters": [{
+                    "name": "pattern",
+                    "description": "A Redis pattern; all the keys if missing",
+                    "required": false,
+                    "allowMultiple": false,
+                    "type": "string",
+                    "paramType": "query"
+                }]
+            }]
+        },
+        {
+            "path": "/v1/keys/{key}",
+            "operations": [{
+                "method": "DELETE",
+                "summary": "Deletes a key",
+                "type": "void",
+                "nickname": "delete_key",
+                "produces": ["application/json"],
+                "parameters": [{
+                    "name": "key",
+                    "description": "The key",
+                    "required": true,
+                    "allowMultiple": false,
+                    "type": "string",
+                    "paramType": "path"
+                }]
+            }]
+        },
+        {
+            "path": "/v1/rewrite",
+            "operations": [{
+                "method": "POST",
+                "summary": "Starts rewriting every shard's log, as BGREWRITEAOF does",
+                "type": "void",
+                "nickname": "rewrite",
+                "produces": ["application/json"],
+                "parameters": []
+            }]
+        }
+    ],
+    "models": {
+        "info": {
+            "id": "info",
+            "description": "The keys and the memory of all the shards together",
+            "properties": {
+                "shards": {"type": "long", "description": "The number of shards"},
+                "keys": {"type": "long", "description": "The number of keys"},
+                "used_memory": {"type": "long", "description": "About how much memory the keys and values take, in bytes"},
+                "maxmemory": {"type": "long", "description": "The most that they may take, or 0 for no limit"},
+                "evicted_keys": {"type": "long", "description": "How many keys were evicted to stay within maxmemory"}
+            }
+        },
+        "shard_info": {
+            "id": "shard_info",
+            "description": "The keys and the memory of one shard",
+            "properties": {
+                "shard": {"type": "long", "description": "The shard's number"},
+                "keys": {"type": "long", "description": "The number of keys"},
+                "used_memory": {"type": "long", "description": "About how much memory the keys and values take, in bytes"}
+            }
+        }
+    }
+}

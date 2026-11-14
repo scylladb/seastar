@@ -1,0 +1,81 @@
+# A solution in solutions/scheduling-groups.md: REWRITESHARES n, which sets the rewrite group's shares.
+# tools/check_examples.py applies it to a copy of shoal/v11,
+# builds it, and runs the tests.
+# base: shoal/v11
+--- a/commands.cc
++++ b/commands.cc
+@@ -790,6 +790,23 @@
+ }
+ // end snippet: bgrewriteaof
+
++// snippet: rewriteshares
++// REWRITESHARES n: sets the rewrite group's shares, on every shard, since
++// set_shares() changes them only on the shard that calls it. It takes
++// effect at once, even in the middle of a rewrite.
++future<std::optional<reply>> rewriteshares(sharded<store>& db, request req,
++                                             abort_source&) {
++    auto n = parse_integer(req[1]);
++    if (!n || *n < 1 || *n > 10000) {
++        co_return error_reply("shares must be an integer from 1 to 10000");
++    }
++    co_await db.invoke_on_all([shares = float(*n)] (store& s) {
++        s.groups.rewrite.set_shares(shares);
++    });
++    co_return simple_string_reply("OK");
++}
++// end snippet: rewriteshares
++
+ // snippet: list-lookup
+ // Finds a key's list. Returns a null list if the key doesn't exist, and
+ // fails if it holds a string.
+@@ -1133,6 +1150,7 @@
+     {"keys", {.arity = 2, .run = keys}},
+     {"flushall", {.arity = -1, .run = flushall}},
+     {"bgrewriteaof", {.arity = 1, .run = bgrewriteaof}},
++    {"rewriteshares", {.arity = 2, .run = rewriteshares}},
+     {"shutdown", {.arity = -1, .run = shutdown}},
+ };
+ // end snippet: table
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,40 @@
++# Tests for the solution of exercise 3 of "Scheduling groups":
++# REWRITESHARES sets the rewrite group's shares. Valkey has no such
++# command, so these tests run only against Shoal.
++import time
++
++import pytest
++import redis
++
++
++# Check that REWRITESHARES accepts shares from 1 to 10000, and refuses
++# anything else.
++def test_rewriteshares(r, start_server):
++    if start_server.is_valkey:
++        pytest.skip('Valkey has no REWRITESHARES')
++    assert r.execute_command('REWRITESHARES', '10') == b'OK'
++    assert r.execute_command('REWRITESHARES', '1000') == b'OK'
++    for bad in ['0', '10001', 'x']:
++        with pytest.raises(redis.ResponseError):
++            r.execute_command('REWRITESHARES', bad)
++    assert r.execute_command('REWRITESHARES', '100') == b'OK'
++
++
++# Check that a rewrite still finishes, and keeps the data, when its shares
++# change while it runs.
++def test_rewriteshares_during_rewrite(r, start_server):
++    if start_server.is_valkey:
++        pytest.skip('Valkey has no REWRITESHARES')
++    p = r.pipeline(transaction=False)
++    for i in range(20000):
++        p.set(f'rs{i}', 'v')
++    p.execute()
++    assert r.bgrewriteaof()
++    r.execute_command('REWRITESHARES', '10')
++    r.execute_command('REWRITESHARES', '1000')
++    deadline = time.time() + 60
++    while r.info('persistence')['aof_rewrite_in_progress']:
++        assert time.time() < deadline
++        time.sleep(0.01)
++    assert r.get('rs19999') == b'v'
++    r.execute_command('REWRITESHARES', '100')

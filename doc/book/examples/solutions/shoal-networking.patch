@@ -1,0 +1,327 @@
+# A solution in solutions/networking.md: shoal-networking, Shoal v9 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v9, builds it, and runs the tests.
+# base: shoal/v9
+--- a/commands.cc
++++ b/commands.cc
+@@ -545,7 +545,6 @@
+                                    std::make_move_iterator(found.end()));
+ }
+
+-// snippet: keys-reply
+ // KEYS pattern: every shard's keys.
+ future<std::optional<reply>> keys(sharded<store>& db, request req,
+                                     abort_source&) {
+@@ -568,7 +567,6 @@
+     }
+     co_return std::move(reply).finish();
+ }
+-// end snippet: keys-reply
+
+ // INFO [section]: a few of the statistics that Valkey's INFO returns,
+ // for all the shards together, whatever the section asked for.
+--- a/main.cc
++++ b/main.cc
+@@ -3,6 +3,7 @@
+ #include "commands.hh"
+ #include "pubsub.hh"
+ #include <seastar/core/app-template.hh>
++#include <seastar/core/condition-variable.hh>
+ #include <seastar/core/coroutine.hh>
+ #include <seastar/core/gate.hh>
+ #include <seastar/core/iostream.hh>
+@@ -74,20 +75,20 @@
+ class ordered_replies {
+     // The most requests of one connection executed at the same time.
+     static constexpr size_t max_in_flight = 128;
+-    // snippet: reply-entries
+     struct ready_reply {
+-        sstring reply;
++        reply r;
+         semaphore_units<> reply_memory;         // its bytes, until written
+     };
+     struct pending {
+         future<ready_reply> reply;
+         semaphore_units<> memory;               // the request's, until written
+     };
+-    // end snippet: reply-entries
+     output_stream<char>& _out;
+     semaphore& _reply_memory;                   // the shard's waiting replies
+     semaphore _in_flight{max_in_flight};
+     std::deque<pending> _pending;               // not yet written, in order
++    size_t _executing = 0;                      // of them, not yet ready
++    condition_variable _executed;               // signaled when none is
+     future<> _writing = make_ready_future<>();  // the writer, if running
+ public:
+     ordered_replies(output_stream<char>& out, semaphore& reply_memory)
+@@ -96,20 +97,48 @@
+     future<semaphore_units<>> reserve() {
+         return get_units(_in_flight, 1);
+     }
+-    // snippet: add-write-now
++    // snippet: wait-executed
+     // Writes a request's reply after the previous ones. The units of
+     // reserve() are given back when the reply is ready, and those of the
+     // request's memory when it's written. Meanwhile the ready reply's
+     // bytes are taken from the reply memory, without waiting.
+     void add(future<sstring> reply,
+              semaphore_units<> memory, semaphore_units<> in_flight) {
+-        auto ready = reply.then(
+-                [this, in_flight = std::move(in_flight)] (sstring r) {
++        _executing++;
++        auto ready = reply.finally([this] {
++            if (--_executing == 0) {
++                _executed.broadcast();
++            }
++        }).then([this, in_flight = std::move(in_flight)] (sstring r) {
+             // (The queue's entry is counted too, roughly.)
+             auto units = consume_units(_reply_memory,
+                                        sizeof(pending) + r.size());
+             return ready_reply{std::move(r), std::move(units)};
+         });
++        push(std::move(ready), std::move(memory));
++    }
++    // Writes a reply of a request executed alone after the previous ones.
++    void add_ready(reply r) {
++        size_t size = sizeof(pending);
++        if (auto* s = std::get_if<sstring>(&r)) {
++            size += s->size();
++        } else {
++            for (auto& piece : std::get<1>(r)) {
++                size += piece.size();
++            }
++        }
++        auto units = consume_units(_reply_memory, size);
++        push(make_ready_future<ready_reply>(std::move(r), std::move(units)),
++             {});
++    }
++    // Waits until every request so far was executed, though its reply may
++    // still wait to be written.
++    future<> wait_executed() {
++        return _executed.wait([this] { return _executing == 0; });
++    }
++    // end snippet: wait-executed
++private:
++    void push(future<ready_reply> ready, semaphore_units<> memory) {
+         _pending.push_back({std::move(ready), std::move(memory)});
+         if (_writing.available()) {
+             // No writer is running, so start one. If the last one failed,
+@@ -117,6 +146,7 @@
+             _writing = write(std::move(_writing));
+         }
+     }
++public:
+     // Writes a ready reply, if no earlier one is waiting, and returns
+     // true; otherwise returns false, and the caller must add() it. If the
+     // stream must wait for the client to read, the writer waits for it,
+@@ -140,13 +170,11 @@
+         }
+         return _reply_memory.wait(0);
+     }
+-    // end snippet: add-write-now
+     // Waits until every reply so far is written.
+     future<> drain() {
+         return std::exchange(_writing, make_ready_future<>());
+     }
+ private:
+-    // snippet: write-before
+     // Waits for the write before it, and then writes the queue.
+     future<> write(future<> before) {
+         std::exception_ptr failure;
+@@ -155,7 +183,6 @@
+         } catch (...) {
+             failure = std::current_exception();
+         }
+-    // end snippet: write-before
+         while (!_pending.empty()) {
+             auto p = std::move(_pending.front());
+             _pending.pop_front();
+@@ -164,10 +191,13 @@
+                 // request is still executing when the connection ends.
+                 auto ready = co_await std::move(p.reply);
+                 if (!failure) {
+-                    co_await _out.write(ready.reply);
++                    // A reply in pieces is written without copying, and
++                    // must be flushed before anything else is written.
++                    bool pieces = !std::holds_alternative<sstring>(ready.r);
++                    co_await write_reply(_out, std::move(ready.r));
+                     // Flush when no more replies are waiting, so that
+                     // replies that are ready together are sent together.
+-                    if (_pending.empty()) {
++                    if (pieces || _pending.empty()) {
+                         co_await _out.flush();
+                     }
+                 }
+@@ -266,8 +296,8 @@
+                                         : _connections.close();
+     }
+ private:
+-    future<> accept_from(server_socket& listener);
+-    future<> handle_connection(connected_socket s);
++    future<> accept_from(server_socket& listener, bool is_tls);
++    future<> handle_connection(connected_socket s, bool is_tls);
+     future<> serve(client& c, input_stream<char>& in,
+                    output_stream<char>& out, abort_source& hung_up);
+     // On shard 0: admits one more client, unless there are too many.
+@@ -364,12 +394,10 @@
+     std::exception_ptr failure;
+     try {
+         while (true) {
+-            // snippet: serve-read
+             // While this shard's waiting replies use all its reply memory,
+             // read no more requests.
+             co_await replies.wait_for_memory();
+             auto req = co_await reader.read();
+-            // end snippet: serve-read
+             if (!req) {
+                 break;
+             }
+@@ -383,7 +411,6 @@
+                     co_await c.drain();
+                 }
+             } else if (shard == this_shard_id()) {
+-                // snippet: fast-path
+                 // A request on this shard: execute it now, without a queue
+                 // (this shard's requests never wait, so they stay in
+                 // order), and if no earlier reply is waiting, write its
+@@ -396,7 +423,6 @@
+                                 reader.take_units(),
+                                 co_await replies.reserve());
+                 }
+-                // end snippet: fast-path
+             } else if (shard) {
+                 // Send it to its shard, and go on to read the next request.
+                 // A client that sends requests faster than they're executed
+@@ -405,14 +431,16 @@
+                 replies.add(queues[*shard].add(cmd, std::move(*req)),
+                             reader.take_units(), std::move(in_flight));
+             } else {
++                // snippet: alone
+                 // Any other command is executed alone, after the earlier
+-                // ones, as in Redis.
+-                co_await replies.drain();
++                // ones, as in Redis, but its reply waits in the queue: the
++                // earlier replies needn't be written first.
++                co_await replies.wait_executed();
+                 auto reply = co_await execute(_db, std::move(*req), hung_up);
+                 if (reply) {
+-                    co_await write_reply(out, std::move(*reply));
+-                    co_await out.flush();
++                    replies.add_ready(std::move(*reply));
+                 }
++                // end snippet: alone
+             }
+         }
+     } catch (protocol_error& e) {
+@@ -449,8 +477,18 @@
+
+ // snippet: handle-connection
+ // Serves a connection, if shard 0 admits it.
+-future<> server::handle_connection(connected_socket s) {
++future<> server::handle_connection(connected_socket s, bool is_tls) {
+     auto holder = _connections.hold();
++    // snippet: client-dn
++    // A TLS client's certificate, if it has one: this waits for the
++    // handshake, and fails the connection if the handshake fails.
++    if (is_tls) {
++        if (auto dn = co_await tls::get_dn_information(s)) {
++            shoal_log.info("TLS client {}, issued by {}", dn->subject,
++                           dn->issuer);
++        }
++    }
++    // end snippet: client-dn
+     auto& db = _db.local();
+     // snippet: socket-options
+     // Send each reply as soon as it's flushed (see chapter 4).
+@@ -602,16 +640,20 @@
+     // A listener for each way to connect: TCP, TLS over TCP, and a
+     // Unix-domain socket.
+     std::vector<server_socket> listeners;
++    std::vector<bool> is_tls;       // whether each listener is TLS's
+     for (auto& address : _opts.bind_addresses) {
+         listeners.push_back(listen(socket_address(address, _opts.port), lo));
++        is_tls.push_back(false);
+         if (_tls) {
+             listeners.push_back(tls::listen(
+                 _tls, socket_address(address, _opts.tls_port), lo));
++            is_tls.push_back(true);
+         }
+     }
+     if (!_opts.unix_socket.empty()) {
+         listeners.push_back(listen(
+             socket_address(unix_domain_addr(_opts.unix_socket)), lo));
++        is_tls.push_back(false);
+     }
+     // Stopping ends the wait for the next client, on every listener.
+     auto stop_accepting = db.stopping.subscribe([&listeners] () noexcept {
+@@ -625,9 +667,10 @@
+                        this_smp_shard_count());
+     }
+     co_await coroutine::parallel_for_each(listeners,
+-            [this, &listeners] (server_socket& l) {
++            [this, &listeners, &is_tls] (server_socket& l) {
+         // If one listener fails, stop the others, and let run() stop.
+-        return accept_from(l).handle_exception([&listeners] (auto e) {
++        return accept_from(l, is_tls[&l - listeners.data()]).handle_exception(
++                [&listeners] (auto e) {
+             for (auto& l : listeners) {
+                 l.abort_accept();
+             }
+@@ -637,7 +680,7 @@
+ }
+
+ // Accepts connections from one listener, until Shoal stops.
+-future<> server::accept_from(server_socket& listener) {
++future<> server::accept_from(server_socket& listener, bool is_tls) {
+     auto& db = _db.local();
+     while (true) {
+         auto accepted = co_await coroutine::as_future(listener.accept());
+@@ -647,7 +690,7 @@
+         }
+         auto [socket, address] = accepted.get();
+         shoal_log.debug("client {} connected", address);
+-        (void)handle_connection(std::move(socket)).handle_exception(
++        (void)handle_connection(std::move(socket), is_tls).handle_exception(
+                 [address] (std::exception_ptr e) {
+             shoal_log.warn("connection with {} failed: {}", address,
+                            formattable(e));
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,37 @@
++# Tests of the solution to chapter 16's exercise 2. Like all of Shoal's
++# tests, they pass against Valkey too.
++import socket
++import uuid
++
++import redis
++
++from test_v9 import command
++
++
++def unique_key():
++    return 'key-' + uuid.uuid4().hex
++
++
++# Check that a pipeline with a command that is executed alone in its
++# middle, all sent before any reply is read, gets all its replies. Before
++# the DBSIZE, the replies are more than the sockets can hold; after it,
++# the requests are.
++def test_huge_pipeline_with_dbsize(server):
++    r = redis.Redis(host=server[0], port=server[1])
++    key, other = unique_key(), unique_key()
++    value, big = b'v' * 10_000, b'w' * 100_000
++    r.set(key, value)
++    pipeline = (command('GET', key) * 1000 + command('DBSIZE')
++                + command('SET', other, big) * 1000)
++    get_reply = b'$%d\r\n%s\r\n' % (len(value), value)
++    with socket.create_connection(server, timeout=30) as s:
++        s.sendall(pipeline)
++        expected = len(get_reply) * 1000
++        data = b''
++        while len(data) < expected or not data.endswith(b'+OK\r\n' * 1000):
++            more = s.recv(1 << 20)
++            assert more, 'the server closed the connection'
++            data += more
++    assert data[:expected] == get_reply * 1000
++    assert data[expected:].startswith(b':')
++    r.delete(key, other)

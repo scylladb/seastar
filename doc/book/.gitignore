@@ -1,0 +1,9 @@
+build/
+# The solutions that change Shoal are patches; keep them even where a
+# global .gitignore ignores *.patch.
+!examples/solutions/*.patch
+# Notes and data from writing the book (exercise runs, the API audit,
+# benchmarks): kept out of the repository, in a git repository of its own.
+research/
+# The author's plan for the book: kept out of the repository.
+PLAN.md

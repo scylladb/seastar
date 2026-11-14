@@ -1,0 +1,47 @@
+% Figure for chapter 6, "Promises": a future and its promise, and the three
+% states of a future.
+\begin{tikzpicture}[
+    end/.style={box, minimum width=26mm, minimum height=10mm},
+    state/.style={box, minimum width=34mm, minimum height=11mm, font=\sffamily\small},
+    small/.style={font=\sffamily\footnotesize},
+    code/.style={font=\ttfamily\footnotesize},
+  ]
+  % Two ends: whoever has the result writes it into the promise, and the
+  % coroutine that waits reads it from the future.
+  \node[end] (promise) at (-24mm, 0)
+    {{\ttfamily promise<T>} \\[-1pt] {\footnotesize\color{fignote} writes the result}};
+  \node[end] (future) at (24mm, 0)
+    {{\ttfamily future<T>} \\[-1pt] {\footnotesize\color{fignote} reads it}};
+  \draw[<->, gap] (promise) -- (future)
+    node[midway, below, small, align=center] {each points \\ to the other};
+  \node[plainbox, above=11mm of promise, align=center, small, minimum width=26mm] (source)
+    {a timer, the network, \\ {\ttfamily co\_return}, \dots};
+  \draw[flow, gap] (source) -- (promise)
+    node[midway, right, code, align=left] {set\_value() \\ set\_exception()};
+  \node[coolbox, above=11mm of future, align=center, small, minimum width=26mm] (waiter)
+    {the coroutine \\ that waits};
+  \draw[message, gap] (waiter) -- (future)
+    node[midway, right, small, text=figcool, align=left]
+      {waits for \\ ({\ttfamily co\_await})};
+  \node[title, anchor=base] at ($(source.north)!0.5!(waiter.north) + (0, 2.5mm)$) {Two ends};
+
+  % Three states: a future starts without its result, and gets either a
+  % value or an exception, once.
+  \node[title, anchor=base] (statestitle) at (0, -16mm) {Three states};
+  \node[state] (waiting) at (-34mm, -33mm)
+    {not available \\[-1pt] {\ttfamily\footnotesize available(): false}};
+  \node[state, coolbox] (available) at (34mm, -24mm)
+    {available: a value \\[-1pt] {\ttfamily\footnotesize available(): true}};
+  \node[state, hotbox] (failed) at (34mm, -42mm)
+    {failed: an exception \\[-1pt] {\ttfamily\footnotesize failed(): true}};
+  % Each arrow forks off the right side of "not available", and ends in a
+  % horizontal segment into its state, which carries its label.
+  \coordinate (fork) at ($(waiting.east) + (8mm, 0)$);
+  \draw[shorten <=0.4mm] (waiting.east) -- (fork);
+  \draw[flow, shorten >=0.5mm] (fork) |- coordinate (upper) (available.west);
+  \draw[flow, shorten >=0.5mm] (fork) |- coordinate (lower) (failed.west);
+  \node[code, above, inner sep=1mm] at ($(upper)!0.5!(available.west)$) {set\_value()};
+  \node[small, below, align=center, inner sep=1mm] at ($(lower)!0.5!(failed.west)$)
+    {{\ttfamily set\_exception()}, \\ or the promise \\ is destroyed \\
+     ({\ttfamily broken\_promise})};
+\end{tikzpicture}

@@ -1,0 +1,60 @@
+% The book's title page, included by tools/build.py when building the book.
+% The title is set by hand, in three lines of different weight, so this
+% file is specific to this book. The byline comes from metadata.yaml
+% (author, subtitle and date). Below the title is the sea star drawn by
+% art/seastar.py; build.py converts it to PDF and defines \titleart.
+\newfontfamily\titledisplay{Libertinus Serif Display}
+\newfontfamily\titlesmallcaps{Libertinus Serif}[Letters=SmallCaps, LetterSpace=15]
+\makeatletter
+\renewcommand{\maketitle}{%
+  \begin{titlepage}\centering
+    \vspace*{0.08\textheight}
+    \rule{0.35\linewidth}{0.4pt}\\[5ex]
+    {\titlesmallcaps\fontsize{22}{26}\selectfont asynchronous programming}\\[3ex]
+    {\itshape\Large with}\\[1.5ex]
+    {\titledisplay\fontsize{76}{76}\selectfont Seastar}\\[5ex]
+    % The book of solutions (build.py --solutions) defines \titlepageextra,
+    % one more line of the title.
+    \ifdefined\titlepageextra
+      {\titlesmallcaps\fontsize{18}{22}\selectfont\titlepageextra}\\[5ex]
+    \fi
+    \rule{0.35\linewidth}{0.4pt}\\[5ex]
+    \titleart
+    \vfill
+    {\large\@author}\\[1.2ex]
+    {\titlesmallcaps\small\MakeLowercase{\@subtitle\ \textperiodcentered\ \@date}}
+    \vspace*{0.06\textheight}
+  \end{titlepage}%
+  \copyrightpage}
+% The copyright page, on the back of the title page: small print at the
+% bottom of an otherwise empty page, as in printed books. Its facts (what
+% the book was tested with) must be updated when the book's examples are
+% checked against a newer Seastar or compiler.
+\newcommand{\copyrightpage}{%
+  \thispagestyle{empty}%
+  \null\vfill
+  {\footnotesize\raggedright\setlength{\parskip}{1.2ex}\setlength{\parindent}{0pt}%
+  \textit{Asynchronous Programming with Seastar}\\
+  \@subtitle, \@date
+
+  Copyright \textcopyright\ 2026 ScyllaDB.
+
+  \textit{Draft note, for the editors: the book's license is still to be
+  decided (see section 7 of PLAN.md).}
+
+  The book's code was tested with Seastar commit 6a752c502, of October
+  8, 2026, at API level 10, built with GCC 16.2.1 and with Clang 22.1.8,
+  each in C++23 and in C++26, on Fedora 44. Shoal's tests also ran
+  against Valkey 9.0.6.
+
+  Redis, Valkey, ScyllaDB, Redpanda, Apache Cassandra, Apache Kafka,
+  Linux, Intel, NVMe, GitHub, Fedora, Ubuntu, Docker, Java, Python and
+  Amazon DynamoDB, and the other names of products and companies in this
+  book, may be trademarks of their respective owners. They are used only
+  to name the products, and their use doesn't imply any endorsement.
+
+  This book was written by Claude Opus 5.5, an AI model made by
+  Anthropic, under the guidance of its editor, Nadav Har'El. The
+  Colophon tells how.\par}
+  \clearpage}
+\makeatother

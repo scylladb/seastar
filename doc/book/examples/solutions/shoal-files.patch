@@ -1,0 +1,697 @@
+# A solution in solutions/files-and-storage.md: shoal-files, Shoal v10 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v10, builds it, and runs the tests.
+# base: shoal/v10
+--- a/commands.cc
++++ b/commands.cc
+@@ -129,9 +129,17 @@
+     if (!db.must_commit(appends_before)) {
+         return make_ready_future<T>(std::move(value));
+     }
+-    return db.log->commit().then([value = std::move(value)] () mutable {
+-        return std::move(value);
++    // snippet: commit-failed
++    return db.log->commit().then_wrapped(
++            [&db, value = std::move(value)] (future<> f) mutable {
++        if (f.failed()) {
++            auto e = f.get_exception();
++            db.log_failed(e);
++            return make_exception_future<T>(std::move(e));
++        }
++        return make_ready_future<T>(std::move(value));
+     });
++    // end snippet: commit-failed
+ }
+
+ // The number of requests appended to the log so far.
+@@ -1051,6 +1059,7 @@
+     sstring (*on_shard)(store&, const request&) = nullptr;
+     future<std::optional<reply>> (*run)(sharded<store>&, request,
+                                           abort_source&) = nullptr;
++    bool changes = false;   // whether it may change the data
+ };
+
+ namespace {
+@@ -1059,30 +1068,37 @@
+     {"ping", {.arity = -1, .on_shard = ping}},
+     {"echo", {.arity = 2, .on_shard = echo}},
+     {"get", {.arity = 2, .first_key = 1, .on_shard = get}},
+-    {"set", {.arity = -3, .first_key = 1, .on_shard = set}},
++    {"set", {.arity = -3, .first_key = 1, .on_shard = set, .changes = true}},
+     {"del", {.arity = -2, .first_key = 1, .key_step = 1,
+-             .on_shard = del_on_shard, .run = del}},
++             .on_shard = del_on_shard, .run = del,
++             .changes = true}},
+     {"exists", {.arity = -2, .first_key = 1, .key_step = 1,
+                 .on_shard = exists_on_shard, .run = exists}},
+     {"mget", {.arity = -2, .first_key = 1, .key_step = 1,
+               .on_shard = mget_on_shard, .run = mget}},
+     {"mset", {.arity = -3, .first_key = 1, .key_step = 2,
+-              .on_shard = mset_on_shard, .run = mset}},
+-    {"expire", {.arity = 3, .first_key = 1, .on_shard = expire}},
+-    {"pexpireat", {.arity = 3, .first_key = 1, .on_shard = pexpireat}},
++              .on_shard = mset_on_shard, .run = mset,
++              .changes = true}},
++    {"expire", {.arity = 3, .first_key = 1, .on_shard = expire,
++                .changes = true}},
++    {"pexpireat", {.arity = 3, .first_key = 1, .on_shard = pexpireat,
++                   .changes = true}},
+     {"ttl", {.arity = 2, .first_key = 1, .on_shard = ttl}},
+-    {"persist", {.arity = 2, .first_key = 1, .on_shard = persist}},
+-    {"lpush", {.arity = -3, .first_key = 1, .on_shard = lpush}},
+-    {"rpush", {.arity = -3, .first_key = 1, .on_shard = rpush}},
+-    {"lpop", {.arity = 2, .first_key = 1, .on_shard = lpop}},
+-    {"rpop", {.arity = 2, .first_key = 1, .on_shard = rpop}},
++    {"persist", {.arity = 2, .first_key = 1, .on_shard = persist,
++                 .changes = true}},
++    {"lpush", {.arity = -3, .first_key = 1, .on_shard = lpush,
++               .changes = true}},
++    {"rpush", {.arity = -3, .first_key = 1, .on_shard = rpush,
++               .changes = true}},
++    {"lpop", {.arity = 2, .first_key = 1, .on_shard = lpop, .changes = true}},
++    {"rpop", {.arity = 2, .first_key = 1, .on_shard = rpop, .changes = true}},
+     {"llen", {.arity = 2, .first_key = 1, .on_shard = llen}},
+     {"lrange", {.arity = 4, .first_key = 1, .on_shard = lrange}},
+     {"dbsize", {.arity = 1, .run = dbsize}},
+     {"info", {.arity = -1, .run = info}},
+-    {"blpop", {.arity = -3, .run = blpop}},
++    {"blpop", {.arity = -3, .run = blpop, .changes = true}},
+     {"keys", {.arity = 2, .run = keys}},
+-    {"flushall", {.arity = -1, .run = flushall}},
++    {"flushall", {.arity = -1, .run = flushall, .changes = true}},
+     {"shutdown", {.arity = -1, .run = shutdown}},
+ };
+ // end snippet: table
+@@ -1141,6 +1157,9 @@
+     if (!right_arity(*cmd, req)) {
+         return make_ready_future<sstring>(wrong_arguments(lowercase(req[0])));
+     }
++    if (cmd->changes && !db.log_error.empty()) {
++        return make_ready_future<sstring>(error_reply(db.log_error));
++    }
+     auto before = appends(db);
+     // If the commit fails, as it would on a failing disk, the client gets
+     // an error: the change was made, in memory, but may be lost.
+@@ -1156,6 +1175,11 @@
+ future<std::optional<reply>> execute(sharded<store>& db, request req,
+                                        abort_source& hung_up) {
+     auto* cmd = find_command(req);
++    // snippet: refuse-changes
++    if (cmd && cmd->changes && !db.local().log_error.empty()) {
++        co_return error_reply(db.local().log_error);
++    }
++    // end snippet: refuse-changes
+     if (auto shard = batch_shard(cmd, req)) {
+         // Executed on that shard, which reads the request from this
+         // shard's memory: req lives in this coroutine's frame, unchanged,
+@@ -1186,11 +1210,11 @@
+ store::store() : expiry_timer([this] { expire_keys(*this); }) {}
+
+ // snippet: store-open
+-future<> store::open(sstring dir, bool always) {
++future<> store::open(sstring dir, bool always, int fail_after) {
+     sync_always = always;
+     log = co_await append_only_log::open(
+         fmt::format("{}/shard-{}.aof", dir, this_shard_id()),
+-        [this] (const request& req) { replay(*this, req); });
++        [this] (const request& req) { replay(*this, req); }, fail_after);
+     if (!sync_always) {
+         (void)commit_periodically();
+     }
+@@ -1217,12 +1241,36 @@
+         try {
+             co_await log->commit();
+         } catch (...) {
+-            shoal_log.error("can't commit the log: {}",
+-                            formattable(std::current_exception()));
++            log_failed(std::current_exception());
+         }
+     }
+ }
+
++// snippet: log-failed
++void store::log_failed(std::exception_ptr e) {
++    if (!log_error.empty()) {
++        return;     // already known, and logged
++    }
++    auto message = fmt::format("can't write the log ({}); not accepting "
++                               "changes", formattable(e));
++    shoal_log.error("on shard {}: {}", this_shard_id(), message);
++    log_error = message;
++    if (!background.is_closed()) {      // unless Shoal is stopping
++        (void)refuse_changes(std::move(message));
++    }
++}
++
++// Tells every shard to refuse changes, in the background.
++future<> store::refuse_changes(sstring message) {
++    auto holder = background.hold();
++    co_await container().invoke_on_all([&message] (store& s) {
++        if (s.log_error.empty()) {
++            s.log_error = message;
++        }
++    });
++}
++// end snippet: log-failed
++
+ future<> store::stop() {
+     expiry_timer.cancel();
+     // Stopping ends the periodic commits (which, if Shoal failed to start,
+--- a/commands.hh
++++ b/commands.hh
+@@ -96,6 +96,12 @@
+     std::unique_ptr<append_only_log> log;
+     bool sync_always = false;
+     // end snippet: store-log
++    // snippet: log-error
++    // If a shard's log failed, why: then every shard refuses changes.
++    sstring log_error;
++    // Called when a commit of this shard's log fails.
++    void log_failed(std::exception_ptr e);
++    // end snippet: log-error
+     // For INFO: this shard's clients, those of them waiting in BLPOP, and
+     // the bytes read from them and written to them, which their streams
+     // count (see main.cc).
+@@ -107,7 +113,7 @@
+     store();
+     store(const store&) = delete;      // the timer's function points to it
+     // Opens the shard's log, in dir, and replays it.
+-    future<> open(sstring dir, bool always);
++    future<> open(sstring dir, bool always, int fail_after = 0);
+     // Whether a command, which began when the log had appends_before
+     // requests, must wait for a commit: if it appended any, and either
+     // every change waits, or too many wait to be written.
+@@ -117,6 +123,7 @@
+     future<> stop();
+ private:
+     future<> commit_periodically();
++    future<> refuse_changes(sstring message);
+ };
+ // end snippet: store
+
+--- a/log.cc
++++ b/log.cc
+@@ -3,12 +3,14 @@
+ #include <seastar/core/align.hh>
+ #include <seastar/core/coroutine.hh>
+ #include <seastar/core/fstream.hh>
++#include <seastar/core/layered_file.hh>
+ #include <seastar/core/seastar.hh>
+ #include <seastar/core/smp.hh>
+ #include <seastar/coroutine/as_future.hh>
+ #include <seastar/coroutine/exception.hh>
+ #include <seastar/util/file.hh>
+ #include <seastar/util/later.hh>
++#include <boost/crc.hpp>
+ #include <fmt/format.h>
+ #include <algorithm>
+ #include <charconv>
+@@ -16,17 +18,163 @@
+ #include <limits>
+ #include <stdexcept>
+ #include <string>
++#include <system_error>
+
+ // The size of the chunks that hold the requests not yet written: a
+ // multiple of any disk's alignment.
+ constexpr size_t chunk_size = 128 * 1024;
+
++// snippet: commit-header
++// Every commit begins with a header, a request that replaying skips:
++// COMMIT, with the length of the commit's requests, and their checksum, in
++// hexadecimal, so that the header always has the same size.
++sstring commit_header(uint32_t length, uint32_t checksum) {
++    return fmt::format("*3\r\n$6\r\nCOMMIT\r\n"
++                       "$8\r\n{:08x}\r\n$8\r\n{:08x}\r\n", length, checksum);
++}
++constexpr size_t header_size = 44;
++
++// Reads 8 hexadecimal digits.
++std::optional<uint32_t> parse_hex(std::string_view s) {
++    uint32_t n;
++    auto [end, ec] = std::from_chars(s.data(), s.data() + s.size(), n, 16);
++    if (ec != std::errc() || end != s.data() + s.size()) {
++        return std::nullopt;
++    }
++    return n;
++}
++
++// If a whole commit, with a valid checksum, begins at pos, returns its
++// length, header included.
++future<std::optional<uint64_t>> valid_commit(file& f, uint64_t pos,
++                                             uint64_t size) {
++    if (size - pos < header_size) {
++        co_return std::nullopt;
++    }
++    auto buf = co_await f.dma_read_exactly<char>(pos, header_size);
++    std::string_view h(buf.get(), header_size);
++    auto length = parse_hex(h.substr(20, 8));
++    auto checksum = parse_hex(h.substr(34, 8));
++    if (!length || !checksum ||
++            h != std::string_view(commit_header(*length, *checksum)) ||
++            *length > size - pos - header_size) {
++        co_return std::nullopt;
++    }
++    boost::crc_32_type crc;
++    if (*length) {
++        auto body = co_await f.dma_read_exactly<char>(pos + header_size,
++                                                      *length);
++        crc.process_bytes(body.get(), body.size());
++    }
++    if (crc.checksum() != *checksum) {
++        co_return std::nullopt;
++    }
++    co_return header_size + *length;
++}
++
++// Finds where the log's valid commits end. If something follows that's
++// not a valid commit, a crash in the middle of a write left it, and it's
++// cut off; but if a valid commit follows it, the damage is in the
++// middle, which a crash doesn't do, and Shoal refuses to start, rather
++// than lose the commits after it, as Redis does.
++future<uint64_t> check_commits(file& f, sstring path) {
++    auto size = co_await f.size();
++    auto align = f.disk_write_dma_alignment();
++    uint64_t end = 0;
++    while (auto length = co_await valid_commit(f, end, size)) {
++        end = align_up(end + *length, align);
++    }
++    if (end >= size) {
++        co_return size;
++    }
++    for (auto pos = end + align; pos < size; pos += align) {
++        if (co_await valid_commit(f, pos, size)) {
++            co_await coroutine::return_exception(std::runtime_error(
++                fmt::format("{} is damaged at {}, and has valid commits "
++                            "after the damage, at {}", path, end, pos)));
++        }
++    }
++    shoal_log.warn("{}: its last commit is damaged; cutting off its last "
++                   "{} bytes", path, size - end);
++    co_await f.truncate(end);
++    co_await f.flush();
++    co_return end;
++}
++// end snippet: commit-header
++
++// snippet: failing-file
++// A file that fails, as a failing disk would, every write after the
++// first fail_after; it forwards everything else to the file it wraps.
++class failing_file : public layered_file_impl {
++    int _writes_left;
++    future<size_t> fail() {
++        return make_exception_future<size_t>(std::system_error(
++            EIO, std::system_category(), "a failing file"));
++    }
++public:
++    failing_file(file f, int fail_after)
++        : layered_file_impl(std::move(f)), _writes_left(fail_after) {}
++    future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len,
++                             io_intent* intent) override {
++        if (_writes_left-- <= 0) {
++            return fail();
++        }
++        return _underlying_file.dma_write(
++            pos, static_cast<const char*>(buffer), len, intent);
++    }
++    future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov,
++                             io_intent* intent) override {
++        if (_writes_left-- <= 0) {
++            return fail();
++        }
++        return _underlying_file.dma_write(pos, std::move(iov), intent);
++    }
++    // end snippet: failing-file
++    future<size_t> read_dma(uint64_t pos, void* buffer, size_t len,
++                            io_intent* intent) override {
++        return _underlying_file.dma_read(pos, static_cast<char*>(buffer), len,
++                                         intent);
++    }
++    future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov,
++                            io_intent* intent) override {
++        return _underlying_file.dma_read(pos, std::move(iov), intent);
++    }
++    future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset,
++            size_t range_size, io_intent* intent) override {
++        return _underlying_file.dma_read_bulk<uint8_t>(offset, range_size,
++                                                       intent);
++    }
++    future<> flush() override { return _underlying_file.flush(); }
++    future<struct stat> stat() override { return _underlying_file.stat(); }
++    future<> truncate(uint64_t length) override {
++        return _underlying_file.truncate(length);
++    }
++    future<> discard(uint64_t offset, uint64_t length) override {
++        return _underlying_file.discard(offset, length);
++    }
++    future<> allocate(uint64_t position, uint64_t length) override {
++        return _underlying_file.allocate(position, length);
++    }
++    future<uint64_t> size() override { return _underlying_file.size(); }
++    future<> close() override { return _underlying_file.close(); }
++    subscription<directory_entry> list_directory(
++            std::function<future<> (directory_entry)> next) override {
++        return _underlying_file.list_directory(std::move(next));
++    }
++};
++
+ // snippet: open
+ future<std::unique_ptr<append_only_log>> append_only_log::open(
+-        sstring path, std::function<void(const request&)> replay) {
++        sstring path, std::function<void(const request&)> replay,
++        int fail_after) {
+     auto log = std::make_unique<append_only_log>();
+     log->_file = co_await open_file_dma(path, open_flags::rw |
+                                         open_flags::create);
++    if (fail_after) {
++        log->_file = file(make_shared<failing_file>(std::move(log->_file),
++                                                    fail_after));
++    }
++    co_await check_commits(log->_file, path);
+     // Read the requests back with Shoal's own parser, from a stream that
+     // reads the file ahead of it, in large pieces.
+     auto in = make_file_input_stream(log->_file, file_input_stream_options{
+@@ -36,7 +184,9 @@
+     std::exception_ptr error;
+     try {
+         while (auto req = co_await reader.read()) {
+-            replay(*req);
++            if (std::string_view((*req)[0]) != "COMMIT") {
++                replay(*req);
++            }
+         }
+     } catch (...) {
+         error = std::current_exception();
+@@ -55,7 +205,7 @@
+     // Go on appending after the last block. If the file ends in the middle
+     // of one, start at the next: the bytes in between read as zeros, which
+     // the parser skips, as it skips the padding of every commit.
+-    log->_size = log->_written = log->_tail_start =
++    log->_size = log->_written = log->_tail_start = log->_commit_start =
+         align_up(size, uint64_t(log->_file.disk_write_dma_alignment()));
+     co_return log;
+ }
+@@ -78,6 +228,36 @@
+ }
+ // end snippet: append
+
++// snippet: seal
++// Before the first request of a commit, leaves room for its header.
++void append_only_log::begin_append() {
++    if (_size == _commit_start) {
++        copy(commit_header(0, 0));
++    }
++}
++
++// Fills in the header of the commit about to be written, with the length
++// and the checksum of its requests.
++void append_only_log::seal_commit() {
++    if (_size == _commit_start) {
++        return;     // only a failed write to retry, and no new requests
++    }
++    auto begin = _commit_start + header_size;
++    boost::crc_32_type crc;
++    for (auto pos = begin; pos < _size; ) {
++        auto& chunk = _tail[(pos - _tail_start) / chunk_size];
++        auto in_chunk = (pos - _tail_start) % chunk_size;
++        auto n = std::min<uint64_t>(_size - pos, chunk_size - in_chunk);
++        crc.process_bytes(chunk.get() + in_chunk, n);
++        pos += n;
++    }
++    auto header = commit_header(_size - begin, crc.checksum());
++    auto at = _commit_start - _tail_start;
++    std::memcpy(_tail[at / chunk_size].get_write() + at % chunk_size,
++                header.data(), header_size);
++}
++// end snippet: seal
++
+ // snippet: commit
+ future<> append_only_log::commit() {
+     // This commit is for the requests appended so far. But first let the
+@@ -99,10 +279,11 @@
+ // and a crash in the middle of a write can't damage an earlier one.
+ future<> append_only_log::write_tail() {
+     auto from = _written;
++    seal_commit();
+     auto to = align_up(_size, uint64_t(_file.disk_write_dma_alignment()));
+     auto used = _size - _tail_start;
+     std::memset(_tail.back().get_write() + used % chunk_size, 0, to - _size);
+-    _size = to;
++    _size = _commit_start = to;
+     // Requests appended during the writes go after `to`, into memory that
+     // the writes don't read.
+     for (auto pos = from; pos < to; ) {
+--- a/log.hh
++++ b/log.hh
+@@ -26,16 +26,19 @@
+     uint64_t _size = 0;             // the log's bytes, in all
+     uint64_t _written = 0;          // of them, those in the file
+     uint64_t _appends = 0;          // requests appended since it was opened
++    uint64_t _commit_start = 0;     // where the next commit's header goes
+     semaphore _committing{1};       // one commit at a time
+ public:
+     // Opens the log in the file path, creating it if it's new, and calls
+     // replay() with each of the requests it holds, in order.
+     static future<std::unique_ptr<append_only_log>> open(
+-        sstring path, std::function<void(const request&)> replay);
++        sstring path, std::function<void(const request&)> replay,
++        int fail_after = 0);
+     // Appends a request, made of these words, in RESP. It isn't on the
+     // disk until a commit.
+     template <typename Words>
+     void append(const Words& words) {
++        begin_append();
+         copy_line('*', std::size(words));
+         for (std::string_view word : words) {
+             copy_line('$', word.size());
+@@ -61,6 +64,8 @@
+         copy(std::string_view(line, end));
+     }
+     future<> write_tail();
++    void begin_append();
++    void seal_commit();
+ };
+ // end snippet: log
+
+--- a/main.cc
++++ b/main.cc
+@@ -58,6 +58,7 @@
+     std::chrono::seconds tcp_keepalive;
+     sstring dir;                        // where the logs are
+     bool sync_always;                   // --appendfsync always
++    int fail_log_after;                 // --fail-log-after, for tests
+     size_t max_clients;
+     size_t max_request_memory;
+     size_t max_reply_memory;
+@@ -117,6 +118,20 @@
+             _writing = write(std::move(_writing));
+         }
+     }
++    // snippet: add-executed
++    // Like add(), for a request that was executed, and whose reply waits
++    // only for the log. It doesn't count against the requests in flight,
++    // so that the requests behind it can join the same commit. Instead,
++    // its entry, and its bytes in the log's tail, count against the reply
++    // memory at once, which limits how many such replies wait while the
++    // disk is slower than the client.
++    void add_executed(future<sstring> reply, semaphore_units<> memory,
++                      size_t logged) {
++        auto units = consume_units(_reply_memory, sizeof(pending) + logged);
++        add(reply.finally([units = std::move(units)] {}), std::move(memory),
++            {});
++    }
++    // end snippet: add-executed
+     // Writes a ready reply, if no earlier one is waiting, and returns
+     // true; otherwise returns false, and the caller must add() it. If the
+     // stream must wait for the client to read, the writer waits for it,
+@@ -385,7 +400,11 @@
+                 // in order; only a reply may wait, for the log), and if its
+                 // reply is ready, and no earlier reply waits, write it now,
+                 // as version 7 did. This keeps the speed of one shard.
+-                auto reply = execute_here(_db.local(), cmd, *req);
++                // snippet: executed
++                auto& db = _db.local();
++                auto before = db.log ? db.log->appends() : 0;
++                auto tail = db.log ? db.log->uncommitted() : 0;
++                auto reply = execute_here(db, cmd, *req);
+                 if (reply.available() && !reply.failed()) {
+                     auto r = reply.get();
+                     if (!replies.write_now(r)) {
+@@ -393,9 +412,16 @@
+                                     reader.take_units(),
+                                     co_await replies.reserve());
+                     }
++                } else if (db.log && db.log->appends() != before) {
++                    // It was executed, and logged a change, so its reply
++                    // waits only for the commit.
++                    replies.add_executed(std::move(reply),
++                                         reader.take_units(),
++                                         db.log->uncommitted() - tail);
++                // end snippet: executed
+                 } else {
+-                    // It waits for the log: the next requests go on, and
+-                    // their replies wait behind it.
++                    // It failed, and the writer ends the connection, after
++                    // writing the earlier replies.
+                     replies.add(std::move(reply), reader.take_units(),
+                                 co_await replies.reserve());
+                 }
+@@ -745,7 +771,7 @@
+         co_await check_shard_count(opts.dir);
+         auto start = std::chrono::steady_clock::now();
+         co_await db.invoke_on_all([&opts] (store& s) {
+-            return s.open(opts.dir, opts.sync_always);
++            return s.open(opts.dir, opts.sync_always, opts.fail_log_after);
+         });
+         shoal_log.info("replayed the logs in {} in {:.3f} s", opts.dir,
+                        std::chrono::duration<double>(
+@@ -831,6 +857,9 @@
+         ("appendfsync", bpo::value<std::string>()->default_value("everysec"),
+          "when the log reaches the disk: always, before each change is "
+          "acknowledged, or everysec, once a second")
++        ("fail-log-after", bpo::value<int>()->default_value(0),
++         "for tests: make the writes to each shard's log fail after this "
++         "many (0: never)")
+         ("maxclients", bpo::value<size_t>()->default_value(10000),
+          "refuse connections beyond this many clients")
+         ("max-request-memory", bpo::value<size_t>()->default_value(0),
+@@ -869,6 +898,7 @@
+             .dir = config["dir"].as<std::string>(),
+             .sync_always = appendfsync_option(
+                 config["appendfsync"].as<std::string>()),
++            .fail_log_after = config["fail-log-after"].as<int>(),
+             .max_clients = config["maxclients"].as<size_t>(),
+             .max_request_memory = memory_option(
+                 config["max-request-memory"].as<size_t>(), 4),
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,129 @@
++# Tests of the solutions to chapter 17's exercises 2, 3 and 4. The first
++# passes against Valkey too; the others test Shoal's own log format and
++# its own test option, so they need Shoal.
++import signal
++import socket
++import time
++from pathlib import Path
++
++import pytest
++import redis
++
++from test_v9 import command
++from test_v10 import persistent, stop
++
++
++def shoal_only(start_server):
++    if start_server.is_valkey:
++        pytest.skip("tests Shoal's own log")
++
++
++# snippet: pipeline-test
++# Check that a huge pipeline of SETs, with --appendfsync always, gets all
++# its replies, and that all its SETs survive a crash.
++def test_huge_pipeline_always(start_server, tmp_path):
++    srv, r = persistent(start_server, tmp_path, 'always')
++    n = 100_000
++    pipeline = b''.join(command('SET', f'k{i}', str(i)) for i in range(n))
++    with socket.create_connection(srv.address, timeout=30) as s:
++        s.sendall(pipeline)
++        data = b''
++        while data.count(b'\r\n') < n:
++            more = s.recv(1 << 20)
++            assert more, 'the server closed the connection'
++            data += more
++    assert data == b'+OK\r\n' * n
++    stop(srv, signal.SIGKILL)
++    srv, r = persistent(start_server, tmp_path, 'always')
++    assert r.dbsize() == n
++    assert r.get(f'k{n - 1}') == str(n - 1).encode()
++    stop(srv)
++# end snippet: pipeline-test
++
++
++# SETs a hundred keys of one shard (the hash tag decides it), one commit
++# each, kills the server, and returns the keys, and the shard's log.
++def hundred_commits(start_server, tmp_path):
++    srv, r = persistent(start_server, tmp_path, 'always')
++    keys = [f'{{t}}k{i}' for i in range(100)]
++    for k in keys:
++        r.set(k, 'v')
++    stop(srv, signal.SIGKILL)
++    [log] = [p for p in Path(tmp_path).glob('*.aof') if p.stat().st_size]
++    return keys, log
++
++
++def damage(log, pos):
++    with open(log, 'r+b') as f:
++        f.seek(pos)
++        byte = f.read(1)
++        f.seek(pos)
++        f.write(bytes([byte[0] ^ 0xff]))
++
++
++# Check that a log whose last commit is damaged, as a crash in the middle
++# of its write leaves it, is cut before that commit, and that the commits
++# before it survive.
++def test_damaged_end(start_server, tmp_path):
++    shoal_only(start_server)
++    keys, log = hundred_commits(start_server, tmp_path)
++    size = log.stat().st_size
++    assert size == 100 * 4096      # a block for each commit
++    damage(log, size - 4096 + 50)
++    srv, r = persistent(start_server, tmp_path, 'always')
++    assert r.mget(keys) == [b'v'] * 99 + [None]
++    stop(srv)
++
++
++# Check that a log damaged in the middle, with valid commits after the
++# damage, which a crash doesn't do, makes Shoal refuse to start, rather
++# than cut off the commits after the damage.
++def test_damaged_middle(start_server, tmp_path):
++    shoal_only(start_server)
++    keys, log = hundred_commits(start_server, tmp_path)
++    damage(log, 50 * 4096 + 50)
++    with pytest.raises(AssertionError, match='did not start'):
++        persistent(start_server, tmp_path, 'always')
++    assert log.stat().st_size == 100 * 4096    # nothing was cut
++
++
++# Retries a change until the server refuses it, as Shoal does once its log
++# failed, and returns the error.
++def refused(r, seconds):
++    deadline = time.time() + seconds
++    while time.time() < deadline:
++        try:
++            r.set('{t}k', 'v')
++        except redis.ResponseError as e:
++            return str(e)
++        time.sleep(0.1)
++    return None
++
++
++# Check that with --appendfsync always, after its log's writes fail, Shoal
++# refuses changes, on every shard, but still answers reads.
++def test_failing_log_always(start_server, tmp_path):
++    shoal_only(start_server)
++    srv = start_server('--appendfsync', 'always', '--dir', str(tmp_path),
++                       '--fail-log-after', '5')
++    r = redis.Redis(port=srv.address[1])
++    for i in range(5):
++        r.set(f'{{t}}k{i}', 'v')
++    # The sixth SET's commit fails, and its reply is an error.
++    with pytest.raises(redis.ResponseError, match="can't write the log"):
++        r.set('{t}k5', 'v')
++    assert 'not accepting changes' in refused(r, 5)
++    with pytest.raises(redis.ResponseError, match='not accepting changes'):
++        r.set('another key', 'v')
++    assert r.get('{t}k0') == b'v'
++    stop(srv)
++
++
++# Check that with --appendfsync everysec, Shoal goes on acknowledging
++# changes until a commit, once a second, fails, and then refuses them.
++def test_failing_log_everysec(start_server, tmp_path):
++    shoal_only(start_server)
++    srv = start_server('--dir', str(tmp_path), '--fail-log-after', '1')
++    r = redis.Redis(port=srv.address[1])
++    assert 'not accepting changes' in refused(r, 10)
++    stop(srv)

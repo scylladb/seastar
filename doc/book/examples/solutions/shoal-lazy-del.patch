@@ -1,0 +1,116 @@
+# A solution in solutions/stalls.md: shoal-lazy-del, Shoal v12 whose DEL destroys large lists in the background
+# tools/check_examples.py applies it to a copy of shoal/v12,
+# builds it, and runs the tests.
+# base: shoal/v12
+--- a/commands.cc
++++ b/commands.cc
+@@ -84,10 +84,37 @@
+ }
+
+ // Deletes a key, and its expiration time.
++// snippet: lazy-free
++// Destroys a large list gradually, in the background, as FLUSHALL ASYNC
++// destroys the old table, so that deleting it doesn't stall the shard.
++future<> destroy_list_gently(gate& background, list_ptr list) {
++    auto working = background.hold();
++    while (!list->empty() && !background.is_closed()) {
++        list->pop_back();
++        co_await coroutine::maybe_yield();
++    }
++}
++
++// Called before a key's value is destroyed: takes a large list out of it,
++// and destroys it in the background. A small one is destroyed with the
++// value, at once, which is quicker. When Shoal is stopping, so is the
++// background work, and the list is destroyed at once too.
++void free_lazily(store& db, entry& e) {
++    constexpr size_t large = 1000;
++    auto* l = std::get_if<list_ptr>(&e.value);
++    if (l && (*l)->size() > large && !db.background.is_closed()) {
++        (void)destroy_list_gently(db.background, std::move(*l));
++    }
++}
++// end snippet: lazy-free
++
+ void erase_key(store& db, key_table<entry>::iterator it) {
+     persist_key(db, it->second);
+     db.used_memory -= it->second.footprint;
++    // snippet: erase-lazily
++    free_lazily(db, it->second);
+     db.data.erase(it);
++    // end snippet: erase-lazily
+ }
+
+ // snippet: footprint
+@@ -307,6 +334,7 @@
+         ttl = std::chrono::milliseconds(ms);
+     }
+     auto [it, inserted] = db.data.try_emplace(req[1]);
++    free_lazily(db, it->second);
+     it->second.value = req[2];
+     if (ttl) {
+         expire_key_at(db, it->first, it->second, expiry_clock::now() + *ttl);
+@@ -469,6 +497,7 @@
+                   const std::vector<size_t>& keys) {
+     for (size_t i : keys) {
+         auto [it, inserted] = db.data.try_emplace(req[i]);
++        free_lazily(db, it->second);
+         it->second.value = req[i + 1];
+         persist_key(db, it->second);
+         record(db, {"SET", req[i], req[i + 1]});
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,53 @@
++# Tests for the solution of chapter 22's exercise 1: DEL, SET and the
++# other commands that destroy a large list destroy it in the background.
++# Like all of Shoal's tests, they pass against Valkey too, which by default
++# does the same (its lazyfree-lazy-user-del option).
++import pytest
++import redis
++
++from test_v8 import unique_key
++
++
++def push_many(r, key, n):
++    p = r.pipeline(transaction=False)
++    for i in range(0, n, 1000):
++        p.rpush(key, *[f'element-{j}' for j in range(i, min(i + 1000, n))])
++    p.execute()
++
++
++# snippet: tests
++# Check that a deleted large list is gone at once, for every command, even
++# while it's still being destroyed, and that a new list with the same key
++# starts empty.
++def test_del_large_list(r):
++    key = unique_key()
++    push_many(r, key, 200000)
++    assert r.delete(key) == 1
++    assert r.exists(key) == 0
++    assert r.llen(key) == 0
++    assert r.rpush(key, 'new') == 1
++    assert r.lrange(key, 0, -1) == [b'new']
++    r.delete(key)
++
++
++# Check that SET over a large list replaces it with the string at once.
++def test_set_over_large_list(r):
++    key = unique_key()
++    push_many(r, key, 200000)
++    assert r.set(key, 'string')
++    assert r.get(key) == b'string'
++    r.delete(key)
++
++
++# Check that SHUTDOWN, right after deleting large lists, which may still
++# be being destroyed in the background, stops the server cleanly.
++def test_stop_while_destroying(own_server):
++    r = redis.Redis(*own_server.address)
++    for i in range(5):
++        push_many(r, f'list{i}', 200000)
++    r.delete(*[f'list{i}' for i in range(5)])
++    assert r.dbsize() == 0
++    with pytest.raises(redis.exceptions.ConnectionError):
++        r.execute_command('SHUTDOWN')
++    assert own_server.process.wait(timeout=10) == 0
++# end snippet: tests

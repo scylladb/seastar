@@ -1,0 +1,300 @@
+# A solution in solutions/rpc.md: Shoal v14 with --tls-replication, which encrypts the replication protocol
+# tools/check_examples.py applies it to a copy of shoal/v14,
+# builds it, and runs the tests.
+# base: shoal/v14
+--- a/main.cc
++++ b/main.cc
+@@ -76,6 +76,7 @@
+     uint16_t replication_port;          // 0: not a primary
+     sstring replicaof;                  // empty: not a replica
+     size_t repl_backlog_size;           // each shard's feed keeps a part
++    bool tls_replication;               // --tls-replication yes
+ };
+
+ // snippet: ordered-replies
+@@ -853,6 +854,14 @@
+     co_return socket_address(addresses.front(), port);
+ }
+
++// Listens for replicas on every address, on this shard.
++future<> listen_replication(primary& p, const options& opts,
++                            replication_tls tls) {
++    for (auto& address : opts.bind_addresses) {
++        co_await p.listen(socket_address(address, opts.replication_port), tls);
++    }
++}
++
+ // snippet: shoal-main
+ future<> shoal_main(options opts) {
+     sharded<store> db;
+@@ -892,22 +901,31 @@
+                            std::chrono::steady_clock::now() - start).count());
+         // end snippet: open-logs
+         // snippet: replication-start
++        // A primary's certificate, or a replica's, is Shoal's own.
++        replication_tls tls;
++        if (opts.tls_replication) {
++            tls = {opts.tls_cert_file, opts.tls_key_file,
++                   opts.tls_ca_cert_file, opts.tls_auth_clients};
++        }
+         if (opts.replication_port) {
+             co_await db.invoke_on_all([&opts] (store& s) {
+                 s.feed = std::make_unique<replication_feed>(
+                     opts.repl_backlog_size / this_smp_shard_count());
+             });
+             co_await prim.start(std::ref(db));
+-            co_await prim.invoke_on_all([&opts] (primary& p) {
+-                for (auto& address : opts.bind_addresses) {
+-                    p.listen(socket_address(address, opts.replication_port));
+-                }
++            co_await prim.invoke_on_all([&opts, tls] (primary& p) {
++                return listen_replication(p, opts, tls);
+             });
+         }
+         if (!opts.replicaof.empty()) {
++            std::string_view replicaof = opts.replicaof;
++            auto host = sstring(replicaof.substr(0, replicaof.rfind(':')));
+             co_await repl.start(std::ref(db),
+-                                co_await resolve_host_port(opts.replicaof));
+-            co_await repl.invoke_on_all(&replica::start);
++                                co_await resolve_host_port(opts.replicaof),
++                                host);
++            co_await repl.invoke_on_all([tls] (replica& r) {
++                return r.start(tls);
++            });
+         }
+         // end snippet: replication-start
+         co_await ps.start(opts.pubsub_max_pending,
+@@ -1050,6 +1068,10 @@
+         ("replicaof", bpo::value<std::string>()->default_value(""),
+          "be a replica of the primary at HOST:PORT, its replication port "
+          "(default: none)")
++        ("tls-replication", bpo::value<std::string>()->default_value("no"),
++         "whether the replication protocol uses TLS, with --tls-cert-file "
++         "and --tls-key-file, of a primary, or of a replica, and "
++         "--tls-ca-cert-file to check the other side's: yes or no")
+         ("repl-backlog-size", bpo::value<size_t>()->default_value(10 << 20),
+          "how many bytes of recent changes a primary keeps, on all the "
+          "shards together, for a replica that falls behind");
+@@ -1089,6 +1111,8 @@
+             .replication_port = config["replication-port"].as<uint16_t>(),
+             .replicaof = config["replicaof"].as<std::string>(),
+             .repl_backlog_size = config["repl-backlog-size"].as<size_t>(),
++            .tls_replication = yes_no_option("tls-replication",
++                config["tls-replication"].as<std::string>()),
+         });
+     });
+ }
+--- a/replication.cc
++++ b/replication.cc
+@@ -65,10 +65,27 @@
+ // end snippet: handlers
+
+ // snippet: listen
+-void primary::listen(socket_address address) {
++future<> primary::listen(socket_address address, const replication_tls& tls) {
+     rpc::server_options options;
+     options.compressor_factory = &_lz4;
+-    _servers.emplace_back(_proto, options, address);
++    if (tls.cert_file.empty()) {
++        _servers.emplace_back(_proto, options, address);
++        co_return;
++    }
++    tls::credentials_builder b;
++    co_await b.set_x509_key_file(tls.cert_file, tls.key_file,
++                                 tls::x509_crt_format::PEM);
++    if (!tls.ca_file.empty()) {
++        co_await b.set_x509_trust_file(tls.ca_file, tls::x509_crt_format::PEM);
++    }
++    b.set_client_auth(tls.auth);
++    listen_options lo;
++    lo.reuse_address = true;
++    // Of the server's constructors that take a socket, only the one that
++    // takes the options first uses them: the other ignores its options,
++    // and the connections wouldn't be compressed.
++    _servers.emplace_back(_proto, options, tls::listen(
++        b.build_server_credentials(), address, lo));
+ }
+
+ future<> primary::stop() {
+@@ -81,13 +98,28 @@
+ }
+ // end snippet: listen
+
+-replica::replica(sharded<store>& db, socket_address primary)
+-    : _db(db.local()), _primary(primary) {}
++replica::replica(sharded<store>& db, socket_address primary,
++                 sstring primary_name)
++    : _db(db.local()), _primary(primary), _primary_name(primary_name) {}
+
+-void replica::start() {
++// snippet: replica-start
++future<> replica::start(replication_tls tls) {
+     _db.replica = true;
++    if (!tls.cert_file.empty()) {
++        tls::credentials_builder b;
++        co_await b.set_x509_key_file(tls.cert_file, tls.key_file,
++                                     tls::x509_crt_format::PEM);
++        if (!tls.ca_file.empty()) {
++            co_await b.set_x509_trust_file(tls.ca_file,
++                                           tls::x509_crt_format::PEM);
++        } else {
++            co_await b.set_system_trust();
++        }
++        _credentials = b.build_certificate_credentials();
++    }
+     _running = run();
+ }
++// end snippet: replica-start
+
+ // snippet: replica-stop
+ future<> replica::stop() {
+@@ -112,8 +144,18 @@
+         if (!_client) {
+             rpc::client_options options;
+             options.compressor_factory = &_lz4;
+-            _client = std::make_unique<replication_protocol::client>(
+-                _proto, options, _primary);
++            if (_credentials) {
++                // The primary's certificate must be for the name that
++                // --replicaof gave.
++                tls::tls_options tls_options;
++                tls_options.server_name = _primary_name;
++                _client = std::make_unique<replication_protocol::client>(
++                    _proto, options, tls::socket(_credentials, tls_options),
++                    _primary);
++            } else {
++                _client = std::make_unique<replication_protocol::client>(
++                    _proto, options, _primary);
++            }
+         }
+         try {
+             co_return co_await call(*_client);
+--- a/replication.hh
++++ b/replication.hh
+@@ -8,6 +8,7 @@
+ #include <seastar/core/semaphore.hh>
+ #include <seastar/core/sharded.hh>
+ #include <seastar/net/socket_defs.hh>
++#include <seastar/net/tls.hh>
+ #include <seastar/rpc/lz4_fragmented_compressor.hh>
+ #include <seastar/rpc/rpc.hh>
+ #include <concepts>
+@@ -69,6 +70,17 @@
+     rpc::protocol<replication_serializer, replication_verb>;
+ // end snippet: verbs
+
++// snippet: replication-tls
++// With --tls-replication: the certificate, of a primary, or of a replica,
++// which a primary may require, its key, the certificates that the other
++// side's certificate must be signed by, and whether a primary requires a
++// replica's certificate. No certificate: no TLS.
++struct replication_tls {
++    sstring cert_file, key_file, ca_file;
++    tls::client_auth auth = tls::client_auth::REQUIRE;
++};
++// end snippet: replication-tls
++
+ // snippet: primary
+ // On every shard of a primary (--replication-port): the server of the
+ // replication protocol, whose connections a replica's shards open.
+@@ -80,7 +92,7 @@
+     std::deque<replication_protocol::server> _servers;
+ public:
+     explicit primary(sharded<store>& db);
+-    void listen(socket_address address);
++    future<> listen(socket_address address, const replication_tls& tls);
+     future<> stop();
+ };
+ // end snippet: primary
+@@ -94,14 +106,18 @@
+     replication_protocol _proto{replication_serializer{}};
+     rpc::lz4_fragmented_compressor::factory _lz4;
+     std::unique_ptr<replication_protocol::client> _client;
++    // With TLS: the name in the primary's certificate, and the replica's
++    // credentials; otherwise, nothing.
++    sstring _primary_name;
++    shared_ptr<tls::certificate_credentials> _credentials;
+     // The memory of the requests being parsed.
+     semaphore _memory{std::numeric_limits<int32_t>::max()};
+     abort_source _stopping;
+     future<> _running = make_ready_future();
+     friend class fetch_source;
+ public:
+-    replica(sharded<store>& db, socket_address primary);
+-    void start();
++    replica(sharded<store>& db, socket_address primary, sstring primary_name);
++    future<> start(replication_tls tls);
+     future<> stop();
+ private:
+     future<> run();
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,67 @@
++# Tests of the solution of chapter 26's exercise 3: replication over TLS.
++import shutil
++import subprocess
++import time
++
++import pytest
++import redis
++
++from test_v9 import make_certificate
++from test_v14 import eventually, same_keys, start_primary
++
++
++@pytest.fixture
++def certificates(tmp_path):
++    """A certificate authority, certificates that it signed for a primary
++    and for a replica, and a certificate that it didn't sign."""
++    ca = make_certificate(tmp_path, 'ca', is_ca=True)
++    return (ca, make_certificate(tmp_path, 'primary', ca),
++            make_certificate(tmp_path, 'replica', ca),
++            make_certificate(tmp_path, 'stranger'))
++
++
++def tls_options(certificate, ca):
++    return ('--tls-replication', 'yes', '--tls-cert-file', certificate[0],
++            '--tls-key-file', certificate[1], '--tls-ca-cert-file', ca[0])
++
++
++def start_tls_replica(start_server, port, *options):
++    # The certificates are for localhost, the name that the replica checks.
++    replica = start_server('--replicaof', f'localhost:{port}', *options)
++    return redis.Redis(port=replica.address[1])
++
++
++def bytes_received_from(port):
++    """The bytes that the sockets connected to port received."""
++    out = subprocess.run(['ss', '-tinH', 'dst', f'127.0.0.1:{port}'],
++                         capture_output=True, text=True, check=True).stdout
++    return sum(int(word.split(':')[1]) for word in out.split()
++               if word.startswith('bytes_received:'))
++
++
++# Check that a replica with a certificate that the primary trusts copies
++# its keys over TLS, compressed.
++def test_tls(start_server, certificates):
++    if start_server.is_valkey:
++        pytest.skip("Valkey's replication over TLS uses its TLS port")
++    ca, primary, replica, _ = certificates
++    _, p, port = start_primary(start_server, *tls_options(primary, ca))
++    p.mset({f'tls:{i}': 'x' * 100 for i in range(10000)})
++    r = start_tls_replica(start_server, port, *tls_options(replica, ca))
++    eventually(lambda: same_keys(p, r))
++    # The values alone are a megabyte, but they compress very well.
++    if shutil.which('ss'):
++        assert bytes_received_from(port) < 250000
++
++
++# Check that the primary refuses a replica whose certificate it doesn't
++# trust.
++def test_tls_untrusted(start_server, certificates):
++    if start_server.is_valkey:
++        pytest.skip("Valkey's replication over TLS uses its TLS port")
++    ca, primary, _, stranger = certificates
++    _, p, port = start_primary(start_server, *tls_options(primary, ca))
++    p.set('secret', 'x')
++    r = start_tls_replica(start_server, port, *tls_options(stranger, ca))
++    time.sleep(1.5)
++    assert r.dbsize() == 0
