@@ -30,6 +30,7 @@
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/timer.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/core/timed_out_error.hh>
 
 namespace seastar {
 
@@ -47,7 +48,8 @@ public:
 
 /// Exception thrown when wait() operation times out
 /// \ref condition_variable::wait(time_point timeout).
-class condition_variable_timed_out : public std::exception {
+/// Like \ref semaphore_timed_out, it is a kind of \ref timed_out_error.
+class condition_variable_timed_out : public timed_out_error {
 public:
     /// Reports the exception reason.
     virtual const char* what() const noexcept;

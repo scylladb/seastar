@@ -152,6 +152,11 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_timeout) {
     }
 }
 
+SEASTAR_THREAD_TEST_CASE(test_condition_variable_timeout_is_timed_out_error) {
+    condition_variable cv;
+    BOOST_REQUIRE_THROW(cv.wait(1ms).get(), timed_out_error);
+}
+
 SEASTAR_THREAD_TEST_CASE(test_condition_variable_pred_wait) {
     condition_variable cv;
 
@@ -168,10 +173,10 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_pred_wait) {
     try {
         cv.wait(10ms, [&] { return ready; }).get();
         BOOST_FAIL("should not reach");
-    } catch (timed_out_error&) {
-        BOOST_FAIL("should not reach");
     } catch (condition_variable_timed_out&) {
         // ok
+    } catch (timed_out_error&) {
+        BOOST_FAIL("should not reach");
     } catch (...) {
         BOOST_FAIL("should not reach");
     }
@@ -189,10 +194,10 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_pred_wait) {
         try {
             cv.wait(300ms, [&] { return ready; }).get();
             BOOST_FAIL("should not reach");
-        } catch (timed_out_error&) {
-            BOOST_FAIL("should not reach");
         } catch (condition_variable_timed_out&) {
             // ok
+        } catch (timed_out_error&) {
+            BOOST_FAIL("should not reach");
         } catch (...) {
             BOOST_FAIL("should not reach");
         }
@@ -247,10 +252,10 @@ SEASTAR_TEST_CASE(test_condition_variable_signal_consume_coroutine) {
             co_await cv.when(100ms);
         }());
         BOOST_FAIL("should not reach");
-    } catch (timed_out_error&) {
-        BOOST_FAIL("should not reach");
     } catch (condition_variable_timed_out&) {
         // ok
+    } catch (timed_out_error&) {
+        BOOST_FAIL("should not reach");
     } catch (...) {
         BOOST_FAIL("should not reach");
     }
@@ -273,10 +278,10 @@ SEASTAR_TEST_CASE(test_condition_variable_pred_when) {
     try {
         co_await cv.when(10ms, [&] { return ready; });
         BOOST_FAIL("should not reach");
-    } catch (timed_out_error&) {
-        BOOST_FAIL("should not reach");
     } catch (condition_variable_timed_out&) {
         // ok
+    } catch (timed_out_error&) {
+        BOOST_FAIL("should not reach");
     } catch (...) {
         BOOST_FAIL("should not reach");
     }
@@ -294,10 +299,10 @@ SEASTAR_TEST_CASE(test_condition_variable_pred_when) {
         try {
             co_await cv.when(300ms, [&] { return ready; });
             BOOST_FAIL("should not reach");
-        } catch (timed_out_error&) {
-            BOOST_FAIL("should not reach");
         } catch (condition_variable_timed_out&) {
             // ok
+        } catch (timed_out_error&) {
+            BOOST_FAIL("should not reach");
         } catch (...) {
             BOOST_FAIL("should not reach");
         }
@@ -338,9 +343,9 @@ SEASTAR_TEST_CASE(test_condition_variable_when_timeout) {
     auto f = [&]() -> future<> {
         try {
             co_await cv.when(100ms, [&] { return ready; });
-        } catch (timed_out_error&) {
-            BOOST_FAIL("should not reach");
         } catch (condition_variable_timed_out&) {
+            BOOST_FAIL("should not reach");
+        } catch (timed_out_error&) {
             BOOST_FAIL("should not reach");
         } catch (...) {
             BOOST_FAIL("should not reach");
