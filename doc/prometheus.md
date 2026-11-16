@@ -84,6 +84,49 @@ However, there are times when it is necessary to inspect the fine-grained metric
 This can be achieved by adding `__aggregate__=false` to the query string. For example:
 `http://localhost:9180/metrics?__aggregate__=false`
 
+## Compressing the reply
+Seastar can compress the reply to a metrics request with gzip or Zstandard (zstd).
+The text format repeats the metric and label names on every line, so it compresses
+well: expect a reply ten or more times smaller. This saves network traffic at the
+cost of some CPU time on the Seastar application, which compresses the reply on
+the reactor thread, at the fastest compression level.
+
+Compression is off by default. An application enables it by listing the codings
+it allows in `prometheus::config::compression`:
+
+```cpp
+prometheus::config ctx;
+ctx.compression = {prometheus::compression_type::gzip, prometheus::compression_type::zstd};
+```
+
+`prometheus::parse_compression()` builds that list from a string such as `"gzip,zstd"`,
+for applications that take it from their own configuration.
+
+A reply is compressed only when the request's `Accept-Encoding` header accepts one
+of the enabled codings, by name or with `*`; otherwise it is sent uncompressed. When the client accepts
+both gzip and zstd, and both are enabled, Seastar uses zstd. The reply's
+`Content-Encoding` header names the coding that was used. Both the text and the
+protocol buffer formats can be compressed.
+
+For example, with the `httpd` application started with `--prometheus_compression gzip,zstd`:
+
+```
+curl --compressed http://localhost:9180/metrics
+curl -H 'Accept-Encoding: zstd' http://localhost:9180/metrics | zstd -d
+```
+
+gzip requires zlib and zstd requires libzstd. Both libraries are optional when
+building Seastar; enabling a coding that Seastar was built without makes
+`add_prometheus_routes()` fail.
+
+### Compression on the Prometheus server
+Prometheus asks for gzip by default; this is controlled by `enable_compression`
+in the scrape configuration.
+
+Prometheus asks for zstd, in addition to gzip, only when it is started with
+`--enable-feature=zstd-scrape`.
+See [the Prometheus feature flags](https://prometheus.io/docs/prometheus/latest/feature_flags/#zstandard-scrape-compression).
+
 ### Configuring the Prometheus server to select specific metrics
 The [Prometheus configuration documentation](https://prometheus.io/docs/prometheus/latest/configuration/configuration/) describes the general configuration format.
 
