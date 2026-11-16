@@ -87,6 +87,8 @@ int main(int ac, char** av) {
     app.add_options()("prometheus_port", bpo::value<uint16_t>()->default_value(9180), "Prometheus port. Set to zero in order to disable.");
     app.add_options()("prometheus_address", bpo::value<sstring>()->default_value("0.0.0.0"), "Prometheus address");
     app.add_options()("prometheus_prefix", bpo::value<sstring>()->default_value("seastar_httpd"), "Prometheus metrics prefix");
+    app.add_options()("prometheus_compression", bpo::value<sstring>()->default_value("none"),
+            "Compress the Prometheus reply for clients that accept it: none, or a comma separated list of gzip and zstd");
 
     return app.run(ac, av, [&] {
         return seastar::async([&] {
@@ -108,13 +110,14 @@ int main(int ac, char** av) {
                 net::inet_address prom_addr(config["prometheus_address"].as<sstring>());
 
                 pctx.prefix = config["prometheus_prefix"].as<sstring>();
+                pctx.compression = prometheus::parse_compression(config["prometheus_compression"].as<sstring>());
 
                 std::cout << "starting prometheus API server" << std::endl;
                 prometheus_server.start("prometheus").get();
+                // From here on the server must be stopped, also if adding the routes fails
+                prometheus_started = true;
 
                 prometheus::start(prometheus_server, pctx).get();
-
-                prometheus_started = true;
 
                 prometheus_server.listen(socket_address{prom_addr, pport}).handle_exception([prom_addr, pport] (auto ep) {
                     std::cerr << seastar::format("Could not start Prometheus API server on {}:{}: {}\n", prom_addr, pport, seastar::formattable(ep));

@@ -177,6 +177,13 @@ int main(int ac, char** av) {
 
             prometheus::config pctx;
             pctx.allow_protobuf = true;
+            // Whatever this build supports, so that a scraper can ask for any of it
+#ifdef SEASTAR_HAVE_ZLIB
+            pctx.compression.push_back(prometheus::compression_type::gzip);
+#endif
+#ifdef SEASTAR_HAVE_ZSTD
+            pctx.compression.push_back(prometheus::compression_type::zstd);
+#endif
             prometheus::start(prometheus_server, pctx).get();
             prometheus_server.listen(socket_address{listen, port}).handle_exception([] (auto ep) {
                 return make_exception_future<>(ep);
