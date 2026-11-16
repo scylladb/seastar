@@ -770,6 +770,8 @@ add_library (seastar
   src/core/crypto.cc
   src/http/api_docs.cc
   src/http/common.cc
+  src/http/compress_sink.cc
+  src/http/compress_sink.hh
   src/http/file_handler.cc
   src/http/httpd.cc
   src/http/json_path.cc
