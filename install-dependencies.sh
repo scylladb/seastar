@@ -38,7 +38,6 @@ fi
 debian_transitive=(
     libudev-dev
     libunistring-dev
-    libzstd-dev
 )
 
 redhat_transitive=(
@@ -61,6 +60,8 @@ debian_packages=(
     libgnutls28-dev
     libhwloc-dev
     liblz4-dev
+    libzstd-dev
+    zlib1g-dev
     libnuma-dev
     libpciaccess-dev
     libprotobuf-dev
@@ -104,6 +105,8 @@ redhat_packages=(
     libxml2-devel
     lksctp-tools-devel
     lz4-devel
+    libzstd-devel
+    zlib-devel
     make
     meson
     numactl-devel
@@ -193,6 +196,8 @@ arch_packages=(
     lksctp-tools
     lttng-ust
     lz4
+    zlib
+    zstd
     make
     meson
     ninja
@@ -232,6 +237,8 @@ opensuse_packages=(
     libgnutls-devel
     libgnutlsxx28
     liblz4-devel
+    libzstd-devel
+    zlib-devel
     libnuma-devel
     libtool
     lksctp-tools-devel

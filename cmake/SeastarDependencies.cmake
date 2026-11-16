@@ -160,6 +160,11 @@ macro (seastar_find_dependencies)
       IMPORTED_CXX_MODULES_COMPILE_FEATURES cxx_std_${CMAKE_CXX_STANDARD})
   endif ()
   seastar_find_dep (lz4 1.7.3 REQUIRED)
+  seastar_find_dep (ZLIB)
+  # 1.4.0 is the first version whose stable API has the streaming compression
+  # that Seastar uses. zstd's own CMake package names its targets differently
+  # from Findzstd.cmake, so only the latter is used.
+  seastar_find_dep (zstd 1.4.0 MODULE)
   seastar_find_dep (GnuTLS 3.7.4)
   seastar_find_dep (OpenSSL 3.0)
   if (Seastar_IO_URING)

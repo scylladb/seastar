@@ -362,3 +362,13 @@ cooking_ingredient (lz4
     CONFIGURE_COMMAND <DISABLE>
     BUILD_COMMAND <DISABLE>
     INSTALL_COMMAND ${make_command} PREFIX=<INSTALL_DIR> install)
+
+# Optional, for compressing the Prometheus reply.
+cooking_ingredient (zstd
+  EXTERNAL_PROJECT_ARGS
+    URL https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz
+    URL_MD5 780fc1896922b1bc52a4e90980cdda48
+    BUILD_IN_SOURCE ON
+    CONFIGURE_COMMAND <DISABLE>
+    BUILD_COMMAND <DISABLE>
+    INSTALL_COMMAND ${make_command} -C lib PREFIX=<INSTALL_DIR> install)

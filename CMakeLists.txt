@@ -543,6 +543,8 @@ seastar_generate_protobuf (
 
 set_option_if_package_is_found (Seastar_GNUTLS GnuTLS)
 set_option_if_package_is_found (Seastar_OPENSSL OpenSSL)
+set_option_if_package_is_found (Seastar_ZLIB ZLIB)
+set_option_if_package_is_found (Seastar_ZSTD zstd)
 
 if (NOT Seastar_GNUTLS AND NOT Seastar_OPENSSL)
   message (FATAL_ERROR "At least one TLS/crypto backend is required. Install GnuTLS or OpenSSL development packages.")
@@ -1188,6 +1190,24 @@ if (Seastar_GNUTLS)
     PRIVATE GnuTLS::gnutls)
 endif ()
 
+if (Seastar_ZLIB)
+  if (NOT ZLIB_FOUND)
+    message (FATAL_ERROR "Seastar_ZLIB is enabled but zlib was not found!")
+  endif ()
+  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_ZLIB)
+  target_link_libraries (seastar
+    PRIVATE ZLIB::ZLIB)
+endif ()
+
+if (Seastar_ZSTD)
+  if (NOT zstd_FOUND)
+    message (FATAL_ERROR "Seastar_ZSTD is enabled but zstd was not found!")
+  endif ()
+  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_ZSTD)
+  target_link_libraries (seastar
+    PRIVATE zstd::zstd)
+endif ()
+
 if (Seastar_OPENSSL)
   if (NOT OpenSSL_FOUND)
     message (FATAL_ERROR "Seastar_OPENSSL is enabled but OpenSSL was not found!")
@@ -1599,6 +1619,7 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findlz4.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findragel.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findrt.cmake
+      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findzstd.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Finducontext.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findyaml-cpp.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/SeastarDependencies.cmake
