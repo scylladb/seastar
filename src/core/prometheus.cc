@@ -32,6 +32,7 @@
 #include <seastar/http/function_handlers.hh>
 
 #include "prometheus-impl.hh"
+#include "../http/compress_sink.hh"
 
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/algorithm/string.hpp>
@@ -1020,6 +1021,113 @@ bool is_accept_protobuf(const std::string& accept) {
     return false;
 }
 
+namespace {
+
+using compress_stream_fn = output_stream<char> (*)(output_stream<char>&&);
+
+// All that is specific to a content coding. Supporting another one takes a
+// compression_type enumerator and an entry here.
+struct coding_info {
+    compression_type type;
+    std::string_view name; // the coding's name in Accept-Encoding and Content-Encoding
+    compress_stream_fn compress; // nullptr if Seastar was built without the coding's library
+};
+
+// In order of preference: when a client accepts several of the enabled
+// codings, the first of them here is used.
+constexpr coding_info codings[] = {
+    {compression_type::zstd, "zstd",
+#ifdef SEASTAR_HAVE_ZSTD
+        http::internal::make_zstd_output_stream
+#else
+        nullptr
+#endif
+    },
+    {compression_type::gzip, "gzip",
+#ifdef SEASTAR_HAVE_ZLIB
+        http::internal::make_gzip_output_stream
+#else
+        nullptr
+#endif
+    },
+};
+
+const coding_info& get_coding(compression_type type) {
+    return *std::ranges::find(codings, type, &coding_info::type);
+}
+
+std::string_view trim(std::string_view s) {
+    auto is_space = [] (char c) { return c == ' ' || c == '\t'; };
+    while (!s.empty() && is_space(s.front())) {
+        s.remove_prefix(1);
+    }
+    while (!s.empty() && is_space(s.back())) {
+        s.remove_suffix(1);
+    }
+    return s;
+}
+
+// Whether one element of an Accept-Encoding header, e.g. "gzip;q=0.5", refuses
+// its coding, which is what a zero weight means
+bool is_refused(std::string_view params) {
+    for (auto param : std::views::split(params, ';')) {
+        auto p = trim(std::string_view(param.begin(), param.end()));
+        if (p.size() > 2 && (p[0] == 'q' || p[0] == 'Q') && p[1] == '=') {
+            // A weight is a decimal number, so it is zero if it has no other digit
+            return std::ranges::all_of(p.substr(2), [] (char c) { return c == '0' || c == '.'; });
+        }
+    }
+    return false;
+}
+
+}
+
+// Whether the value of an Accept-Encoding header accepts the named coding.
+// An element that names the coding decides. Without one, "*" stands for it.
+static bool accepts(std::string_view accept_encoding, std::string_view coding) {
+    bool wildcard = false;
+    for (auto part : std::views::split(accept_encoding, ',')) {
+        auto element = std::string_view(part.begin(), part.end());
+        auto name_end = std::min(element.size(), element.find(';'));
+        auto name = trim(element.substr(0, name_end));
+        if (boost::iequals(name, coding)) {
+            return !is_refused(element.substr(name_end));
+        }
+        if (name == "*") {
+            wildcard = !is_refused(element.substr(name_end));
+        }
+    }
+    return wildcard;
+}
+
+std::vector<compression_type> parse_compression(std::string_view names) {
+    std::vector<compression_type> ret;
+    if (trim(names).empty() || boost::iequals(trim(names), "none")) {
+        return ret;
+    }
+    for (auto part : std::views::split(names, ',')) {
+        auto name = trim(std::string_view(part.begin(), part.end()));
+        auto i = std::ranges::find_if(codings, [name] (const coding_info& c) { return boost::iequals(c.name, name); });
+        if (i == std::end(codings)) {
+            throw std::invalid_argument(fmt::format("Unknown prometheus compression '{}'", name));
+        }
+        ret.push_back(i->type);
+    }
+    return ret;
+}
+
+std::optional<compression_type> details::select_compression(std::string_view accept_encoding, const std::vector<compression_type>& enabled) {
+    if (enabled.empty()) {
+        return std::nullopt;
+    }
+    for (auto& c : codings) {
+        if (std::ranges::find(enabled, c.type) != enabled.end() && accepts(accept_encoding, c.name)) {
+            return c.type;
+        }
+    }
+    return std::nullopt;
+}
+
 class metrics_handler : public httpd::handler_base  {
     sstring _prefix;
     config _ctx;
@@ -1089,8 +1197,16 @@ public:
             .family_filter = details::make_family_filter(std::move(name_filters), _ctx.prefix),
             .use_protobuf_format = _ctx.allow_protobuf && is_accept_protobuf(req->get_header("Accept")),
             .show_help = req->get_query_param("__help__") != "false",
-            .enable_aggregation = req->get_query_param("__aggregate__") != "false"
+            .enable_aggregation = req->get_query_param("__aggregate__") != "false",
+            .compression = details::select_compression(req->get_header("Accept-Encoding"), _ctx.compression)
         };
+        if (!_ctx.compression.empty()) {
+            // The reply depends on the header whether or not it ended up compressed
+            rep->add_header("Vary", "Accept-Encoding");
+        }
+        if (args.compression) {
+            rep->add_header("Content-Encoding", sstring(get_coding(*args.compression).name));
+        }
         rep->write_body(args.use_protobuf_format ? "proto" : "txt", [this, args = std::move(args)](output_stream<char>&& s) {
             return write_body(std::move(args), std::move(s));
         });
@@ -1102,6 +1218,9 @@ private:
     future<> write_body(write_body_args args, output_stream<char>&& out_stream) {
         auto s = std::move(out_stream);
         auto families = co_await get_map_value();
+        if (args.compression) {
+            s = get_coding(*args.compression).compress(std::move(s));
+        }
         bool use_protobuf = args.use_protobuf_format;
 
         write_context context{
@@ -1128,6 +1247,13 @@ std::function<bool(const mi::labels_type&)> metrics_handler::_true_function = []
 };
 
 future<> add_prometheus_routes(httpd::http_server& server, config ctx) {
+    for (auto type : ctx.compression) {
+        auto& coding = get_coding(type);
+        if (!coding.compress) {
+            return make_exception_future<>(std::invalid_argument(
+                    fmt::format("Prometheus {} compression is not supported, Seastar was built without it", coding.name)));
+        }
+    }
     server._routes.put(httpd::GET, "/metrics", new metrics_handler(ctx));
     return make_ready_future<>();
 }

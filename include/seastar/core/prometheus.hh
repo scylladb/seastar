@@ -27,12 +27,40 @@
 #include <seastar/core/internal/api-level.hh>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 struct prometheus_test_fixture;
 
 namespace seastar {
 
 namespace prometheus {
+
+/*!
+ * \brief A content coding that the reply to a metrics request can be compressed with
+ *
+ * A coding is used only if it is listed in config::compression and the client
+ * accepts it in its Accept-Encoding header.
+ * Seastar supports a coding only if it was built with the library implementing it.
+ */
+enum class compression_type {
+    gzip, //!< gzip, requires zlib
+    zstd, //!< Zstandard, requires libzstd
+};
+
+/*!
+ * \brief Parses a comma separated list of content coding names
+ *
+ * The names are those used in the Content-Encoding HTTP header: "gzip" and "zstd".
+ * An empty string, or "none", stands for no compression and returns an empty list.
+ *
+ * It is a helper for applications that take config::compression from their
+ * own configuration.
+ *
+ * \param names comma separated coding names, for example "gzip,zstd"
+ * \return the codings, in the order they were named
+ * \throws std::invalid_argument if a name is not that of a known coding
+ */
+std::vector<compression_type> parse_compression(std::string_view names);
 
 
 /*!
@@ -56,6 +84,20 @@ struct config {
     std::optional<metrics::label_instance> label; //!< A label that will be added to all metrics, we advice not to use it and set it on the prometheus server
     sstring prefix = "seastar"; //!< a prefix that will be added to metric names
     bool allow_protobuf = false; // protobuf support is experimental and off by default
+    /*!
+     * \brief The content codings that a reply may be compressed with
+     *
+     * It is empty by default, which disables compression.
+     * A reply is compressed with one of these codings if the request's
+     * Accept-Encoding header accepts it. If it accepts more than one of them,
+     * zstd is preferred to gzip, regardless of the order here or in the request.
+     *
+     * Compression is done on the reactor thread, at the fastest level of the library.
+     *
+     * Registering the routes fails if Seastar was built without the library
+     * that a listed coding requires.
+     */
+    std::vector<compression_type> compression;
 };
 
 future<> start(httpd::http_server_control& http_server, config ctx);
@@ -83,12 +125,18 @@ struct name_filter {
 // allowing users to query with either "foo" or "seastar_foo" when prefix is "seastar".
 family_filter_t make_family_filter(std::vector<name_filter> filters, std::string_view prefix = "");
 
+// Chooses the content coding of a reply.
+// Returns the preferred coding among those that are both in enabled and accepted
+// by the value of the request's Accept-Encoding header, if there is one.
+std::optional<compression_type> select_compression(std::string_view accept_encoding, const std::vector<compression_type>& enabled);
+
 struct write_body_args {
     filter_t filter;
     family_filter_t family_filter;
     bool use_protobuf_format;
     bool show_help;
     bool enable_aggregation;
+    std::optional<compression_type> compression = std::nullopt; // compress the body with this coding
 };
 
 class test_access {

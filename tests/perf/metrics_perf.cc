@@ -117,7 +117,8 @@ struct metrics_perf_fixture {
     seastar::future<size_t> run_metrics_bench(
         size_t group_count, size_t families_per_group, size_t series_per_family, data_type type,
         bool enable_aggregation = false, bool use_protobuf = false,
-        family_filter_t family_filter = [](std::string_view) { return true; }) {
+        family_filter_t family_filter = [](std::string_view) { return true; },
+        std::optional<compression_type> compression = std::nullopt) {
         using namespace seastar;
         using namespace seastar::metrics;
 
@@ -198,7 +199,8 @@ struct metrics_perf_fixture {
                     .family_filter = family_filter,
                     .use_protobuf_format = use_protobuf,
                     .show_help = true,
-                    .enable_aggregation = enable_aggregation
+                    .enable_aggregation = enable_aggregation,
+                    .compression = compression
                 },
                 std::move(out));
         }
@@ -261,6 +263,32 @@ PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_protobuf) {
     // with the int variants
     co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER, false, true);
 }
+
+// The same as test_middle_ground and test_middle_ground_protobuf, with the
+// body compressed. The difference is the cost of the compression.
+#ifdef SEASTAR_HAVE_ZLIB
+PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_gzip) {
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER, false, false,
+            [](std::string_view) { return true; }, compression_type::gzip);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_protobuf_gzip) {
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER, false, true,
+            [](std::string_view) { return true; }, compression_type::gzip);
+}
+#endif
+
+#ifdef SEASTAR_HAVE_ZSTD
+PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_zstd) {
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER, false, false,
+            [](std::string_view) { return true; }, compression_type::zstd);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_protobuf_zstd) {
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER, false, true,
+            [](std::string_view) { return true; }, compression_type::zstd);
+}
+#endif
 
 PERF_TEST_CN(metrics_perf_fixture, test_histogram) {
     co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM);

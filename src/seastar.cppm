@@ -814,7 +814,9 @@ using seastar::program_options::value;
 export namespace seastar::prometheus {
 
 using seastar::prometheus::add_prometheus_routes;
+using seastar::prometheus::compression_type;
 using seastar::prometheus::config;
+using seastar::prometheus::parse_compression;
 using seastar::prometheus::start;
 
 }

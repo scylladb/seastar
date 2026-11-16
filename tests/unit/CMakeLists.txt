@@ -579,9 +579,18 @@ seastar_add_test (shared_token_bucket
 seastar_add_test (prometheus_text
   SOURCES prometheus_text_test.cc)
 
+# The test decompresses the replies, so it needs the libraries Seastar links privately
+set (prometheus_http_libraries "")
+if (Seastar_ZLIB)
+  list (APPEND prometheus_http_libraries ZLIB::ZLIB)
+endif ()
+if (Seastar_ZSTD)
+  list (APPEND prometheus_http_libraries zstd::zstd)
+endif ()
 seastar_add_test (prometheus_http
   SOURCES
-    prometheus_http_test.cc)
+    prometheus_http_test.cc
+  LIBRARIES ${prometheus_http_libraries})
 
 function(seastar_add_certgen name)
   cmake_parse_arguments(CERT
