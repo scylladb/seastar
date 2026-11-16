@@ -1151,6 +1151,13 @@ void io_queue::poll_io_queue() {
     }
 
     for (auto&& st : _streams) {
+        // A stream with nothing to dispatch and no reservation has no use
+        // for tokens, so it leaves the group's shared bucket alone. Streams
+        // that do need tokens replenish the bucket for the whole group.
+        if (!st._pending.cap && !st.fq.top()) {
+            continue;
+        }
+
         st.out.maybe_replenish_capacity(st.replenish);
         auto available = st.reap_pending_capacity();
 
