@@ -27,6 +27,7 @@
 #include <cmath>
 #include <concepts>
 #include <cstdint>
+#include <seastar/core/cacheline.hh>
 
 namespace seastar {
 namespace internal {
@@ -94,7 +95,10 @@ class shared_token_bucket {
     T _replenish_rate;
     const T _replenish_limit;
     const T _replenish_threshold;
-    std::atomic<typename Clock::time_point> _replenished;
+    // Every user writes _replenished and the rovers. Keep them off the line
+    // that holds the read-mostly parameters above, and, through the class
+    // alignment, off the line of whatever follows the bucket.
+    alignas(cache_line_size) std::atomic<typename Clock::time_point> _replenished;
 
     /*
      * The token bucket is implemented as a pair of wrapping monotonic
