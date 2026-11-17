@@ -1296,6 +1296,49 @@ SEASTAR_TEST_CASE(test_client_bodyless_reply_with_content_length) {
     });
 }
 
+// A client that sends "Connection: close" must not reuse the connection
+// (RFC 9112 9.6), even when the server closes it without echoing the header.
+SEASTAR_TEST_CASE(test_client_request_connection_close) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        future<> server = seastar::async([&ss] {
+            for (sstring body : {"first", "second"}) {
+                auto ar = ss.accept().get();
+                input_stream<char> in = ar.connection.input();
+                output_stream<char> out = ar.connection.output();
+                read_simple_http_request(in);
+                out.write(format("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}", body.size(), body)).get();
+                out.flush().get();
+                out.close().get();
+            }
+        });
+
+        future<> client = seastar::async([&lcf] {
+            auto cln = http::client(std::make_unique<loopback_http_factory>(lcf), 1, http::client::retry_requests::no);
+            auto close = deferred_close(cln);
+            for (sstring expected : {"first", "second"}) {
+                auto req = http::request::make("GET", "test", "/test");
+                req._headers["Connection"] = "close";
+                sstring body;
+                cln.make_request(std::move(req), [&body] (const http::reply& rep, input_stream<char>&& in) {
+                    return seastar::async([&body, in = std::move(in)] () mutable {
+                        auto close = deferred_close(in);
+                        body = util::read_entire_stream_contiguous(in).get();
+                    });
+                }, http::reply::status_type::ok).get();
+                BOOST_REQUIRE_EQUAL(body, expected);
+            }
+            BOOST_REQUIRE_EQUAL(cln.total_new_connections_nr(), 2);
+        }).finally([&ss] {
+            // Don't leave the server waiting for a connection that never comes.
+            ss.abort_accept();
+        });
+
+        when_all_succeed(std::move(client), std::move(server)).get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_client_retry_nested) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);
