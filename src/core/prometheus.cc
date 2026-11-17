@@ -821,8 +821,10 @@ metric_family_range get_range(const metrics_families_per_shard& mf, const sstrin
 template <typename Extra = no_label>
 static inline void write_series(buf_t& buf, std::string_view name, const labels_type& labels, const config& ctx, auto v, std::string_view suffix, Extra e = {}) {
     write_name_and_labels(buf, name, suffix, labels, ctx, e);
-    static constexpr auto format = std::is_floating_point_v<decltype(v)> ? "{:g}\n" : "{}\n";
-    fmt::format_to(buf.back_insert_begin(), FMT_COMPILE(format), v);
+    // For a floating-point value (a histogram's or summary's sum), "{}" prints
+    // the shortest representation that converts back to the same double, so
+    // no precision is lost. "{:g}" would keep only 6 significant digits.
+    fmt::format_to(buf.back_insert_begin(), FMT_COMPILE("{}\n"), v);
 };
 
 
