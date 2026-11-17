@@ -3,6 +3,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/test_runner.hh>
 #include <seastar/net/ip.hh>
+#include <seastar/core/coroutine.hh>
 
 using namespace seastar;
 using namespace net;
@@ -20,6 +21,20 @@ SEASTAR_TEST_CASE(test_connection_attempt_is_shutdown) {
         });
     unconn.shutdown();
     return f.finally([unconn = std::move(unconn)] {});
+}
+
+// shutdown() stops only an in-flight connection attempt, so one issued before
+// connect() does not prevent the connection.
+SEASTAR_TEST_CASE(test_shutdown_before_connect_is_noop) {
+    auto listener = engine().net().listen(make_ipv4_address({"127.0.0.1", 0}), listen_options());
+    auto accepted = listener.accept();
+    auto sock = make_socket();
+    sock.shutdown();
+    auto conn = co_await sock.connect(listener.local_address());
+    auto server = co_await std::move(accepted);
+    conn.shutdown_output();
+    server.connection.shutdown_output();
+    listener.abort_accept();
 }
 
 SEASTAR_TEST_CASE(test_unconnected_socket_shutsdown_established_connection) {
