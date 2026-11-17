@@ -171,8 +171,9 @@ class posix_ap_server_socket_impl : public server_socket_impl {
         pollable_fd fd;
         socket_address addr;
         conntrack::handle connection_tracking_handle;
-        std::optional<proxy_data> proxy_protocol_header_opt;
-        connection(pollable_fd xfd, socket_address xaddr, conntrack::handle cth, std::optional<proxy_data> addr_data_opt) : fd(std::move(xfd)), addr(xaddr), connection_tracking_handle(std::move(cth)), proxy_protocol_header_opt(std::move(addr_data_opt)) {}
+        connection_metadata metadata;
+        connection(pollable_fd xfd, socket_address xaddr, conntrack::handle cth, std::pmr::polymorphic_allocator<char>*, connection_metadata meta = {})
+            : fd(std::move(xfd)), addr(xaddr), connection_tracking_handle(std::move(cth)), metadata(meta) {}
     };
     using port_map_t = std::unordered_set<protocol_and_socket_address>;
     using sockets_map_t = std::unordered_map<protocol_and_socket_address, promise<accept_result>>;
@@ -191,7 +192,7 @@ public:
     socket_address local_address() const override {
         return _sa;
     }
-    static void move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, std::optional<proxy_data> addr_data_opt, std::pmr::polymorphic_allocator<char>* allocator);
+    static void move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, std::pmr::polymorphic_allocator<char>* allocator, connection_metadata meta = {});
 
     template <typename T>
     friend class std::hash;
@@ -204,13 +205,17 @@ class posix_server_socket_impl : public server_socket_impl {
     conntrack _conntrack;
     server_socket::load_balancing_algorithm _lba;
     shard_id _fixed_cpu;
+    listen_options::connection_detector _detect;
     bool _proxy_protocol;
     std::pmr::polymorphic_allocator<char>* _allocator;
+
+    conntrack::handle route_connection(const connection_metadata& meta, const socket_address& sa);
 public:
     explicit posix_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
         server_socket::load_balancing_algorithm lba, shard_id fixed_cpu,
-        bool proxy_protocol,
-        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _lba(lba), _fixed_cpu(fixed_cpu), _proxy_protocol(proxy_protocol), _allocator(allocator) {}
+        listen_options::connection_detector detect = {}, bool proxy_protocol = false,
+        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator)
+        : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _lba(lba), _fixed_cpu(fixed_cpu), _detect(std::move(detect)), _proxy_protocol(proxy_protocol), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
@@ -220,10 +225,14 @@ class posix_reuseport_server_socket_impl : public server_socket_impl {
     socket_address _sa;
     int _protocol;
     pollable_fd _lfd;
+    listen_options::connection_detector _detect;
+    conntrack _conntrack;
     std::pmr::polymorphic_allocator<char>* _allocator;
 public:
     explicit posix_reuseport_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
-        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _allocator(allocator) {}
+        listen_options::connection_detector detect = {},
+        std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator)
+        : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _detect(std::move(detect)), _allocator(allocator) {}
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
