@@ -502,16 +502,20 @@ protected:
     timer<> _queue_length_timer;
     accumulator_type _disk_queue_lengths;
 
-    future<size_t> on_io_completed(uint64_t pos, future<size_t> f) {
+    // buf, if given, is the request's buffer, which is kept until the request completes.
+    template <typename Buffer = std::nullptr_t>
+    future<size_t> on_io_completed(uint64_t pos, future<size_t> f, Buffer buf = nullptr) {
         if (_is_dev_null) {
             // /dev/null completes every request with 0 bytes, report the
             // request size instead to keep the throughput stats meaningful.
-            return f.then([this] (auto size_f) {
+            return f.then([this, buf = std::move(buf)] (auto size_f) {
+                (void)buf; // kept until the request completes
                 return make_ready_future<size_t>(this->req_size());
             });
         }
 
-        return f.then([this, pos] (size_t size) {
+        return f.then([this, pos, buf = std::move(buf)] (size_t size) {
+            (void)buf; // kept until the request completes
             if (size != req_size()) {
                 // Every request is aligned and within the file, so the kernel
                 // either completes it in full or fails it. A partial transfer
@@ -714,17 +718,18 @@ public:
 };
 
 class read_io_class_data : public io_class_data {
-    std::unique_ptr<char[], free_deleter> _buf;
-
 public:
-    read_io_class_data(job_config cfg) : io_class_data(std::move(cfg)) {
-        _buf = allocate_aligned_buffer<char>(req_size(), _alignment);
-    }
+    read_io_class_data(job_config cfg) : io_class_data(std::move(cfg)) {}
 
     future<size_t> issue_request(io_intent* intent) override {
         auto pos = this->get_pos();
-        auto f = _file.dma_read(pos, _buf.get(), this->req_size(), intent);
-        return on_io_completed(pos, std::move(f));
+        // Each read needs a buffer of its own: concurrent reads into one
+        // buffer overwrite each other's data, and a file system that checks
+        // a direct read's checksum in the reader's buffer, such as btrfs,
+        // then fails them with EIO.
+        auto buf = allocate_aligned_buffer<char>(req_size(), _alignment);
+        auto f = _file.dma_read(pos, buf.get(), this->req_size(), intent);
+        return on_io_completed(pos, std::move(f), std::move(buf));
     }
 };
 
@@ -798,17 +803,22 @@ class vectorized_read_io_class_data : public vectorized_io_class_data {
 public:
     vectorized_read_io_class_data(job_config cfg)
             : vectorized_io_class_data(std::move(cfg))
-    {
-        allocate_buffers([this] () {
-            return allocate_aligned_buffer<char>(_segment_size, _alignment);
-        });
-    }
+    {}
 
     future<size_t> issue_request(io_intent* intent) override {
         auto pos = this->get_pos();
-        std::vector<iovec> iovs = _iovecs;
+        // Each read needs buffers of its own: concurrent reads into one
+        // buffer overwrite each other's data, and a file system that checks
+        // a direct read's checksum in the reader's buffer, such as btrfs,
+        // then fails them with EIO.
+        std::vector<std::unique_ptr<char[], free_deleter>> bufs;
+        std::vector<iovec> iovs;
+        for (unsigned i = 0; i < _config.shard_info.iov_count; ++i) {
+            bufs.push_back(allocate_aligned_buffer<char>(_segment_size, _alignment));
+            iovs.push_back(iovec{ bufs.back().get(), _segment_size });
+        }
         auto f = _file.dma_read(pos, std::move(iovs), intent);
-        return on_io_completed(pos, std::move(f));
+        return on_io_completed(pos, std::move(f), std::move(bufs));
     }
 };
 
