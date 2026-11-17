@@ -156,7 +156,6 @@ public:
     template <typename... Args>
     using format_info_t = format_info<type_identity_t<Args>...>;
 #else  // SEASTAR_LOGGER_COMPILE_TIME_FMT
-    /// \cond internal
     /// \brief used to hold the log format string and the caller's source_location.
     struct format_info {
         /// implicitly construct format_info from a const char* format string.
