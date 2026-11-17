@@ -550,6 +550,15 @@ seastar_add_test (sstring
 seastar_add_test (stall_detector
   SOURCES stall_detector_test.cc)
 
+# Runs with one shard, so that its main function runs in the reactor's
+# first batch of tasks, and with the stall detector's default threshold,
+# whatever SEASTAR_OPTIONS says.
+seastar_add_test (stall_detector_startup
+  KIND CUSTOM
+  SOURCES stall_detector_startup_test.cc
+  LIBRARIES seastar_private
+  RUN_ARGS -c 1 --blocked-reactor-notify-ms 25)
+
 seastar_add_test (stream_reader
   SOURCES stream_reader_test.cc)
 
