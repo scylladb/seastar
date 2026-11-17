@@ -289,20 +289,22 @@ SEASTAR_THREAD_TEST_CASE(socket_accept_abort_test) {
     when_all(std::move(f), std::move(abort), std::move(check)).get();
 }
 
-// Check that server_socket::abort_accept() and server_socket::local_address()
-// are safe to call on an "empty" server_socket -- one that is either
-// default-constructed or moved-from, and therefore has no underlying
-// server_socket_impl. Previously these two methods dereferenced the
-// underlying impl unconditionally and would crash.
+// Check that server_socket::abort_accept(), server_socket::local_address()
+// and server_socket::set_listen_backlog() are safe to call on an "empty"
+// server_socket -- one that is either default-constructed or moved-from, and
+// therefore has no underlying server_socket_impl. Previously the first two
+// methods dereferenced the underlying impl unconditionally and would crash.
 SEASTAR_THREAD_TEST_CASE(socket_abort_accept_on_empty_test) {
     server_socket empty_ss;
     empty_ss.abort_accept();
+    empty_ss.set_listen_backlog(67);
     BOOST_CHECK(empty_ss.local_address().is_unspecified());
 
     server_socket live_ss = seastar::listen(ipv4_addr("127.0.0.1", 0), listen_options{ .reuse_address = true });
     server_socket moved_to = std::move(live_ss);
     // live_ss is now moved-from and empty; must still be safe to call.
     live_ss.abort_accept();
+    live_ss.set_listen_backlog(67);
     BOOST_CHECK(live_ss.local_address().is_unspecified());
     moved_to.abort_accept();
 }
@@ -421,6 +423,18 @@ SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
     // config, but 20 MB should be enough for everyone.
     BOOST_CHECK_LT(send_default, 20'000'000);
     BOOST_CHECK_LT(recv_default, 20'000'000);
+}
+
+// abort_accept() shuts the listening socket down. listen() on it would make it
+// listen again, with nothing to accept its connections, so the call must do
+// nothing.
+SEASTAR_THREAD_TEST_CASE(socket_listen_backlog_after_abort_accept_test) {
+    server_socket ss = seastar::listen(ipv4_addr("127.0.0.1", 0));
+    ss.abort_accept();
+    ss.set_listen_backlog(67);
+    // Read the address after the call: a socket that listens again after
+    // port 0 gets a new port.
+    BOOST_REQUIRE_THROW(connect(ss.local_address()).get(), std::system_error);
 }
 
 static
