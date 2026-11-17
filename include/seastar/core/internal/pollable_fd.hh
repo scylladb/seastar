@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <seastar/core/deleter.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/util/bool_class.hh>
@@ -103,7 +104,11 @@ public:
 #if SEASTAR_API_LEVEL >= 9
     future<size_t> send_some(std::span<iovec> iovs);
     future<size_t> write_some(std::span<iovec> iovs);
-    future<> send_all(std::span<iovec> iovs);
+    /// Sends all of \c iovs, keeping \c d, which can own the memory that
+    /// \c iovs points to, alive until the send completes or fails. The send
+    /// continuation holds \c d, so releasing it costs no continuation of its
+    /// own, as a trailing finally() would.
+    future<> send_all(std::span<iovec> iovs, deleter d = deleter());
     future<> write_all(std::span<iovec> iovs);
 #else
     future<size_t> write_some(net::packet& p);
@@ -168,8 +173,10 @@ public:
     future<size_t> write_some(std::span<iovec> iov) {
         return _s->write_some(iov);
     }
-    future<> send_all(std::span<iovec> iov) {
-        return _s->send_all(iov);
+    /// Sends all of \c iov, keeping \c d, which can own the memory that
+    /// \c iov points to, alive until the send completes or fails.
+    future<> send_all(std::span<iovec> iov, deleter d = deleter()) {
+        return _s->send_all(iov, std::move(d));
     }
     future<> write_all(std::span<iovec> iov) {
         return _s->write_all(iov);

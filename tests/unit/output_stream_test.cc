@@ -21,14 +21,20 @@
 
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/iostream.hh>
+#include <seastar/core/make_task.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/sleep.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/random.hh>
+#include <seastar/util/later.hh>
 #include <seastar/util/memory-data-source.hh>
 #include <vector>
 #include <list>
 #include <deque>
+#include <limits>
+#include <optional>
 #include <sstream>
 #include "memory-data-sink.hh"
 
@@ -345,6 +351,9 @@ public:
     static bool has_zc(const ::output_stream<char>& out) {
         return !out._zc_bufs.empty();
     }
+    static bool in_batch(const ::output_stream<char>& out) {
+        return out._in_batch.has_value();
+    }
 };
 
 }
@@ -369,6 +378,279 @@ SEASTAR_THREAD_TEST_CASE(test_mixed_mode_write) {
     out.close().get();
 
     BOOST_REQUIRE_EQUAL(ss.str(), "test");
+}
+
+namespace {
+
+// What a batching_sink was given, and how its next put() and flush() complete.
+struct batching_sink_state {
+    std::string data;
+    unsigned puts = 0;
+    unsigned flushes = 0;
+    unsigned flush_errors = 0;
+    // put() fails at once.
+    bool fail_put = false;
+    // put() and flush() return the future of pending_put and pending_flush,
+    // for the test to resolve with complete_put() and complete_flush().
+    bool hold_put = false;
+    bool hold_flush = false;
+    std::optional<promise<>> pending_put;
+    std::optional<promise<>> pending_flush;
+
+    /// Resolves the held put(), failing it with \c ex if that is set.
+    void complete_put(std::exception_ptr ex = nullptr) {
+        complete(pending_put, std::move(ex));
+    }
+    /// Resolves the held flush(), failing it with \c ex if that is set.
+    void complete_flush(std::exception_ptr ex = nullptr) {
+        complete(pending_flush, std::move(ex));
+    }
+private:
+    static void complete(std::optional<promise<>>& pending, std::exception_ptr ex) {
+        BOOST_CHECK(pending);
+        if (auto pr = std::exchange(pending, std::nullopt)) {
+            if (ex) {
+                pr->set_exception(std::move(ex));
+            } else {
+                pr->set_value();
+            }
+        }
+    }
+};
+
+// A sink that supports batched flushes and lets the test control the outcome
+// of each put() and flush().
+class batching_sink final : public data_sink_impl {
+    batching_sink_state& _s;
+public:
+    explicit batching_sink(batching_sink_state& s) noexcept : _s(s) {}
+
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        ++_s.puts;
+        if (_s.fail_put) {
+            return make_exception_future<>(std::runtime_error("put failed"));
+        }
+        for (auto& buf : bufs) {
+            _s.data.append(buf.get(), buf.size());
+        }
+        if (_s.hold_put) {
+            return _s.pending_put.emplace().get_future();
+        }
+        return make_ready_future<>();
+    }
+    future<> flush() override {
+        ++_s.flushes;
+        if (_s.hold_flush) {
+            return _s.pending_flush.emplace().get_future();
+        }
+        return make_ready_future<>();
+    }
+    future<> close() override { return make_ready_future<>(); }
+    size_t buffer_size() const noexcept override { return 8; }
+    bool can_batch_flushes() const noexcept override { return true; }
+    void on_batch_flush_error() noexcept override { ++_s.flush_errors; }
+};
+
+// A stream that batches flushes into a batching_sink. While a batch is in
+// flight the tests check with BOOST_CHECK rather than BOOST_REQUIRE, and
+// close() completes whatever is still held before it closes the stream, so
+// that a failed check is reported instead of leaving a batch in flight for
+// the assertion in ~output_stream to abort on.
+struct batching_stream {
+    batching_sink_state s;
+    output_stream<char> out;
+    bool closed = false;
+
+    batching_stream() : out(make_out(s)) {}
+    ~batching_stream() {
+        if (!closed) {
+            try {
+                close();
+            } catch (...) {
+                BOOST_ERROR("close() failed");
+            }
+        }
+    }
+    /// Completes any held put() and flush(), stops holding new ones, and
+    /// closes the stream.
+    void close() {
+        closed = true;
+        s.hold_put = false;
+        s.hold_flush = false;
+        s.fail_put = false;
+        if (s.pending_put) {
+            s.complete_put();
+        }
+        if (s.pending_flush) {
+            s.complete_flush();
+        }
+        out.close().get();
+    }
+private:
+    static output_stream<char> make_out(batching_sink_state& s) {
+        output_stream_options opts;
+        opts.batch_flushes = true;
+        return output_stream<char>(data_sink(std::make_unique<batching_sink>(s)), 8, opts);
+    }
+};
+
+// A batched flush runs from a reactor poller, which yield() alone does not
+// give a chance to run, so sleep until pred() holds, for at most 10 seconds.
+// Returns whether it holds.
+template <typename Pred>
+bool wait_for(Pred pred) {
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!pred() && std::chrono::steady_clock::now() < deadline) {
+        seastar::sleep(std::chrono::milliseconds(1)).get();
+    }
+    return pred();
+}
+
+bool in_batch(const output_stream<char>& out) {
+    return testing::output_stream_test::in_batch(out);
+}
+
+}
+
+// A batched flush whose put has to wait calls the sink flush once the put
+// completes, and finishes the batch in the same task.
+SEASTAR_THREAD_TEST_CASE(test_batched_flush_put_waits) {
+    batching_stream b;
+    auto& s = b.s;
+    // A marker task is queued before and after the completion of the put,
+    // and the tasks that run between them are counted. Other work of the
+    // reactor, such as a timer or a cross-shard message, can run between the
+    // markers and add to the count, but never take from it, so keep the
+    // smallest count of a few rounds.
+    uint64_t min_tasks = std::numeric_limits<uint64_t>::max();
+    for (unsigned round = 1; round <= 5; ++round) {
+        s.hold_put = true;
+        b.out.write("abc").get();
+        b.out.flush().get();
+        BOOST_CHECK(wait_for([&] { return s.puts == round; }));
+        BOOST_CHECK_EQUAL(s.flushes, round - 1);
+        BOOST_CHECK(in_batch(b.out));
+
+        s.hold_put = false;
+        // Shared with the markers, so that it outlives them even if the round
+        // ends before they run.
+        struct marker_counts {
+            std::optional<uint64_t> before;
+            std::optional<uint64_t> after;
+        };
+        auto counts = make_lw_shared<marker_counts>();
+        seastar::schedule(make_task([counts] {
+            counts->before = engine().get_sched_stats().tasks_processed;
+        }));
+        s.complete_put();
+        seastar::schedule(make_task([counts] {
+            counts->after = engine().get_sched_stats().tasks_processed;
+        }));
+        BOOST_CHECK(wait_for([&] { return !in_batch(b.out) && counts->before && counts->after; }));
+        BOOST_CHECK_EQUAL(s.flushes, round);
+        if (counts->before && counts->after) {
+            // tasks_processed counts a task once it ends, so the first marker
+            // is counted in after as well.
+            min_tasks = std::min(min_tasks, *counts->after - *counts->before - 1);
+        }
+    }
+#if !defined(SEASTAR_SHUFFLE_TASK_QUEUE) && !defined(SEASTAR_DEBUG)
+    // With the task queue shuffled the markers do not bracket the completion,
+    // and SEASTAR_DEBUG adds a task to every put.
+    BOOST_CHECK_EQUAL(min_tasks, 1u);
+#endif
+    b.close();
+    BOOST_CHECK_EQUAL(s.data, "abcabcabcabcabc");
+    BOOST_CHECK_EQUAL(s.flush_errors, 0u);
+}
+
+// If the sink flush of a batched flush has to wait, the batch stays in
+// progress, and a put issued meanwhile waits for it, until the sink flush
+// completes.
+SEASTAR_THREAD_TEST_CASE(test_batched_flush_sink_flush_waits) {
+    batching_stream b;
+    auto& s = b.s;
+    s.hold_flush = true;
+    b.out.write("abc").get();
+    b.out.flush().get();
+    BOOST_CHECK(wait_for([&] { return s.flushes == 1; }));
+    BOOST_CHECK_EQUAL(s.puts, 1u);
+    BOOST_CHECK(in_batch(b.out));
+
+    auto write_f = b.out.write(sstring(8, 'x'));
+    seastar::yield().get();
+    BOOST_CHECK(!write_f.available());
+    BOOST_CHECK_EQUAL(s.puts, 1u);
+
+    s.hold_flush = false;
+    s.complete_flush();
+    write_f.get();
+    BOOST_CHECK_EQUAL(s.puts, 2u);
+    b.close();
+    BOOST_CHECK_EQUAL(s.data, "abcxxxxxxxx");
+    BOOST_CHECK_EQUAL(s.flush_errors, 0u);
+}
+
+// A failed sink flush that had to wait is reported like any other batched
+// flush error.
+SEASTAR_THREAD_TEST_CASE(test_batched_flush_sink_flush_fails) {
+    batching_stream b;
+    auto& s = b.s;
+    s.hold_flush = true;
+    b.out.write("abc").get();
+    b.out.flush().get();
+    BOOST_CHECK(wait_for([&] { return s.flushes == 1; }));
+
+    s.hold_flush = false;
+    s.complete_flush(std::make_exception_ptr(std::runtime_error("flush failed")));
+    BOOST_CHECK(wait_for([&] { return !in_batch(b.out); }));
+    BOOST_CHECK_EQUAL(s.flush_errors, 1u);
+    BOOST_CHECK_THROW(b.out.flush().get(), std::runtime_error);
+    b.close();
+    BOOST_CHECK_EQUAL(s.flush_errors, 1u);
+}
+
+// If the put of a batched flush fails, the sink is not flushed, the sink is
+// told about the error once, and the next flush() returns the error.
+SEASTAR_THREAD_TEST_CASE(test_batched_flush_put_fails) {
+    batching_stream b;
+    auto& s = b.s;
+    s.fail_put = true;
+    b.out.write("abc").get();
+    b.out.flush().get();
+    BOOST_CHECK(wait_for([&] { return s.puts == 1 && !in_batch(b.out); }));
+    BOOST_CHECK_EQUAL(s.flushes, 0u);
+    BOOST_CHECK_EQUAL(s.flush_errors, 1u);
+
+    s.fail_put = false;
+    BOOST_CHECK_THROW(b.out.flush().get(), std::runtime_error);
+    b.close();
+    BOOST_CHECK_EQUAL(s.flush_errors, 1u);
+}
+
+// A put that waits for a batched flush whose own put then fails goes ahead
+// once the batch ends; the error is delivered by the next flush().
+SEASTAR_THREAD_TEST_CASE(test_batched_flush_put_fails_with_waiting_writer) {
+    batching_stream b;
+    auto& s = b.s;
+    s.hold_put = true;
+    b.out.write("abc").get();
+    b.out.flush().get();
+    BOOST_CHECK(wait_for([&] { return s.puts == 1; }));
+
+    auto write_f = b.out.write(sstring(8, 'x'));
+    seastar::yield().get();
+    BOOST_CHECK(!write_f.available());
+
+    s.hold_put = false;
+    s.complete_put(std::make_exception_ptr(std::runtime_error("put failed")));
+    write_f.get();
+    BOOST_CHECK_EQUAL(s.puts, 2u);
+    BOOST_CHECK_EQUAL(s.flushes, 0u);
+    BOOST_CHECK_EQUAL(s.flush_errors, 1u);
+    BOOST_CHECK_THROW(b.out.flush().get(), std::runtime_error);
+    b.close();
+    BOOST_CHECK_EQUAL(s.flush_errors, 1u);
 }
 
 // Simple (mainly compilation) test for basic_memory_data_sink implementation over standard collections
