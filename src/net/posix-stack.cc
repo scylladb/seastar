@@ -470,6 +470,7 @@ class posix_socket_impl final : public socket_impl {
     pollable_fd _fd;
     std::pmr::polymorphic_allocator<char>* _allocator;
     bool _reuseaddr = false;
+    bool _shutdown = false;
     const int _sock_flags;
 
     future<> find_port_and_connect(socket_address sa, socket_address local, transport proto = transport::TCP) {
@@ -492,6 +493,9 @@ class posix_socket_impl final : public socket_impl {
                 break;
             } catch (std::system_error& err) {
                 if (port != requested_port && (err.code().value() == EADDRINUSE || err.code().value() == EADDRNOTAVAIL)) {
+                    if (std::exchange(_shutdown, false)) {
+                        throw std::system_error(ECONNABORTED, std::system_category());
+                    }
                     continue;
                 }
                 throw;
@@ -519,6 +523,7 @@ public:
     {}
 
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
+        _shutdown = false;
         if (sa.is_af_unix()) {
             co_return co_await connect_unix_domain(sa, local);
         }
@@ -542,6 +547,7 @@ public:
     }
 
     virtual void shutdown() override {
+        _shutdown = true;
         if (_fd) {
             try {
                 _fd.shutdown(SHUT_RDWR);
