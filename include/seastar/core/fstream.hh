@@ -113,7 +113,6 @@ struct file_output_stream_options {
 
 /// Create an output_stream for writing starting at the position zero of a
 /// newly created file.
-/// NOTE: flush() should be the last thing to be called on a file output stream.
 /// Closes the file if the stream creation fails.
 future<output_stream<char>> make_file_output_stream(
         file file,
@@ -121,7 +120,6 @@ future<output_stream<char>> make_file_output_stream(
 
 /// Create an output_stream for writing starting at the position zero of a
 /// newly created file.
-/// NOTE: flush() should be the last thing to be called on a file output stream.
 /// Closes the file if the stream creation fails.
 future<output_stream<char>> make_file_output_stream(
         file file,
