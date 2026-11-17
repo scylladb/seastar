@@ -5,9 +5,14 @@ Supported exposition formats are the 0.0.4 text and protocol buffer formats.
 
 For more information about these formats, see the [Prometheus documentation](https://prometheus.io/docs/instrumenting/exposition_formats/).
 
-By default, Seastar listens on port `9180` on `localhost`.
-
-See the Seastar configuration documentation on how to change the default configuration.
+Seastar does not serve the metrics by itself: an application serves them
+from an HTTP server of its own, with `prometheus::start()`, which adds the
+route `/metrics` to an `httpd::http_server_control`, or with
+`prometheus::add_prometheus_routes()`, which adds it to a server that the
+application also uses for other routes (`<seastar/core/prometheus.hh>`). The
+port is the application's choice: Seastar's own `apps/httpd` listens on
+port `9180` by default (its `--prometheus_port` option), as ScyllaDB does,
+and the examples below use that port.
 
 Seastar uses the protocol buffer format only when it is enabled in the server
 configuration and the request's `Accept` header contains a media type beginning with

@@ -197,5 +197,11 @@ void f() {
 Seastar is a high-performance framework tuned for the best
 performance by default. As such, it favors polling over interrupt-driven
 operation. The assumption is that applications written for Seastar will be
-busy handling 100,000 IOPS and beyond. Polling means that each of our
-cores will consume 100% CPU even when they have no work.
+busy handling 100,000 IOPS and beyond. A core that runs out of work keeps
+polling for a while, 200 microseconds by default (2 milliseconds in a
+virtual machine; see `--idle-poll-time-us`), before it goes to sleep, so a
+core that gets a little work at short intervals never sleeps, and uses
+100% of its CPU even though it does little work. `--poll-mode` makes the
+cores poll all the time, even with no work at all, and `--overprovisioned`
+turns idle polling off, for machines whose cores are shared with other
+programs.
