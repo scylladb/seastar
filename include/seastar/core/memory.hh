@@ -153,9 +153,14 @@ struct memory_range {
 
 struct numa_layout {
     std::vector<memory_range> ranges;
+    // Unlike ranges, filled without mbind and by the default allocator too.
+    size_t total_memory = 0;
 };
 
 numa_layout merge(numa_layout one, numa_layout two);
+
+// Only the default allocator uses this; the seastar allocator knows its size.
+void set_shard_layout(const numa_layout& layout);
 
 size_t per_shard_memory(size_t total_memory, unsigned nr_shards);
 
