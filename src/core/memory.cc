@@ -2070,6 +2070,29 @@ memory_layout get_memory_layout() {
     return cpu_mem.memory_layout();
 }
 
+namespace internal {
+
+page_map_info get_page_map() noexcept {
+    return page_map_info{
+        .descriptors = reinterpret_cast<uintptr_t>(cpu_mem.pages),
+        .descriptor_size = sizeof(page),
+        .arena_start = reinterpret_cast<uintptr_t>(mem_base()),
+        .arena_end = reinterpret_cast<uintptr_t>(mem_base()) + mem_base_alloc,
+    };
+}
+
+page_info decode_page_descriptor(const void* descriptor) noexcept {
+    page p;
+    std::memcpy(static_cast<void*>(&p), descriptor, sizeof(p));
+    return page_info{
+        .free = p.free,
+        .span_size = std::max<uint32_t>(p.span_size, 1), // page 0 stays allocated with no span size
+        .small = !p.free && p.pool != nullptr, // a freed small span keeps its pool
+    };
+}
+
+}
+
 size_t min_free_memory() {
     return cpu_mem.min_free_pages * page_size;
 }
