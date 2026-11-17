@@ -1,0 +1,6 @@
+pyudev
+psutil
+pyyaml
+setuptools
+pytest-cov
+pytest

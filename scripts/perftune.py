@@ -2047,77 +2047,83 @@ def dump_config(prog_args):
     perftune_print(yaml.dump(prog_options, default_flow_style=False))
 ################################################################################
 
-args = argp.parse_args()
+def main():
+    global dry_run_mode
 
-# Sanity check
-args.set_write_back = parse_tri_state_arg(args.set_write_back, "--write-back-cache/write_back_cache")
-args.enable_arfs = parse_tri_state_arg(args.enable_arfs, "--arfs/arfs")
+    args = argp.parse_args()
 
-dry_run_mode = args.dry_run
-parse_options_file(args)
+    # Sanity check
+    args.set_write_back = parse_tri_state_arg(args.set_write_back, "--write-back-cache/write_back_cache")
+    args.enable_arfs = parse_tri_state_arg(args.enable_arfs, "--arfs/arfs")
 
-# if nothing needs to be configured - quit
-if not args.tune:
-    sys.exit("ERROR: At least one tune mode MUST be given.")
+    dry_run_mode = args.dry_run
+    parse_options_file(args)
 
-# The must be either 'mode' or an explicit 'irq_cpu_mask' given - not both
-if args.mode and args.irq_cpu_mask:
-    sys.exit("ERROR: Provide either tune mode or IRQs CPU mask - not both.")
+    # if nothing needs to be configured - quit
+    if not args.tune:
+        sys.exit("ERROR: At least one tune mode MUST be given.")
 
-# Sanity check
-if args.cores_per_irq_core < PerfTunerBase.min_cores_per_irq_core():
-    sys.exit(f"ERROR: irq_core_auto_detection_ratio value must be greater or equal than "
-             f"{PerfTunerBase.min_cores_per_irq_core()}")
+    # The must be either 'mode' or an explicit 'irq_cpu_mask' given - not both
+    if args.mode and args.irq_cpu_mask:
+        sys.exit("ERROR: Provide either tune mode or IRQs CPU mask - not both.")
 
-# set default values #####################
-if not args.nics:
-    args.nics = ['eth0']
+    # Sanity check
+    if args.cores_per_irq_core < PerfTunerBase.min_cores_per_irq_core():
+        sys.exit(f"ERROR: irq_core_auto_detection_ratio value must be greater or equal than "
+                 f"{PerfTunerBase.min_cores_per_irq_core()}")
 
-if not args.cpu_mask:
-    args.cpu_mask = run_hwloc_calc(['all'])
-##########################################
+    # set default values #####################
+    if not args.nics:
+        args.nics = ['eth0']
 
-# Sanity: irq_cpu_mask should be a subset of cpu_mask
-if args.irq_cpu_mask and run_hwloc_calc([args.cpu_mask]) != run_hwloc_calc([args.cpu_mask, args.irq_cpu_mask]):
-    sys.exit("ERROR: IRQ CPU mask({}) must be a subset of CPU mask({})".format(args.irq_cpu_mask, args.cpu_mask))
+    if not args.cpu_mask:
+        args.cpu_mask = run_hwloc_calc(['all'])
+    ##########################################
 
-if args.dump_options_file:
-    dump_config(args)
-    sys.exit(0)
+    # Sanity: irq_cpu_mask should be a subset of cpu_mask
+    if args.irq_cpu_mask and run_hwloc_calc([args.cpu_mask]) != run_hwloc_calc([args.cpu_mask, args.irq_cpu_mask]):
+        sys.exit("ERROR: IRQ CPU mask({}) must be a subset of CPU mask({})".format(args.irq_cpu_mask, args.cpu_mask))
 
-try:
-    tuners = []
+    if args.dump_options_file:
+        dump_config(args)
+        sys.exit(0)
 
-    if TuneModes.disks.name in args.tune:
-        tuners.append(DiskPerfTuner(args))
+    try:
+        tuners = []
 
-    if TuneModes.net.name in args.tune:
-        tuners.append(NetPerfTuner(args))
+        if TuneModes.disks.name in args.tune:
+            tuners.append(DiskPerfTuner(args))
 
-    if TuneModes.system.name in args.tune:
-        tuners.append(SystemPerfTuner(args))
+        if TuneModes.net.name in args.tune:
+            tuners.append(NetPerfTuner(args))
 
-    if args.get_cpu_mask or args.get_cpu_mask_quiet:
-        # Print the compute mask from the first tuner - it's going to be the same in all of them
-        perftune_print(tuners[0].compute_cpu_mask)
-    elif args.get_irq_cpu_mask:
-        perftune_print(tuners[0].irqs_cpu_mask)
-    else:
-        # Tune the system
-        restart_irqbalance(itertools.chain.from_iterable([ tuner.irqs for tuner in tuners ]))
+        if TuneModes.system.name in args.tune:
+            tuners.append(SystemPerfTuner(args))
 
-        for tuner in tuners:
-            tuner.tune()
-except PerfTunerBase.CPUMaskIsZeroException as e:
-    # Print a zero CPU set if --get-cpu-mask-quiet was requested.
-    if args.get_cpu_mask_quiet:
-        perftune_print("0x0")
-    else:
+        if args.get_cpu_mask or args.get_cpu_mask_quiet:
+            # Print the compute mask from the first tuner - it's going to be the same in all of them
+            perftune_print(tuners[0].compute_cpu_mask)
+        elif args.get_irq_cpu_mask:
+            perftune_print(tuners[0].irqs_cpu_mask)
+        else:
+            # Tune the system
+            restart_irqbalance(itertools.chain.from_iterable([ tuner.irqs for tuner in tuners ]))
+
+            for tuner in tuners:
+                tuner.tune()
+    except PerfTunerBase.CPUMaskIsZeroException as e:
+        # Print a zero CPU set if --get-cpu-mask-quiet was requested.
+        if args.get_cpu_mask_quiet:
+            perftune_print("0x0")
+        else:
+            sys.exit("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e))
+    except PerfTunerBase.InvalidNUMATopologyException as e:
+        print("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e), file=sys.stderr)
+        # set special exit code to handle InvalidNUMATopologyException from the caller script
+        sys.exit(3)
+    except Exception as e:
         sys.exit("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e))
-except PerfTunerBase.InvalidNUMATopologyException as e:
-    print("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e), file=sys.stderr)
-    # set special exit code to handle InvalidNUMATopologyException from the caller script
-    sys.exit(3)
-except Exception as e:
-    sys.exit("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e))
+
+if __name__ == '__main__':
+    main()
 
