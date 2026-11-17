@@ -198,16 +198,13 @@ private:
     using connection_ptr = seastar::shared_ptr<connection>;
 
     future<connection_ptr> get_connection(abort_source* as);
+    future<connection_ptr> get_fresh_connection(abort_source* as);
     future<connection_ptr> make_connection(abort_source* as);
     future<> put_connection(connection_ptr con);
     future<> shrink_connections();
 
     template <std::invocable<connection&> Fn>
     auto with_connection(Fn&& fn, abort_source*);
-
-    template <typename Fn>
-    requires std::invocable<Fn, connection&>
-    auto with_new_connection(Fn&& fn, abort_source*);
 
     future<> maybe_retry_request(std::exception_ptr ex,
                                  unsigned retry_count,
@@ -280,8 +277,10 @@ public:
      * Client provides a transparent way of handling it called "retry".
      *
      * When enabled, it makes client catch the transport error, close the broken connection, open
-     * another one and retry the very same request one more time over this new connection. If the
-     * second attempt fails, this error is reported back to user.
+     * another one and retry the very same request one more time over this new connection. The
+     * replacement is a new connection and it counts against \c max_connections: an idle pooled
+     * connection is closed first when the limit is already reached, and the retry waits when
+     * every connection is busy. If the second attempt fails, this error is reported back to user.
      */
     explicit client(std::unique_ptr<connection_factory> f, unsigned max_connections = default_max_connections, retry_requests retry = retry_requests::no, size_t max_bytes_to_drain = default_max_bytes_to_drain);
     client(std::unique_ptr<connection_factory> f, unsigned max_connections, size_t max_bytes_to_drain, std::unique_ptr<retry_strategy>&& retry_strategy);

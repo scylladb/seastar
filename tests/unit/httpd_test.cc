@@ -40,6 +40,9 @@
 #include <seastar/core/shared_future.hh>
 #include <seastar/http/client.hh>
 #include <seastar/http/url.hh>
+#include <seastar/core/condition-variable.hh>
+#include <seastar/core/iostream.hh>
+#include <seastar/net/stack.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/later.hh>
 #include <seastar/util/short_streams.hh>
@@ -1574,6 +1577,228 @@ SEASTAR_TEST_CASE(test_client_retry_request) {
         });
 
         when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
+class reuse_fail_source : public data_source_impl {
+    data_source _in;
+    lw_shared_ptr<bool> _dead;
+public:
+    reuse_fail_source(data_source in, lw_shared_ptr<bool> dead) : _in(std::move(in)), _dead(std::move(dead)) {}
+    future<temporary_buffer<char>> get() override {
+        if (*_dead) {
+            return make_exception_future<temporary_buffer<char>>(std::system_error(ECONNRESET, std::system_category()));
+        }
+        return _in.get();
+    }
+    future<temporary_buffer<char>> skip(uint64_t n) override {
+        if (*_dead) {
+            return make_exception_future<temporary_buffer<char>>(std::system_error(ECONNRESET, std::system_category()));
+        }
+        return _in.skip(n);
+    }
+    future<> close() override { return _in.close(); }
+};
+
+class reuse_fail_sink : public data_sink_impl {
+    data_sink _out;
+    lw_shared_ptr<bool> _dead;
+public:
+    reuse_fail_sink(data_sink out, lw_shared_ptr<bool> dead) : _out(std::move(out)), _dead(std::move(dead)) {}
+    temporary_buffer<char> allocate_buffer(size_t size) override { return _out.allocate_buffer(size); }
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        if (*_dead) {
+            return make_exception_future<>(std::system_error(ECONNRESET, std::system_category()));
+        }
+        return _out.put(bufs);
+    }
+    future<> flush() override {
+        if (*_dead) {
+            return make_exception_future<>(std::system_error(ECONNRESET, std::system_category()));
+        }
+        return _out.flush();
+    }
+    future<> close() override { return _out.close(); }
+    size_t buffer_size() const noexcept override { return _out.buffer_size(); }
+    bool can_batch_flushes() const noexcept override { return _out.can_batch_flushes(); }
+    void on_batch_flush_error() noexcept override { _out.on_batch_flush_error(); }
+};
+
+class reuse_fail_socket_impl : public net::connected_socket_impl {
+    connected_socket _inner;
+    lw_shared_ptr<bool> _dead;
+    int* _live;
+    int* _max_live;
+public:
+    reuse_fail_socket_impl(connected_socket inner, lw_shared_ptr<bool> dead, int* live, int* max_live)
+            : _inner(std::move(inner)), _dead(std::move(dead)), _live(live), _max_live(max_live) {
+        ++*_live;
+        if (*_live > *_max_live) {
+            *_max_live = *_live;
+        }
+    }
+    ~reuse_fail_socket_impl() { --*_live; }
+    data_source source() override {
+        return data_source(std::make_unique<reuse_fail_source>(std::move(_inner.input()).detach(), _dead));
+    }
+    data_sink sink() override {
+        return data_sink(std::make_unique<reuse_fail_sink>(std::move(_inner.output()).detach(), _dead));
+    }
+    void shutdown_input() override { _inner.shutdown_input(); }
+    void shutdown_output() override { _inner.shutdown_output(); }
+    void set_nodelay(bool nodelay) override { _inner.set_nodelay(nodelay); }
+    bool get_nodelay() const override { return _inner.get_nodelay(); }
+    void set_keepalive(bool keepalive) override { _inner.set_keepalive(keepalive); }
+    bool get_keepalive() const override { return _inner.get_keepalive(); }
+    void set_keepalive_parameters(const net::keepalive_params& p) override { _inner.set_keepalive_parameters(p); }
+    net::keepalive_params get_keepalive_parameters() const override { return _inner.get_keepalive_parameters(); }
+    void set_sockopt(int level, int optname, const void* data, size_t len) override { _inner.set_sockopt(level, optname, data, len); }
+    int get_sockopt(int level, int optname, void* data, size_t len) const override { return _inner.get_sockopt(level, optname, data, len); }
+    socket_address local_address() const noexcept override { return _inner.local_address(); }
+    socket_address remote_address() const noexcept override { return _inner.remote_address(); }
+    future<> wait_input_shutdown() override { return _inner.wait_input_shutdown(); }
+};
+
+class dead_after_reuse_factory : public http::connection_factory {
+    loopback_socket_impl _lsi;
+    unsigned _poison_first;
+    unsigned _made = 0;
+public:
+    int live = 0;
+    int max_live = 0;
+    std::vector<lw_shared_ptr<bool>> poisoned;
+    dead_after_reuse_factory(loopback_connection_factory& f, unsigned poison_first)
+            : _lsi(f), _poison_first(poison_first) {}
+    future<connected_socket> make(abort_source*) override {
+        return _lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).then([this] (connected_socket cs) {
+            auto dead = make_lw_shared<bool>(false);
+            if (_made < _poison_first) {
+                poisoned.push_back(dead);
+            }
+            ++_made;
+            return connected_socket(std::make_unique<reuse_fail_socket_impl>(std::move(cs), std::move(dead), &live, &max_live));
+        });
+    }
+    void poison() {
+        for (auto& dead : poisoned) {
+            *dead = true;
+        }
+    }
+    unsigned made() const { return _made; }
+};
+
+// Warm `limit` keep-alive connections into the pool, then make every one of
+// them fail on the next use. The follow-up request has to succeed on a fresh
+// connection and must not go over `limit` live sockets while doing it.
+static void check_retry_skips_dead_pooled_socket(unsigned limit) {
+    loopback_connection_factory lcf(1);
+    auto ss = lcf.get_server_socket();
+    condition_variable release_cv;
+    bool release = false;
+    sstring ok("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n");
+    auto hold = [&] (accept_result ar) {
+        return seastar::async([sk = std::move(ar.connection), &release_cv, &release, ok] () mutable {
+            input_stream<char> in = sk.input();
+            read_simple_http_request(in);
+            output_stream<char> out = sk.output();
+            out.write(ok).get();
+            out.flush().get();
+            release_cv.wait([&release] { return release; }).get();
+            try {
+                out.close().get();
+            } catch (...) {
+            }
+            try {
+                in.close().get();
+            } catch (...) {
+            }
+        });
+    };
+    auto answer = [ok] (accept_result ar) {
+        return seastar::async([sk = std::move(ar.connection), ok] () mutable {
+            input_stream<char> in = sk.input();
+            read_simple_http_request(in);
+            output_stream<char> out = sk.output();
+            out.write(ok).get();
+            out.flush().get();
+            out.close().get();
+            in.close().get();
+        });
+    };
+
+    // Accept every warmup connection before answering any of them. A reply
+    // would return that socket to the pool, and the next warmup request would
+    // reuse it instead of opening the next one.
+    future<> server = seastar::async([&] {
+        std::vector<accept_result> accepted;
+        accepted.reserve(limit);
+        for (unsigned i = 0; i < limit; ++i) {
+            accepted.push_back(ss.accept().get());
+        }
+        std::vector<future<>> held;
+        held.reserve(limit);
+        for (auto& ar : accepted) {
+            held.push_back(hold(std::move(ar)));
+        }
+        answer(ss.accept().get()).get();
+        when_all(held.begin(), held.end()).discard_result().get();
+    });
+
+    future<> client = seastar::async([&] {
+        auto factory = std::make_unique<dead_after_reuse_factory>(lcf, limit);
+        auto* connections = factory.get();
+        auto cln = http::client(std::move(factory), limit, http::client::retry_requests::yes);
+        std::exception_ptr err;
+        try {
+            std::vector<future<>> warm;
+            warm.reserve(limit);
+            for (unsigned i = 0; i < limit; ++i) {
+                warm.push_back(cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply& rep, input_stream<char>&& in) {
+                    BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::ok);
+                    return make_ready_future<>();
+                }, http::reply::status_type::ok));
+            }
+            for (auto& req : warm) {
+                req.get();
+            }
+            BOOST_REQUIRE_EQUAL(cln.idle_connections_nr(), limit);
+            BOOST_REQUIRE_EQUAL(connections->made(), limit);
+            connections->poison();
+            cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply& rep, input_stream<char>&& in) {
+                BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::ok);
+                return make_ready_future<>();
+            }, http::reply::status_type::ok).get();
+            BOOST_REQUIRE_EQUAL(connections->made(), limit + 1);
+            BOOST_REQUIRE(connections->max_live <= static_cast<int>(limit));
+            BOOST_REQUIRE_EQUAL(cln.get_stats()[operation_type::GET].retries, 1);
+            cln.close().get();
+        } catch (...) {
+            err = std::current_exception();
+            try {
+                cln.close().get();
+            } catch (...) {
+            }
+            ss.abort_accept();
+        }
+        release = true;
+        release_cv.broadcast();
+        if (err) {
+            std::rethrow_exception(err);
+        }
+    });
+
+    auto done = when_all(std::move(client), std::move(server)).get();
+    std::get<0>(done).get();
+    std::get<1>(done).get();
+}
+
+// The default retry is a single attempt. It has to open a new connection even
+// when the pool still holds sockets whose peer is already dead, and doing so
+// must stay inside max_connections.
+SEASTAR_TEST_CASE(test_client_retry_skips_dead_pooled_socket) {
+    return seastar::async([] {
+        check_retry_skips_dead_pooled_socket(1);
+        check_retry_skips_dead_pooled_socket(2);
     });
 }
 
