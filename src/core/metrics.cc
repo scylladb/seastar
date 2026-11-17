@@ -545,6 +545,12 @@ const std::vector<internal::collector_base*>& impl::collectors() {
     return _current_collectors;
 }
 
+// The unit of a metric is the value of its internal __unit label
+static std::string_view unit_of(const labels_type& labels) {
+    auto it = labels.find("__unit");
+    return it == labels.end() ? std::string_view() : std::string_view(it->second.value());
+}
+
 register_ref impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels,
         internal::collector_base* collector) {
     auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled, skip, collector);
@@ -560,6 +566,10 @@ register_ref impl::add_registration(const metric_id& id, const metric_type& type
         }
         if (metric.info().type != type.base_type) {
             throw std::runtime_error("registering metrics " + name + " registered with different type.");
+        }
+        // the unit is reported once per family (the OpenMetrics # UNIT line), so all its series must agree
+        if (!metric.empty() && unit_of(metric.begin()->second->info().id.labels()) != unit_of(rm->info().id.labels())) {
+            throw std::runtime_error("registering metrics " + name + " registered with different unit.");
         }
         metric[rm->info().id.internalized_labels()] = rm;
         for (auto&& i : rm->info().id.labels()) {
@@ -675,21 +685,28 @@ relabel_config::relabel_action relabel_config_action(const std::string& action) 
 }
 
 histogram& histogram::operator+=(const histogram& c) {
-    if (c.sample_count == 0) {
-        return *this;
-    }
-    for (size_t i = 0; i < c.buckets.size(); i++) {
-        if (buckets.size() <= i) {
-            buckets.push_back(c.buckets[i]);
-        } else {
-            if (buckets[i].upper_bound != c.buckets[i].upper_bound) {
-                throw std::out_of_range("Trying to add histogram with different bucket limits");
+    if (c.sample_count != 0) {
+        for (size_t i = 0; i < c.buckets.size(); i++) {
+            if (buckets.size() <= i) {
+                buckets.push_back(c.buckets[i]);
+            } else {
+                if (buckets[i].upper_bound != c.buckets[i].upper_bound) {
+                    throw std::out_of_range("Trying to add histogram with different bucket limits");
+                }
+                buckets[i].count += c.buckets[i].count;
             }
-            buckets[i].count += c.buckets[i].count;
         }
+        sample_count += c.sample_count;
+        sample_sum += c.sample_sum;
     }
-    sample_count += c.sample_count;
-    sample_sum += c.sample_sum;
+    // the exemplars are added after the buckets, so a failed addition does not add them
+    if (&c == this) {
+        // inserting a vector's range into itself is undefined behavior
+        auto copy = exemplars;
+        exemplars.insert(exemplars.end(), copy.begin(), copy.end());
+    } else {
+        exemplars.insert(exemplars.end(), c.exemplars.begin(), c.exemplars.end());
+    }
     return *this;
 }
 

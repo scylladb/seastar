@@ -21,9 +21,12 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstdint>
+#include <map>
 #include <vector>
 #include <optional>
+#include <seastar/core/sstring.hh>
 
 namespace seastar {
 namespace metrics {
@@ -39,6 +42,21 @@ struct histogram_bucket {
     uint64_t count = 0; // number of events.
     double upper_bound = 0;      // Inclusive.
 };
+/*!
+ * \brief An exemplar of a histogram
+ *
+ * An exemplar is one observed value with labels that identify it,
+ * typically a trace id that links the metric to the trace of that value.
+ * Exemplars are only reported for histograms, in the OpenMetrics 2.0 text format.
+ * The exemplars of a summary are not reported.
+ */
+struct exemplar {
+    std::map<sstring, sstring> labels;
+    double value = 0;
+    // When the value was observed. OpenMetrics requires a timestamp, so it must be set.
+    std::chrono::system_clock::time_point timestamp;
+};
+
 /*!
  * \brief native histogram specific information
  *
@@ -95,6 +113,12 @@ struct histogram {
 
     // Native histograms are an experimental Prometheus feature.
     std::optional<native_histogram_info> native_histogram;
+
+    // Exemplars of the histogram, not reported for a summary. Adding histograms
+    // concatenates them, they are reported in timestamp order. The metric callback is expected to
+    // fill them again for every report: a histogram that is kept and added to
+    // repeatedly accumulates every exemplar ever added.
+    std::vector<exemplar> exemplars;
 };
 
 

@@ -221,6 +221,7 @@ class TestPrometheus(unittest.TestCase):
     exporter_config = None
     port = 10001
     prometheus = None
+    prometheus_openmetrics = None
     prometheus_scrape_interval = 15
 
     @classmethod
@@ -240,12 +241,17 @@ class TestPrometheus(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.exporter_process.terminate()
 
+    OPENMETRICS_2_0 = 'application/openmetrics-text; version=2.0.0'
+
     @classmethod
-    def _get_metrics(cls,
-                     name: Optional[str] = None,
-                     labels: Optional[dict[str, str]] = None,
-                     with_help: bool = True,
-                     aggregate: bool = True) -> Metrics:
+    def _get_metrics_response(cls,
+                              name: Optional[str] = None,
+                              labels: Optional[dict[str, str]] = None,
+                              with_help: bool = True,
+                              aggregate: bool = True,
+                              accept: Optional[str] = None) -> tuple[str, str]:
+        '''return the content type and the body of a /metrics request
+        '''
         query: dict[str, str] = {}
         if name is not None:
             query['__name__'] = name
@@ -258,9 +264,20 @@ class TestPrometheus(unittest.TestCase):
         params = urllib.parse.urlencode(query)
         host = 'localhost'
         url = f'http://{host}:{cls.port}/metrics?{params}'
-        with urllib.request.urlopen(url) as f:
+        headers = {'Accept': accept} if accept else {}
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req) as f:
             body = f.read().decode('utf-8')
-            return Metrics(body.rstrip().split('\n'))
+            return f.headers['Content-Type'], body
+
+    @classmethod
+    def _get_metrics(cls,
+                     name: Optional[str] = None,
+                     labels: Optional[dict[str, str]] = None,
+                     with_help: bool = True,
+                     aggregate: bool = True) -> Metrics:
+        _, body = cls._get_metrics_response(name, labels, with_help, aggregate)
+        return Metrics(body.rstrip().split('\n'))
 
     def test_filtering_by_label_sans_aggregation(self) -> None:
         labels = {'private': '1'}
@@ -326,6 +343,59 @@ class TestPrometheus(unittest.TestCase):
                 else:
                     self.assertIsNone(msg)
 
+    def test_openmetrics_2_0(self) -> None:
+        content_type, body = self._get_metrics_response(accept=self.OPENMETRICS_2_0)
+        self.assertEqual(content_type, 'application/openmetrics-text; version=2.0.0; charset=utf-8')
+        lines = body.rstrip().split('\n')
+        self.assertEqual(lines[-1], '# EOF')
+        # the metadata lines name the metric family exactly like the samples
+        types = {line.split()[2]: line.split()[3] for line in lines if line.startswith('# TYPE ')}
+        with open(self.exporter_config, encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        for metric in config['metrics']:
+            metric_name = f'{Metrics.prefix}_{Metrics.group}_{metric["name"]}'
+            self.assertEqual(types.get(metric_name), metric['type'])
+            samples = [line for line in lines if line.startswith(metric_name + '{')]
+            self.assertTrue(samples, f'no samples for {metric_name}')
+            if metric['type'] == 'histogram':
+                # a native histogram is a single composite value
+                self.assertEqual(len(samples), 1)
+                value = samples[0].split(' ', 1)[1].split(' # ')[0]
+                self.assertRegex(value, r'^\{count:\d+,sum:[^,]+,schema:-?\d+,zero_threshold:0,zero_count:0(,positive_spans:\[[-\d:,]+\],positive_buckets:\[[\d,]+\])?\}$')
+                count = int(re.match(r'\{count:(\d+)', value).group(1))
+                self.assertEqual(count, len(metric['values']))
+                # the positive values are counted in the buckets
+                buckets = re.search(r'positive_buckets:\[([\d,]+)\]', value)
+                positive = sum(1 for v in metric['values'] if v > 0)
+                self.assertEqual(sum(int(c) for c in buckets.group(1).split(',')) if buckets else 0, positive)
+
+    def test_openmetrics_2_0_exemplars(self) -> None:
+        _, body = self._get_metrics_response(accept=self.OPENMETRICS_2_0)
+        with open(self.exporter_config, encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        exemplar = re.compile(r' # \{trace_id="(?P<trace_id>[^"]*)"\} (?P<value>\S+) (?P<timestamp>\S+)')
+        metrics = [metric for metric in config['metrics'] if 'exemplars' in metric]
+        self.assertTrue(metrics, 'no metric with exemplars in the config')
+        for metric in metrics:
+            metric_name = f'{Metrics.prefix}_{Metrics.group}_{metric["name"]}'
+            samples = [line for line in body.split('\n') if line.startswith(metric_name + '{')]
+            self.assertEqual(len(samples), 1)
+            found = [(m['trace_id'], float(m['value']), float(m['timestamp']))
+                     for m in exemplar.finditer(samples[0])]
+            # the exemplars follow the value in time order
+            expected = sorted(((e['labels']['trace_id'], e['value'], e['timestamp'])
+                               for e in metric['exemplars']), key=lambda e: e[2])
+            self.assertEqual(found, expected)
+
+    def test_exemplars_not_in_0_0_4(self) -> None:
+        _, body = self._get_metrics_response()
+        self.assertNotIn('trace_id', body)
+
+    def test_openmetrics_2_0_not_requested(self) -> None:
+        content_type, body = self._get_metrics_response(accept='text/plain; version=0.0.4')
+        self.assertEqual(content_type, 'text/plain')
+        self.assertNotEqual(body.rstrip().split('\n')[-1], '# EOF')
+
     @staticmethod
     def _from_native_histogram(values) -> dict[float, float]:
         results = {}
@@ -346,10 +416,21 @@ class TestPrometheus(unittest.TestCase):
                 return TestPrometheus._from_native_histogram(buckets)
             return float(results["value"][1])
 
-    def test_protobuf(self) -> None:
-        if self.prometheus is None:
-            self.skipTest("prometheus is not configured")
+    @staticmethod
+    def _query_prometheus_exemplars(host: str, query: str) -> list[tuple[str, float, float]]:
+        '''return the (trace_id, value, timestamp) of the exemplars stored for the query
+        '''
+        params = urllib.parse.urlencode({'query': query, 'start': 0, 'end': time.time()})
+        url = f'http://{host}/api/v1/query_exemplars?{params}'
+        with urllib.request.urlopen(url) as f:
+            series = json.load(f)["data"]
+            return sorted((e['labels']['trace_id'], float(e['value']), float(e['timestamp']))
+                          for s in series for e in s['exemplars'])
 
+    def _check_prometheus_values(self, host: str) -> list[tuple[str, dict]]:
+        '''check the values Prometheus scraped from the exporter, and return the
+        checked metrics with their full names
+        '''
         # Prometheus does not allow us to push metrics to it, neither
         # can we force it to scrape an exporter, so we have to wait
         # until prometheus scrapes the server
@@ -358,6 +439,7 @@ class TestPrometheus(unittest.TestCase):
             config = yaml.safe_load(f)
 
         labels = {'private': '1'}
+        checked = []
         for metric in config['metrics']:
             name = metric['name']
             metric_name = f'{Metrics.prefix}_{Metrics.group}_{name}'
@@ -370,10 +452,35 @@ class TestPrometheus(unittest.TestCase):
                                      metric_type,
                                      metric_value,
                                      metric_labels)
-            res = self._query_prometheus(self.prometheus,
+            res = self._query_prometheus(host,
                                          metric_name,
                                          metric_type)
             self.assertEqual(res, e.value)
+            checked.append((metric_name, metric))
+        return checked
+
+    def test_protobuf(self) -> None:
+        if self.prometheus is None:
+            self.skipTest("prometheus is not configured")
+        self._check_prometheus_values(self.prometheus)
+
+    def test_openmetrics_2_0_prometheus(self) -> None:
+        '''check what a Prometheus scraping the exporter in OpenMetrics 2.0 stored
+
+        The Prometheus given by --prometheus-openmetrics must run with
+        --enable-feature=openmetrics2,exemplar-storage, and scrape the exporter with
+        scrape_protocols: [OpenMetricsText2.0.0]
+        '''
+        if self.prometheus_openmetrics is None:
+            self.skipTest("prometheus with OpenMetrics 2.0 is not configured")
+        checked = self._check_prometheus_values(self.prometheus_openmetrics)
+        with_exemplars = [(name, metric) for name, metric in checked if 'exemplars' in metric]
+        self.assertTrue(with_exemplars, 'no metric with exemplars in the config')
+        for metric_name, metric in with_exemplars:
+            expected = sorted((e['labels']['trace_id'], e['value'], e['timestamp'])
+                              for e in metric['exemplars'])
+            self.assertEqual(self._query_prometheus_exemplars(self.prometheus_openmetrics, metric_name),
+                             expected)
 
 
 if __name__ == '__main__':
@@ -386,6 +493,8 @@ if __name__ == '__main__':
                         help='Path to the metrics definition file')
     parser.add_argument('--prometheus',
                         help='A Prometheus to connect to')
+    parser.add_argument('--prometheus-openmetrics',
+                        help='A Prometheus to connect to, that scrapes the exporter in OpenMetrics 2.0')
     parser.add_argument('--prometheus-scrape-interval',
                         type=int,
                         help='Prometheus scrape interval (in seconds)',
@@ -395,5 +504,6 @@ if __name__ == '__main__':
     TestPrometheus.exporter_path = opts.exporter
     TestPrometheus.exporter_config = opts.config
     TestPrometheus.prometheus = opts.prometheus
+    TestPrometheus.prometheus_openmetrics = opts.prometheus_openmetrics
     TestPrometheus.prometheus_scrape_interval = opts.prometheus_scrape_interval
     unittest.main(argv=remaining)
