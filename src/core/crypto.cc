@@ -32,7 +32,6 @@ crypto_provider& provider() {
 
 void set_provider(std::unique_ptr<crypto_provider> p) {
     the_provider = std::move(p);
-    provider().get_tls_backend().init_error_codes();
 }
 
 md5_hasher make_md5_hasher() {
