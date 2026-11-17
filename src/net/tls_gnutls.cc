@@ -661,6 +661,13 @@ public:
         // acquire both semaphores to sync both read & write
         return with_semaphore(_in_sem, 1, [this, func] {
             return with_semaphore(_out_sem, 1, [this, func] {
+                // check error again after waiting on the semaphore
+                // to avoid a 2nd handshake attempt when there are multiple
+                // callers of handshake (the libraries reject this with a
+                // different error)
+                if (_error) {
+                    return make_exception_future<>(_error);
+                }
                 return std::invoke(func, this).handle_exception([this](auto ep) {
                     if (!_error) {
                         _error = ep;
