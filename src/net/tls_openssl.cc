@@ -38,10 +38,12 @@
 #include <openssl/x509v3.h>
 
 #include <cassert>
+#include <concepts>
 #include <functional>
 #include <ranges>
 #include <span>
 #include <system_error>
+#include <type_traits>
 #include <unordered_set>
 #include <utility>
 
@@ -2078,7 +2080,8 @@ private:
         return ssl_ctx;
     }
 
-    static std::optional<sstring> get_dn_string(X509_NAME* name) {
+    static std::optional<sstring> get_dn_string(auto* name)
+    requires std::same_as<std::remove_const_t<std::remove_pointer_t<decltype(name)>>, X509_NAME> {
         auto out = bio_ptr(BIO_new(BIO_s_mem()));
         unsigned long flags = ASN1_STRFLGS_RFC2253 | XN_FLAG_SEP_COMMA_PLUS | XN_FLAG_FN_SN | XN_FLAG_DUMP_UNKNOWN_FIELDS;
         if (-1 == X509_NAME_print_ex(out.get(), name, 0, flags)) {
