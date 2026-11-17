@@ -38,6 +38,7 @@
 #include <seastar/core/sleep.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/core/with_scheduling_group.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/posix-stack.hh>
 #include <stdexcept>
@@ -626,4 +627,97 @@ SEASTAR_THREAD_TEST_CASE(inet_local_remote_address_sanity) {
 
     ss.wait_input_shutdown().get();
     BOOST_CHECK(ss.remote_address().is_unspecified());
+}
+
+// The bytes a socket receives are charged to the scheduling group of the
+// read, also when the receive completes outside of the task that issued it,
+// as it does on io_uring when the read has to wait for data.
+SEASTAR_THREAD_TEST_CASE(socket_bytes_received_scheduling_group_test) {
+    auto sg = create_scheduling_group("recv_test", 100).get();
+    auto destroy_sg = defer([sg] () noexcept { destroy_scheduling_group(sg).get(); });
+    auto sg_id = internal::scheduling_group_index(sg);
+
+    server_socket ss = seastar::listen(ipv4_addr("127.0.0.1", 0), listen_options{ .reuse_address = true });
+    auto accept_f = ss.accept();
+    connected_socket client = connect(ss.local_address()).get();
+    connected_socket server = accept_f.get().connection;
+    auto in = client.input();
+    auto out = server.output();
+
+    auto sg_before = engine().net().stats(sg_id).bytes_received;
+    auto read_f = with_scheduling_group(sg, [&in] {
+        return in.read();
+    });
+    // Let the read find no data and wait for it.
+    seastar::sleep(std::chrono::milliseconds(10)).get();
+    out.write("hello").get();
+    out.flush().get();
+    auto buf = read_f.get();
+    BOOST_REQUIRE_EQUAL(std::string_view(buf.get(), buf.size()), "hello");
+    BOOST_REQUIRE_EQUAL(engine().net().stats(sg_id).bytes_received - sg_before, 5u);
+
+    out.close().get();
+    in.close().get();
+}
+
+// read() and read_up_to(n) of a socket split the received buffer where the
+// receive completes. Each read below but the last waits for data before it is
+// sent, and each send arrives in one piece.
+SEASTAR_THREAD_TEST_CASE(socket_read_up_to_test) {
+    server_socket ss = seastar::listen(ipv4_addr("127.0.0.1", 0), listen_options{ .reuse_address = true });
+    auto accept_f = ss.accept();
+    connected_socket client = connect(ss.local_address()).get();
+    connected_socket server = accept_f.get().connection;
+    auto in = client.input();
+    auto out = server.output();
+
+    using read_fn = std::function<future<temporary_buffer<char>> ()>;
+    auto read_waiting = [&] (read_fn read, std::string_view data) {
+        auto read_f = read();
+        seastar::sleep(std::chrono::milliseconds(10)).get();
+        BOOST_REQUIRE(!read_f.available());
+        out.write(data.data(), data.size()).get();
+        out.flush().get();
+        auto buf = read_f.get();
+        return std::string(buf.get(), buf.size());
+    };
+    auto read_up_to = [&] (size_t n) {
+        return [&in, n] { return in.read_up_to(n); };
+    };
+    auto read_now = [&in] (size_t n) {
+        auto f = in.read_up_to(n);
+        BOOST_REQUIRE(f.available());
+        auto buf = f.get();
+        return std::string(buf.get(), buf.size());
+    };
+
+    // n below the size received: the rest stays buffered.
+    BOOST_REQUIRE_EQUAL(read_waiting(read_up_to(3), "abcdef"), "abc");
+    BOOST_REQUIRE_EQUAL(read_now(2), "de");
+    BOOST_REQUIRE_EQUAL(read_now(10), "f");
+    // n equal to and above the size received.
+    BOOST_REQUIRE_EQUAL(read_waiting(read_up_to(6), "ghijkl"), "ghijkl");
+    BOOST_REQUIRE_EQUAL(read_waiting(read_up_to(100), "mnop"), "mnop");
+    // n = 0 returns nothing, and keeps all that was received.
+    BOOST_REQUIRE_EQUAL(read_waiting(read_up_to(0), "qrst"), "");
+    BOOST_REQUIRE_EQUAL(read_now(10), "qrst");
+    BOOST_REQUIRE_EQUAL(read_waiting([&in] { return in.read(); }, "uvw"), "uvw");
+    // Data that has arrived before the read, which the backend can receive
+    // at once, without waiting.
+    out.write("xyz12").get();
+    out.flush().get();
+    seastar::sleep(std::chrono::milliseconds(10)).get();
+    {
+        auto buf = in.read_up_to(3).get();
+        BOOST_REQUIRE_EQUAL(std::string_view(buf.get(), buf.size()), "xyz");
+    }
+    BOOST_REQUIRE_EQUAL(read_now(10), "12");
+
+    // End of stream.
+    out.close().get();
+    BOOST_REQUIRE(in.read_up_to(5).get().empty());
+    BOOST_REQUIRE(in.eof());
+    BOOST_REQUIRE(in.read_up_to(5).get().empty());
+    BOOST_REQUIRE(in.read().get().empty());
+    in.close().get();
 }

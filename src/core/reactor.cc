@@ -406,6 +406,7 @@ reactor::do_recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
             fd.speculate_epoll(EPOLLIN);
         }
         buffer.trim(*r);
+        ba->received(buffer);
         return make_ready_future<temporary_buffer<char>>(std::move(buffer));
     });
 }
