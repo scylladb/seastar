@@ -101,6 +101,13 @@ future<> test_prometheus_metrics_body(test_case tc) {
             ctx.label = global_label;
         }
         add_prometheus_routes(server, ctx).get();
+        // This overload also sends the label names to all shards. Only shard 0
+        // registers "somekey", on a family with one series.
+        if (this_smp_shard_count() > 1) {
+            BOOST_REQUIRE(smp::submit_to(1, [] {
+                return metrics::impl::get_local_impl()->get_labels().contains("somekey");
+            }).get());
+        }
 
         future<> client = seastar::async([&lcf, tc] {
             auto resp_str = get_metrics_body(lcf, "/metrics");
