@@ -55,6 +55,7 @@
 
 #include <link.h>
 #include <dlfcn.h>
+#include <mutex>
 #include <vector>
 #include <cstddef>
 
@@ -102,9 +103,16 @@ static dl_iterate_fn dl_iterate_phdr_org() {
 // life, and that time is not a mirror image of when it is first used.
 // Given that, we avoid a static constructor/destructor pair and just
 // never destroy it.
+// Several seastar instances in the process may fill and read it
+// concurrently, so it is protected by phdrs_cache_mutex. Readers copy
+// the pointer into local_phdrs_cache so the mutex is only taken on a
+// thread's first use.
 static std::vector<dl_phdr_info> *phdrs_cache = nullptr;
+static std::mutex phdrs_cache_mutex;
+static thread_local std::vector<dl_phdr_info> *local_phdrs_cache = nullptr;
 
 void init_phdr_cache() {
+    std::lock_guard lock(phdrs_cache_mutex);
     // this process started reactor before, no need to fill the cache
     if (phdrs_cache) {
         return;
@@ -116,6 +124,14 @@ void init_phdr_cache() {
         phdrs_cache->push_back(*info);
         return 0;
     }, nullptr);
+}
+
+static std::vector<dl_phdr_info>* get_phdr_cache() {
+    if (!local_phdrs_cache) [[unlikely]] {
+        std::lock_guard lock(phdrs_cache_mutex);
+        local_phdrs_cache = phdrs_cache;
+    }
+    return local_phdrs_cache;
 }
 
 void internal::increase_thrown_exceptions_counter() noexcept {
@@ -144,12 +160,13 @@ extern "C"
 [[gnu::used]]
 [[gnu::no_sanitize_address]]
 int dl_iterate_phdr(int (*callback) (struct dl_phdr_info *info, size_t size, void *data), void *data) {
-    if (!seastar::phdrs_cache || !seastar::local_engine) {
+    auto phdrs_cache = seastar::local_engine ? seastar::get_phdr_cache() : nullptr;
+    if (!phdrs_cache) {
         // Cache is not yet populated, pass through to original function
         return seastar::dl_iterate_phdr_org()(callback, data);
     }
     int r = 0;
-    for (auto h : *seastar::phdrs_cache) {
+    for (auto h : *phdrs_cache) {
         // Pass dl_phdr_info size that does not include dlpi_adds and dlpi_subs.
         // This forces libgcc to disable caching which is not thread safe and
         // requires dl_iterate_phdr to serialize calls to callback. Since we do
