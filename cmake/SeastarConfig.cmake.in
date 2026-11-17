@@ -28,7 +28,10 @@ else ()
   set (current_cxx_standard ${CMAKE_CXX_STANDARD_DEFAULT})
 endif ()
 
-if (NOT (current_cxx_standard STREQUAL @CMAKE_CXX_STANDARD@))
+# Seastar::seastar requires cxx_std_@CMAKE_CXX_STANDARD@, which raises an older
+# standard to Seastar's, so only a newer one compiles the project with a
+# different standard than Seastar.
+if (current_cxx_standard GREATER @CMAKE_CXX_STANDARD@)
   message(WARNING
     "C++ Standard mismatch detected:
 - Seastar was compiled with: C++@CMAKE_CXX_STANDARD@
