@@ -4216,6 +4216,7 @@ void smp::cleanup() noexcept {
     smp::_threads = std::vector<posix_thread>();
     _thread_loops.clear();
     _shard_to_numa_node_mapping = decltype(_shard_to_numa_node_mapping)();
+    _shard_to_last_level_cache_mapping = decltype(_shard_to_last_level_cache_mapping)();
     reactor_holder.reset();
     local_engine = nullptr;
 }
@@ -4621,6 +4622,9 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     for (unsigned i = 0; i < _shard_count; i++) {
         _shard_to_numa_node_mapping.push_back(allocations[i].mem.size() > 0 ? allocations[i].mem[0].nodeid : 0);
     }
+    _shard_to_last_level_cache_mapping = allocations
+            | std::views::transform(&resource::cpu::last_level_cache_id)
+            | std::ranges::to<std::vector>();
 
     if (reactor_opts.abort_on_seastar_bad_alloc) {
         memory::set_abort_on_allocation_failure(true);
@@ -5275,6 +5279,10 @@ reactor::destroy_scheduling_group(scheduling_group sg) noexcept {
 
 std::span<const unsigned> smp::shard_to_numa_node_mapping() const noexcept {
     return _shard_to_numa_node_mapping;
+}
+
+std::span<const unsigned> smp::shard_to_last_level_cache_mapping() const noexcept {
+    return _shard_to_last_level_cache_mapping;
 }
 
 const smp& reactor::smp() const noexcept {
