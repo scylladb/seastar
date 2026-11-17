@@ -67,11 +67,21 @@ struct aio_general_context {
     ~aio_general_context();
     internal::linux_abi::aio_context_t io_context{};
     std::unique_ptr<internal::linux_abi::iocb*[]> iocbs;
+    internal::linux_abi::iocb** begin;
     internal::linux_abi::iocb** last;
     internal::linux_abi::iocb** const end;
+    // in case `iocbs` is full queue here, use std::deque to avoid oversized
+    // allocations
+    std::deque<internal::linux_abi::iocb*> iocbs_backlog;
     void queue(internal::linux_abi::iocb* iocb);
-    // submit all queued iocbs and return their count.
+    // Drop a queued but not yet submitted iocb. No-op if it is not queued.
+    void remove(internal::linux_abi::iocb* iocb);
+    // Submit queued iocbs until the queue is drained or io_submit() reports
+    // EAGAIN. Returns the number submitted; unsubmitted iocbs remain queued.
     size_t flush();
+    bool has_pending() const {
+        return begin != last || !iocbs_backlog.empty();
+    }
 };
 
 class aio_storage_context {

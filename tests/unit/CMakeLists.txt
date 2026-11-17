@@ -291,6 +291,11 @@ add_custom_target (test_unit
 seastar_add_test (abort_source
   SOURCES abort_source_test.cc)
 
+seastar_add_test (aio_poll_ring
+  SOURCES aio_poll_ring_test.cc
+  # A tiny iocb budget so that idle connections fill the aio completion ring quickly.
+  RUN_ARGS --reactor-backend linux-aio --max-networking-io-control-blocks 50)
+
 seastar_add_test (alloc
   SOURCES alloc_test.cc)
 
