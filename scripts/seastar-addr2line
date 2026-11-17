@@ -19,6 +19,7 @@
 # Copyright (C) 2017 ScyllaDB
 
 import argparse
+import os
 from typing import Any, Optional, Sequence, TextIO
 import unittest
 import sys
@@ -466,6 +467,19 @@ There are three operational modes:
     )
 
     cmdline_parser.add_argument(
+        '--module-root',
+        type=str,
+        metavar='DIR',
+        default=None,
+        help='Only resolve addresses in modules named in the backtrace that are'
+        ' located under DIR (after resolving symlinks); any other such module is'
+        ' treated as missing and its addresses are printed unresolved. EXECUTABLE'
+        ' is given by the operator and is not subject to this restriction. Use it'
+        ' when the backtraces come from an untrusted source, so that no file'
+        ' outside DIR named in them is ever opened.',
+    )
+
+    cmdline_parser.add_argument(
         '-v',
         '--verbose',
         action='store_true',
@@ -500,6 +514,9 @@ There are three operational modes:
 
     args = cmdline_parser.parse_args()
 
+    if args.module_root is not None and not os.path.isdir(args.module_root):
+        cmdline_parser.error(f"--module-root: '{args.module_root}' is not a directory")
+
     if args.addresses and args.file:
         print("Cannot use both -f and ADDRESS")
         cmdline_parser.print_help()
@@ -524,6 +541,7 @@ There are three operational modes:
         debug=args.debug,
         timing=args.timing,
         use_debuginfod=args.use_debuginfod,
+        module_root=args.module_root,
     ) as resolve:
         resolve_start = resolve.timing_now()
         for line in lines:
