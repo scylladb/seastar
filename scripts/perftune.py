@@ -107,13 +107,25 @@ def set_one_mask(conf_file, mask, log_errors=True):
     msg = "Setting mask {} in {}".format(mask, conf_file)
     fwriteln(conf_file, mask, log_message=msg, log_errors=log_errors)
 
-def distribute_irqs(irqs, cpu_mask, log_errors=True):
+def distribute_irqs(irqs, cpu_mask, log_errors=True, round_robin=False):
+    """
+    Bind the given IRQs to the CPUs of a given mask.
+
+    By default hwloc-distrib splits the IRQs into contiguous groups, one group per CPU.
+    With round_robin=True consecutive IRQs go to different CPUs: IRQ i is bound to CPU (i % number of CPUs).
+    """
     # If IRQs' list is empty - do nothing
     if not irqs:
         return
 
-    for i, mask in enumerate(run_hwloc_distrib(["{}".format(len(irqs)), '--single', '--restrict', cpu_mask])):
-        set_one_mask("/proc/irq/{}/smp_affinity".format(irqs[i]), mask, log_errors=log_errors)
+    num_masks = len(irqs)
+    if round_robin:
+        num_cpus = int(run_hwloc_calc(['--restrict', cpu_mask, '--number-of', 'PU', 'machine:0']))
+        num_masks = min(num_masks, num_cpus)
+
+    masks = run_hwloc_distrib(["{}".format(num_masks), '--single', '--restrict', cpu_mask])
+    for i, irq in enumerate(irqs):
+        set_one_mask("/proc/irq/{}/smp_affinity".format(irq), masks[i % len(masks)], log_errors=log_errors)
 
 def is_process_running(name):
     return len(list(filter(lambda ps_line : not re.search('<defunct>', ps_line), run_read_only_command(['ps', '--no-headers', '-C', name], check=False).splitlines()))) > 0
@@ -1406,7 +1418,9 @@ class NetPerfTuner(PerfTunerBase):
             perftune_print(f"Distributing IRQs handling Rx and Tx for first {num_rx_queues} channels:")
             distribute_irqs(all_irqs[0:tcp_irqs_lower_bound], self.irqs_cpu_mask)
             perftune_print("Distributing the rest of IRQs")
-            distribute_irqs(all_irqs[tcp_irqs_lower_bound:], self.irqs_cpu_mask)
+            # The rest are usually Tx queue IRQs in queue order: alternate them among IRQ CPUs instead of
+            # giving each IRQ CPU a contiguous range of queues
+            distribute_irqs(all_irqs[tcp_irqs_lower_bound:], self.irqs_cpu_mask, round_robin=True)
         else:
             perftune_print("Distributing all IRQs")
             distribute_irqs(all_irqs, self.irqs_cpu_mask)
