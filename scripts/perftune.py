@@ -107,13 +107,25 @@ def set_one_mask(conf_file, mask, log_errors=True):
     msg = "Setting mask {} in {}".format(mask, conf_file)
     fwriteln(conf_file, mask, log_message=msg, log_errors=log_errors)
 
-def distribute_irqs(irqs, cpu_mask, log_errors=True):
+def distribute_irqs(irqs, cpu_mask, log_errors=True, round_robin=False):
+    """
+    Bind the given IRQs to the CPUs of a given mask.
+
+    By default hwloc-distrib splits the IRQs into contiguous groups, one group per CPU.
+    With round_robin=True consecutive IRQs go to different CPUs: IRQ i is bound to CPU (i % number of CPUs).
+    """
     # If IRQs' list is empty - do nothing
     if not irqs:
         return
 
-    for i, mask in enumerate(run_hwloc_distrib(["{}".format(len(irqs)), '--single', '--restrict', cpu_mask])):
-        set_one_mask("/proc/irq/{}/smp_affinity".format(irqs[i]), mask, log_errors=log_errors)
+    num_masks = len(irqs)
+    if round_robin:
+        num_cpus = int(run_hwloc_calc(['--restrict', cpu_mask, '--number-of', 'PU', 'machine:0']))
+        num_masks = min(num_masks, num_cpus)
+
+    masks = run_hwloc_distrib(["{}".format(num_masks), '--single', '--restrict', cpu_mask])
+    for i, irq in enumerate(irqs):
+        set_one_mask("/proc/irq/{}/smp_affinity".format(irq), masks[i % len(masks)], log_errors=log_errors)
 
 def is_process_running(name):
     return len(list(filter(lambda ps_line : not re.search('<defunct>', ps_line), run_read_only_command(['ps', '--no-headers', '-C', name], check=False).splitlines()))) > 0
@@ -1119,6 +1131,40 @@ class NetPerfTuner(PerfTunerBase):
 
         return sys.maxsize
 
+    def __gve_irq_to_queue_idx_functor(self, iface):
+        """
+        Return a functor that maps an IRQ to its Rx queue index for Google Virtual NIC (gve) devices.
+
+        gve allocates one notification block (and one IRQ) per queue, plus a management IRQ:
+             gve-ntfy-blk<block idx>@<bla-bla>
+             gve-mgmnt@<bla-bla>
+
+        The driver uses the first half of the blocks for Tx queues and the second half for Rx queues:
+        Rx queue K uses block (num_blocks / 2) + K. The blocks stay allocated when the number of
+        Rx channels is reduced with 'ethtool -L'.
+
+        So we return K for an Rx block, and num_blocks / 2 + K for a Tx block K, in order to put all Rx IRQs
+        first and in queue order. Any other IRQ gets sys.maxsize.
+
+        :param iface: NIC's interface name
+        :return: A functor returning a sort key for a given IRQ
+        """
+        # Count only this NIC's blocks: IRQ names end with "@pci:<the NIC's PCI address>"
+        pci_addr = os.path.basename(os.path.realpath(f"/sys/class/net/{iface}/device"))
+        gve_blk_re = re.compile(r"gve-ntfy-blk(\d+)@pci:{}".format(re.escape(pci_addr)))
+        num_blocks = len([line for line in self.__irqs2procline.values() if gve_blk_re.search(line)])
+        half = num_blocks // 2
+
+        def irq_to_idx(irq):
+            m = gve_blk_re.search(self.__irqs2procline[irq])
+            if not m:
+                return sys.maxsize
+
+            blk = int(m.group(1))
+            return blk - half if blk >= half else blk + half
+
+        return irq_to_idx
+
 
     def __get_driver_name(self, iface):
         """
@@ -1156,6 +1202,7 @@ class NetPerfTuner(PerfTunerBase):
                       mlx5_comp<queue idx>@<bla-bla>
           - VIRTIO: virtioN-[input|output].D
           - MANA: mana_q<queue idx>@<bla-bla>
+          - gve: gve-ntfy-blk<block idx>@<bla-bla>
 
         So, we will try to filter the etries in /proc/interrupts for IRQs we've got from get_all_irqs_one()
         according to the patterns above.
@@ -1170,7 +1217,7 @@ class NetPerfTuner(PerfTunerBase):
         """
         # filter 'all_irqs' to only reference valid keys from 'irqs2procline' and avoid an IndexError on the 'irqs' search below
         all_irqs = set(learn_all_irqs_one("/sys/class/net/{}/device".format(iface), self.__irqs2procline, iface)).intersection(self.__irqs2procline.keys())
-        fp_irqs_re = re.compile(r"-TxRx-|-fp-|-Tx-Rx-|mlx4-\d+@|mlx5_comp\d+@|virtio\d+-(input|output)|mana_q\d+@")
+        fp_irqs_re = re.compile(r"-TxRx-|-fp-|-Tx-Rx-|mlx4-\d+@|mlx5_comp\d+@|virtio\d+-(input|output)|mana_q\d+@|gve-ntfy-blk\d+@")
         irqs = sorted(list(filter(lambda irq : fp_irqs_re.search(self.__irqs2procline[irq]), all_irqs)))
         if irqs:
             irqs.sort(key=self.__get_irq_to_queue_idx_functor(iface))
@@ -1206,6 +1253,8 @@ class NetPerfTuner(PerfTunerBase):
             irq_to_idx_func = self.__virtio_irq_to_queue_idx
         elif driver_name.startswith("mana"):
             irq_to_idx_func = self.__mana_irq_to_queue_idx
+        elif driver_name == "gve":
+            irq_to_idx_func = self.__gve_irq_to_queue_idx_functor(iface)
 
         return irq_to_idx_func
 
@@ -1369,7 +1418,9 @@ class NetPerfTuner(PerfTunerBase):
             perftune_print(f"Distributing IRQs handling Rx and Tx for first {num_rx_queues} channels:")
             distribute_irqs(all_irqs[0:tcp_irqs_lower_bound], self.irqs_cpu_mask)
             perftune_print("Distributing the rest of IRQs")
-            distribute_irqs(all_irqs[tcp_irqs_lower_bound:], self.irqs_cpu_mask)
+            # The rest are usually Tx queue IRQs in queue order: alternate them among IRQ CPUs instead of
+            # giving each IRQ CPU a contiguous range of queues
+            distribute_irqs(all_irqs[tcp_irqs_lower_bound:], self.irqs_cpu_mask, round_robin=True)
         else:
             perftune_print("Distributing all IRQs")
             distribute_irqs(all_irqs, self.irqs_cpu_mask)
