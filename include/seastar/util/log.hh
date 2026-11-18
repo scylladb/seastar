@@ -604,7 +604,7 @@ std::ostream& operator<<(std::ostream&, const std::system_error&);
 }
 #endif
 
-#if SEASTAR_FMT_VERSION < 120201
+#ifdef SEASTAR_PROVIDE_EXCEPTION_PTR_FORMATTER
 
 // Seastar has no business defining a {fmt} formatter for std::exception_ptr,
 // a type it does not own; that is for the standard library or {fmt} to do (see
@@ -612,6 +612,9 @@ std::ostream& operator<<(std::ostream&, const std::system_error&);
 // deprecate it in favour of seastar::formattable(), which wraps the pointer in
 // a Seastar-owned type. The deprecation is on parse() (which {fmt} odr-uses)
 // rather than on the specialization, so that it is diagnosed at the call site.
+//
+// The build defines SEASTAR_PROVIDE_EXCEPTION_PTR_FORMATTER only if {fmt} has
+// no formatter of its own (see cmake/CheckFmtExceptionPtrFormatter.cmake).
 template <>
 struct fmt::formatter<std::exception_ptr> {
     [[deprecated("Use seastar::formattable(eptr) instead of formatting a std::exception_ptr directly")]]
