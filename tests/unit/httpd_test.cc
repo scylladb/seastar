@@ -1534,6 +1534,131 @@ SEASTAR_TEST_CASE(test_client_abort_recv_response) {
     });
 }
 
+/**
+ * Emulates an abort call coming in between we get an error response and returning
+ * the retry verdict. Call should abort.
+ */
+SEASTAR_TEST_CASE(test_client_see_abort_on_retry) {
+    return seastar::async([] {
+        class my_retry_strategy : public http::retry_strategy {
+        public:
+            abort_source& as;
+            my_retry_strategy(abort_source& as_in)
+                : as(as_in)
+            {}
+            future<bool> should_retry(std::exception_ptr error, unsigned attempted_retries) const override {
+                as.request_abort();
+                co_return true;
+            }
+        };
+
+        abort_source as;
+        my_retry_strategy strat(as);
+
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        future<> server = ss.accept().then([] (accept_result ar) {
+            return seastar::async([sk = std::move(ar.connection)] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                output_stream<char> out = sk.output();
+                out.write("HTTTT").get(); // write incomplete response
+                out.flush().get();
+                out.close().get();
+            });
+        }).then([&ss] {
+            return ss.accept().then([] (accept_result ar) {
+                return seastar::async([sk = std::move(ar.connection)] () mutable {
+                    input_stream<char> in = sk.input();
+                    read_simple_http_request(in);
+                    output_stream<char> out = sk.output();
+                    sstring r200("HTTP/1.1 200 OK\r\nHost: localhost\r\n\r\n");
+                    out.write(r200).get(); // now write complete response
+                    out.flush().get();
+                    out.close().get();
+                });
+            });
+        }).handle_exception([](auto&&) {});
+
+        future<> client = seastar::async([&] {
+            auto cln = http::client(std::make_unique<loopback_http_factory>(lcf), 2, http::client::retry_requests::yes);
+            auto req = http::request::make("GET", "test", "/test");
+            bool got_response = false;
+
+            auto def = defer([&]() noexcept {
+                ss.abort_accept();
+                cln.close().get();
+            });
+            BOOST_CHECK_THROW(
+                cln.make_request(std::move(req), [&](const http::reply& rep, input_stream<char>&& in) {
+                    got_response = true;
+                    return make_ready_future<>();
+                }, strat, http::reply::status_type::ok, &as).get(),
+                abort_requested_exception
+            );
+            BOOST_REQUIRE(!got_response);
+        });
+
+        when_all_succeed(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
+/**
+ * Verifies that an abort happening during a network call, aborting it,
+ * should be reported as such
+ */
+SEASTAR_TEST_CASE(test_client_see_abort_on_retry2) {
+    return seastar::async([] {
+        abort_source as;
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        future<> server = ss.accept().then([&as] (accept_result ar) {
+            return seastar::async([sk = std::move(ar.connection), &as] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                output_stream<char> out = sk.output();
+                out.write("HTTTT").get(); // write incomplete response
+                as.request_abort();
+                out.flush().get();
+                out.close().get();
+            });
+        }).then([&ss] {
+            return ss.accept().then([] (accept_result ar) {
+                return seastar::async([sk = std::move(ar.connection)] () mutable {
+                    input_stream<char> in = sk.input();
+                    read_simple_http_request(in);
+                    output_stream<char> out = sk.output();
+                    sstring r200("HTTP/1.1 200 OK\r\nHost: localhost\r\n\r\n");
+                    out.write(r200).get(); // now write complete response
+                    out.flush().get();
+                    out.close().get();
+                });
+            });
+        }).handle_exception([](auto&&) {});
+
+        future<> client = seastar::async([&] {
+            auto cln = http::client(std::make_unique<loopback_http_factory>(lcf), 2, http::client::retry_requests::yes);
+            auto req = http::request::make("GET", "test", "/test");
+            bool got_response = false;
+
+            auto def = defer([&]() noexcept {
+                ss.abort_accept();
+                cln.close().get();
+            });
+            BOOST_CHECK_THROW(
+                cln.make_request(std::move(req), [&] (const http::reply& rep, input_stream<char>&& in) {
+                    got_response = true;
+                    return make_ready_future<>();
+                }, http::reply::status_type::ok, &as).get(),
+                abort_requested_exception
+            );
+            BOOST_REQUIRE(!got_response);
+        });
+
+        when_all_succeed(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_client_retry_request) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);

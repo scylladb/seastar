@@ -242,6 +242,12 @@ client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, 
 }
 
 future<client::connection_ptr> client::get_connection(abort_source* as) {
+    // do eager abort check. we potentially recurse below so this check
+    // covers both cases
+    if (as != nullptr && as->abort_requested()) {
+        return make_exception_future<client::connection_ptr>(as->abort_requested_exception_ptr());
+    }
+
     if (!_pool.empty()) {
         connection_ptr con = _pool.front().shared_from_this();
         _pool.pop_front();
@@ -254,9 +260,6 @@ future<client::connection_ptr> client::get_connection(abort_source* as) {
         _requests_queued++;
         return _wait_con.wait().then([this, as, sub = std::move(sub)] {
             _requests_queued--;
-            if (as != nullptr && as->abort_requested()) {
-                return make_exception_future<client::connection_ptr>(as->abort_requested_exception_ptr());
-            }
             return get_connection(as);
         });
     }
@@ -327,6 +330,10 @@ auto client::with_connection(Fn&& fn, abort_source* as) {
 template <typename Fn>
 requires std::invocable<Fn, connection&>
 auto client::with_new_connection(Fn&& fn, abort_source* as) {
+    // this is only called from retry. do extra eager check
+    if (as != nullptr && as->abort_requested()) {
+        return make_exception_future<>(as->abort_requested_exception_ptr());
+    }
     return make_connection(as).then([this, fn = std::move(fn)] (connection_ptr con) mutable {
         return fn(*con).finally([this, con = std::move(con)] () mutable {
             return put_connection(std::move(con));
@@ -358,11 +365,17 @@ future<> client::maybe_retry_request(std::exception_ptr ex,
                                      const retry_strategy& strategy,
                                      std::optional<reply::status_type> expected,
                                      abort_source* as) {
+    // make eager check here as well, before we hand it of to strategy check.
+    // also functions as recursion check
+    if (as && as->abort_requested()) {
+        return make_exception_future<>(as->abort_requested_exception_ptr());
+    }
     return strategy.should_retry(ex, retry_count).then([this, ex = std::move(ex), retry_count, method, &req, &handle, &strategy, as, expected](bool retry) mutable {
         if (!retry) {
             return make_exception_future<>(std::move(ex));
         }
         ++_http_stats[method].retries;
+        // this will also check as, again
         return with_new_connection([this, &req, &handle, as, expected](connection& con) {
                                        return do_make_request(con, req, handle, as, expected);
                                    },
@@ -387,9 +400,6 @@ future<> client::make_request(const request& req, reply_handler& handle, const r
     return with_connection([this, &req, &handle, as, expected] (connection& con) {
         return do_make_request(con, req, handle, as, expected);
     }, as).handle_exception([this, method, &req, &handle, &strategy, as, expected] (std::exception_ptr ex) {
-        if (as && as->abort_requested()) {
-            return make_exception_future<>(as->abort_requested_exception_ptr());
-        }
         return maybe_retry_request(std::move(ex), 0, method, req, handle, strategy, expected, as);
     }).finally([this, method, start] {
         _http_stats[method].latency += std::chrono::duration<double>(lowres_clock::now() - start);
@@ -425,6 +435,10 @@ static input_stream<char> make_body_stream(connection& con, const request& req, 
 }
 
 future<> client::do_make_request(connection& con, const request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) {
+    // and another eager abort source check. before we start subscribing
+    if (as && as->abort_requested()) {
+        return make_exception_future<>(as->abort_requested_exception_ptr());
+    }
     auto sub = as ? as->subscribe([&con] () noexcept { con.shutdown(); }) : std::nullopt;
     return con.do_make_request(req).then([this, &con, &req, &handle, expected] (connection::reply_ptr reply) mutable {
         auto& rep = *reply;
