@@ -25,6 +25,7 @@
 #include <sys/mman.h>
 #include <algorithm>
 #include <bit>
+#include <cstring>
 #include <random>
 #include <utility>
 #include <vector>
@@ -218,6 +219,116 @@ struct cold_free_bench {
 
 PERF_TEST_F(cold_free_bench, unsized_delete) { return churn([] (void* p) { operator delete(p); }); }
 PERF_TEST_F(cold_free_bench, sized_delete) { return churn([] (void* p) { operator delete(p, object_size); }); }
+
+// posix_memalign() at the alignment malloc() already gives, for sizes just
+// above a size class boundary, and the aligned operator new.
+struct aligned_alloc_bench {
+    std::array<void*, 1000> _pointers{};
+
+    template <typename Alloc, typename Free>
+    size_t alloc_free(Alloc do_alloc, Free do_free) {
+        size_t n = 0;
+        try {
+            for (; n < _pointers.size(); ++n) {
+                _pointers[n] = do_alloc();
+            }
+        } catch (...) {
+            std::for_each_n(_pointers.begin(), n, do_free);
+            throw;
+        }
+        for (auto p : _pointers) {
+            do_free(p);
+        }
+        return _pointers.size();
+    }
+
+    template <size_t Size>
+    size_t posix_memalign_free() {
+        return alloc_free([] {
+            void* p;
+            if (posix_memalign(&p, 16, Size)) {
+                abort();
+            }
+            return p;
+        }, ::free);
+    }
+};
+
+PERF_TEST_F(aligned_alloc_bench, posix_memalign_144) { return posix_memalign_free<144>(); }
+PERF_TEST_F(aligned_alloc_bench, posix_memalign_1032) { return posix_memalign_free<1032>(); }
+PERF_TEST_F(aligned_alloc_bench, aligned_new_144) {
+    constexpr auto al = std::align_val_t(16);
+    return alloc_free([] { return operator new(144, al); }, [] (void* p) { operator delete(p, al); });
+}
+
+// A live set of 16-aligned 144-byte objects, as ScyllaDB's
+// standard_allocation_strategy makes them. Prints the free memory drop per object.
+struct aligned_live_set_bench {
+    static constexpr size_t object_size = 144;
+    static constexpr size_t batch = 10000;
+
+    std::vector<void*> _objs;
+    std::vector<uint32_t> _idx;
+    size_t _pos = 0;
+
+    static void* alloc() {
+        void* p;
+        if (posix_memalign(&p, 16, object_size)) {
+            abort();
+        }
+        std::memset(p, 1, object_size);
+        return p;
+    }
+
+    aligned_live_set_bench()
+            : _objs(std::min(size_t(4) << 20, memory_budget() / 4 / 256))
+            , _idx(std::min(size_t(1) << 22, std::bit_floor(4 * _objs.size()))) {
+        auto before = seastar::memory::stats().free_memory();
+        for (auto& p : _objs) {
+            p = alloc();
+        }
+        auto used = before - seastar::memory::stats().free_memory();
+        // The default allocator reports no usage.
+        if (used) {
+            fmt::print(stderr, "aligned_live_set_bench: {} objects of {} bytes reduce free memory by {:.1f} bytes each\n",
+                    _objs.size(), object_size, double(used) / _objs.size());
+        }
+        std::mt19937 gen(1);
+        std::uniform_int_distribution<uint32_t> dist(0, _objs.size() - 1);
+        for (auto& i : _idx) {
+            i = dist(gen);
+        }
+    }
+    ~aligned_live_set_bench() {
+        for (auto p : _objs) {
+            free(p);
+        }
+    }
+};
+
+// Replaces random objects of the live set.
+PERF_TEST_F(aligned_live_set_bench, churn) {
+    for (size_t n = 0; n < batch; ++n) {
+        auto& p = _objs[_idx[_pos++ & (_idx.size() - 1)]];
+        free(p);
+        p = alloc();
+    }
+    return batch;
+}
+
+// Reads every word of every object, in allocation order.
+PERF_TEST_F(aligned_live_set_bench, scan) {
+    uint64_t sum = 0;
+    for (auto p : _objs) {
+        for (size_t i = 0; i < object_size; i += sizeof(uint64_t)) {
+            uint64_t w;
+            std::memcpy(&w, static_cast<const char*>(p) + i, sizeof(w));
+            sum += w;
+        }
+    }
+    perf_tests::do_not_optimize(sum);
+    return _objs.size();
+}
 
 template <typename DistType>
 static size_t dist_bench() {
