@@ -247,8 +247,8 @@ class chunked_source_impl : public data_source_impl {
         }
     };
     input_stream<char>& _inp;
-    chunk_parser _chunk;
     size_t _builtin_remaining_bytes = 0;
+    chunk_parser _chunk;
 
 public:
     chunked_source_impl(input_stream<char>& inp, std::unordered_map<sstring, sstring>& chunk_extensions, std::unordered_map<sstring, sstring>& trailing_headers, size_t& remaining)
