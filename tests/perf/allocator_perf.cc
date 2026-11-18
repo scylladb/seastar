@@ -23,6 +23,10 @@
 
 #include <seastar/core/memory.hh>
 #include <sys/mman.h>
+#include <algorithm>
+#include <cstring>
+#include <random>
+#include <vector>
 
 struct alloc_bench {
 
@@ -48,6 +52,11 @@ struct alloc_bench {
     struct cpp_operator_funcs {
         static void * alloc(size_t size) { return operator new(size); }
         static void free(void *p){ operator delete(p); }
+    };
+
+    struct cpp_sized_operator_funcs {
+        static void * alloc(size_t size) { return operator new(size); }
+        static void free(void *p){ operator delete(p, small_alloc_size); }
     };
 
     struct cpp_array_funcs {
@@ -88,6 +97,7 @@ PERF_TEST_F(alloc_bench, malloc_free)      { return alloc_test<small_alloc_size,
 PERF_TEST_F(alloc_bench, op_new_only)      { return alloc_test<small_alloc_size, MEASURE_ALLOC, cpp_operator_funcs>(); }
 PERF_TEST_F(alloc_bench, op_delete_only)   { return alloc_test<small_alloc_size, MEASURE_FREE, cpp_operator_funcs>(); }
 PERF_TEST_F(alloc_bench, op_new_delete)    { return alloc_test<small_alloc_size, MEASURE_BOTH, cpp_operator_funcs>(); }
+PERF_TEST_F(alloc_bench, op_sized_delete_only) { return alloc_test<small_alloc_size, MEASURE_FREE, cpp_sized_operator_funcs>(); }
 
 PERF_TEST_F(alloc_bench, new_array_only)   { return alloc_test<small_alloc_size, MEASURE_ALLOC, cpp_array_funcs>(); }
 PERF_TEST_F(alloc_bench, delete_array_only){ return alloc_test<small_alloc_size, MEASURE_FREE, cpp_array_funcs>(); }
@@ -151,6 +161,154 @@ PERF_TEST_F(alloc_bench, single_alloc_and_free_small_many_cross_page_alloc_more)
     for (std::size_t i = 0; i < allocs; ++i) {
         free(_pointers[i]);
     }
+}
+
+// Replaces random objects of a large live set, so that a free's page lookup
+// is likely to miss the cache.
+struct cold_free_bench {
+    static constexpr size_t object_size = 1024;
+    static constexpr size_t batch = 10000;
+
+    std::vector<void*> _objs;
+    std::vector<uint32_t> _idx;
+    size_t _pos = 0;
+
+    // 3 GiB of objects has 24 MiB of page metadata; capped so a small -m still runs.
+    static size_t live_bytes() {
+        return std::min(size_t(3) << 30, seastar::memory::stats().total_memory() / 2);
+    }
+
+    cold_free_bench() : _objs(live_bytes() / object_size), _idx(1 << 22) {
+        for (auto& p : _objs) {
+            p = operator new(object_size);
+        }
+        std::mt19937 gen(1);
+        std::uniform_int_distribution<uint32_t> dist(0, _objs.size() - 1);
+        for (auto& i : _idx) {
+            i = dist(gen);
+        }
+    }
+    ~cold_free_bench() {
+        for (auto p : _objs) {
+            operator delete(p);
+        }
+    }
+
+    template <typename Free>
+    size_t churn(Free do_free) {
+        for (size_t n = 0; n < batch; ++n) {
+            auto& p = _objs[_idx[_pos++ & (_idx.size() - 1)]];
+            do_free(p);
+            p = operator new(object_size);
+        }
+        return batch;
+    }
+};
+
+PERF_TEST_F(cold_free_bench, unsized_delete) { return churn([] (void* p) { operator delete(p); }); }
+PERF_TEST_F(cold_free_bench, sized_delete) { return churn([] (void* p) { operator delete(p, object_size); }); }
+
+// posix_memalign() at the alignment malloc() already gives, for sizes just
+// above a size class boundary, and the aligned operator new.
+struct aligned_alloc_bench {
+    std::array<void*, 1000> _pointers{};
+
+    template <typename Alloc, typename Free>
+    size_t alloc_free(Alloc do_alloc, Free do_free) {
+        for (auto& p : _pointers) {
+            p = do_alloc();
+        }
+        for (auto p : _pointers) {
+            do_free(p);
+        }
+        return _pointers.size();
+    }
+
+    template <size_t Size>
+    size_t posix_memalign_free() {
+        return alloc_free([] {
+            void* p;
+            if (posix_memalign(&p, 16, Size)) {
+                abort();
+            }
+            return p;
+        }, ::free);
+    }
+};
+
+PERF_TEST_F(aligned_alloc_bench, posix_memalign_144) { return posix_memalign_free<144>(); }
+PERF_TEST_F(aligned_alloc_bench, posix_memalign_1032) { return posix_memalign_free<1032>(); }
+PERF_TEST_F(aligned_alloc_bench, aligned_new_144) {
+    constexpr auto al = std::align_val_t(16);
+    return alloc_free([] { return operator new(144, al); }, [] (void* p) { operator delete(p, al); });
+}
+
+// A live set of 16-aligned 144-byte objects, as ScyllaDB's
+// standard_allocation_strategy makes them. Prints the memory each object takes.
+struct aligned_live_set_bench {
+    static constexpr size_t object_size = 144;
+    static constexpr size_t batch = 10000;
+
+    std::vector<void*> _objs;
+    std::vector<uint32_t> _idx;
+    size_t _pos = 0;
+
+    static void* alloc() {
+        void* p;
+        if (posix_memalign(&p, 16, object_size)) {
+            abort();
+        }
+        std::memset(p, 1, object_size);
+        return p;
+    }
+
+    aligned_live_set_bench()
+            : _objs(std::min(size_t(4) << 20, seastar::memory::stats().total_memory() / 4 / 256))
+            , _idx(1 << 22) {
+        auto before = seastar::memory::stats().free_memory();
+        for (auto& p : _objs) {
+            p = alloc();
+        }
+        auto used = before - seastar::memory::stats().free_memory();
+        // The default allocator reports no usage.
+        if (used) {
+            fmt::print(stderr, "aligned_live_set_bench: {} objects of {} bytes take {:.1f} bytes each\n",
+                    _objs.size(), object_size, double(used) / _objs.size());
+        }
+        std::mt19937 gen(1);
+        std::uniform_int_distribution<uint32_t> dist(0, _objs.size() - 1);
+        for (auto& i : _idx) {
+            i = dist(gen);
+        }
+    }
+    ~aligned_live_set_bench() {
+        for (auto p : _objs) {
+            free(p);
+        }
+    }
+};
+
+// Replaces random objects of the live set.
+PERF_TEST_F(aligned_live_set_bench, churn) {
+    for (size_t n = 0; n < batch; ++n) {
+        auto& p = _objs[_idx[_pos++ & (_idx.size() - 1)]];
+        free(p);
+        p = alloc();
+    }
+    return batch;
+}
+
+// Reads every word of every object, in allocation order.
+PERF_TEST_F(aligned_live_set_bench, scan) {
+    uint64_t sum = 0;
+    for (auto p : _objs) {
+        auto w = static_cast<const uint64_t*>(p);
+        for (size_t i = 0; i < object_size / sizeof(uint64_t); ++i) {
+            sum += w[i];
+        }
+    }
+    perf_tests::do_not_optimize(sum);
+    return _objs.size();
 }
 
 template <typename DistType>
