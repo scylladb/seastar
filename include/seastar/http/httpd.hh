@@ -147,6 +147,12 @@ class connection : public boost::intrusive::list_base_hook<> {
     std::unique_ptr<http::reply> _resp;
     // null element marks eof
     queue<std::unique_ptr<http::reply>> _replies { 10 };
+    // Bytes of the current request's body that have not been read yet. The
+    // body streams own this counter, so it stays valid after the request
+    // object itself is gone. Zero means the body was read to its end. For a
+    // chunked body it is std::numeric_limits<size_t>::max() until the
+    // terminating chunk is parsed.
+    size_t _unread_body_bytes = 0;
     bool _done = false;
     // Whether a request is being read from this connection: from its first byte until
     // the last byte of its body. stop_reading() leaves such a connection to finish
