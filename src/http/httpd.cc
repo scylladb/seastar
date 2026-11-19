@@ -423,6 +423,7 @@ future<bool> connection::generate_reply(std::unique_ptr<http::request> req) {
             // rest of it is still queued on the connection's input stream and
             // no further request can be parsed from it.
             keep_alive = false;
+            rep->add_header("Connection", "close");
         }
         this->_replies.push(std::move(rep));
         return make_ready_future<bool>(!keep_alive);

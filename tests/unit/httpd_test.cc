@@ -2235,6 +2235,34 @@ SEASTAR_TEST_CASE(test_unread_chunked_body_is_not_read_after_reply) {
     }, {"200 OK"}, true, new unread_body_handler());
 }
 
+// A body the handler never reads leaves the connection unusable, since the
+// rest of it is still queued on the input stream. The reply has to say so.
+SEASTAR_TEST_CASE(test_unread_body_closes_connection) {
+    return check_http_reply({
+        "GET /test HTTP/1.1\r\nHost: test\r\nContent-Length: 5\r\n\r\nhello"
+    }, {"200 OK", "Connection: close"}, true, new unread_body_handler());
+}
+
+SEASTAR_TEST_CASE(test_unread_chunked_body_closes_connection) {
+    // One write: the handler replies and the server closes as soon as it has
+    // the headers, so a later write of the body could see EPIPE.
+    return check_http_reply({
+        "GET /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n"
+        "5\r\nhello\r\n0\r\n\r\n"
+    }, {"200 OK", "Connection: close"}, true, new unread_body_handler());
+}
+
+// An HTTP/1.0 client that asked to keep the connection was answered with
+// Connection: Keep-Alive before the handler ran. That has to be taken back,
+// or the client reuses a connection the server is closing.
+SEASTAR_TEST_CASE(test_unread_body_closes_http_1_0_keepalive) {
+    return check_http_reply({
+        "GET /test HTTP/1.0\r\nHost: test\r\nConnection: keep-alive\r\n"
+        "Content-Length: 5\r\n\r\nhello"
+    }, {"200 OK", "Connection: close"}, true, new unread_body_handler(),
+       {"Keep-Alive"});
+}
+
 // A handler that reads the whole body leaves the connection usable.
 SEASTAR_TEST_CASE(test_read_body_keeps_connection) {
     return check_http_reply({
