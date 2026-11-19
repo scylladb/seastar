@@ -510,6 +510,13 @@ seastar_add_test (shared_ptr
   KIND BOOST
   SOURCES shared_ptr_test.cc)
 
+seastar_add_test (lw_shared_ptr_incomplete
+  KIND BOOST
+  SOURCES
+    lw_shared_ptr_incomplete_test.cc
+    lw_shared_ptr_incomplete_types.cc
+    lw_shared_ptr_incomplete.hh)
+
 seastar_add_test (signal
   SOURCES signal_test.cc)
 
