@@ -150,13 +150,13 @@ future<> connection::read() {
     });
 }
 
-static input_stream<char> make_content_stream(http::request* req, input_stream<char>& buf) {
+static input_stream<char> make_content_stream(http::request* req, input_stream<char>& buf, size_t& unread_bytes) {
     // Create an input stream based on the requests body encoding or lack thereof
     if (seastar::internal::case_insensitive_cmp()(req->get_header("Transfer-Encoding"), "chunked")) {
         req->content_length = 0;
-        return input_stream<char>(data_source(std::make_unique<internal::chunked_source_impl>(buf, req->chunk_extensions, req->trailing_headers)));
+        return input_stream<char>(data_source(std::make_unique<internal::chunked_source_impl>(buf, req->chunk_extensions, req->trailing_headers, unread_bytes)));
     } else {
-        return input_stream<char>(data_source(std::make_unique<internal::content_length_source_impl>(buf, req->content_length)));
+        return input_stream<char>(data_source(std::make_unique<internal::content_length_source_impl>(buf, req->content_length, unread_bytes)));
     }
 }
 
@@ -277,44 +277,24 @@ future<> connection::read_one() {
         };
 
         return maybe_reply_continue().then([this] (std::unique_ptr<http::request> req) {
-            return do_with(make_content_stream(req.get(), _read_buf), sstring(req->_version), std::move(req), [this] (input_stream<char>& content_stream, sstring& version, std::unique_ptr<http::request>& req) {
+            return do_with(make_content_stream(req.get(), _read_buf, _unread_body_bytes), sstring(req->_version), std::move(req), [this] (input_stream<char>& content_stream, sstring& version, std::unique_ptr<http::request>& req) {
                 bool streaming = _server.get_content_streaming();
-                return set_request_content(std::move(req), &content_stream, streaming).then([this, &content_stream, streaming] (std::unique_ptr<http::request> req) {
+                return set_request_content(std::move(req), &content_stream, streaming).then([this, streaming] (std::unique_ptr<http::request> req) {
                     if (!streaming) {
                         // The body was read before the handler was called.
                         request_read();
                     }
                     return _replies.not_full().then([this, req = std::move(req)] () mutable {
                         return generate_reply(std::move(req));
-                    }).then([this, &content_stream](bool done) {
+                    }).then([this](bool done) {
                         // Or-ed rather than assigned: stop_reading() may have set it
                         // while this request was in flight, and a keep-alive request
                         // reports false, which would put the connection back to waiting
                         // for another one - and leave whoever is draining it waiting too.
                         _done = _done || done;
-                        // If the handler did not read the entire request
-                        // content, this connection cannot be reused so we
-                        // need to close it (via "_done = true"). But we can't
-                        // just check content_stream.eof(): It may only become
-                        // true after read(). Issue #907.
-                        //
-                        // That read can now fail rather than answer: a body that
-                        // ended early raises. The reply is already generated and the
-                        // peer that would receive an error is the one that went away,
-                        // so only the connection is left to decide, and it is done.
-                        return content_stream.read().then_wrapped([this] (future<temporary_buffer<char>> f) {
-                            if (f.failed()) {
-                                f.ignore_ready_future();
-                                _done = true;
-                                return;
-                            }
-                            if (!f.get().empty()) {
-                                _done = true;
-                            }
-                            // The handler streamed the body, and has returned: whatever
-                            // it left unread will not be read.
-                            request_read();
-                        });
+                        // The handler streamed the body, and has returned: whatever
+                        // it left unread will not be read.
+                        request_read();
                     });
                 }).handle_exception_type([this, &version] (const base_exception& e) mutable {
                     // If the request had a "Transfer-Encoding: chunked" header and content streaming wasn't enabled, we might have failed
@@ -436,8 +416,14 @@ future<bool> connection::generate_reply(std::unique_ptr<http::request> req) {
     }
     return _server._routes.handle(url, std::move(req), std::move(resp)).
     // Caller guarantees enough room
-    then([this, keep_alive , version = std::move(version)](std::unique_ptr<http::reply> rep) {
+    then([this, keep_alive , version = std::move(version)](std::unique_ptr<http::reply> rep) mutable {
         rep->set_version(version);
+        if (_unread_body_bytes != 0) {
+            // The handler replied without reading the body to its end, so the
+            // rest of it is still queued on the connection's input stream and
+            // no further request can be parsed from it.
+            keep_alive = false;
+        }
         this->_replies.push(std::move(rep));
         return make_ready_future<bool>(!keep_alive);
     });

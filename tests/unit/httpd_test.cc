@@ -1805,6 +1805,18 @@ struct echo_stream_handler : public echo_handler {
 };
 
 /*
+ * A request handler that replies without reading the request body at all, as
+ * a handler does when it rejects a request before looking at its content.
+ *  */
+struct unread_body_handler : public handler_base {
+    future<std::unique_ptr<http::reply>> handle(const sstring& path,
+            std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
+        rep->write_body("txt", sstring("body not read"));
+        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
+    }
+};
+
+/*
  * Same handler as above, but without using streams
  * String content is deprecated, but keep testing it until removed
  *  */
@@ -2208,6 +2220,101 @@ SEASTAR_TEST_CASE(test_close_response) {
         return check_http_reply({
             "/test\r\n\r\n"
         }, {"400 Bad Request", "Connection: close", "Can't parse the request"}, false, new echo_string_handler());
+    });
+}
+
+// A handler that leaves a chunked body unread destroys the request while the
+// body stream still refers to its chunk_extensions and trailing_headers, and
+// the chunk parser writes to both. Reading that stream after the handler has
+// returned is a use-after-free, which this catches in a sanitized build. The
+// whole body is sent with the headers, so that it is there to be read.
+SEASTAR_TEST_CASE(test_unread_chunked_body_is_not_read_after_reply) {
+    return check_http_reply({
+        "GET /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n"
+        "5;ext=value\r\nhello\r\n0\r\ntrailer: value\r\n\r\n"
+    }, {"200 OK"}, true, new unread_body_handler());
+}
+
+// A handler that reads the whole body leaves the connection usable.
+SEASTAR_TEST_CASE(test_read_body_keeps_connection) {
+    return check_http_reply({
+        "GET /test HTTP/1.1\r\nHost: test\r\nContent-Length: 5\r\n\r\nhello"
+    }, {"200 OK", "hello"}, true, new echo_stream_handler(),
+       {"Connection: close"}).then([] {
+        return check_http_reply({
+            "GET /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n",
+            "5\r\nhello\r\n",
+            "0\r\n\r\n"
+        }, {"200 OK", "hello"}, true, new echo_stream_handler(),
+           {"Connection: close"});
+    });
+}
+
+// A request with no body at all keeps the connection, with nothing to read.
+SEASTAR_TEST_CASE(test_no_body_keeps_connection) {
+    return check_http_reply({
+        "GET /test HTTP/1.1\r\nHost: test\r\n\r\n"
+    }, {"200 OK"}, true, new unread_body_handler(), {"Connection: close"});
+}
+
+// The bytes of a body the handler left unread must never be parsed as the
+// next request on the connection. The body here is itself a complete request:
+// it has to go unanswered, and the handler has to run once.
+SEASTAR_TEST_CASE(test_unread_body_is_not_parsed_as_a_request) {
+    struct counting_handler : public unread_body_handler {
+        size_t& calls;
+        explicit counting_handler(size_t& c) : calls(c) {}
+        future<std::unique_ptr<http::reply>> handle(const sstring& path,
+                std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
+            ++calls;
+            return unread_body_handler::handle(path, std::move(req), std::move(rep));
+        }
+    };
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        server.set_content_streaming(true);
+        loopback_socket_impl lsi(lcf);
+        server.listen(lcf.get_server_socket()).get();
+        size_t calls = 0;
+        server._routes.put(GET, "/test", new counting_handler(calls));
+
+        const sstring smuggled = "GET /test HTTP/1.1\r\nHost: test\r\n\r\n";
+        for (const sstring& framing : {
+                format("Content-Length: {}\r\n\r\n{}", smuggled.size(), smuggled),
+                format("Transfer-Encoding: chunked\r\n\r\n{:x}\r\n{}\r\n0\r\n\r\n", smuggled.size(), smuggled)}) {
+            calls = 0;
+            connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get();
+            input_stream<char> input(c_socket.input());
+            output_stream<char> output(c_socket.output());
+            output.write(format("GET /test HTTP/1.1\r\nHost: test\r\n{}", framing)).get();
+            output.flush().get();
+
+            auto count_replies = [] (const std::string& resp) {
+                size_t replies = 0;
+                for (auto pos = resp.find("HTTP/1.1 "); pos != std::string::npos; pos = resp.find("HTTP/1.1 ", pos + 1)) {
+                    ++replies;
+                }
+                return replies;
+            };
+            // The server closes the connection, so read to its end. A second
+            // reply ends the read too: a server that sends one keeps the
+            // connection open, and would leave this waiting.
+            std::string resp;
+            while (count_replies(resp) < 2) {
+                auto buf = input.read().get();
+                if (buf.empty()) {
+                    break;
+                }
+                resp.append(buf.get(), buf.size());
+            }
+            BOOST_REQUIRE_EQUAL(count_replies(resp), 1);
+            BOOST_REQUIRE_EQUAL(calls, 1);
+
+            input.close().get();
+            output.close().get();
+        }
+        server.stop().get();
     });
 }
 
