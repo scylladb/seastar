@@ -125,6 +125,8 @@ module;
 // static_cast failures when lw_shared_ptr<T>::~lw_shared_ptr is
 // instantiated while T is still incomplete.  Consumer TUs that rely on
 // this pattern must textually #include it at the point where T is complete.
+// The newer way, an explicit instantiation of lw_shared_ptr<T> (see
+// "Incomplete types" in shared_ptr.hh), needs no such include.
 #include <seastar/core/signal.hh>
 #include <seastar/core/simple-stream.hh>
 #include <seastar/core/sleep.hh>
