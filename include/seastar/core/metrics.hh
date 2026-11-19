@@ -356,7 +356,9 @@ public:
 
     uint64_t ui() const {
         auto d = std::get<double>(u);
-        if (d >= 0 && d <= double(std::numeric_limits<long>::max())) {
+        // double(std::numeric_limits<long>::max()) rounds up to 2^63,
+        // which std::lround() cannot represent, so exclude it.
+        if (d >= 0 && d < double(std::numeric_limits<long>::max())) {
             return std::lround(d);
         } else {
             // double value is out of range or NaN or Inf
@@ -367,7 +369,10 @@ public:
 
     int64_t i() const {
         auto d = std::get<double>(u);
-        if (d >= double(std::numeric_limits<long>::min()) && d <= double(std::numeric_limits<long>::max())) {
+        // double(std::numeric_limits<long>::max()) rounds up to 2^63,
+        // which std::lround() cannot represent, so exclude it.
+        // std::numeric_limits<long>::min() is -2^63, which is exact and valid.
+        if (d >= double(std::numeric_limits<long>::min()) && d < double(std::numeric_limits<long>::max())) {
             return std::lround(d);
         } else {
             // double value is out of range or NaN or Inf

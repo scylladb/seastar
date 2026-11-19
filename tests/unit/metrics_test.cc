@@ -37,6 +37,8 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/test_runner.hh>
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <ranges>
 
@@ -513,5 +515,43 @@ SEASTAR_THREAD_TEST_CASE(test_estimated_histogram) {
     }
     for (size_t i = 33; i < 64; i++) {
         BOOST_CHECK_EQUAL(mh.buckets[i].count, 33 + i);
+    }
+}
+
+// metric_value keeps scalars as double, and converts them to integers
+// using std::lround(), which can represent only [-2^63, 2^63).
+// Values outside of this range, as well as NaN, must be rejected.
+SEASTAR_THREAD_TEST_CASE(test_metric_value_integer_conversion_range) {
+    using namespace seastar::metrics::impl;
+
+    auto value = [] (double d) {
+        return metric_value(d, data_type::COUNTER);
+    };
+
+    const double two_to_63 = 0x1p63;
+    // The largest double that is smaller than 2^63
+    const double max_valid = std::nextafter(two_to_63, 0.0);
+    const auto signed_min = std::numeric_limits<int64_t>::min();
+
+    BOOST_CHECK_EQUAL(value(0).ui(), 0u);
+    BOOST_CHECK_EQUAL(value(0).i(), 0);
+    BOOST_CHECK_EQUAL(value(-1).i(), -1);
+    BOOST_CHECK_EQUAL(value(max_valid).ui(), uint64_t(max_valid));
+    BOOST_CHECK_EQUAL(value(max_valid).i(), int64_t(max_valid));
+    BOOST_CHECK_EQUAL(value(-two_to_63).i(), signed_min);
+
+    // double(std::numeric_limits<int64_t>::max()) is rounded up to 2^63
+    BOOST_CHECK_EQUAL(double(std::numeric_limits<int64_t>::max()), two_to_63);
+    BOOST_CHECK_THROW(value(two_to_63).ui(), std::range_error);
+    BOOST_CHECK_THROW(value(two_to_63).i(), std::range_error);
+
+    BOOST_CHECK_THROW(value(-1).ui(), std::range_error);
+    BOOST_CHECK_THROW(value(std::nextafter(-two_to_63, -HUGE_VAL)).i(), std::range_error);
+
+    const auto inf = std::numeric_limits<double>::infinity();
+    const auto nan = std::numeric_limits<double>::quiet_NaN();
+    for (auto d : {inf, -inf, nan}) {
+        BOOST_CHECK_THROW(value(d).ui(), std::range_error);
+        BOOST_CHECK_THROW(value(d).i(), std::range_error);
     }
 }
