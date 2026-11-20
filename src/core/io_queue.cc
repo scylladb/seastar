@@ -23,8 +23,11 @@
 #include <chrono>
 #include <concepts>
 #include <cstdint>
+#include <deque>
 #include <mutex>
 #include <utility>
+#include <vector>
+#include <fmt/ranges.h>
 #include <seastar/core/internal/fmt.hh>
 #include <boost/intrusive/parent_from_member.hpp>
 #include <boost/container/small_vector.hpp>
@@ -34,6 +37,7 @@
 
 #include <seastar/core/file.hh>
 #include <seastar/core/align.hh>
+#include <seastar/core/cacheline.hh>
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/io_intent.hh>
 #include <seastar/core/reactor.hh>
@@ -116,14 +120,145 @@ auto io_throttler::capacity_deficiency(capacity_t from) const noexcept -> capaci
     return _token_bucket.deficiency(from);
 }
 
+namespace internal {
+
+// What one queue of a disk measured for the disk's regulator in one period:
+// the requests that completed and their time in the disk. The queue writes it
+// once per period and the queue that runs the regulator reads it, so each
+// report has a cache line of its own.
+struct alignas(cache_line_size) disk_report {
+    const unsigned shard;
+    // The period in which the queue started. It has nothing to report for
+    // the periods before.
+    const int64_t first;
+    // The period the values below belong to, -1 while the queue writes them
+    std::atomic<int64_t> period = -1;
+    std::atomic<uint64_t> completed = 0;
+    std::atomic<uint64_t> time_in_disk_us = 0;
+
+    disk_report(unsigned s, int64_t f) noexcept : shard(s), first(f) {}
+};
+
+}
+
 // What the groups of one disk share: the correction of the disk's configured
 // rates, a factor c in (0, 1]. The buckets of every group of the disk refill at
 // c times their configured rate, as if those rates were c times lower, so all
 // groups of the disk scale down together. A request costs what io_properties
 // says, so the correction applies to large requests as much as to small ones.
+//
+// Every queue of the disk measures its own requests, and once per period it
+// writes what it measured to its own report. The periods are the same for all
+// queues, because they are counted on the steady clock, which all shards
+// share. The queue of the first report runs regulate(), the only writer of the
+// correction, and only it reads the reports of the other queues.
 struct io_group::disk_state {
-    std::atomic<double> rate_correction = 1.0;
+    // The regulator writes it at most once per period and every queue reads it
+    // once per tick, so it has a cache line of its own
+    alignas(cache_line_size) std::atomic<double> rate_correction = 1.0;
+
+    // Guards adding reports, which the queues of all shards do as they start,
+    // against regulate() reading them. regulate() takes it every period, so it
+    // is off the cache line of rate_correction.
+    alignas(cache_line_size) util::spinlock lock;
+    std::deque<internal::disk_report> reports;
+    // The shards whose reports regulate() waits for, with room for all
+    // reports, so that regulate() does not allocate
+    std::vector<unsigned> late_shards;
+
+    // The oldest period the regulator has not probed or skipped yet, -1
+    // until it first runs
+    int64_t next_period = -1;
+    double prev_latency = 0.0;
+    // The averaging tick of the disk's queues is too long for the regulator
+    // to read their reports in time
+    bool off = false;
+
+    void regulate(const io_queue::config& cfg, io_queue::clock_type::time_point now, io_queue::clock_type::duration delay) noexcept;
 };
+
+// Probes each period once, at a timer `delay` after the period ends, so that it
+// reads the reports of the other queues only once. A queue reports a period at
+// its first poll or averaging tick after the period ends. The delay is one tick
+// and a margin, so a queue that ran in the period and has not reported it by
+// then is stalled. The regulator then skips the period, because it does not
+// decide on part of the disk, and it logs a warning. It also skips, with a
+// warning, the periods it did not run for in time, because a stall of its own
+// shard delayed its timer.
+//
+// Down every probe while requests queue in the disk: above the threshold it
+// holds a deeper queue than the scheduler tolerates, and a time shorter than
+// in the previous probe means it is already working that queue off. A few
+// slow requests are no queue, and a lower rate does not make them faster.
+void io_group::disk_state::regulate(const io_queue::config& cfg, io_queue::clock_type::time_point now, io_queue::clock_type::duration delay) noexcept {
+    const auto period = std::chrono::duration_cast<io_queue::clock_type::duration>(cfg.rate_correction_period);
+    // The newest period that has ended. A timer that fires before the reports
+    // of that period are due waits for them: run_regulator() arms the timer
+    // for that time.
+    const int64_t last = now.time_since_epoch() / period - 1;
+    if (off || last < next_period || now < io_queue::clock_type::time_point((last + 1) * period + delay)) {
+        return;
+    }
+    // The first run comes when the reactor starts, which can be after the end
+    // of the period in which the queues started and before they report it.
+    // Thus it skips a period without a warning.
+    const bool first_run = next_period < 0;
+    if (!first_run && last > next_period) {
+        io_log.warn("The rate correction of disk {} skips {:.0f}s, because it did not run in time to read the measurements",
+                cfg.mountpoint, (last - next_period) * cfg.rate_correction_period.count());
+    }
+    next_period = last + 1;
+
+    std::lock_guard _(lock);
+    uint64_t nr = 0;
+    uint64_t time_in_disk_us = 0;
+    late_shards.clear();
+    for (auto& r : reports) {
+        if (r.first > last) {
+            continue;
+        }
+        // The period is checked again after the values are read, because the
+        // queue may start to write those of its next period meanwhile
+        if (r.period.load(std::memory_order_acquire) == last) {
+            auto completed = r.completed.load(std::memory_order_relaxed);
+            auto time_us = r.time_in_disk_us.load(std::memory_order_relaxed);
+            std::atomic_thread_fence(std::memory_order_acquire);
+            if (r.period.load(std::memory_order_relaxed) == last) {
+                nr += completed;
+                time_in_disk_us += time_us;
+                continue;
+            }
+        }
+        late_shards.push_back(r.shard);
+    }
+
+    if (!late_shards.empty()) {
+        if (!first_run) {
+            io_log.warn("The rate correction of disk {} skips {:.0f}s, because these shards did not report their measurements in time: {}",
+                    cfg.mountpoint, cfg.rate_correction_period.count(), fmt::join(late_shards, ", "));
+        }
+        return;
+    }
+
+    const double threshold = cfg.disk_latency_threshold.count();
+    double old = rate_correction.load(std::memory_order_relaxed);
+    double c = old;
+    double latency = nr ? time_in_disk_us * 1e-6 / nr : 0.0;
+    // By Little's law, the summed time in the disk per second is the number of
+    // requests that the disk held on average
+    const bool queue = time_in_disk_us * 1e-6 >= cfg.rate_correction_min_queue * cfg.rate_correction_period.count();
+    if (nr) {
+        if (queue && (latency > 2 * threshold || (latency > threshold && latency >= prev_latency))) {
+            c = std::max(c - cfg.rate_correction_step, cfg.rate_correction_min);
+        }
+        prev_latency = latency;
+    }
+
+    if (c != old) {
+        io_log.debug("{}: rate correction {:.3f} -> {:.3f}, requests spent {:.2f}ms in the disk", cfg.mountpoint, old, c, latency * 1e3);
+        rate_correction.store(c, std::memory_order_relaxed);
+    }
+}
 
 struct io_group::priority_class_data {
     priority_class_group_data* parent;
@@ -669,10 +804,37 @@ void io_queue::lower_stall_threshold() noexcept {
     _stall_threshold = std::max(_stall_threshold_min, new_threshold);
 }
 
-// Takes the disk's correction. The buckets belong to the group, so the queue
-// on the shard that created the group sets their rate.
-void io_queue::update_rate_correction() noexcept {
-    auto c = _group->_disk->rate_correction.load(std::memory_order_relaxed);
+// Starts measuring the period that `now` is in
+void io_queue::start_rate_period(clock_type::time_point now) noexcept {
+    const auto period = std::chrono::duration_cast<clock_type::duration>(get_config().rate_correction_period);
+    _period = now.time_since_epoch() / period;
+    _period_end = clock_type::time_point((_period + 1) * period);
+}
+
+// Writes what this queue measured to its report once the period it measured
+// in has ended, and starts measuring the period that `now` is in
+void io_queue::report_rate_measurements(clock_type::time_point now) noexcept {
+    if (now < _period_end) {
+        return;
+    }
+    auto& r = *_report;
+    r.period.store(-1, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    r.completed.store(std::exchange(_completed_in_disk, 0), std::memory_order_relaxed);
+    r.time_in_disk_us.store(std::exchange(_time_in_disk_us, 0), std::memory_order_relaxed);
+    r.period.store(_period, std::memory_order_release);
+    start_rate_period(now);
+}
+
+// Reports this queue's measurements if a period has ended, and takes the
+// disk's correction. The buckets belong to the group, so the queue on the
+// shard that created the group sets their rate.
+void io_queue::update_rate_correction(clock_type::time_point now) noexcept {
+    auto& disk = *_group->_disk;
+    if (_report) {
+        report_rate_measurements(now);
+    }
+    auto c = disk.rate_correction.load(std::memory_order_relaxed);
     if (c != _rate_correction) {
         _rate_correction = c;
         if (_group->_allocated_on == this_shard_id()) {
@@ -683,10 +845,28 @@ void io_queue::update_rate_correction() noexcept {
     }
 }
 
+// Runs the regulator, and arms its timer for the next time it reads the
+// reports: _regulator_delay after the end of the period that `now` is in, or
+// of the one before, if that time is still ahead
+void io_queue::run_regulator(clock_type::time_point now) noexcept {
+    _group->_disk->regulate(get_config(), now, _regulator_delay);
+    const auto period = std::chrono::duration_cast<clock_type::duration>(get_config().rate_correction_period);
+    auto next = clock_type::time_point(now.time_since_epoch() / period * period + _regulator_delay);
+    if (next <= now) {
+        next += period;
+    }
+    _regulator_timer.arm(lowres_clock::time_point(next.time_since_epoch()));
+}
+
 void
 io_queue::complete_request(io_desc_read_write& desc, std::chrono::duration<double> delay) noexcept {
     _requests_executing--;
     _requests_completed++;
+    // A failed request comes with no delay and does not count
+    if (_report && delay.count() > 0) {
+        _completed_in_disk++;
+        _time_in_disk_us += std::chrono::duration_cast<std::chrono::microseconds>(delay).count();
+    }
 
     if (delay > _stall_threshold) {
         _stall_threshold *= 2;
@@ -711,7 +891,10 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     , _averaging_decay_timer([this] {
         update_flow_ratio();
         lower_stall_threshold();
-        update_rate_correction();
+        update_rate_correction(clock_type::now());
+    })
+    , _regulator_timer([this] {
+        run_regulator(clock_type::now());
     })
     , _stall_threshold_min(std::max(get_config().stall_threshold, 1ms))
     , _stall_threshold(_stall_threshold_min)
@@ -726,7 +909,33 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     } else {
         _streams.emplace_back(_group->_fgs[0], make_fair_queue_config(cfg, "rw"));
     }
-    _averaging_decay_timer.arm_periodic(std::chrono::duration_cast<std::chrono::milliseconds>(_group->io_latency_goal() * cfg.averaging_decay_ticks));
+    const auto tick = std::chrono::duration_cast<std::chrono::milliseconds>(_group->io_latency_goal() * cfg.averaging_decay_ticks);
+    _averaging_decay_timer.arm_periodic(tick);
+    if (cfg.disk_latency_threshold.count() > 0) {
+        auto& disk = *_group->_disk;
+        std::lock_guard _(disk.lock);
+        // Every queue reports a period by its first tick after the period ends,
+        // and the regulator reads the reports a margin later. The startup check
+        // of the options bounds the tick, but the group's latency goal can be
+        // longer than the option, for a disk with very low rates.
+        const auto delay = std::chrono::duration_cast<clock_type::duration>(tick + cfg.rate_correction_margin);
+        if (delay > cfg.rate_correction_latest_read * cfg.rate_correction_period) {
+            if (!disk.off) {
+                disk.off = true;
+                io_log.warn("The rate correction of disk {} is off, because the latency goal of its I/O groups, {:.1f}ms, is longer than {:.1f}ms",
+                        cfg.mountpoint, _group->io_latency_goal().count() * 1e3,
+                        (cfg.rate_correction_latest_read * cfg.rate_correction_period - cfg.rate_correction_margin).count() / cfg.averaging_decay_ticks * 1e3);
+            }
+        } else {
+            start_rate_period(clock_type::now());
+            disk.late_shards.reserve(disk.reports.size() + 1);
+            _report = &disk.reports.emplace_back(this_shard_id(), _period);
+            if (_report == &disk.reports.front()) {
+                _regulator_delay = delay;
+                _regulator_timer.arm(lowres_clock::time_point((_period_end + _regulator_delay).time_since_epoch()));
+            }
+        }
+    }
 
     if (cfg.with_metrics) {
         namespace sm = seastar::metrics;
@@ -1169,6 +1378,11 @@ future<size_t> io_queue::submit_io_write(size_t len, internal::io_request req, i
 // This is far from ideal, but it's something.
 
 void io_queue::poll_io_queue() {
+    // A period that ended since the previous poll is reported at once, so that
+    // a queue that polls reports it in time. Without the correction,
+    // _period_end is max() and nothing is.
+    report_rate_measurements(clock_type::time_point(lowres_clock::now().time_since_epoch()));
+
     for (auto& pc : _priority_classes) {
         if (pc) {
             pc->on_before_dispatch();

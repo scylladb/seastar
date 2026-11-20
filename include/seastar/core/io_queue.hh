@@ -50,6 +50,7 @@ class io_intent;
 
 namespace internal {
 class io_sink;
+struct disk_report;
 }
 
 using shard_id = unsigned;
@@ -146,10 +147,21 @@ private:
     double _flow_ratio = 1.0;
 
     // The correction of the disk's configured rates, as this queue last took
-    // it
+    // it, and what this queue measures for the disk's regulator in the current
+    // period, which it reports in its own report once the period ends
     double _rate_correction = 1.0;
+    uint64_t _completed_in_disk = 0;
+    uint64_t _time_in_disk_us = 0;
+    int64_t _period = 0;
+    clock_type::time_point _period_end = clock_type::time_point::max();
+    internal::disk_report* _report = nullptr;
+    // How long after a period ends the regulator reads the reports of it, on
+    // the queue that runs the regulator
+    clock_type::duration _regulator_delay{};
 
     timer<lowres_clock> _averaging_decay_timer;
+    // Runs the regulator once per period, only on the queue that runs it
+    timer<lowres_clock> _regulator_timer;
 
     const std::chrono::milliseconds _stall_threshold_min;
     std::chrono::milliseconds _stall_threshold;
@@ -157,7 +169,10 @@ private:
 
     void update_flow_ratio() noexcept;
     void lower_stall_threshold() noexcept;
-    void update_rate_correction() noexcept;
+    void start_rate_period(clock_type::time_point now) noexcept;
+    void report_rate_measurements(clock_type::time_point now) noexcept;
+    void update_rate_correction(clock_type::time_point now) noexcept;
+    void run_regulator(clock_type::time_point now) noexcept;
 
     metrics::metric_groups _metric_groups;
 public:
@@ -192,6 +207,21 @@ public:
         std::chrono::microseconds tau = std::chrono::milliseconds(5);
         std::optional<uint32_t> physical_block_size; // Override for disks that lie about their physical block size
         bool with_metrics = true;
+        // Correcting the disk's configured rates from the time requests spend
+        // in it, see io_queue.cc; a zero disk_latency_threshold disables it
+        std::chrono::duration<double> disk_latency_threshold = std::chrono::duration<double>(0);
+        std::chrono::duration<double> rate_correction_period = std::chrono::seconds(1);
+        // The regulator reads the reports of a period this long after the
+        // averaging tick by which every queue has reported it. That must be at
+        // most this share of a period after the period ends, before the queues
+        // report the next period.
+        std::chrono::duration<double> rate_correction_margin = std::chrono::milliseconds(50);
+        double rate_correction_latest_read = 0.9;
+        // The fewest requests that the disk must hold on average for the
+        // regulator to see a queue in it
+        double rate_correction_min_queue = 8;
+        double rate_correction_step = 0.005;
+        double rate_correction_min = 0.1;
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);
