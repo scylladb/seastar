@@ -225,6 +225,8 @@ struct io_group::disk_state {
     // The number of probes in the current cycle, and of those that found room
     unsigned probes = 0;
     unsigned room = 0;
+    // The regulator warned that c is low, and c did not get back to 1.0 since
+    bool warned = false;
     // The rate correction is off for this disk. The reason is the tick of a
     // group of the disk: it is too long for the regulator to read the reports
     // in time.
@@ -368,6 +370,16 @@ void io_group::disk_state::regulate(const io_queue::config& cfg, io_queue::clock
     if (c != old) {
         io_log.debug("{}: rate correction {:.3f} -> {:.3f}, requests spent {:.2f}ms in the disk", cfg.mountpoint, old, c, latency * 1e3);
         rate_correction.store(c, std::memory_order_relaxed);
+    }
+    // The regulator warns once when c goes below this level. It warns again
+    // only after c got back to 1.0.
+    constexpr double warning_level = 0.9;
+    if (c < warning_level && !warned) {
+        io_log.warn("Disk {} does not keep up with its configured rates: requests spend {:.1f}ms in it. The scheduler lowers its rates to {:.0f}% of them.",
+                cfg.mountpoint, latency * 1e3, c * 100);
+        warned = true;
+    } else if (c == 1.0) {
+        warned = false;
     }
 }
 
