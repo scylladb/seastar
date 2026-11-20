@@ -22,11 +22,21 @@
 
 find_package (Python3 COMPONENTS Interpreter REQUIRED)
 
+# The tests of the exact output run the fake tools of fake-bin/, the tests on a
+# real executable run the tools installed on the system.
 foreach (name stall_analyser addr2line)
   add_test (
     NAME Seastar.scripts.${name}
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/${name}_test.py)
   set_tests_properties (Seastar.scripts.${name}
     PROPERTIES
+      ENVIRONMENT SCRIPTS_TEST_FAKES=1
       TIMEOUT ${Seastar_TEST_TIMEOUT})
 endforeach ()
+
+add_test (
+  NAME Seastar.scripts.real_tools
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/real_tools_test.py)
+set_tests_properties (Seastar.scripts.real_tools
+  PROPERTIES
+    TIMEOUT ${Seastar_TEST_TIMEOUT})
