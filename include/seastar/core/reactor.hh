@@ -456,6 +456,12 @@ private:
     future<> rename_scheduling_group_specific_data(scheduling_group sg);
     future<seastar::scheduling_group> init_scheduling_group(sstring name, sstring shortname, float shares, scheduling_supergroup p);
     future<> init_scheduling_group(scheduling_group sg, sstring name, sstring shortname, float shares, scheduling_supergroup p);
+    // Returns the task queue group of ssg, or the root group; throws if ssg does not exist
+    task_queue_group* group_for(scheduling_supergroup ssg);
+    // The IO scheduler mirrors only the supergroups directly under the root
+    bool is_top_level(scheduling_supergroup ssg) const noexcept {
+        return _supergroups[ssg.index()]->_parent == &_cpu_sched;
+    }
     future<> init_scheduling_group_specific_data(scheduling_group sg);
     future<> init_new_scheduling_group_key(scheduling_group_key key, scheduling_group_key_config cfg);
     future<> destroy_scheduling_group(scheduling_group sg) noexcept;
@@ -754,7 +760,7 @@ private:
     friend void internal::report_failed_future(const std::exception_ptr& eptr) noexcept;
     metrics::metric_groups _metric_groups;
     friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares, scheduling_supergroup) noexcept;
-    friend future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept;
+    friend future<scheduling_supergroup> create_scheduling_supergroup(float shares, scheduling_supergroup parent) noexcept;
     friend future<> destroy_scheduling_supergroup(scheduling_supergroup sg) noexcept;
     friend future<> seastar::destroy_scheduling_group(scheduling_group) noexcept;
     friend future<> seastar::rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
