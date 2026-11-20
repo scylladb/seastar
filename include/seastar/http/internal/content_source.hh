@@ -113,9 +113,10 @@ class chunked_source_impl : public data_source_impl {
         size_t _current_chunk_length;
         parsing_state _ps = parsing_state::size_and_ext;
         bool _end_of_request = false;
-        // references to fields in the request structure
-        std::unordered_map<sstring, sstring>& _chunk_extensions;
-        std::unordered_map<sstring, sstring>& _trailing_headers;
+        // Point to fields of the request (or reply) structure, until
+        // chunked_source_impl::detach_request() points them to maps of its own.
+        std::unordered_map<sstring, sstring>* _chunk_extensions;
+        std::unordered_map<sstring, sstring>* _trailing_headers;
         /*
          * Reference to the counter of yet unread body bytes, similar to the one
          * from content_length_source_impl. Similarly, when the external counter is
@@ -131,9 +132,13 @@ class chunked_source_impl : public data_source_impl {
         using consumption_result_type = consumption_result<char>;
     public:
         chunk_parser(std::unordered_map<sstring, sstring>& chunk_extensions, std::unordered_map<sstring, sstring>& trailing_headers, size_t& remaining)
-            : _chunk_extensions(chunk_extensions), _trailing_headers(trailing_headers), _remaining_bytes(remaining) {
+            : _chunk_extensions(&chunk_extensions), _trailing_headers(&trailing_headers), _remaining_bytes(remaining) {
                 _remaining_bytes = std::numeric_limits<size_t>::max();
                 _size_and_ext_parser.init();
+        }
+        void redirect(std::unordered_map<sstring, sstring>& chunk_extensions, std::unordered_map<sstring, sstring>& trailing_headers) noexcept {
+            _chunk_extensions = &chunk_extensions;
+            _trailing_headers = &trailing_headers;
         }
         temporary_buffer<char> buf() {
             _current_chunk_bytes_read += _buf.size();
@@ -162,9 +167,9 @@ class chunked_source_impl : public data_source_impl {
                         }
                         // save extensions
                         auto parsed_extensions = _size_and_ext_parser.get_parsed_extensions();
-                        _chunk_extensions.merge(parsed_extensions);
+                        _chunk_extensions->merge(parsed_extensions);
                         for (auto& key_val : parsed_extensions) {
-                            _chunk_extensions[key_val.first] += sstring(",") + key_val.second;
+                            (*_chunk_extensions)[key_val.first] += sstring(",") + key_val.second;
                         }
 
                         // save size
@@ -234,7 +239,7 @@ class chunked_source_impl : public data_source_impl {
                             return make_exception_future<consumption_result_type>(bad_request_exception("Can't parse chunked request trailer"));
                         }
                         // save trailing headers
-                        _trailing_headers = _trailer_parser.get_parsed_headers();
+                        *_trailing_headers = _trailer_parser.get_parsed_headers();
                         _end_of_request = true;
                         _remaining_bytes = 0;
                         return make_ready_future<consumption_result_type>(std::move(*stop));
@@ -247,6 +252,10 @@ class chunked_source_impl : public data_source_impl {
         }
     };
     input_stream<char>& _inp;
+    // Where the parser stores the chunk extensions and the trailer once detach_request()
+    // is called. Declared before _chunk, which may point to them.
+    std::unordered_map<sstring, sstring> _detached_chunk_extensions;
+    std::unordered_map<sstring, sstring> _detached_trailing_headers;
     chunk_parser _chunk;
     size_t _builtin_remaining_bytes = 0;
 
@@ -257,6 +266,14 @@ public:
 
     chunked_source_impl(input_stream<char>& inp, std::unordered_map<sstring, sstring>& chunk_extensions, std::unordered_map<sstring, sstring>& trailing_headers)
         : _inp(inp), _chunk(chunk_extensions, trailing_headers, _builtin_remaining_bytes) {
+    }
+
+    // From now on, store the chunk extensions and the trailer in maps of this source, instead
+    // of the ones passed to the constructor. Call it before the owner of those maps (e.g. the
+    // request) is destroyed, if the stream may still be read afterwards. What is parsed after
+    // this call is dropped with the source.
+    void detach_request() noexcept {
+        _chunk.redirect(_detached_chunk_extensions, _detached_trailing_headers);
     }
 
     virtual future<temporary_buffer<char>> get() override {
