@@ -22,6 +22,7 @@
 #pragma once
 
 #include <boost/container/static_vector.hpp>
+#include <array>
 #include <chrono>
 #include <memory>
 #include <vector>
@@ -148,12 +149,15 @@ private:
 
     // The correction of the disk's configured rates, as this queue last took
     // it, and what this queue measures for the disk's regulator in the current
-    // period, which it reports in its own report once the period ends
+    // period, which it reports in its own report once the period ends. It
+    // counts what it sends per stream, because each stream has its own bucket.
     double _rate_correction = 1.0;
     uint64_t _completed_in_disk = 0;
     uint64_t _time_in_disk_us = 0;
+    std::array<fair_queue_entry::capacity_t, 2> _sent = {};
     int64_t _period = 0;
     clock_type::time_point _period_end = clock_type::time_point::max();
+    clock_type::time_point _measured_since;
     internal::disk_report* _report = nullptr;
     // How long after a period ends the regulator reads the reports of it, on
     // the queue that runs the regulator
@@ -211,6 +215,7 @@ public:
         // in it, see io_queue.cc; a zero disk_latency_threshold disables it
         std::chrono::duration<double> disk_latency_threshold = std::chrono::duration<double>(0);
         std::chrono::duration<double> rate_correction_period = std::chrono::seconds(1);
+        std::chrono::duration<double> rate_correction_cycle = std::chrono::seconds(30);
         // The regulator reads the reports of a period this long after the
         // averaging tick by which every queue has reported it. That must be at
         // most this share of a period after the period ends, before the queues
@@ -460,6 +465,8 @@ private:
     const shard_id _allocated_on;
     struct disk_state;
     const std::shared_ptr<disk_state> _disk;
+    // The index of this group among the groups of _disk
+    unsigned _disk_group = 0;
 
     static io_throttler::config configure_throttler(const io_queue::config& qcfg) noexcept;
     priority_class_data& find_or_create_class(scheduling_group sg);
