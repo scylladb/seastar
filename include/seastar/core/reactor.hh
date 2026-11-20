@@ -367,6 +367,10 @@ private:
     mutable sched_clock::duration _last_mono_steal{0};
     sched_clock::duration _total_idle{0};
     sched_clock::duration _total_sleep{0};
+    // When the latest and the previous loop iteration started polling, less
+    // the time the reactor had slept by then
+    sched_clock::time_point _poll_start;
+    sched_clock::time_point _prev_poll_start;
     sched_clock::time_point _start_time = now();
     output_stream<char>::batch_flush_list_t _flush_batching;
     std::atomic<bool> _sleeping alignas(seastar::cache_line_size){0};
@@ -404,6 +408,12 @@ public:
     bool stopped() const noexcept { return _stopped; }
     /// @private
     uint64_t polls() const noexcept { return _polls; }
+    /// @private
+    /// When the previous loop iteration started polling, moved later by the
+    /// time the reactor has slept since. A completion processed now came
+    /// after that: the previous poll would have processed it, and a sleep
+    /// ends as soon as one is ready.
+    sched_clock::time_point prev_poll_time() const noexcept { return _prev_poll_start + _total_sleep; }
 
 private:
     class signals {
