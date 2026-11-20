@@ -4714,7 +4714,9 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
                 auto& iog = io_info.groups[group_idx];
                 if (!iog) {
                     struct io_queue::config qcfg = disk_config.generate_config(q, io_info.groups.size());
-                    iog = std::make_shared<io_group>(std::move(qcfg), io_info.shards_in_group[group_idx]);
+                    auto peer = std::ranges::find_if(io_info.groups, [] (const auto& g) { return g != nullptr; });
+                    iog = std::make_shared<io_group>(std::move(qcfg), io_info.shards_in_group[group_idx],
+                            peer != io_info.groups.end() ? peer->get() : nullptr);
                     seastar_logger.debug("allocate {} IO group with {} queues, queue-id {}", group_idx, io_info.shards_in_group[group_idx], q);
                 }
                 group = iog;
