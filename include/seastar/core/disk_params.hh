@@ -60,6 +60,10 @@ private:
     std::chrono::duration<double> _latency_goal{std::chrono::milliseconds(1)};
     std::chrono::milliseconds _stall_threshold{std::chrono::milliseconds(100)};
     double _flow_ratio_backpressure_threshold = 1.1;
+    // The threshold of the rate correction, from the option
+    // --io-disk-rate-reduction-latency-threshold-ms. Zero turns off the rate
+    // correction.
+    std::chrono::duration<double> _disk_latency_threshold{0};
 
 public:
     explicit disk_config_params(unsigned max_queues) noexcept
