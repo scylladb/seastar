@@ -23,6 +23,7 @@
 
 #include <boost/container/static_vector.hpp>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <memory>
 #include <vector>
@@ -164,6 +165,9 @@ private:
     // queue dispatched before _measured_since counts 0 in the sum.
     uint64_t _in_disk_now = 0;
     int64_t _dispatched_after_us = 0;
+    // The capacity that the queue sent in the current period through the
+    // bucket of each stream
+    std::array<fair_queue_entry::capacity_t, 2> _sent = {};
     // The number of the current period
     int64_t _period = 0;
     // The end of the current period. It is max() while the rate correction is
@@ -236,6 +240,10 @@ public:
         std::chrono::duration<double> disk_latency_threshold = std::chrono::duration<double>(0);
         /// The time from one probe of the regulator to the next
         std::chrono::duration<double> rate_correction_period = std::chrono::seconds(1);
+        /// The length of an increase cycle. A cycle has rate_correction_cycle /
+        /// rate_correction_period probes. The periods that the regulator skips
+        /// do not count. The regulator can increase c only at the end of a cycle.
+        std::chrono::duration<double> rate_correction_cycle = std::chrono::seconds(30);
         /// The time from the tick by which each queue wrote its report of a
         /// period until the regulator reads the reports
         std::chrono::duration<double> rate_correction_margin = std::chrono::milliseconds(50);
@@ -496,6 +504,8 @@ private:
     struct disk_state;
     // The state that all groups of this disk share, see io_queue.cc
     const std::shared_ptr<disk_state> _disk;
+    // The index of this group among the groups of _disk
+    unsigned _disk_group = 0;
 
     static io_throttler::config configure_throttler(const io_queue::config& qcfg) noexcept;
     priority_class_data& find_or_create_class(scheduling_group sg);

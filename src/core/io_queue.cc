@@ -20,6 +20,7 @@
  */
 
 
+#include <algorithm>
 #include <chrono>
 #include <concepts>
 #include <cstdint>
@@ -146,13 +147,18 @@ auto io_throttler::capacity_deficiency(capacity_t from) const noexcept -> capaci
 //   disk, from a timer, once per period. It reads the reports of the period
 //   that ended last. Only the regulator writes c.
 // - Probe: one run of the regulator on the reports of one period.
-// - Step: rate_correction_step (0.005), the change of c in one decrease.
+// - Cycle: the probes of one rate_correction_cycle (30s). The regulator can
+//   increase c only at the end of a cycle. Skipped periods do not count.
+// - Step: rate_correction_step (0.005), the change of c in one decrease or
+//   increase.
 
 namespace internal {
 
 // The report of one queue. The queue writes it, and the regulator reads it on
 // its own shard.
 struct disk_report {
+    // The index of the queue's group among the groups of the disk
+    const unsigned group;
     const unsigned shard;
     // The number of the period in which the queue started. The queue has no
     // reports for earlier periods.
@@ -170,10 +176,13 @@ struct disk_report {
     // that the report covers, it is the average number of requests in the
     // disk.
     std::atomic<uint64_t> occupancy_us = 0;
+    // The capacity that the queue sent through each bucket of its group, in
+    // fair_queue_entry::capacity_t units
+    std::atomic<uint64_t> sent[2] = {0, 0};
     // The time that the report covers, in microseconds
     std::atomic<uint64_t> duration_us = 0;
 
-    disk_report(unsigned s, int64_t f) noexcept : shard(s), first(f) {}
+    disk_report(unsigned g, unsigned s, int64_t f) noexcept : group(g), shard(s), first(f) {}
 };
 
 }
@@ -184,9 +193,21 @@ struct io_group::disk_state {
     // it once per tick.
     std::atomic<double> rate_correction = 1.0;
 
-    // The lock of `reports`. Each queue takes it once at start, to add its
-    // report. After the start, only the regulator takes it, once per probe.
+    // The lock of `groups` and `reports`. Each group and each queue takes it
+    // once at start, to add itself. After the start, only the regulator takes
+    // it, once per probe.
     util::spinlock lock;
+    struct group_budget {
+        // The number of buckets of the group: 2 on a duplex disk, one for each
+        // direction, and 1 otherwise
+        unsigned buckets;
+        // What the queues of the group sent per second through each bucket in
+        // the probed period, as a fraction of the configured rate of the
+        // bucket. 1.0 is all of the configured rate.
+        std::array<double, 2> sent_per_second = {};
+    };
+    // The groups of the disk. The index of a group is io_group::_disk_group.
+    std::vector<group_budget> groups;
     // The reports of all queues of the disk. A deque does not move its
     // elements when it grows. Thus each queue can keep a pointer to its report.
     std::deque<internal::disk_report> reports;
@@ -201,6 +222,9 @@ struct io_group::disk_state {
     int64_t next_period = -1;
     // The average time in the disk in the previous probe, in seconds
     double prev_latency = 0.0;
+    // The number of probes in the current cycle, and of those that found room
+    unsigned probes = 0;
+    unsigned room = 0;
     // The rate correction is off for this disk. The reason is the tick of a
     // group of the disk: it is too long for the regulator to read the reports
     // in time.
@@ -226,6 +250,19 @@ struct io_group::disk_state {
 // A shorter time shows that the disk works off its queue at the current c.
 // With few requests in the disk, a long time in the disk shows a slow disk,
 // not a long wait behind other requests. A lower rate shortens only the wait.
+//
+// Increase: c goes up by one step at the end of a cycle, if at least 27 of 30
+// probes of the cycle found room. A skipped period is not a probe. Also, in
+// the last probe of the cycle, requests must complete and spend at most the
+// threshold in the disk on average. A probe finds room if the average time in
+// the disk is below half the threshold, and each group used all of its share
+// of the corrected rates. The groups share the rates statically. Thus the
+// disk gets all of the corrected rates only while each group uses all of its
+// share. A group can use less, because its load is light or its reactor is
+// busy. Then a short time in the disk shows nothing about the rest of the
+// rates. The buckets of a duplex disk have separate rates. Thus a group uses
+// all of its share if one of its buckets lets through all of its corrected
+// rate.
 void io_group::disk_state::regulate(const io_queue::config& cfg, io_queue::clock_type::time_point now, io_queue::clock_type::duration delay) noexcept {
     const auto period = std::chrono::duration_cast<io_queue::clock_type::duration>(cfg.rate_correction_period);
     // The number of the period that ended last. If its reports are not due
@@ -253,6 +290,9 @@ void io_group::disk_state::regulate(const io_queue::config& cfg, io_queue::clock
     // long request can make the disk look much busier than it is.
     constexpr double least_covered = 0.5;
     late_shards.clear();
+    for (auto& g : groups) {
+        g.sent_per_second = {};
+    }
     for (auto& r : reports) {
         if (r.first > last) {
             continue;
@@ -264,6 +304,7 @@ void io_group::disk_state::regulate(const io_queue::config& cfg, io_queue::clock
             auto completed = r.completed.load(std::memory_order_relaxed);
             auto time_us = r.time_in_disk_us.load(std::memory_order_relaxed);
             auto occupancy_us = r.occupancy_us.load(std::memory_order_relaxed);
+            uint64_t sent[2] = {r.sent[0].load(std::memory_order_relaxed), r.sent[1].load(std::memory_order_relaxed)};
             auto duration_us = r.duration_us.load(std::memory_order_relaxed);
             std::atomic_thread_fence(std::memory_order_acquire);
             const double seconds = duration_us * 1e-6;
@@ -271,6 +312,9 @@ void io_group::disk_state::regulate(const io_queue::config& cfg, io_queue::clock
                 nr += completed;
                 time_in_disk_us += time_us;
                 in_disk += occupancy_us * 1e-6 / seconds;
+                for (unsigned b = 0; b < 2; b++) {
+                    groups[r.group].sent_per_second[b] += io_throttler::capacity_tokens(sent[b]) / seconds;
+                }
                 continue;
             }
         }
@@ -296,6 +340,29 @@ void io_group::disk_state::regulate(const io_queue::config& cfg, io_queue::clock
             c = std::max(c - cfg.rate_correction_step, cfg.rate_correction_min);
         }
         prev_latency = latency;
+    }
+
+    // A group used all of its share of the corrected rates if a bucket of the
+    // group let through at least this fraction of c. The rest is for the noise
+    // of the measurement. c was `old` in the probed period.
+    constexpr double full_use = 0.97;
+    bool all_used = true;
+    for (auto& g : groups) {
+        all_used &= std::any_of(g.sent_per_second.begin(), g.sent_per_second.begin() + g.buckets, [old] (double sent) {
+            return sent >= full_use * old;
+        });
+    }
+    probes++;
+    room += all_used && nr && latency < threshold / 2;
+
+    if (probes >= cfg.rate_correction_cycle / cfg.rate_correction_period) {
+        // At least 27 of 30 probes of the cycle found room. In this probe,
+        // requests completed and spent at most the threshold in the disk on
+        // average.
+        if (room * 30 >= probes * 27 && nr && latency <= threshold) {
+            c = std::min(c + cfg.rate_correction_step, 1.0);
+        }
+        probes = room = 0;
     }
 
     if (c != old) {
@@ -882,6 +949,9 @@ void io_queue::report_rate_measurements(clock_type::time_point now) noexcept {
     const int64_t covered_us = std::chrono::duration_cast<std::chrono::microseconds>(now - _measured_since).count();
     _occupancy_us += std::max<int64_t>(int64_t(_in_disk_now) * covered_us - _dispatched_after_us, 0);
     r.occupancy_us.store(std::exchange(_occupancy_us, 0), std::memory_order_relaxed);
+    for (unsigned b = 0; b < _sent.size(); b++) {
+        r.sent[b].store(std::exchange(_sent[b], 0), std::memory_order_relaxed);
+    }
     r.duration_us.store(covered_us, std::memory_order_relaxed);
     r.period.store(_period, std::memory_order_release);
     start_rate_period(now);
@@ -1006,7 +1076,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
         } else {
             start_rate_period(clock_type::now());
             disk.late_shards.reserve(disk.reports.size() + 1);
-            _report = &disk.reports.emplace_back(this_shard_id(), _period);
+            _report = &disk.reports.emplace_back(_group->_disk_group, this_shard_id(), _period);
             // The first queue of the disk runs the regulator. The reactor makes
             // all groups of a disk from one config. Thus all queues of the disk
             // have the same tick and the same delay.
@@ -1056,6 +1126,11 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues, const io_group* 
     _fgs.emplace_back(throttler_config, nr_queues);
     if (_config.duplex) {
         _fgs.emplace_back(throttler_config, nr_queues);
+    }
+    {
+        std::lock_guard _(_disk->lock);
+        _disk_group = _disk->groups.size();
+        _disk->groups.push_back({unsigned(_fgs.size())});
     }
 
     auto goal = io_latency_goal();
@@ -1459,8 +1534,9 @@ future<size_t> io_queue::submit_io_write(size_t len, internal::io_request req, i
 
 void io_queue::poll_io_queue() {
     // If a period ended since the previous poll, the queue writes its report
-    // at once. Thus a queue that polls writes its report in time. Without the
-    // rate correction, _period_end is max(), and the queue writes no report.
+    // before it dispatches. Thus the requests that it dispatches now count in
+    // the current period. Without the rate correction, _period_end is max(),
+    // and the queue writes no report.
     report_rate_measurements(clock_type::time_point(lowres_clock::now().time_since_epoch()));
 
     for (auto& pc : _priority_classes) {
@@ -1489,6 +1565,7 @@ void io_queue::poll_io_queue() {
             }
 
             st.fq.pop_front();
+            _sent[&st - _streams.data()] += ent->capacity();
             queued_io_request::from_fq_entry(*ent).dispatch();
         }
 
