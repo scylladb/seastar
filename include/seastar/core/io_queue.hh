@@ -22,6 +22,7 @@
 #pragma once
 
 #include <boost/container/static_vector.hpp>
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <vector>
@@ -145,6 +146,9 @@ private:
     uint64_t _prev_completed = 0;
     double _flow_ratio = 1.0;
 
+    // The rate correction of the disk, c, as this queue read it last
+    double _rate_correction = 1.0;
+
     timer<lowres_clock> _averaging_decay_timer;
 
     const std::chrono::milliseconds _stall_threshold_min;
@@ -153,6 +157,7 @@ private:
 
     void update_flow_ratio() noexcept;
     void lower_stall_threshold() noexcept;
+    void update_rate_correction() noexcept;
 
     metrics::metric_groups _metric_groups;
 public:
@@ -375,9 +380,19 @@ public:
 
     capacity_t capacity_deficiency(capacity_t from) const noexcept;
 
+    /// The time in which the configured rate fills the bucket up to its limit.
+    /// This is the latency goal of the group. The rate correction does not
+    /// change it.
     std::chrono::duration<double> rate_limit_duration() const noexcept {
-        std::chrono::duration<double, rate_resolution> dur((double)_token_bucket.limit() / _token_bucket.rate());
+        std::chrono::duration<double, rate_resolution> dur((double)_token_bucket.limit() / fixed_point_factor);
         return std::chrono::duration_cast<std::chrono::duration<double>>(dur);
+    }
+
+    /// Makes the bucket refill at \p c times its configured rate. \p c is
+    /// above 0.0 and at most 1.0. The refill rate stays above zero, also for
+    /// a very small \p c.
+    void set_rate_correction(double c) noexcept {
+        _token_bucket.update_rate(std::max<capacity_t>(c * fixed_point_factor, 1));
     }
 
     const token_bucket_t& token_bucket() const noexcept { return _token_bucket; }
@@ -385,7 +400,10 @@ public:
 
 class io_group {
 public:
-    explicit io_group(io_queue::config io_cfg, unsigned nr_queues);
+    /// All groups of one disk share the rate correction of the disk. Give
+    /// each group of a disk, except the first one, another group of the same
+    /// disk as \p peer. The first group of a disk gets null.
+    explicit io_group(io_queue::config io_cfg, unsigned nr_queues, const io_group* peer = nullptr);
     ~io_group();
     struct priority_class_data;
     using priority_class_group_data = priority_class_data;
@@ -414,6 +432,9 @@ private:
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     util::spinlock _lock;
     const shard_id _allocated_on;
+    struct disk_state;
+    // The state that all groups of this disk share, see io_queue.cc
+    const std::shared_ptr<disk_state> _disk;
 
     static io_throttler::config configure_throttler(const io_queue::config& qcfg) noexcept;
     priority_class_data& find_or_create_class(scheduling_group sg);

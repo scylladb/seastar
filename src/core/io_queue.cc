@@ -116,6 +116,15 @@ auto io_throttler::capacity_deficiency(capacity_t from) const noexcept -> capaci
     return _token_bucket.deficiency(from);
 }
 
+// The state that all I/O groups of one disk share: the rate correction c of
+// the disk, a factor from 0 to 1.0. The token buckets of each group of the
+// disk refill at c times their configured rate. Thus all groups of the disk
+// lower their rates together. The cost of a request does not change. Thus c
+// applies to large requests as much as to small ones.
+struct io_group::disk_state {
+    std::atomic<double> rate_correction = 1.0;
+};
+
 struct io_group::priority_class_data {
     priority_class_group_data* parent;
 
@@ -660,6 +669,21 @@ void io_queue::lower_stall_threshold() noexcept {
     _stall_threshold = std::max(_stall_threshold_min, new_threshold);
 }
 
+// Runs at each tick. Reads the rate correction of the disk. The buckets belong
+// to the group. Thus only the queue on the shard that created the group sets
+// their rate.
+void io_queue::update_rate_correction() noexcept {
+    auto c = _group->_disk->rate_correction.load(std::memory_order_relaxed);
+    if (c != _rate_correction) {
+        _rate_correction = c;
+        if (_group->_allocated_on == this_shard_id()) {
+            for (auto& fg : _group->_fgs) {
+                fg.set_rate_correction(c);
+            }
+        }
+    }
+}
+
 void
 io_queue::complete_request(io_desc_read_write& desc, std::chrono::duration<double> delay) noexcept {
     _requests_executing--;
@@ -688,6 +712,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     , _averaging_decay_timer([this] {
         update_flow_ratio();
         lower_stall_threshold();
+        update_rate_correction();
     })
     , _stall_threshold_min(std::max(get_config().stall_threshold, 1ms))
     , _stall_threshold(_stall_threshold_min)
@@ -734,9 +759,10 @@ std::chrono::duration<double> io_group::io_latency_goal() const noexcept {
     return _fgs.front().rate_limit_duration();
 }
 
-io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
+io_group::io_group(io_queue::config io_cfg, unsigned nr_queues, const io_group* peer)
     : _config(std::move(io_cfg))
     , _allocated_on(this_shard_id())
+    , _disk(peer ? peer->_disk : std::make_shared<disk_state>())
 {
     auto throttler_config = configure_throttler(_config);
     _fgs.emplace_back(throttler_config, nr_queues);
