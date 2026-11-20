@@ -87,6 +87,19 @@ void disk_config_params::parse_config(const smp_options& smp_opts, const reactor
     _flow_ratio_backpressure_threshold = reactor_opts.io_flow_ratio_threshold.get_value();
     seastar_logger.debug("flow-ratio threshold: {}", _flow_ratio_backpressure_threshold);
     _stall_threshold = reactor_opts.io_completion_notify_ms.defaulted() ? std::chrono::milliseconds::max() : reactor_opts.io_completion_notify_ms.get_value() * 1ms;
+    _disk_latency_threshold = std::chrono::duration<double, std::milli>(reactor_opts.io_disk_latency_threshold_ms.get_value());
+    // A queue reports its measurements of a period of the rate correction at
+    // its first poll or averaging tick after the period ends. The regulator
+    // reads the reports a margin after the tick, but at most a share of a
+    // period after the period ends. A long tick leaves no room for the margin.
+    const io_queue::config defaults{0};
+    const auto max_latency_goal = (defaults.rate_correction_latest_read * defaults.rate_correction_period - defaults.rate_correction_margin)
+            / defaults.averaging_decay_ticks;
+    if (_disk_latency_threshold.count() > 0
+            && std::chrono::round<std::chrono::microseconds>(_latency_goal) > std::chrono::round<std::chrono::microseconds>(max_latency_goal)) {
+        throw std::runtime_error(fmt::format("io-disk-latency-threshold-ms needs an io-latency-goal-ms of at most {:g}, not {:g}",
+                max_latency_goal.count() * 1e3, _latency_goal.count() * 1e3));
+    }
 
     if (smp_opts.num_io_groups) {
         _num_io_groups = smp_opts.num_io_groups.get_value();
@@ -199,6 +212,10 @@ struct io_queue::config disk_config_params::generate_config(const disk_params& p
     // be better to sacrifice some IO latency, but allow for larger concurrency
     cfg.block_count_limit_min = (64 << 10) >> io_queue::block_size_shift;
     cfg.stall_threshold = stall_threshold();
+    // A disk without configured rates has nothing to correct
+    if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
+        cfg.disk_latency_threshold = _disk_latency_threshold;
+    }
     cfg.physical_block_size = p.physical_block_size;
 
     return cfg;
