@@ -120,6 +120,15 @@ struct io_queue_for_tests {
         return queue._streams[0].fq;
     }
 
+    // For the io_queue of the reactor, which supergroup::set_shares() updates
+    static void find_or_create_class(io_queue& q, scheduling_group sg) {
+        q.find_or_create_class(sg);
+    }
+
+    static fair_queue& get_fair_queue(io_queue& q) {
+        return q._streams[0].fq;
+    }
+
     struct pending_waits {
         std::chrono::duration<double, std::milli> first_request;
         std::chrono::duration<double, std::milli> full_reservation;
@@ -1172,4 +1181,47 @@ SEASTAR_THREAD_TEST_CASE(test_get_all_io_queues) {
     if (auto* q = engine().try_get_io_queue(sd.device_id)) {
         BOOST_CHECK(std::find(queues.begin(), queues.end(), q) != queues.end());
     }
+}
+
+// A nested supergroup gets no IO group: the IO classes of its groups go into
+// the IO group of the top-level supergroup that holds it.
+// Uses the io_queue of the reactor, because set_shares() updates only that one.
+SEASTAR_THREAD_TEST_CASE(test_nested_supergroup_uses_top_level_io_group) {
+    auto& queue = engine().get_io_queue(0);
+
+    auto top = create_scheduling_supergroup(1000).get();
+    auto nested = create_scheduling_supergroup(1000, top).get();
+    auto groups = std::to_array({
+        create_scheduling_group("sibling", "sibl", 200, top).get(),
+        create_scheduling_group("high", "high", 900, nested).get(),
+        create_scheduling_group("low", "low", 100, nested).get(),
+    });
+    auto stop = defer([&] () noexcept {
+        for (auto sg : groups) {
+            destroy_scheduling_group(sg).get();
+        }
+        destroy_scheduling_supergroup(nested).get();
+        destroy_scheduling_supergroup(top).get();
+    });
+
+    seastar::testing::fair_queue_test fq(io_queue_for_tests::get_fair_queue(queue));
+    for (auto sg : groups) {
+        BOOST_REQUIRE(internal::scheduling_supergroup_for(sg) == top);
+        io_queue_for_tests::find_or_create_class(queue, sg);
+        BOOST_CHECK(fq.get_parent_index(sg) == top.index());
+    }
+    BOOST_CHECK(fq.is_root_group(top.index()));
+    BOOST_CHECK_EQUAL(fq.nr_children_for(top.index()), groups.size());
+
+    // Only the top-level supergroup mirrors its shares into the IO scheduler
+    auto root_children = fq.nr_children_for({});
+    nested.set_shares(500);
+    BOOST_CHECK_EQUAL(fq.nr_children_for({}), root_children);
+    BOOST_CHECK_EQUAL(fq.group_shares(top.index()), 1000);
+    top.set_shares(300);
+    BOOST_CHECK_EQUAL(fq.group_shares(top.index()), 300);
+
+    BOOST_CHECK_EXCEPTION(nested.update_io_bandwidth(1 << 20).get(), std::runtime_error, [] (const std::runtime_error& e) {
+        return e.what() == sstring("The IO scheduler has no IO group for a nested supergroup");
+    });
 }

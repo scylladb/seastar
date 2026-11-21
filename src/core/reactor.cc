@@ -622,15 +622,16 @@ void task_histogram_add_task(const task& t) {
 #endif
 
 scheduling_supergroup scheduling_supergroup_for(scheduling_group sg) noexcept {
-    auto& q = engine()._task_queues[internal::scheduling_group_index(sg)];
-    auto& supergroups = engine()._supergroups;
-    for (unsigned i = 0; i < supergroups.size(); i++) {
-        if (supergroups[i].get() == q->_parent) {
-            return scheduling_supergroup(i);
-        }
+    auto& r = engine();
+    reactor::task_queue_group* top = r._task_queues[internal::scheduling_group_index(sg)]->_parent;
+    while (top != &r._cpu_sched && top->_parent != &r._cpu_sched) {
+        top = top->_parent;
     }
-
-    return scheduling_supergroup();
+    if (top == &r._cpu_sched) {
+        return scheduling_supergroup();
+    }
+    auto it = std::ranges::find_if(r._supergroups, [top] (const auto& g) { return g.get() == top; });
+    return scheduling_supergroup(std::distance(r._supergroups.begin(), it));
 }
 
 }
@@ -1164,6 +1165,14 @@ reactor::~reactor() {
             auto sg = scheduling_group(tq->_id);
             *internal::current_scheduling_group_ptr() = sg;
             get_sg_data(sg).specific_vals.clear();
+        }
+    }
+    // The supergroups that the application did not destroy are freed in the order
+    // of _supergroups, so a parent can be freed before its nested supergroup.
+    // Detach each nested supergroup, so that its destructor does not change the freed parent.
+    for (auto& ssg : _supergroups) {
+        if (ssg && ssg->_parent != &_cpu_sched) {
+            ssg->_parent = nullptr;
         }
     }
 }
@@ -5181,6 +5190,16 @@ reactor::init_scheduling_group_specific_data(scheduling_group sg) {
     });
 }
 
+reactor::task_queue_group* reactor::group_for(scheduling_supergroup ssg) {
+    if (ssg.is_root()) {
+        return &_cpu_sched;
+    }
+    if (ssg.index() >= _supergroups.size() || _supergroups[ssg.index()] == nullptr) {
+        throw std::runtime_error("Requested supergroup doesn't exist");
+    }
+    return _supergroups[ssg.index()].get();
+}
+
 future<scheduling_group>
 reactor::init_scheduling_group(sstring name, sstring shortname, float shares, scheduling_supergroup parent) {
     return with_shared(_scheduling_group_keys_mutex, [this, name = std::move(name), shortname = std::move(shortname), shares, parent] {
@@ -5192,13 +5211,7 @@ reactor::init_scheduling_group(sstring name, sstring shortname, float shares, sc
             return make_exception_future<scheduling_group>(std::runtime_error(fmt::format("Scheduling group limit exceeded while creating {}", name)));
         }
 
-        auto* group = &_cpu_sched;
-        if (!parent.is_root()) {
-            if (_supergroups[parent.index()] == nullptr) {
-                return make_exception_future<scheduling_group>(std::runtime_error("Requested supergroup doesn't exist"));
-            }
-            group = _supergroups[parent.index()].get();
-        }
+        auto* group = group_for(parent);
         if (group->_nr_children == max_scheduling_groups()) {
             return make_exception_future<scheduling_group>(std::runtime_error(fmt::format("Supergroup children limit exceeded while creating {}", name)));
         }
@@ -5217,11 +5230,7 @@ future<>
 reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, sstring shortname, float shares, scheduling_supergroup parent) {
     return with_shared(_scheduling_group_keys_mutex, [this, sg, name = std::move(name), shortname = std::move(shortname), shares, parent] {
         get_sg_data(sg).queue_is_initialized = true;
-        auto* group = &_cpu_sched;
-        if (!parent.is_root()) {
-            group = _supergroups[parent.index()].get();
-        }
-        _task_queues[sg._id] = std::make_unique<task_queue>(group, sg._id, name, shortname, shares);
+        _task_queues[sg._id] = std::make_unique<task_queue>(group_for(parent), sg._id, name, shortname, shares);
         return init_scheduling_group_specific_data(sg);
     });
 }
@@ -5345,23 +5354,34 @@ future<> scheduling_group::update_io_bandwidth(uint64_t bandwidth) const {
 
 future<> scheduling_supergroup::update_io_bandwidth(uint64_t bandwidth) const {
     SEASTAR_ASSERT(!is_root());
+    if (!engine().is_top_level(*this)) {
+        return make_exception_future<>(std::runtime_error("The IO scheduler has no IO group for a nested supergroup"));
+    }
     return engine().update_bandwidth_for_queues(*this, bandwidth);
 }
 
 void scheduling_supergroup::set_shares(float shares) noexcept {
     if (!is_root()) {
-        engine()._supergroups[index()]->set_shares(shares);
-        engine().update_group_shares_for_queues(*this, shares);
+        auto& r = engine();
+        r._supergroups[index()]->set_shares(shares);
+        if (r.is_top_level(*this)) {
+            r.update_group_shares_for_queues(*this, shares);
+        }
     }
 }
 
 future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept {
-    auto index = co_await smp::submit_to(0, [shares] () -> unsigned {
+    return create_scheduling_supergroup(shares, scheduling_supergroup());
+}
+
+future<scheduling_supergroup> create_scheduling_supergroup(float shares, scheduling_supergroup parent) noexcept {
+    auto index = co_await smp::submit_to(0, [shares, parent] () -> unsigned {
         auto& r = engine();
-        if (r._cpu_sched._nr_children == max_scheduling_groups()) {
+        auto* pg = r.group_for(parent);
+        if (pg->_nr_children == max_scheduling_groups()) {
             throw std::runtime_error("Supergroup children limit exceeded while creating nested supergroup");
         }
-        auto ssg = std::make_unique<reactor::task_queue_group>(&r._cpu_sched, shares);
+        auto ssg = std::make_unique<reactor::task_queue_group>(pg, shares);
         for (unsigned index = 0; index < r._supergroups.size(); index++) {
             if (r._supergroups[index] == nullptr) {
                 r._supergroups[index] = std::move(ssg);
@@ -5375,13 +5395,13 @@ future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcep
 
     std::exception_ptr ex;
     try {
-        co_await smp::invoke_on_all([index, shares] {
+        co_await smp::invoke_on_all([index, shares, parent] {
             if (this_shard_id() != 0) {
                 auto& r = engine();
                 if (r._supergroups.size() <= index) {
                     r._supergroups.resize(index + 1);
                 }
-                r._supergroups[index] = std::make_unique<reactor::task_queue_group>(&r._cpu_sched, shares);
+                r._supergroups[index] = std::make_unique<reactor::task_queue_group>(r.group_for(parent), shares);
             }
         });
     } catch (...) {

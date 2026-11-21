@@ -56,6 +56,8 @@ unsigned long scheduling_group_key_id(scheduling_group_key) noexcept;
 template<typename T>
 T* scheduling_group_get_specific_ptr(scheduling_group sg, scheduling_group_key key) noexcept;
 
+// Returns the top-level supergroup that holds sg, through any nested supergroups,
+// or the root supergroup. The IO scheduler has one level of supergroups and uses this.
 scheduling_supergroup scheduling_supergroup_for(scheduling_group sg) noexcept;
 
 }
@@ -70,6 +72,26 @@ scheduling_supergroup scheduling_supergroup_for(scheduling_group sg) noexcept;
 ///              Use numbers in the 1-1000 range (but can go above).
 /// \return a scheduling supergroup that can be used on any shard
 future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept;
+
+/// Creates a scheduling supergroup inside another supergroup.
+///
+/// The new supergroup competes with the other children of \c parent for the
+/// CPU time of \c parent, and divides its own time among its children.
+/// Supergroups can be nested to any depth.
+///
+/// The IO scheduler has only one level of supergroups. The IO classes of the
+/// groups in a nested supergroup are in the IO group of the top-level supergroup
+/// that holds them, each with the shares of its group. So the shares of a nested
+/// supergroup apply to CPU time only, and \ref scheduling_supergroup::update_io_bandwidth()
+/// does not accept a nested supergroup.
+///
+/// The operation is global and affects all shards. The returned future fails
+/// with std::runtime_error if \c parent does not exist or has too many children.
+///
+/// \param shares number of shares of the CPU time of \c parent
+/// \param parent the supergroup to create the supergroup in
+/// \return a scheduling supergroup that can be used on any shard
+future<scheduling_supergroup> create_scheduling_supergroup(float shares, scheduling_supergroup parent) noexcept;
 
 /// Destroys a scheduling supergroup.
 ///
@@ -329,7 +351,7 @@ public:
     bool operator==(scheduling_supergroup x) const noexcept { return _id == x._id; }
     bool operator!=(scheduling_supergroup x) const noexcept { return _id != x._id; }
 
-    friend future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept;
+    friend future<scheduling_supergroup> create_scheduling_supergroup(float shares, scheduling_supergroup parent) noexcept;
     friend scheduling_supergroup internal::scheduling_supergroup_for(scheduling_group sg) noexcept;
     friend class reactor;
 
@@ -342,6 +364,9 @@ public:
     /// This can be used to reduce a background job's interference with a foreground
     /// load: the shares can be started at a low value, increased when the background
     /// job's backlog increases, and reduced again when the backlog decreases.
+    ///
+    /// For a nested supergroup, only the CPU shares change, see
+    /// \ref create_scheduling_supergroup(float, scheduling_supergroup).
     ///
     /// \param shares number of shares allotted to the group. Use numbers
     ///               in the 1-1000 range.
@@ -361,7 +386,8 @@ public:
     /// Must not be called on the root supergroup
     ///
     /// \param bandwidth the new bandwidth value in bytes/second
-    /// \return a future that is ready when the bandwidth update is applied
+    /// \return a future that is ready when the bandwidth update is applied, or that
+    ///         fails with std::runtime_error for a nested supergroup
     future<> update_io_bandwidth(uint64_t bandwidth) const;
 };
 

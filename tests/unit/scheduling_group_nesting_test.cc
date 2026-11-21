@@ -24,6 +24,8 @@
 #include <fmt/chrono.h>
 #include <vector>
 #include <chrono>
+#include <numeric>
+#include <ranges>
 
 #include <seastar/core/thread.hh>
 #include <seastar/testing/test_case.hh>
@@ -36,6 +38,8 @@
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/util/later.hh>
+#include <seastar/coroutine/maybe_yield.hh>
+#include <seastar/coroutine/parallel_for_each.hh>
 
 using namespace seastar;
 
@@ -74,7 +78,8 @@ future<> layout::destroy() {
     for (auto sg : groups) {
         co_await seastar::destroy_scheduling_group(sg);
     }
-    for (auto sg : sgroups) {
+    // A nested supergroup comes after its parent, so destroy from the back
+    for (auto sg : sgroups | std::views::reverse) {
         co_await seastar::destroy_scheduling_supergroup(sg);
     }
 }
@@ -91,6 +96,27 @@ SEASTAR_TEST_CASE(test_basic_ops) {
     BOOST_CHECK(ssg.index() == 1);
     BOOST_CHECK(ssg == l.sgroups[1]);
     co_await l.destroy();
+}
+
+SEASTAR_TEST_CASE(test_nested_supergroup_ops) {
+    auto top = co_await create_scheduling_supergroup(1000);
+    auto nested = co_await create_scheduling_supergroup(1000, top);
+    auto deeper = co_await create_scheduling_supergroup(1000, nested);
+    auto sg = co_await create_scheduling_group("deeper", "dper", 100, deeper);
+
+    // The IO scheduler uses the top-level supergroup, at any depth.
+    BOOST_CHECK(internal::scheduling_supergroup_for(sg) == top);
+
+    co_await destroy_scheduling_group(sg);
+    BOOST_CHECK_EXCEPTION(co_await destroy_scheduling_supergroup(top), std::runtime_error, [] (const std::runtime_error& e) {
+        return e.what() == sstring("Supergroup is still populated, destroy all subgroups first");
+    });
+    co_await destroy_scheduling_supergroup(deeper);
+    co_await destroy_scheduling_supergroup(nested);
+    co_await destroy_scheduling_supergroup(top);
+    BOOST_CHECK_EXCEPTION(co_await create_scheduling_supergroup(100, top), std::runtime_error, [] (const std::runtime_error& e) {
+        return e.what() == sstring("Requested supergroup doesn't exist");
+    });
 }
 
 static metrics::histogram reactor_stalls() {
@@ -282,6 +308,67 @@ static future<> do_test_fairness(layout& l) {
         co_await run_busyloops(run_groups, expectations);
     }
 }
+
+// Runs a busy loop until end and adds its wall time to busy. The scheduler charges
+// wall time to a group, also when the OS gives the CPU to another process.
+static future<> busy_loop(std::chrono::steady_clock::duration& busy, std::chrono::steady_clock::time_point end) {
+    using clock = std::chrono::steady_clock;
+    while (clock::now() < end) {
+        auto start = clock::now();
+        while (clock::now() - start < std::chrono::microseconds(50)) ;
+        busy += clock::now() - start;
+        co_await coroutine::maybe_yield();
+    }
+}
+
+// Runs a busy loop in each group for 2 s and returns the fraction of the time that each group got.
+static future<std::vector<double>> measure_fractions(std::vector<scheduling_group> groups) {
+    using clock = std::chrono::steady_clock;
+    std::vector<clock::duration> busy(groups.size());
+    auto end = clock::now() + std::chrono::seconds(2);
+    co_await coroutine::parallel_for_each(std::views::iota(size_t(0), groups.size()), [&] (size_t i) {
+        return with_scheduling_group(groups[i], busy_loop, std::ref(busy[i]), end);
+    });
+    auto total = std::accumulate(busy.begin(), busy.end(), clock::duration{});
+    std::vector<double> fractions;
+    for (auto b : busy) {
+        fractions.push_back(double(b.count()) / total.count());
+    }
+    co_return fractions;
+}
+
+static void check_fractions(const std::vector<double>& got, const std::vector<double>& expected, std::string_view what) {
+    for (size_t i = 0; i < got.size(); i++) {
+        fmt::print("{} {}: {:.3f} (expected {:.3f})\n", what, i, got[i], expected[i]);
+        BOOST_CHECK_CLOSE(got[i], expected[i], 10.0);
+    }
+}
+
+// root:   other 1000, top 1000
+// top:    sibling 200, nested 1000
+// nested: high 900, low 100
+SEASTAR_TEST_CASE(test_nested_supergroup_fairness) {
+    auto top = co_await create_scheduling_supergroup(1000);
+    auto nested = co_await create_scheduling_supergroup(1000, top);
+    auto other = co_await create_scheduling_group("other", "othr", 1000);
+    auto sibling = co_await create_scheduling_group("sibling", "sibl", 200, top);
+    auto high = co_await create_scheduling_group("high", "high", 900, nested);
+    auto low = co_await create_scheduling_group("low", "low", 100, nested);
+
+    // No work in high: low gets the whole part of nested.
+    check_fractions(co_await measure_fractions({other, sibling, low}), {1. / 2, 1. / 12, 5. / 12}, "high idle");
+    // All busy: nested keeps 1000/1200 of top, divided 900:100.
+    check_fractions(co_await measure_fractions({other, sibling, high, low}), {1. / 2, 1. / 12, 3. / 8, 1. / 24}, "all busy");
+    // set_shares() of nested changes its part of top, and not the division inside.
+    nested.set_shares(500);
+    check_fractions(co_await measure_fractions({other, sibling, high, low}), {1. / 2, 1. / 7, 9. / 28, 1. / 28}, "nested 500");
+
+    for (auto sg : {other, sibling, high, low}) {
+        co_await destroy_scheduling_group(sg);
+    }
+    co_await destroy_scheduling_supergroup(nested);
+    co_await destroy_scheduling_supergroup(top);
+}
 #else
 static future<> do_test_fairness(layout& l) {
     fmt::print("Skipping CPU fairness test in debug mode\n");
@@ -297,6 +384,10 @@ SEASTAR_TEST_CASE(test_fairness) {
 
 SEASTAR_TEST_CASE(test_wakeups) {
     auto l = co_await layout::create();
+    // Also wake up groups through two levels of supergroups
+    l.sgroups.push_back(co_await seastar::create_scheduling_supergroup(100, l.sgroups[0]));
+    l.groups.push_back(co_await seastar::create_scheduling_group("g41", "g41", 100, l.sgroups.back()));
+    l.groups.push_back(co_await seastar::create_scheduling_group("g51", "g51", 100, l.sgroups.back()));
 
     std::default_random_engine random_engine(testing::local_random_engine());
     std::uniform_int_distribution<unsigned> ng_dist(0, l.groups.size() - 1);
@@ -348,4 +439,11 @@ SEASTAR_TEST_CASE(test_wakeups) {
     }
 
     co_await l.destroy();
+}
+
+// Keep this test last: it leaves a nested supergroup alive at exit, so the reactor
+// destroys it after its parent, which has the lower index in the supergroup list.
+SEASTAR_TEST_CASE(test_nested_supergroup_alive_at_exit) {
+    auto top = co_await create_scheduling_supergroup(1000);
+    co_await create_scheduling_supergroup(1000, top);
 }
