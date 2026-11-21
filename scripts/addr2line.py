@@ -249,7 +249,6 @@ class BacktraceResolver:
             token = fr"(?:{path}\+)?{addr}"
             build_id = r"\(BuildId: [0-9a-fA-F]+\)"
             full_addr_match = fr"(?:(?P<path>{path})\s*\+\s*)?(?P<addr>{addr})"
-            ignore_addr_match = fr"(?:(?P<path>{path})\s*\+\s*)?(?:{addr})"
 
             self.asan_ignore_re = re.compile(f"^=.*$", flags=re.IGNORECASE)
             self.separator_re = re.compile(r'^\W*-+\W*$')
@@ -262,7 +261,7 @@ class BacktraceResolver:
             )
             self.address_re = re.compile(full_addr_match, flags=re.IGNORECASE)
             self.syslog_re = re.compile(
-                fr"^(?:#\d+\s+)(?P<addr>{addr})(?:.*\s+)\({ignore_addr_match}\)\s*$",
+                fr"^(?:#\d+\s+)(?:{addr})(?:.*\s+)\({full_addr_match}\)\s*$",
                 flags=re.IGNORECASE,
             )
             self.kernel_re = re.compile(fr'^.*kernel callstack: (?P<addrs>(?:{addr}\s*)+)$')
@@ -373,7 +372,16 @@ class BacktraceResolver:
         self._current_backtrace: list[tuple[str, str]] = []
         self._prefix = None
         self._before_lines = before_lines
-        self._before_lines_queue: collections.deque[str] = collections.deque(maxlen=before_lines)
+        # The last before_lines non-backtrace lines, which --match looks at.
+        # The last _unprinted_lines of them are not printed yet and precede
+        # the next backtrace.
+        self._before_lines_queue: collections.deque[str] = collections.deque(
+            maxlen=max(before_lines, 0)
+        )
+        self._unprinted_lines = 0
+        # with negative before_lines, non-backtrace lines are printed right
+        # away and --match looks at all of them, which takes a flag
+        self._context_line_matched = False
         self._i = 0
         self._known_backtraces: dict[str, int] = {}
         if context_re is not None:
@@ -452,6 +460,9 @@ class BacktraceResolver:
         if self._context_re is None:
             return True
 
+        if self._context_line_matched:
+            return True
+
         if any(self._context_re.search(x) for x in self._before_lines_queue):
             return True
 
@@ -468,8 +479,11 @@ class BacktraceResolver:
             self._current_backtrace = []
             return
 
-        for line in self._before_lines_queue:
-            sys.stdout.write(line)
+        if self._before_lines > 0:
+            queue = self._before_lines_queue
+            for i in range(len(queue) - self._unprinted_lines, len(queue)):
+                sys.stdout.write(queue[i])
+            self._unprinted_lines = 0
 
         if not self._prefix is None:
             print(self._prefix)
@@ -510,7 +524,12 @@ class BacktraceResolver:
             self._print_current_backtrace()
             if self._before_lines > 0:
                 self._before_lines_queue.append(line)
+                self._unprinted_lines = min(
+                    self._unprinted_lines + 1, len(self._before_lines_queue)
+                )
             elif self._before_lines < 0:
+                if self._context_re is not None and self._context_re.search(line):
+                    self._context_line_matched = True
                 sys.stdout.write(line)  # line already has a trailing newline
             else:
                 pass  # when == 0 no non-backtrace lines are printed

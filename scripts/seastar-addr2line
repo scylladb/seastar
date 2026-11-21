@@ -346,7 +346,7 @@ class TestStringMethods(unittest.TestCase):
                 {
                     'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
                     'prefix': None,
-                    'addresses': [{'path': '/path/to/scylla', 'addr': '0x19c01681'}],
+                    'addresses': [{'path': '/path/to/scylla', 'addr': '0xdeadbeef'}],
                 },
             ),
             (
@@ -354,7 +354,7 @@ class TestStringMethods(unittest.TestCase):
                 {
                     'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
                     'prefix': None,
-                    'addresses': [{'path': 'libc.so.6', 'addr': '0x00007fd2dab4f950'}],
+                    'addresses': [{'path': 'libc.so.6', 'addr': '0x26950'}],
                 },
             ),
             (
@@ -362,7 +362,7 @@ class TestStringMethods(unittest.TestCase):
                 {
                     'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
                     'prefix': None,
-                    'addresses': [{'path': '/path/to/scylla', 'addr': '0x00000000015c4cd3'}],
+                    'addresses': [{'path': '/path/to/scylla', 'addr': '0x15c4cd3'}],
                 },
             ),
             ('kernel callstack: ', None),
@@ -501,8 +501,7 @@ There are three operational modes:
     args = cmdline_parser.parse_args()
 
     if args.addresses and args.file:
-        print("Cannot use both -f and ADDRESS")
-        cmdline_parser.print_help()
+        cmdline_parser.error("cannot use both -f and ADDRESS")
 
     if args.file:
         lines = open(args.file, 'r')
