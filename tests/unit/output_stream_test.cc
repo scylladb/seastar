@@ -209,11 +209,13 @@ static void for_each_type_pattern(size_t n, Fn fn) {
 #endif
 
 // Builds a string of `len` bytes filled with a cycling pattern,
-// so that data integrity failures produce readable diffs.
-static std::string make_data(size_t len) {
+// so that data integrity failures produce readable diffs. The pattern
+// starts at a different letter for each chunk, so that two chunks of the
+// same size that the stream sends in the wrong order don't look the same.
+static std::string make_data(size_t len, size_t chunk) {
     std::string s(len, '\0');
     for (size_t i = 0; i < len; i++) {
-        s[i] = 'a' + (i % 26);
+        s[i] = 'a' + ((chunk + i) % 26);
     }
     return s;
 }
@@ -230,7 +232,7 @@ SEASTAR_THREAD_TEST_CASE(test_splitting_invariants) {
 
                 std::string expected_data;
                 for (size_t i = 0; i < chunk_sizes.size(); i++) {
-                    auto data = make_data(chunk_sizes[i]);
+                    auto data = make_data(chunk_sizes[i], i);
                     expected_data += data;
                     switch (write_types[i]) {
                     case write_type::buffered:
