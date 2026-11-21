@@ -495,11 +495,9 @@ struct output_stream_options {
 /// may be invoked before the previous method's returned future is
 /// resolved.
 ///
-/// \note Bufferred and zero-copy write()-s can be interleaved with care.
-/// If the stream was written to with zero-copy buffers, it must be flushed
-/// before writing bufferred data into it. However, bufferred data can be
-/// followed by zero-copy buffers put into stream. Respectively, once flushed
-/// the stream can be written to with bufferred data again.
+/// \note Buffered and zero-copy write()-s can be interleaved freely, in any
+/// order, with no flush() needed between them: the stream sends the data in
+/// the order it was written.
 template <typename CharType>
 class output_stream final {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");
