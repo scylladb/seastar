@@ -1,0 +1,37 @@
+# A solution in solutions/testing.md: exercise 5, a test of a rewrite of a large log.
+# tools/check_examples.py applies it to a copy of shoal/v16,
+# builds it, and runs the tests.
+# base: shoal/v16
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,30 @@
++# Tests for the solution of chapter 28's exercise 5: a rewrite of a log so
++# large that the rewrite writes its new log before it's done, which no
++# other test made happen. Like all of Shoal's tests, it passes against
++# Valkey too.
++from test_v10 import persistent, stop
++from test_v11 import wait_for_rewrite
++
++
++# snippet: test
++# Check that a rewrite of a log of many megabytes keeps the data, and a
++# restart after it. Shoal writes the new log before the rewrite ends when
++# more than a megabyte of it waits, so each shard must have several: 20 MB
++# of values, spread over the shards by their keys.
++def test_large_rewrite(start_server, tmp_path):
++    srv, r = persistent(start_server, tmp_path)
++    n = 20000
++    p = r.pipeline(transaction=False)
++    for i in range(n):
++        p.set(f'large{i}', f'{i:<1000}')
++    p.execute()
++    assert r.bgrewriteaof()
++    wait_for_rewrite(r)
++    stop(srv)
++    srv, r = persistent(start_server, tmp_path)
++    p = r.pipeline(transaction=False)
++    for i in range(n):
++        p.get(f'large{i}')
++    assert p.execute() == [f'{i:<1000}'.encode() for i in range(n)]
++    stop(srv)
++# end snippet: test

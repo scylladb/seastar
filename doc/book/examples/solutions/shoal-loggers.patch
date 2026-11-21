@@ -1,0 +1,176 @@
+# A solution in solutions/observability.md: Shoal v15 whose admin API lists the loggers and sets their levels
+# tools/check_examples.py applies it to a copy of shoal/v15,
+# builds it, and runs the tests.
+# base: shoal/v15
+--- a/admin.cc
++++ b/admin.cc
+@@ -7,6 +7,7 @@
+ #include <seastar/http/exception.hh>
+ #include <seastar/json/json_elements.hh>
+ #include <memory>
++#include <sstream>
+ #include <vector>
+
+ namespace aj = httpd::admin_json;
+@@ -93,6 +94,40 @@
+ }
+ // end snippet: delete-key
+
++// snippet: loggers
++// GET /v1/loggers: every logger, and its level.
++json::json_return_type get_loggers() {
++    auto& registry = global_logger_registry();
++    std::vector<aj::logger_level> loggers;
++    for (auto& name : registry.get_all_logger_names()) {
++        aj::logger_level logger;
++        logger.name = name;
++        logger.level = fmt::to_string(registry.get_logger_level(name));
++        loggers.push_back(std::move(logger));
++    }
++    return loggers;
++}
++
++// PUT /v1/loggers/{name}?level=debug: sets the logger's level. A logger is
++// shared by all the shards, and its level is an atomic variable, so this
++// shard sets it for all of them.
++json::json_return_type set_logger_level(const http::request& req) {
++    auto name = req.get_path_param("name");
++    log_level level;
++    std::istringstream in(req.get_query_param("level"));
++    if (!(in >> level)) {
++        throw httpd::bad_param_exception(fmt::format(
++            "unknown level '{}'", req.get_query_param("level")));
++    }
++    try {
++        global_logger_registry().set_logger_level(name, level);
++    } catch (std::out_of_range&) {
++        throw httpd::not_found_exception(fmt::format("no logger '{}'", name));
++    }
++    return json::json_void();
++}
++// end snippet: loggers
++
+ } // anonymous namespace
+
+ // snippet: set-routes
+@@ -114,5 +149,11 @@
+     aj::rewrite.set(r, [&db] (std::unique_ptr<http::request>) {
+         return rewrite(db);
+     });
++    aj::get_loggers.set(r, [] (httpd::const_req) {
++        return get_loggers();
++    });
++    aj::set_logger_level.set(r, [] (httpd::const_req req) {
++        return set_logger_level(req);
++    });
+ }
+ // end snippet: set-routes
+--- a/api/admin.json
++++ b/api/admin.json
+@@ -66,6 +66,43 @@
+             }]
+         },
+         {
++            "path": "/v1/loggers",
++            "operations": [{
++                "method": "GET",
++                "summary": "Lists the loggers and their levels",
++                "type": "array",
++                "items": {"type": "logger_level"},
++                "nickname": "get_loggers",
++                "produces": ["application/json"],
++                "parameters": []
++            }]
++        },
++        {
++            "path": "/v1/loggers/{name}",
++            "operations": [{
++                "method": "PUT",
++                "summary": "Sets a logger's level, on every shard",
++                "type": "void",
++                "nickname": "set_logger_level",
++                "produces": ["application/json"],
++                "parameters": [{
++                    "name": "name",
++                    "description": "The logger's name",
++                    "required": true,
++                    "allowMultiple": false,
++                    "type": "string",
++                    "paramType": "path"
++                }, {
++                    "name": "level",
++                    "description": "error, warn, info, debug or trace",
++                    "required": true,
++                    "allowMultiple": false,
++                    "type": "string",
++                    "paramType": "query"
++                }]
++            }]
++        },
++        {
+             "path": "/v1/rewrite",
+             "operations": [{
+                 "method": "POST",
+@@ -89,6 +126,14 @@
+                 "evicted_keys": {"type": "long", "description": "How many keys were evicted to stay within maxmemory"}
+             }
+         },
++        "logger_level": {
++            "id": "logger_level",
++            "description": "A logger and its level",
++            "properties": {
++                "name": {"type": "string", "description": "The logger's name"},
++                "level": {"type": "string", "description": "Its level"}
++            }
++        },
+         "shard_info": {
+             "id": "shard_info",
+             "description": "The keys and the memory of one shard",
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,45 @@
++# Tests of the solution of chapter 27's exercise 1: the admin API lists the
++# loggers and sets their levels.
++import json
++import urllib.error
++import urllib.request
++
++import pytest
++
++from test_v13 import admin_server
++
++
++def call(url, method='GET'):
++    """The HTTP status and the decoded JSON reply, or None if it's empty."""
++    request = urllib.request.Request(url, method=method)
++    try:
++        with urllib.request.urlopen(request, timeout=10) as reply:
++            status, body = reply.status, reply.read()
++    except urllib.error.HTTPError as e:
++        status, body = e.code, e.read()
++    return status, json.loads(body) if body else None
++
++
++def levels(api):
++    status, loggers = call(f'{api}/v1/loggers')
++    assert status == 200
++    return {l['name']: l['level'] for l in loggers}
++
++
++# Check that the loggers are listed, Shoal's and Seastar's, and that a
++# logger's level can be changed while Shoal runs.
++def test_set_level(start_server):
++    _, api = admin_server(start_server)
++    before = levels(api)
++    assert before['shoal'] == 'info' and 'seastar' in before
++    status, _ = call(f'{api}/v1/loggers/shoal?level=debug', 'PUT')
++    assert status == 200
++    assert levels(api)['shoal'] == 'debug'
++
++
++# Check that an unknown logger, or an unknown level, is refused.
++def test_set_level_errors(start_server):
++    _, api = admin_server(start_server)
++    assert call(f'{api}/v1/loggers/nosuch?level=debug', 'PUT')[0] == 404
++    assert call(f'{api}/v1/loggers/shoal?level=loud', 'PUT')[0] == 400
++    assert levels(api)['shoal'] == 'info'

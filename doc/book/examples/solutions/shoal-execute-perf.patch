@@ -1,0 +1,46 @@
+# A solution in solutions/testing.md: exercise 4, a benchmark of execute_here().
+# tools/check_examples.py applies it to a copy of shoal/v16,
+# builds it, and runs the tests.
+# base: shoal/v16
+--- a/perf_tests.cc
++++ b/perf_tests.cc
+@@ -8,6 +8,7 @@
+ #include "resp.hh"
+ #include "table.hh"
+ #include <seastar/core/coroutine.hh>
++#include <seastar/core/sharded.hh>
+ #include <seastar/testing/perf_tests.hh>
+ #include <seastar/util/memory-data-source.hh>
+ #include <fmt/format.h>
+@@ -78,3 +79,31 @@
+     return 1000;
+ }
+ // end snippet: perf-table
++
++// snippet: perf-execute
++// The data of all the shards, with one key, "key", which execute_here(),
++// on the key's shard, the only one with -c1, gets. The fixture's
++// constructor and destructor run in a Seastar thread, so they can wait,
++// with get().
++struct store_fixture {
++    sharded<store> db;
++    request get{"GET", "key"};
++    const command* get_command = find_command(get);
++    store_fixture() {
++        db.start(scheduling_groups{
++            .keys = default_scheduling_group(),
++            .rewrite = default_scheduling_group()}).get();
++        request set{"SET", "key", "value"};
++        execute_here(db.local(), find_command(set), set).get();
++    }
++    ~store_fixture() {
++        db.stop().get();
++    }
++};
++
++// Executes the GET, without the reply's future's value, which the
++// library would take for a count of things done.
++PERF_TEST_F(store_fixture, execute_get) {
++    return execute_here(db.local(), get_command, get).discard_result();
++}
++// end snippet: perf-execute

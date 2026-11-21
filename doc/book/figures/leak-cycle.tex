@@ -1,0 +1,33 @@
+% Figure for the chapter "Finding memory leaks", section "LeakSanitizer": the four blocks that
+% abandon.cc leaks, and the pointers between them. Nothing that the program
+% can still reach points to any of them, but each has a pointer to it from
+% another, so LeakSanitizer reports all four as indirect leaks.
+\begin{tikzpicture}[
+    leaked/.style={hotbox, minimum height=11mm, text width=33mm},
+    link/.style={flow, gap},
+    label/.style={note, inner sep=0.8mm},
+  ]
+  \node[leaked] (sleeper) at (0, 0)
+    {\texttt{sleep()}'s timer and promise\\[0.3mm]{\footnotesize 136 bytes}};
+  \node[leaked, right=22mm of sleeper] (cont)
+    {the continuation that \texttt{finally()} made\\[0.3mm]{\footnotesize 104 bytes}};
+  \node[leaked, below=13mm of cont] (frame)
+    {\texttt{background()}'s frame\\[0.3mm]{\footnotesize 152 bytes}};
+  \node[leaked, left=22mm of frame] (vector)
+    {the vector's 1,000 \texttt{int}s\\[0.3mm]{\footnotesize 4,000 bytes}};
+
+  % The cycle, between the timer's block and the continuation.
+  \draw[link] ([yshift=2.5mm]sleeper.east) -- ([yshift=2.5mm]cont.west)
+    node[midway, above, label] {the promise's task};
+  \draw[link] ([yshift=-2.5mm]cont.west) -- ([yshift=-2.5mm]sleeper.east)
+    node[midway, below, label] {owns};
+  % And on from the continuation, to the frame and its data.
+  \draw[link] (cont) -- (frame)
+    node[midway, right, label, align=left] {its promise's task:\\resumes the coroutine};
+  \draw[link] (frame) -- (vector) node[midway, above, label] {owns};
+
+  % The program's reachable memory, with no pointer into the leaked blocks.
+  \node[plainbox, rarebox, above=15mm of $(sleeper)!0.5!(cont)$, text width=90mm]
+    (roots) {what the program can still reach: global variables, the stacks, the registers, and every block they point to};
+  \node[note, below=0.8mm of roots] {no pointer from here to any of the four blocks};
+\end{tikzpicture}

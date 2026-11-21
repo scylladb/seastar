@@ -1,0 +1,56 @@
+% Figure for chapter 2, "Waiting without blocking": sleep.cc's two counts,
+% one after the other, and together on one thread. The x axis is time, one
+% unit a millisecond.
+\begin{tikzpicture}[x=0.052mm]
+  % A count: a bar for each of its sleeps, and a dot, numbered, for each line
+  % it prints. #1: the lane's y; #2: its name; #3: when it starts (ms);
+  % #4: how long it sleeps (ms); #5: how many times.
+  \newcommand\countlane[5]{
+    \node[anchor=east] at (-3mm, #1) {#2};
+    \foreach \i in {1,...,#5} {
+      \pgfmathsetmacro\a{#3 + (\i-1)*#4}
+      \pgfmathsetmacro\b{#3 + \i*#4}
+      \draw[draw=figcool, fill=figcoolfill, line width=0.72pt, rounded corners=1.5pt]
+        (\a+9, #1-1.8mm) rectangle (\b-9, #1+1.8mm);
+      \node[font=\sffamily\footnotesize] at ({(\a+\b)/2}, #1) {#4 ms};
+      \fill[figink] (\b, #1) circle[radius=0.75mm];
+      \node[font=\sffamily\footnotesize, anchor=south, inner sep=0.6mm]
+        at (\b, #1+1.8mm) {#2 \i};
+    }
+  }
+  % The thread: a thin line, and a dark mark at each moment it runs code.
+  % #1: the lane's y; #2: when it ends (ms); #3: the moments.
+  \newcommand\threadlane[3]{
+    \node[anchor=east] at (-3mm, #1) {the thread};
+    \draw[figink!45, line width=1.2pt] (0, #1) -- (#2, #1);
+    \foreach \t in {#3}
+      \fill[figink] (\t-7, #1-1.6mm) rectangle (\t+7, #1+1.6mm);
+  }
+  % The end of a run: a dashed line from the thread down to the time axis.
+  % #1: when (ms); #2: the thread's y.
+  \newcommand\finishline[2]{
+    \draw[figink!60, rare] (#1, #2-1.6mm) -- (#1, -64mm);
+  }
+
+  % One after the other.
+  \node[title, anchor=base] at (975, 0) {One after the other: 1,900 ms};
+  \countlane{-9mm}{tick}{0}{300}{3}
+  \countlane{-18mm}{tock}{900}{500}{2}
+  \threadlane{-25mm}{1900}{0, 300, 600, 900, 1400, 1900}
+  \finishline{1900}{-25mm}
+
+  % Together.
+  \node[title, anchor=base] at (975, -34mm) {Together: 1,000 ms};
+  \countlane{-43mm}{tick}{0}{300}{3}
+  \countlane{-52mm}{tock}{0}{500}{2}
+  \threadlane{-59mm}{1000}{0, 300, 500, 600, 900, 1000}
+  \finishline{1000}{-59mm}
+
+  % The time axis, shared.
+  \draw[figink] (0, -64mm) -- (1950, -64mm);
+  \foreach \t in {0, 100, ..., 1900}
+    \draw[figink] (\t, -64mm) -- (\t, -65mm);
+  \foreach \t/\label in {0/0, 500/500, 1000/{1,000}, 1500/{1,500}, 1900/{1,900 ms}}
+    \node[font=\sffamily\footnotesize, anchor=north, inner sep=0.8mm] at (\t, -65.5mm)
+      {\label};
+\end{tikzpicture}

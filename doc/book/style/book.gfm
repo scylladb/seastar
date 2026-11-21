@@ -1,0 +1,25 @@
+$-- Template for the Markdown edition (GitHub's flavor of Markdown), used by
+$-- tools/build.py: the title, the table of contents, and the book.
+$if(title)$
+# $title$
+
+$endif$
+$if(subtitle)$
+*$subtitle$*
+
+$endif$
+$for(author)$
+$author$
+
+$endfor$
+$if(date)$
+$date$
+
+$endif$
+$if(toc)$
+## Contents
+
+$table-of-contents$
+
+$endif$
+$body$

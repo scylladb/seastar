@@ -1,0 +1,84 @@
+% Figure for chapter 5, "An experiment": what the shard's thread does in
+% the first few milliseconds of preemption.cc, for three kinds of --work.
+% The x axis is time, one unit a millisecond.
+\begin{tikzpicture}[x=22mm]
+  % Work running, from #2 to #3 ms, in the lane at y #1, labeled #4.
+  \newcommand\work[4]{
+    \node[box, minimum height=5mm, minimum width={((#3)-(#2))*22mm}, inner sep=0,
+          rounded corners=1.5pt, font=\sffamily\footnotesize, anchor=west]
+      at (#2, #1) {#4};
+  }
+  % The heartbeat running, at #2 ms, in the lane at y #1.
+  \newcommand\beat[2]{
+    \fill[figcool, rounded corners=0.4mm] (#2-0.025, #1-3.5mm) rectangle (#2+0.025, #1+3.5mm);
+  }
+  % The heartbeat's timer expiring, at #2 ms, above the lane at y #1.
+  \newcommand\expires[2]{
+    \draw[figcool, fill=white, line width=0.72pt]
+      (#2, #1+3.4mm) -- ++(-0.035, 1.8mm) -- ++(0.07, 0) -- cycle;
+  }
+  % How late the heartbeat runs: from #2 to #3 ms, above the lane at y #1.
+  \newcommand\late[4]{
+    \draw[figcool, |-|, line width=0.6pt, >={Bar[width=1.6mm]}]
+      (#2, #1+7.2mm) -- (#3, #1+7.2mm)
+      node[midway, above, font=\sffamily\footnotesize, text=figcool, inner sep=0.6mm] {#4};
+  }
+  % A lane's name, at y #1.
+  \newcommand\lane[2]{
+    \node[anchor=east, font=\ttfamily\footnotesize] at (-0.1, #1) {#2};
+  }
+
+  % plain: the work never gives up the CPU.
+  \lane{0}{plain}
+  \beat{0}{0}
+  \node[box, minimum height=5mm, minimum width={4.43*22mm}, inner sep=0, anchor=west,
+        rounded corners=1.5pt, font=\sffamily\footnotesize, fill=figfill]
+    (plainwork) at (0.07, 0) {work, for the whole second, never giving up the CPU};
+  \expires{0}{1}
+  \draw[figcool, message, rare] (1.05, 5.4mm) -- (4.55, 5.4mm)
+    node[pos=0.5, above, font=\sffamily\footnotesize, text=figcool, inner sep=0.6mm]
+      {the heartbeat waits until the work ends, a second later};
+  \node[note, anchor=south, inner sep=0.6mm] at (1, 7mm) {timer expires};
+  \node[note, anchor=north, inner sep=0.8mm] at (0, -3.5mm) {heartbeat};
+
+  % maybe_yield: the work yields when the quota is used up, or when the
+  % timer expires; the heartbeat, made ready by the poll, waits behind it.
+  \def\y{-19mm}
+  \lane{\y}{maybe\_yield}
+  \beat{\y}{0}
+  \foreach \from in {0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4}
+    \work{\y}{\from+0.035}{\from+0.475}{work};
+  \foreach \t in {1.5, 3} \beat{\y}{\t};
+  \foreach \t in {1, 2.5, 4} \expires{\y}{\t};
+  \late{\y}{1}{1.5}{0.5 ms late}
+  \late{\y}{2.5}{3}{0.5 ms late}
+  \node[note, anchor=north, inner sep=0.8mm] at (0.5, \y-2.5mm) {poll};
+  \draw[fignote, line width=0.5pt] (0.5, \y-2.5mm) -- (0.5, \y-3.5mm);
+
+  % yield: the work yields after every computation, and the heartbeat runs
+  % almost as soon as its timer expires.
+  \def\y{-38mm}
+  \lane{\y}{yield}
+  \beat{\y}{0}
+  \foreach \from/\to in {0.07/0.98, 1.06/2.0, 2.08/3.02, 3.1/4.04, 4.12/4.55} {
+    \work{\y}{\from}{\to}{};
+    \pgfmathsetmacro\first{\from + 0.04}
+    \pgfmathsetmacro\step{\from + 0.08}
+    \pgfmathsetmacro\last{\to - 0.03}
+    \foreach \t in {\first, \step, ..., \last}
+      \draw[figink!45, line width=0.4pt] (\t, \y-2.5mm) -- (\t, \y+2.5mm);
+  }
+  \foreach \t in {1.02, 2.04, 3.06, 4.08} \beat{\y}{\t};
+  \foreach \t in {1, 2.02, 3.04, 4.06} \expires{\y}{\t};
+  \node[note, anchor=north, inner sep=0.8mm, align=center] at (0.53, \y-2.5mm)
+    {work, yielding every microsecond};
+
+  % The time axis.
+  \def\y{-47mm}
+  \draw[figink] (0, \y) -- (4.6, \y);
+  \foreach \t in {0, 0.5, ..., 4.5}
+    \draw[figink] (\t, \y) -- (\t, \y-1mm);
+  \foreach \t in {0, 1, 2, 3, 4}
+    \node[font=\sffamily\footnotesize, anchor=north, inner sep=0.8mm] at (\t, \y-1.5mm) {\t};
+  \node[font=\sffamily\footnotesize, anchor=north west, inner sep=0.8mm] at (4.6, \y-1.5mm) {ms};
+\end{tikzpicture}

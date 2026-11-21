@@ -1,0 +1,19 @@
+# Standard library names that the book discusses, rather than just uses, and
+# that the index lists wherever they are mentioned, as it lists Seastar's
+# names (see tools/bookfilter.py). A name used only in passing, such as
+# std::vector or std::move, doesn't belong here. Add a name when the book
+# starts discussing it. Each line is a kind (class or function) and a name.
+class std::atomic
+class std::coroutine_traits
+class std::exception_ptr
+class std::expected
+class std::future
+class std::mutex
+class std::promise
+class std::string
+class std::string_view
+class std::unordered_map
+class std::bad_alloc
+function std::async
+function std::exception_ptr_cast
+function std::this_thread::sleep_for

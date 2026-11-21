@@ -1,0 +1,115 @@
+# A solution in solutions/coroutines.md: shoal-coroutines, Shoal v1 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v1, builds it, and runs the tests.
+# base: shoal/v1
+--- a/commands.cc
++++ b/commands.cc
+@@ -2,6 +2,8 @@
+ #include "commands.hh"
+ #include <fmt/format.h>
+ #include <algorithm>
++#include <charconv>
++#include <limits>
+ #include <cctype>
+ #include <string>
+
+@@ -55,6 +57,36 @@
+     return integer_reply(deleted);
+ }
+
++// snippet: incr
++// INCR key: adds 1 to the integer at key, which starts at 0 if key doesn't
++// exist.
++sstring incr(store& db, const request& req) {
++    int64_t n = 0;
++    if (auto it = db.find(req[1]); it != db.end()) {
++        auto& value = it->second;
++        auto [end, err] = std::from_chars(value.begin(), value.end(), n);
++        if (err != std::errc() || end != value.end()) {
++            return error_reply("value is not an integer or out of range");
++        }
++    }
++    if (n == std::numeric_limits<int64_t>::max()) {
++        return error_reply("increment or decrement would overflow");
++    }
++    db.insert_or_assign(req[1], fmt::format("{}", n + 1));
++    return integer_reply(n + 1);
++}
++// end snippet: incr
++
++// snippet: append
++// APPEND key value: appends value to the string at key, and replies with
++// its new length.
++sstring append(store& db, const request& req) {
++    auto& value = db[req[1]];
++    value.append(req[2].data(), req[2].size());
++    return integer_reply(value.size());
++}
++// end snippet: append
++
+ // EXISTS key [key ...]
+ sstring exists(store& db, const request& req) {
+     int64_t found = 0;
+@@ -81,6 +113,8 @@
+     {"set", {3, set}},
+     {"del", {-2, del}},
+     {"exists", {-2, exists}},
++    {"incr", {2, incr}},
++    {"append", {3, append}},
+ };
+ // end snippet: table
+
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,51 @@
++# Tests for the solutions of chapter 4's exercises 1 and 2: INCR and APPEND.
++# Like all of Shoal's tests, they pass against Valkey too.
++import pytest
++import redis
++
++from test_v1 import unique_key
++
++
++# Check that INCR starts a missing key at 0, and adds 1 each time.
++def test_incr(r):
++    key = unique_key()
++    assert r.execute_command('INCR', key) == 1
++    assert r.execute_command('INCR', key) == 2
++    assert r.get(key) == b'2'
++
++
++# Check that INCR works on a value that SET stored, negative ones too.
++def test_incr_existing(r):
++    key = unique_key()
++    r.set(key, '-5')
++    assert r.execute_command('INCR', key) == -4
++
++
++# Check that INCR refuses a value that isn't an integer, and leaves it alone.
++@pytest.mark.parametrize('value', ['abc', '1.5', ' 1', '1 ', '',
++                                   '99999999999999999999'])
++def test_incr_not_integer(r, value):
++    key = unique_key()
++    r.set(key, value)
++    message = 'value is not an integer or out of range'
++    with pytest.raises(redis.ResponseError, match=message):
++        r.execute_command('INCR', key)
++    assert r.get(key) == value.encode()
++
++
++# Check that INCR refuses to go past the largest 64-bit integer.
++def test_incr_overflow(r):
++    key = unique_key()
++    r.set(key, str(2**63 - 1))
++    message = 'increment or decrement would overflow'
++    with pytest.raises(redis.ResponseError, match=message):
++        r.execute_command('INCR', key)
++
++
++# Check that APPEND creates a missing key, appends to an existing one, and
++# replies with the new length.
++def test_append(r):
++    key = unique_key()
++    assert r.append(key, 'hello') == 5
++    assert r.append(key, ' world') == 11
++    assert r.get(key) == b'hello world'
