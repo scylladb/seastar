@@ -1612,26 +1612,6 @@ future<size_t> file::dma_read_impl(uint64_t pos, std::vector<iovec> iov, io_inte
   }
 }
 
-future<temporary_buffer<uint8_t>>
-file::dma_read_exactly_impl(uint64_t pos, size_t len, io_intent* intent) noexcept {
-    auto buf = co_await dma_read_impl(pos, len, intent);
-    if (buf.size() < len) {
-        throw eof_error();
-    }
-
-    co_return std::move(buf);
-}
-
-future<temporary_buffer<uint8_t>>
-file::dma_read_impl(uint64_t pos, size_t len, io_intent* intent) noexcept {
-    temporary_buffer<uint8_t> buf = co_await dma_read_bulk_impl(pos, len, intent);
-    if (len < buf.size()) {
-        buf.trim(len);
-    }
-
-    co_return std::move(buf);
-}
-
 future<size_t>
 file::dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligned_len, io_intent* intent) noexcept {
   try {
