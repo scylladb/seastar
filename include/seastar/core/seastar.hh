@@ -440,6 +440,10 @@ future<uint64_t> fs_free(std::string_view name) noexcept;
 /// Return filesystem-wide space_info where a file is located.
 ///
 /// \param name name of the file in the filesystem to inspect
+///
+/// \return the space information of the file system; an exceptional future,
+///      holding a std::filesystem::filesystem_error, if it can't be obtained,
+///      e.g., if the file doesn't exist.
 future<std::filesystem::space_info> file_system_space(std::string_view name) noexcept;
 
 /// \defgroup interprocess-module Interprocess Communication

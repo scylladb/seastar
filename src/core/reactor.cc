@@ -2417,7 +2417,10 @@ reactor::file_system_space(std::string_view pathname) noexcept {
             internal::thread_pool_submit_reason::file_operation, [path = std::filesystem::path(pathname)] {
         std::error_code ec;
         auto si = std::filesystem::space(path, ec);
-        return wrap_syscall(ec.value(), si);
+        // Unlike a system call, std::filesystem::space() doesn't report a
+        // failure by returning -1 and setting errno, but in ec, so we can't
+        // use wrap_syscall().
+        return syscall_result_extra<std::filesystem::space_info>(ec ? -1 : 0, ec.value(), si);
     });
     if (sr.failed()) {
         co_return coroutine::exception(
