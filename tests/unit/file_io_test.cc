@@ -1218,6 +1218,8 @@ class test_posix_file_impl : public posix_file_impl {
     const temporary_buffer<char>& _data;
 public:
     static constexpr size_t block_size = 512;
+    // The number of reads of the file.
+    size_t reads = 0;
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* i) noexcept override { abort(); }
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* i) noexcept override { abort(); }
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* i) noexcept override { abort(); }
@@ -1225,6 +1227,7 @@ public:
 
     virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, io_intent* i) noexcept override {
         fmt::print("  IO {}:{}\n", pos, len);
+        ++reads;
 
         if (pos >= _data.size()) {
             return make_ready_future<size_t>(0);
@@ -1288,6 +1291,36 @@ SEASTAR_THREAD_TEST_CASE(test_posix_file_dma_read_bulk) {
                 }
             }
         }
+    }
+}
+
+// Checks that dma_read_bulk() doesn't read again after a short read that
+// stopped at a position that is not a multiple of the sector size, because
+// such a read got to the end of the file. After a short read that stopped at a
+// multiple of the sector size, dma_read_bulk() must read again to find out if
+// the file ends there.
+SEASTAR_THREAD_TEST_CASE(test_posix_file_dma_read_bulk_stops_at_the_end_of_the_file) {
+    constexpr size_t block_size = test_posix_file_impl::block_size;
+    for (size_t tail : {size_t(123), size_t(0)}) {
+        const size_t data_size = 2 * block_size + tail;
+        temporary_buffer<char> data(data_size);
+        for (size_t i = 0; i < data.size(); ++i) {
+            data.get_write()[i] = static_cast<char>(i);
+        }
+        auto f = std::make_unique<test_posix_file_impl>(data);
+
+        auto buf = f->dma_read_bulk(block_size, 8 * block_size, nullptr).get();
+
+        // Check that the read returns the bytes from its offset to the end of
+        // the file.
+        BOOST_REQUIRE_EQUAL(buf.size(), data_size - block_size);
+        BOOST_REQUIRE(std::memcmp(buf.get(), data.get() + block_size, buf.size()) == 0);
+        // Check that it read the file twice. The file returns one block per
+        // read. With a tail, the second read returns the tail and stops at the
+        // end of the file, at a position that is not aligned, so there is no
+        // third read. Without a tail, the second read returns no bytes, at the
+        // end of the file.
+        BOOST_REQUIRE_EQUAL(f->reads, 2);
     }
 }
 
