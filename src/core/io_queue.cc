@@ -748,6 +748,21 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
     auto lvl = goal > 1.1 * _config.rate_limit_duration ? log_level::warn : log_level::debug;
     io_log.log(lvl, "IO queue uses {:.2f}ms latency goal for {}", goal.count() * 1000, _config.mountpoint);
 
+    // Without the disk's rates (no I/O properties were given, or they don't
+    // list this disk), every request costs nothing, so the scheduler never
+    // makes a request wait, and every request length fits. Say what's
+    // missing, rather than search for a maximum request length that the
+    // search can't find. _max_request_length keeps its default,
+    // request_length_limit.
+    if (_config.req_count_rate == std::numeric_limits<unsigned long>::max() &&
+            _config.blocks_count_rate == std::numeric_limits<unsigned long>::max()) {
+        io_log.info("No I/O properties for {}: the I/O scheduler won't limit the requests sent to them. "
+                    "To schedule their I/O, measure them with iotune, and pass the result with --io-properties-file",
+                    _config.mountpoint.empty() ? "the disks that no --io-properties-file or --io-properties lists"
+                                               : _config.mountpoint);
+        return;
+    }
+
     /*
      * The maximum request size shouldn't result in the capacity that would
      * be larger than the group's replenisher limit.

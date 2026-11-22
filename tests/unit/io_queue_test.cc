@@ -24,6 +24,7 @@
 #include <chrono>
 #include <cmath>
 #include <ratio>
+#include <sstream>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/testing/random.hh>
@@ -697,7 +698,14 @@ SEASTAR_THREAD_TEST_CASE(test_tb_params) {
 }
 
 SEASTAR_THREAD_TEST_CASE(test_unconfigured_io_queue) {
+    // An unconfigured queue logs that the disk has no I/O properties, and
+    // not that the search for a maximum request length was cut off.
+    std::ostringstream log;
+    logger::set_ostream(log);
+    auto restore_log = defer([] () noexcept { logger::set_ostream(std::cerr); });
     io_queue_for_tests tio;
+    BOOST_CHECK_NE(log.str().find("No I/O properties for undefined"), std::string::npos);
+    BOOST_CHECK_EQUAL(log.str().find("unable to find a suitable maximum request length"), std::string::npos);
 
     BOOST_CHECK_EQUAL(tio.max_request_length(internal::io_direction_and_length::read_idx), tio.request_length_limit());
     BOOST_CHECK_EQUAL(tio.max_request_length(internal::io_direction_and_length::write_idx), tio.request_length_limit());
