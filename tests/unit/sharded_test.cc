@@ -25,6 +25,7 @@
 #include <seastar/core/sharded.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/util/assert.hh>
+#include <seastar/util/defer.hh>
 
 #include <atomic>
 #include <ranges>
@@ -120,6 +121,29 @@ public:
         return make_ready_future<>();
     }
 };
+
+SEASTAR_THREAD_TEST_CASE(invoke_on_preserves_lvalues_and_moves_rvalues) {
+    sharded<mydata> s;
+    s.start().get();
+    auto stop = defer([&s] () noexcept { s.stop().get(); });
+
+    for (unsigned shard = 0; shard < this_smp_shard_count(); ++shard) {
+        sstring value = "preserved argument";
+        const auto receive = [] (mydata&, sstring arg) { return arg; };
+        BOOST_REQUIRE_EQUAL(s.invoke_on(shard, receive, value).get(), "preserved argument");
+        BOOST_REQUIRE_EQUAL(value, "preserved argument");
+        BOOST_REQUIRE_EQUAL(s.invoke_on(shard, smp_submit_to_options{}, receive, value).get(), "preserved argument");
+        BOOST_REQUIRE_EQUAL(value, "preserved argument");
+
+        const auto consume = [] (mydata&, std::unique_ptr<int> arg) { return *arg; };
+        auto owned = std::make_unique<int>(42);
+        BOOST_REQUIRE_EQUAL(s.invoke_on(shard, consume, std::move(owned)).get(), 42);
+        BOOST_REQUIRE(!owned);
+        owned = std::make_unique<int>(43);
+        BOOST_REQUIRE_EQUAL(s.invoke_on(shard, smp_submit_to_options{}, consume, std::move(owned)).get(), 43);
+        BOOST_REQUIRE(!owned);
+    }
+}
 
 SEASTAR_THREAD_TEST_CASE(invoke_map_returns_non_future_value) {
     seastar::sharded<mydata> s;
