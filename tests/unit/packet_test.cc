@@ -119,3 +119,19 @@ BOOST_AUTO_TEST_CASE(test_headers_are_contiguous_even_with_many_fragments) {
     BOOST_REQUIRE_EQUAL(p.nr_frags(), 9u);
 }
 
+BOOST_AUTO_TEST_CASE(test_trim_back_preserves_internal_headroom) {
+    std::array<char, 60> data;
+    data.fill('d');
+    packet p(data.data(), data.size());
+    p.trim_back(40);
+
+    auto header = p.prepend_uninitialized_header(90);
+    BOOST_REQUIRE_EQUAL(p.nr_frags(), 2u);
+    std::fill_n(header, 90, 'h');
+    BOOST_CHECK_EQUAL(p.len(), 110u);
+    BOOST_CHECK_EQUAL(p.frag(0).size, 90u);
+    BOOST_CHECK_EQUAL(p.frag(1).size, 20u);
+    BOOST_CHECK(std::all_of(p.frag(0).base, p.frag(0).base + 90,
+            [] (char c) { return c == 'h'; }));
+    BOOST_CHECK(std::equal(p.frag(1).base, p.frag(1).base + 20, data.begin()));
+}
