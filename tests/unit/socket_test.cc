@@ -39,7 +39,9 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/net/api.hh>
+#include <seastar/net/ip.hh>
 #include <seastar/net/posix-stack.hh>
+#include "net/native-stack-impl.hh"
 #include <stdexcept>
 
 #include <fstream>
@@ -48,6 +50,51 @@
 #include <future>
 
 using namespace seastar;
+
+namespace {
+
+struct native_half_close_protocol {
+    struct connection {
+        bool read_closed = false;
+        bool write_closed = false;
+        size_t bytes_sent = 0;
+
+        future<> wait_for_data() { return make_ready_future<>(); }
+        net::packet read() { return {}; }
+        void close_read() { read_closed = true; }
+        void close_write() { write_closed = true; }
+        future<> send(std::span<temporary_buffer<char>> buffers) {
+            BOOST_REQUIRE(!write_closed);
+            for (const auto& buffer : buffers) {
+                bytes_sent += buffer.size();
+            }
+            return make_ready_future<>();
+        }
+        net::ipv4_address local_ip() const { return {}; }
+        net::ipv4_address foreign_ip() const { return {}; }
+        uint16_t local_port() const { return 0; }
+        uint16_t foreign_port() const { return 0; }
+        future<> wait_input_shutdown() { return make_ready_future<>(); }
+    };
+};
+
+}
+
+SEASTAR_TEST_CASE(native_socket_input_close_preserves_output) {
+    auto conn = make_lw_shared<native_half_close_protocol::connection>();
+    connected_socket socket(std::make_unique<net::native_connected_socket_impl<native_half_close_protocol>>(conn));
+    auto input = socket.input();
+    auto output = socket.output();
+
+    co_await input.close();
+    BOOST_REQUIRE(conn->read_closed);
+    BOOST_REQUIRE(!conn->write_closed);
+    co_await output.write("hello");
+    co_await output.flush();
+    co_await output.close();
+    BOOST_REQUIRE_EQUAL(conn->bytes_sent, 5);
+    BOOST_REQUIRE(conn->write_closed);
+}
 
 future<> handle_connection(connected_socket s) {
     auto in = s.input();
