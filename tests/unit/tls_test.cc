@@ -1555,6 +1555,48 @@ SEASTAR_THREAD_TEST_CASE(test_alt_names) {
 
 }
 
+SEASTAR_THREAD_TEST_CASE(test_malformed_alt_names) {
+    if (!using_gnutls()) {
+        return;
+    }
+    for (const auto* name : {"oversized_ip_san", "nul_dns_san"}) {
+        tls::credentials_builder b;
+        b.set_x509_key_file(certfile(fmt::format("{}.crt", name)),
+                certfile(fmt::format("{}.key", name)), tls::x509_crt_format::PEM).get();
+        auto client_creds = ::make_shared<tls::certificate_credentials>();
+        client_creds->set_enable_certificate_verification(false);
+
+        auto tx = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::SERVER_TX);
+        auto rx = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::CLIENT_TX);
+        auto server = tls::wrap_server(b.build_server_credentials(),
+                connected_socket(std::make_unique<loopback_connected_socket_impl>(tx, rx))).get();
+        auto client = tls::wrap_client(client_creds,
+                connected_socket(std::make_unique<loopback_connected_socket_impl>(rx, tx))).get();
+        auto cleanup = defer([&] () noexcept {
+            server.shutdown_input();
+            server.shutdown_output();
+            client.shutdown_input();
+            client.shutdown_output();
+        });
+
+        auto in = server.input();
+        auto out = client.output();
+        auto write = out.write("x").then([&] { return out.flush(); });
+        BOOST_REQUIRE_EQUAL(in.read_exactly(1).get().size(), 1);
+        write.get();
+        if (std::string_view(name) == "oversized_ip_san") {
+            BOOST_REQUIRE_THROW(tls::get_alt_name_information(client).get(), std::runtime_error);
+        } else {
+            auto names = tls::get_alt_name_information(client).get();
+            BOOST_REQUIRE_EQUAL(names.size(), 1);
+            BOOST_REQUIRE(names.front().type == tls::subject_alt_name_type::dnsname);
+            BOOST_REQUIRE(std::get<sstring>(names.front().value).empty());
+        }
+        out.close().get();
+        in.close().get();
+    }
+}
+
 SEASTAR_THREAD_TEST_CASE(test_peer_certificate_chain_handling) {
     tls::credentials_builder b;
 

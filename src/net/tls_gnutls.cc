@@ -1238,17 +1238,14 @@ public:
                 switch (v.type) {
                     case subject_alt_name_type::ipaddress:
                     {
-                        union {
-                            char c;
-                            ::in_addr in;
-                            ::in6_addr in6;
-                        } tmp;
-
-                        memcpy(&tmp.c, buf.data(), size);
                         if (size == sizeof(::in_addr)) {
-                            v.value = net::inet_address(tmp.in);
+                            ::in_addr addr;
+                            memcpy(&addr, buf.data(), size);
+                            v.value = net::inet_address(addr);
                         } else if (size == sizeof(::in6_addr)) {
-                            v.value = net::inet_address(tmp.in6);
+                            ::in6_addr addr;
+                            memcpy(&addr, buf.data(), size);
+                            v.value = net::inet_address(addr);
                         } else {
                             throw std::runtime_error(fmt::format("Unexpected size {} for ipaddress alt name value", size));
                         }
@@ -1256,7 +1253,7 @@ public:
                     }
                     default:
                         // data we get back is null-terminated.
-                        while (buf.back() == 0) {
+                        while (!buf.empty() && buf.back() == 0) {
                             buf.resize(buf.size() - 1);
                         }
                         v.value = std::move(buf);
