@@ -326,6 +326,22 @@ BOOST_AUTO_TEST_CASE(test_resize_and_overwrite) {
     }
 }
 
+BOOST_AUTO_TEST_CASE(test_resize_and_overwrite_preserves_prefix) {
+    for (size_t prefix_size : {3u, 14u, 42u}) {
+        for (size_t growth : {3u, 50u}) {
+            sstring prefix(prefix_size, 'p');
+            sstring s = prefix;
+            s.resize_and_overwrite(prefix_size + growth, [&prefix](char* buf, size_t) {
+                BOOST_CHECK_EQUAL(std::string_view(buf, prefix.size()), std::string_view(prefix));
+                memcpy(buf + prefix.size(), "XYZ", 3);
+                return prefix.size() + 3;
+            });
+            BOOST_CHECK_EQUAL(s, prefix + "XYZ");
+            BOOST_CHECK_EQUAL(s.c_str()[s.size()], '\0');
+        }
+    }
+}
+
 
 BOOST_AUTO_TEST_CASE(test_compares_left_hand_not_string) {
     // mostly a compile test for non-sstring left-hand-side
