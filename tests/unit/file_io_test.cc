@@ -986,9 +986,13 @@ SEASTAR_TEST_CASE(test_dma_iovec_clips_at_logical_eof) {
         auto wbuf = allocate_aligned_buffer<char>(2 * alignment, f.memory_dma_alignment());
         std::fill_n(wbuf.get(), 2 * alignment, char(42));
         BOOST_REQUIRE_EQUAL(f.dma_write(0, wbuf.get(), 2 * alignment).get(), 2 * alignment);
+        if (fs::file_size(filename) <= 2 * alignment) {
+            BOOST_TEST_WARN(0, "Skipping this test because the filesystem did not extend the physical file past logical EOF");
+            return;
+        }
         auto rbuf = allocate_aligned_buffer<char>(5 * alignment, f.memory_dma_alignment());
 
-        // Sloppy size keeps the physical file larger than the logical EOF.
+        // The physical file is larger than the logical EOF.
         std::vector<iovec> crossing = {
             {rbuf.get(), alignment}, {rbuf.get() + alignment, 4 * alignment}
         };
