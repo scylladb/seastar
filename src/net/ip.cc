@@ -472,7 +472,7 @@ void icmp::received(packet p, ipaddr from, ipaddr to) {
     hdr->code = 0;
     hdr->csum = 0;
     checksummer csum;
-    csum.sum(reinterpret_cast<char*>(hdr), p.len());
+    csum.sum(p);
     hdr->csum = csum.get();
 
     if (_queue_space.try_wait(p.len())) { // drop packets that do not fit the queue
