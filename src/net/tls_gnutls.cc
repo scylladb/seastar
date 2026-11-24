@@ -264,7 +264,7 @@ tls::x509_cert::x509_cert(const blob& b, x509_crt_format fmt)
 future<tls::x509_cert> tls::x509_cert::from_file(
         const sstring& filename, x509_crt_format fmt) {
     return read_fully(filename, "x509 certificate").then([fmt](temporary_buffer<char> buf) {
-        return make_ready_future<x509_cert>(x509_cert(blob(buf.get()), fmt));
+        return make_ready_future<x509_cert>(x509_cert(blob(buf.get(), buf.size()), fmt));
     });
 }
 
