@@ -1008,9 +1008,10 @@ append_challenged_posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov
         len += i++->iov_len;
     }
     if (i != iov.end()) {
-        auto last_len = pos + len + i->iov_len - aligned_logical_size;
+        auto last_len = aligned_logical_size - pos - len;
         if (last_len) {
             i++->iov_len = last_len;
+            len += last_len;
         }
         iov.erase(i, iov.end());
     }

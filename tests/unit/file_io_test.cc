@@ -974,6 +974,35 @@ SEASTAR_TEST_CASE(test_dma_iovec) {
     });
 }
 
+SEASTAR_TEST_CASE(test_dma_iovec_clips_at_logical_eof) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        file_open_options options;
+        options.sloppy_size = true;
+        options.sloppy_size_hint = 128 * 1024;
+        auto filename = (t.get_path() / "testfile.tmp").native();
+        auto f = open_file_dma(filename, open_flags::rw | open_flags::create, options).get();
+        auto close_f = deferred_close(f);
+        const auto alignment = std::max(f.disk_read_dma_alignment(), f.disk_write_dma_alignment());
+        auto wbuf = allocate_aligned_buffer<char>(2 * alignment, f.memory_dma_alignment());
+        std::fill_n(wbuf.get(), 2 * alignment, char(42));
+        BOOST_REQUIRE_EQUAL(f.dma_write(0, wbuf.get(), 2 * alignment).get(), 2 * alignment);
+        auto rbuf = allocate_aligned_buffer<char>(5 * alignment, f.memory_dma_alignment());
+
+        // Sloppy size keeps the physical file larger than the logical EOF.
+        std::vector<iovec> crossing = {
+            {rbuf.get(), alignment}, {rbuf.get() + alignment, 4 * alignment}
+        };
+        BOOST_REQUIRE_EQUAL(f.dma_read(0, crossing).get(), 2 * alignment);
+        BOOST_REQUIRE(std::equal(wbuf.get(), wbuf.get() + 2 * alignment, rbuf.get()));
+
+        std::vector<iovec> at_boundary = {
+            {rbuf.get(), 2 * alignment}, {rbuf.get() + 2 * alignment, alignment}
+        };
+        BOOST_REQUIRE_EQUAL(f.dma_read(0, at_boundary).get(), 2 * alignment);
+        BOOST_REQUIRE_EQUAL(f.dma_read(alignment, crossing).get(), alignment);
+    });
+}
+
 SEASTAR_TEST_CASE(test_intent) {
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         sstring filename = (t.get_path() / "testfile.tmp").native();
