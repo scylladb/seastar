@@ -270,7 +270,37 @@ class AutodetectError(Exception):
     pass
 
 
-def auto_detect_irq_mask(cpu_mask, cores_per_irq_core):
+# GCE machine families whose NIC (gVNIC) has a queue per vCPU. One thread of each IRQ core is enough for their
+# NIC IRQs, so the core's sibling thread can run a shard. z3 keeps the full IRQ core, and c4a (Arm, one thread per
+# core) has no sibling to free.
+ONE_THREAD_PER_IRQ_CORE_GCE_FAMILIES = ('z4d', 'c4', 'c4d')
+
+
+@functools.cache
+def gce_machine_type():
+    """
+    Return the GCE machine type of this VM, e.g. 'z4d-highmem-16-highlssd', or None when not running on GCE or the
+    metadata server doesn't answer. The DMI product name is checked first, so other machines never query the network.
+    """
+    try:
+        with open('/sys/class/dmi/id/product_name') as f:
+            if f.read().strip() != 'Google Compute Engine':
+                return None
+        req = urllib.request.Request('http://metadata.google.internal/computeMetadata/v1/instance/machine-type',
+                                     headers={'Metadata-Flavor': 'Google'})
+        with urllib.request.urlopen(req, timeout=2) as res:
+            return res.read().decode().strip().rsplit('/', 1)[-1]
+    except (OSError, urllib.error.URLError):
+        return None
+
+
+def one_thread_per_irq_core():
+    """True when only one thread of each IRQ core should take IRQs: see ONE_THREAD_PER_IRQ_CORE_GCE_FAMILIES."""
+    machine_type = gce_machine_type()
+    return bool(machine_type) and machine_type.split('-')[0] in ONE_THREAD_PER_IRQ_CORE_GCE_FAMILIES
+
+
+def auto_detect_irq_mask(cpu_mask, cores_per_irq_core, one_thread_per_core=False):
     """
     The logic of auto-detection of what was once a 'mode' is generic and is all about the amount of CPUs and NUMA
     nodes that are present and a restricting 'cpu_mask'.
@@ -282,6 +312,9 @@ def auto_detect_irq_mask(cpu_mask, cores_per_irq_core):
     * more than 16 CPU cores: use a single CPU core for each 16 CPU cores and distribute them evenly among all
       present NUMA nodes. We will also make sure all NUMA nodes have exactly the same amount of IRQ cores.
 
+    With 'one_thread_per_core', the last two cases use only the first CPU thread of each IRQ core, and its sibling
+    threads stay in the compute set.
+
     An AutodetectError exception is raised if 'cpu_mask' is defined in a way that there is a different number of threads
     and/or cores among different NUMA nodes. In such a case a user needs to provide
     an IRQ CPUs definition explicitly using 'irq_cpu_mask' parameter.
@@ -289,8 +322,10 @@ def auto_detect_irq_mask(cpu_mask, cores_per_irq_core):
     :param cpu_mask: CPU mask that defines which out of present CPUs can be considered for tuning
     :param cores_per_irq_core number of cores to allocate a single IRQ core out of, e.g. 6 means allocate a single IRQ
                               core out of every 6 CPU cores.
+    :param one_thread_per_core: use one CPU thread of each IRQ core instead of the whole core
     :return: CPU mask to bind IRQs to, a.k.a. irq_cpu_mask
     """
+    irq_core_threads = '.pu:0' if one_thread_per_core else ''
     cores_key = 'cores'
     PUs_key = 'PUs'
 
@@ -326,7 +361,7 @@ def auto_detect_irq_mask(cpu_mask, cores_per_irq_core):
     elif num_cores <= 4:
         return run_hwloc_calc(['--restrict', cpu_mask, 'PU:0'])
     elif num_cores <= cores_per_irq_core:
-        return run_hwloc_calc(['--restrict', cpu_mask, 'core:0'])
+        return run_hwloc_calc(['--restrict', cpu_mask, f'core:0{irq_core_threads}'])
     else:
         # Big machine.
         # Let's allocate a full core out of every cores_per_irq_core cores.
@@ -337,7 +372,7 @@ def auto_detect_irq_mask(cpu_mask, cores_per_irq_core):
         added_cores = 0
         while added_cores < num_irq_cores:
             for numa in numa_ids_list:
-                hwloc_args.append(f"node:{numa}.core:{numa_cores_count[numa]}")
+                hwloc_args.append(f"node:{numa}.core:{numa_cores_count[numa]}{irq_core_threads}")
                 added_cores += 1
                 numa_cores_count[numa] += 1
 
@@ -372,7 +407,8 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         else:
             if not check_sysfs_numa_topology_is_valid():
                 raise PerfTunerBase.InvalidNUMATopologyException("NUMA topology information is corrupted")
-            self.irqs_cpu_mask = auto_detect_irq_mask(self.cpu_mask, self.cores_per_irq_core)
+            self.irqs_cpu_mask = auto_detect_irq_mask(self.cpu_mask, self.cores_per_irq_core,
+                                                      one_thread_per_irq_core())
 
         self.__is_aws_i3_nonmetal_instance = None
         self.__metadata_token_value = None
