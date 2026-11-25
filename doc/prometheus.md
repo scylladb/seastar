@@ -18,6 +18,12 @@ of the metrics with their documentation.
 Starting with Prometheus 2.0, the binary protocol is no longer supported.
 While Seastar still supports the binary protocol, that support may be deprecated in a future release.
 
+## Summary quantile label migration
+
+For Prometheus 2.x text scrapes, update selectors before upgrading:
+replace `quantile="0.500000"` with `quantile=~"0[.]5(00000)?"`
+to match both old and new labels. Keep both forms when querying older data.
+
 ## Querying a subset of the metrics
 Seastar supports querying for a subset of the metrics by their names and labels.
 
