@@ -40,6 +40,7 @@
 #include <netinet/sctp.h>
 #include <sys/socket.h>
 #include <seastar/util/assert.hh>
+#include <seastar/util/defer.hh>
 
 #include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>
@@ -149,11 +150,16 @@ public:
 thread_local posix_ap_server_socket_impl::port_map_t posix_ap_server_socket_impl::ports{};
 
 struct posix_ap_server_socket_impl::acceptor_state {
-    // Only accepting is read from another shard. Queue and promise operations
-    // run on the listener's shard. Closing empties them before the listener
-    // releases its reference, so surviving state retains no queued resources.
+    // Only accepting is read without the registry lock from another shard.
+    // Queue and promise operations run on the listener's shard. Closing empties
+    // them before the listener releases its reference, so surviving state retains
+    // no queued resources.
     const std::exception_ptr aborted_exception = std::make_exception_ptr(std::system_error(ECONNABORTED, std::system_category()));
     std::atomic<bool> accepting = true;
+    // Registration and its notification fds are protected by acceptor_states_mutex.
+    // Pending connections stay on their source shard until registration completes.
+    bool registered = false;
+    std::vector<int> registration_waiters;
     std::optional<promise<accept_result>> socket;
     std::deque<connection> conn_q;
 };
@@ -173,6 +179,15 @@ struct protocol_acceptor_key_hash {
 
 std::mutex acceptor_states_mutex;
 std::unordered_map<protocol_acceptor_key, std::weak_ptr<void>, protocol_acceptor_key_hash> acceptor_states;
+
+void signal_acceptor_registration(int fd) noexcept {
+    uint64_t one = 1;
+    ssize_t n;
+    do {
+        n = ::write(fd, &one, sizeof(one));
+    } while (n < 0 && errno == EINTR);
+    SEASTAR_ASSERT(n == sizeof(one) || (n < 0 && errno == EAGAIN));
+}
 
 }
 
@@ -724,28 +739,48 @@ make_maybe_proxied_connected_socket_impl(
 
 future<accept_result>
 posix_server_socket_impl::accept() {
+    // Keep all state needed after suspension independent of the listener object.
+    // In particular, destruction must cancel a pre-registration wait without
+    // leaving its accepted fd or connection-tracking handle on another shard.
+    auto accept_abort = _accept_abort;
+    auto tracking = _conntrack;
+    auto protocol = _protocol;
+    auto listen_address = _sa;
+    auto lba = _lba;
+    auto fixed_cpu = _fixed_cpu;
+    auto proxy_protocol = _proxy_protocol;
+    auto allocator = _allocator;
     while (true) { // exited via co_return
+        if (accept_abort->abort_requested()) {
+            throw std::system_error(ECONNABORTED, std::system_category());
+        }
         auto [fd, sa] = co_await _lfd.accept();
+        if (accept_abort->abort_requested()) {
+            throw std::system_error(ECONNABORTED, std::system_category());
+        }
 
         std::optional<proxy_data> addr_data_opt;
-        if (_proxy_protocol) {
+        if (proxy_protocol) {
             addr_data_opt = co_await read_proxy_data(fd);
             if (!addr_data_opt) {
                 continue; // drop the connection
             }
             sa = addr_data_opt->remote_address;
         }
+        if (accept_abort->abort_requested()) {
+            throw std::system_error(ECONNABORTED, std::system_category());
+        }
 
         auto cth = conntrack::handle();
-        switch(_lba) {
+        switch(lba) {
         case server_socket::load_balancing_algorithm::connection_distribution:
-            cth = _conntrack.get_handle();
+            cth = tracking.get_handle();
             break;
         case server_socket::load_balancing_algorithm::port:
-            cth = _conntrack.get_handle(get_port_or_counter(sa) % this_smp_shard_count());
+            cth = tracking.get_handle(get_port_or_counter(sa) % this_smp_shard_count());
             break;
         case server_socket::load_balancing_algorithm::fixed:
-            cth = _conntrack.get_handle(_fixed_cpu);
+            cth = tracking.get_handle(fixed_cpu);
             break;
         default: abort();
         }
@@ -754,21 +789,27 @@ posix_server_socket_impl::accept() {
         if (cpu == this_shard_id()) {
             auto csi = make_maybe_proxied_connected_socket_impl(
                 sa.family(),
-                _protocol,
+                protocol,
                 std::move(fd),
                 std::move(cth),
                 std::move(addr_data_opt),
-                _allocator);
+                allocator);
             co_return accept_result{connected_socket(std::move(csi)), sa};
         } else {
-            auto state = posix_ap_server_socket_impl::find_acceptor_state(_protocol, _sa, cpu);
-            if (!state) {
+            // Keep this connection on the source until its destination registers.
+            auto state = co_await posix_ap_server_socket_impl::wait_for_acceptor_state(
+                    protocol, listen_address, cpu, *accept_abort);
+            if (accept_abort->abort_requested()) {
+                throw std::system_error(ECONNABORTED, std::system_category());
+            }
+            if (!state->accepting.load(std::memory_order_acquire)) {
                 continue;
             }
             // Reading the proxy-protocol header may have left the socket in the poll set of this shard.
             // FIXME: future is discarded
-            (void)smp::submit_to(cpu, [state = std::move(state), protocol = _protocol, ssa = _sa, fd = fd.detach_file_desc(),
-                    sa, cth = std::move(cth), addr_data_opt = std::move(addr_data_opt), allocator = _allocator] () mutable {
+            (void)smp::submit_to(cpu, [state = std::move(state), protocol, ssa = listen_address,
+                    fd = fd.detach_file_desc(), sa, cth = std::move(cth), addr_data_opt = std::move(addr_data_opt),
+                    allocator] () mutable {
                 posix_ap_server_socket_impl::deliver_connected_socket(std::move(state), protocol, ssa, pollable_fd(std::move(fd)),
                         sa, std::move(cth), std::move(addr_data_opt), allocator);
             });
@@ -776,8 +817,13 @@ posix_server_socket_impl::accept() {
     };
 }
 
+posix_server_socket_impl::~posix_server_socket_impl() {
+    _accept_abort->request_abort();
+}
+
 void
 posix_server_socket_impl::abort_accept() {
+    _accept_abort->request_abort();
     _lfd.shutdown(SHUT_RD, pollable_fd::shutdown_kernel_only::no);
 }
 
@@ -788,10 +834,109 @@ socket_address posix_server_socket_impl::local_address() const {
 posix_ap_server_socket_impl::acceptor_state_ptr
 posix_ap_server_socket_impl::register_acceptor_state(int protocol, socket_address sa, shard_id shard) {
     auto key = std::make_tuple(protocol, sa, shard);
-    auto state = std::make_shared<acceptor_state>();
     std::lock_guard lock(acceptor_states_mutex);
+    auto i = acceptor_states.find(key);
+    auto state = i == acceptor_states.end() ? acceptor_state_ptr{}
+            : std::static_pointer_cast<acceptor_state>(i->second.lock());
+    if (!state || state->registered || !state->accepting.load(std::memory_order_acquire)) {
+        state = std::make_shared<acceptor_state>();
+    }
     acceptor_states[key] = state;
+    state->registered = true;
+    for (int fd : state->registration_waiters) {
+        signal_acceptor_registration(fd);
+    }
     return state;
+}
+
+size_t posix_ap_server_socket_impl::registration_waiters(int protocol, socket_address sa, shard_id shard) {
+    std::lock_guard lock(acceptor_states_mutex);
+    auto i = acceptor_states.find(std::make_tuple(protocol, sa, shard));
+    auto state = i == acceptor_states.end() ? acceptor_state_ptr{}
+            : std::static_pointer_cast<acceptor_state>(i->second.lock());
+    return state ? state->registration_waiters.size() : 0;
+}
+
+bool posix_ap_server_socket_impl::has_acceptor_state(int protocol, socket_address sa, shard_id shard) {
+    std::lock_guard lock(acceptor_states_mutex);
+    return acceptor_states.contains(std::make_tuple(protocol, sa, shard));
+}
+
+future<posix_ap_server_socket_impl::acceptor_state_ptr>
+posix_ap_server_socket_impl::wait_for_acceptor_state(
+        int protocol, socket_address sa, shard_id shard, abort_source& as) {
+    auto key = std::make_tuple(protocol, sa, shard);
+    acceptor_state_ptr state;
+    std::unique_lock lock(acceptor_states_mutex);
+    auto i = acceptor_states.find(key);
+    state = i == acceptor_states.end() ? acceptor_state_ptr{}
+            : std::static_pointer_cast<acceptor_state>(i->second.lock());
+    if (state && state->registered) {
+        if (as.abort_requested()) {
+            return make_exception_future<acceptor_state_ptr>(std::exception_ptr(state->aborted_exception));
+        }
+        return make_ready_future<acceptor_state_ptr>(std::move(state));
+    }
+    if (!state) {
+        state = std::make_shared<acceptor_state>();
+        acceptor_states[key] = state;
+    }
+    auto cleanup = defer([&] () noexcept {
+        if (lock.owns_lock()) {
+            lock.unlock();
+        }
+        std::lock_guard cleanup_lock(acceptor_states_mutex);
+        if (!state->registered && state->registration_waiters.empty()) {
+            auto i = acceptor_states.find(key);
+            if (i != acceptor_states.end() && !i->second.owner_before(state) && !state.owner_before(i->second)) {
+                acceptor_states.erase(i);
+            }
+        }
+    });
+    // Keep generation capture and waiter installation atomic with registration.
+    auto ready = wait_for_acceptor_registration(protocol, sa, shard, state, std::move(lock), as);
+    cleanup.cancel();
+    return ready;
+}
+
+future<posix_ap_server_socket_impl::acceptor_state_ptr>
+posix_ap_server_socket_impl::wait_for_acceptor_registration(
+        int protocol, socket_address sa, shard_id shard, acceptor_state_ptr state,
+        std::unique_lock<std::mutex> lock, abort_source& as) {
+    auto key = std::make_tuple(protocol, sa, shard);
+    pollable_fd notification;
+    bool waiting = false;
+    auto cleanup = defer([&] () noexcept {
+        if (!lock.owns_lock()) {
+            lock.lock();
+        }
+        if (waiting) {
+            std::erase(state->registration_waiters, notification.get_fd());
+        }
+        if (!state->registered && state->registration_waiters.empty()) {
+            auto i = acceptor_states.find(key);
+            if (i != acceptor_states.end() && !i->second.owner_before(state) && !state.owner_before(i->second)) {
+                acceptor_states.erase(i);
+            }
+        }
+    });
+    notification = pollable_fd(file_desc::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK));
+    state->registration_waiters.push_back(notification.get_fd());
+    waiting = true;
+    lock.unlock();
+    {
+        auto subscription = as.subscribe([fd = notification.get_fd()] () noexcept {
+            signal_acceptor_registration(fd);
+        });
+        if (subscription) {
+            co_await notification.readable();
+        }
+    }
+    if (as.abort_requested()) {
+        std::rethrow_exception(state->aborted_exception);
+    }
+    // Keep the cleanup's state reference valid until its waiter is removed.
+    co_return acceptor_state_ptr(state);
 }
 
 posix_ap_server_socket_impl::acceptor_state_ptr
@@ -803,7 +948,7 @@ posix_ap_server_socket_impl::find_acceptor_state(int protocol, socket_address sa
         return {};
     }
     auto state = std::static_pointer_cast<acceptor_state>(i->second.lock());
-    if (!state || !state->accepting.load(std::memory_order_acquire)) {
+    if (!state || !state->registered || !state->accepting.load(std::memory_order_acquire)) {
         return {};
     }
     return state;
