@@ -897,6 +897,23 @@ void free_aligned_sized(void* ptr, size_t alignment, size_t size);
 
 #endif
 
+SEASTAR_TEST_CASE(test_large_aligned_allocation_warning) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+    constexpr size_t alignment = memory::huge_page_size;
+    constexpr size_t size = memory::page_size;
+    static_assert(alignment > size);
+    memory::scoped_large_allocation_warning_threshold threshold(alignment);
+    auto old_large_allocs_count = memory::stats().large_allocations();
+    void* (*volatile aligned_new)(size_t, std::align_val_t) = ::operator new;
+    auto delete_aligned = [] (void* p) {
+        ::operator delete(p, size, std::align_val_t(alignment));
+    };
+    std::unique_ptr<void, decltype(delete_aligned)> p(aligned_new(size, std::align_val_t(alignment)), delete_aligned);
+    BOOST_REQUIRE_EQUAL(memory::stats().large_allocations(), old_large_allocs_count + 1);
+#endif
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(c23_free_sized) {
     auto p1 = malloc(100);
     free_sized(p1, 100);

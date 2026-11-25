@@ -1009,8 +1009,9 @@ cpu_pages::allocate_large(unsigned n_pages, bool should_sample) {
 
 void*
 cpu_pages::allocate_large_aligned(unsigned align_pages, unsigned n_pages, bool should_sample) {
+    n_pages = std::max(align_pages, n_pages);
     check_large_allocation(n_pages * page_size);
-    return allocate_large_and_trim(std::max(align_pages, n_pages), should_sample);
+    return allocate_large_and_trim(n_pages, should_sample);
 }
 
 disable_backtrace_temporarily::disable_backtrace_temporarily()
