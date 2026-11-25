@@ -49,6 +49,70 @@ SEASTAR_TEST_CASE(test_add_group) {
     return seastar::make_ready_future();
 }
 
+SEASTAR_THREAD_TEST_CASE(test_unit_must_match_in_family) {
+    namespace sm = seastar::metrics;
+    sm::label unit("__unit");
+    sm::label id("id");
+    sm::metric_groups metrics;
+    metrics.add_group("unit_test", {
+        sm::make_counter("read", [] { return 1; }, sm::description("read"), {unit("bytes"), id("1")}),
+        sm::make_counter("read", [] { return 2; }, sm::description("read"), {unit("bytes"), id("2")}),
+    });
+    // the family has a single unit, a series with another unit is refused
+    BOOST_REQUIRE_THROW(metrics.add_group("unit_test", {
+        sm::make_counter("read", [] { return 3; }, sm::description("read"), {unit("seconds"), id("3")}),
+    }), std::runtime_error);
+    BOOST_REQUIRE_THROW(metrics.add_group("unit_test", {
+        sm::make_counter("read", [] { return 4; }, sm::description("read"), {id("4")}),
+    }), std::runtime_error);
+}
+
+SEASTAR_TEST_CASE(test_histogram_add_exemplars) {
+    using namespace seastar::metrics;
+    using namespace std::chrono_literals;
+    auto t0 = std::chrono::system_clock::time_point(1000s);
+    histogram a;
+    a.sample_count = 1;
+    a.exemplars = {{{{"trace_id", "a"}}, 1, t0}};
+    histogram b;
+    b.sample_count = 2;
+    b.exemplars = {{{{"trace_id", "b"}}, 2, t0 + 1s}, {{{"trace_id", "c"}}, 3, t0 + 2s}};
+
+    auto sum = a + b;
+    BOOST_REQUIRE_EQUAL(sum.sample_count, 3);
+    BOOST_REQUIRE_EQUAL(sum.exemplars.size(), 3);
+    BOOST_REQUIRE_EQUAL(sum.exemplars[0].labels.at("trace_id"), "a");
+    BOOST_REQUIRE_EQUAL(sum.exemplars[2].labels.at("trace_id"), "c");
+    BOOST_REQUIRE(sum.exemplars[2].timestamp == t0 + 2s);
+
+    // adding an empty histogram adds no exemplars
+    a += histogram{};
+    BOOST_REQUIRE_EQUAL(a.exemplars.size(), 1);
+
+    // the exemplars of a histogram without samples are still added
+    histogram empty;
+    empty.exemplars = {{{{"trace_id", "d"}}, 4, t0 + 3s}};
+    a += empty;
+    BOOST_REQUIRE_EQUAL(a.exemplars.size(), 2);
+    BOOST_REQUIRE_EQUAL(a.exemplars[1].labels.at("trace_id"), "d");
+
+    // adding a histogram to itself doubles its exemplars
+    a += a;
+    BOOST_REQUIRE_EQUAL(a.sample_count, 2);
+    BOOST_REQUIRE_EQUAL(a.exemplars.size(), 4);
+    BOOST_REQUIRE_EQUAL(a.exemplars[3].labels.at("trace_id"), "d");
+
+    // a failed addition adds no exemplars
+    histogram other_buckets;
+    other_buckets.sample_count = 1;
+    other_buckets.buckets = {{1, 10}};
+    a.buckets = {{1, 20}};
+    other_buckets.exemplars = {{{{"trace_id", "e"}}, 5, t0 + 4s}};
+    BOOST_REQUIRE_THROW(a += other_buckets, std::out_of_range);
+    BOOST_REQUIRE_EQUAL(a.exemplars.size(), 4);
+    return seastar::make_ready_future();
+}
+
 /**
  * This function return the different name label values
  *  for the named metric.
