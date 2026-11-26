@@ -915,6 +915,10 @@ seastar_add_test (exception_logging
   KIND BOOST
   SOURCES exception_logging_test.cc)
 
+seastar_add_test (on_internal_error
+  KIND BOOST
+  SOURCES on_internal_error_test.cc)
+
 seastar_add_test (closeable
   SOURCES
     closeable_test.cc
