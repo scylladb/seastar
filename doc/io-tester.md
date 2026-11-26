@@ -35,7 +35,7 @@ For example:
 
 ```
 - name: big_writes
-  type: seqread
+  type: overwrite
   shards: all
   shard_info:
     parallelism: 10

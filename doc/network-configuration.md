@@ -14,23 +14,23 @@ such as `lspci` and `lshw`).
 Example configuration with a PCI address:
 
 ```
-eth0: {pci_address: 0000:06:00.0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: 255.255.255.0 }
+eth0: {pci-address: 0000:06:00.0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: 255.255.255.0 }
 ```
 
 Example configuration with a port index:
 
 ```
-eth0: {port_index: 0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: 255.255.255.0 }
+eth0: {port-index: 0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: 255.255.255.0 }
 ```
 
 The device name (`eth0` above) is not used by DPDK itself; it is retained only for
 configuration consistency. Hardware configuration must use the same identifier for
-all network devices. For example, if `pci_address` is specified for one device,
-`port_index` cannot be specified for any other device.
+all network devices. For example, if `pci-address` is specified for one device,
+`port-index` cannot be specified for any other device.
 
 
 ## Non-DPDK access
-When neither `pci_address` nor `port_index` is defined, Seastar assumes non-DPDK access
+When neither `pci-address` nor `port-index` is defined, Seastar assumes non-DPDK access
 provided by the `libvirt` daemon (see the [native stack documentation](native-stack.md)):
 
 ```
@@ -55,7 +55,7 @@ Other optional hardware-related settings are listed below. Some apply to both DP
 IP configuration can use either `ip`, `gateway`, and `netmask` (as shown above) or DHCP with `dhcp: true`:
 
 ```
-eth0: {pci_address: 0000:06:00.0, dhcp: true}
+eth0: {pci-address: 0000:06:00.0, dhcp: true}
 ```
 
 DHCP can be selected per network device. For example, you can use DHCP for `eth0` and specify `ip`, `netmask`, and `gateway` for `eth1`.

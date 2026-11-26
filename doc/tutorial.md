@@ -457,36 +457,28 @@ another asynchronously. From the consumer of the view's perspective, it can retr
 the return value of the coroutine. From the coroutine's perspective, it is able to produce the elements multiple times
 using `co_yield` without "leaving" the coroutine. A function producing a sequence of values can be named "generator".
 But unlike the regular coroutine which returns a single `seastar::future<T>`, a generator should return
-`seastar::coroutine::experimental::generator<T, Container>`. Where `T` is the type of the elements, while `Container`
-is a template, which is used to store the elements. Because, underneath of Seastar's generator implementation, a
-bounded buffer is used for holding the elements not yet retrieved by the consumer, there is a design decision to make --
-what kind of container should be used, and what its maximum size should be. To define the bounded buffer, developers
-need to:
-
-1. specify the container type via the second template parameter of the `generator`
-2. specify the size of the bounded buffer by passing the size as the first parameter of the generator coroutine.
-   The size must have the type `seastar::coroutine::experimental::buffer_size_t`.
-
-But there is an exception, if the buffer's size is one, we assume that the programmer is likely to use `std::optional`
-for the bounded buffer, so it's not required to pass the maximum size of the buffer as the first parameter in this case.
-But if a coroutine uses `std::optional` as its buffer, and its function signature still lists the size as its first
-parameter, it will not break anything, because the underlying implementation simply ignores this parameter.
+`seastar::coroutine::experimental::generator<Ref, Value, Container>`, from `<seastar/coroutine/generator.hh>`.
+`Ref` is the type that the consumer gets for each element, and `Value` the element's own type, which may be
+left out when it's `Ref` without its reference. A generator without the third parameter is *unbuffered*:
+each `co_yield` suspends the generator until the consumer asks for the next element. With a container as
+the third parameter, such as `seastar::circular_buffer_fixed_capacity<T, N>`, the generator is *buffered*:
+it keeps producing elements, into the container, until the container is full, and only then waits for the
+consumer to take them. (`doc/generator.md` describes both in detail.)
 
 Following is an example
 
 ```cpp
-#include <seastar/core/circular_buffer.hh>
+#include <seastar/core/circular_buffer_fixed_capacity.hh>
 #include <seastar/core/coroutine.hh>
-#include <seastar/core/sleep.hh>
 #include <seastar/coroutine/generator.hh>
 
 seastar::future<Preprocessed> prepare_ingredients(Ingredients&&);
 seastar::future<Dish> cook_a_dish(Preprocessed&&);
 seastar::future<> consume_a_dish(Dish&&);
 
-seastar::coroutine::experimental::generator<Dish, seastar::circular_buffer>
-make_dishes(coroutine::experimental::buffer_size_t max_dishes_on_table,
-            Ingredients&& ingredients) {
+seastar::coroutine::experimental::generator<Dish, Dish,
+        seastar::circular_buffer_fixed_capacity<Dish, 4>>
+make_dishes(Ingredients&& ingredients) {
     while (ingredients) {
         auto some_ingredients = ingredients.alloc();
         auto preprocessed = co_await prepare_ingredients(std::move(some_ingredients));
@@ -494,27 +486,23 @@ make_dishes(coroutine::experimental::buffer_size_t max_dishes_on_table,
     }
 }
 
-seastar::future<> have_a_dinner(unsigned max_dishes_on_table) {
+seastar::future<> have_a_dinner() {
     Ingredients ingredients;
-    auto dishes = make_dishes(coroutine::experimental::buffer_size_t{max_dishes_on_table},
-                              std::move(ingredients));
+    auto dishes = make_dishes(std::move(ingredients));
     while (auto dish = co_await dishes()) {
-        co_await consume_a_dish(std::move(dish));
+        co_await consume_a_dish(std::move(*dish));
     }
 }
 ```
 
-In this hypothetical kitchen, a chef and a diner are working in parallel. Instead of preparing
-all dishes beforehand, the chef cooks the dishes while the diner is consuming them one after another.
-Under most circumstances, neither the chef nor the diner is blocked by the other. The dishes are buffered
-using the specified `seastar::circular_buffer<Dish>`. But if the diner
-is so slow that there are `max_dishes_on_table` dishes left on the table, the chef waits
-until the number of dishes is less than this setting. Please note, as explained above, despite that this
-parameter is not referenced by the coroutine's body, it is actually passed to the generator's promise
-constructor, which in turn creates the buffer, as we are not using `std::optional` here. On the other hand,
-if there are no dishes on the table, the diner waits for the chef to prepare new ones.
+In this hypothetical kitchen, the chef cooks dishes onto a table that holds four, and the diner
+eats them. The two don't work at the same time: the generator runs the chef until the table is full
+(or until the reactor wants the CPU back), and only then lets the diner eat what's on the table, while
+the chef waits; when the table is empty, the diner waits while the chef cooks again. So the buffer saves
+switching between the chef and the diner for every dish, but it doesn't let cooking and eating overlap.
+For that, the chef and the diner must be two fibers, with a `seastar::queue` between them.
 
-Note that `generator<T, Container>` is still in an early stage of development,
+Note that the generator is still in an early stage of development, in an `experimental` namespace,
 and its public interface is subject to change before it stabilizes.
 
 ## Exceptions in coroutines
@@ -587,7 +575,7 @@ The `seastar::coroutine::all` class template allows a coroutine to fork into sev
 
 
 ```cpp
-#include <seastar/core/coroutines.hh>
+#include <seastar/core/coroutine.hh>
 #include <seastar/coroutine/all.hh>
 
 seastar::future<int> read(int key);
@@ -613,7 +601,7 @@ Note that `all` waits for all of its sub-computations, even if some throw an exc
 The `seastar::coroutine::parallel_for_each` class template allows a coroutine to fork into several concurrently executing function invocations (or Seastar fibers, see below) over a range of elements and join again when they complete. Consider this example:
 
 ```cpp
-#include <seastar/core/coroutines.hh>
+#include <seastar/core/coroutine.hh>
 #include <seastar/coroutine/parallel_for_each.hh>
 
 seastar::future<bool> all_exist(std::vector<seastar::sstring> filenames) {
@@ -634,7 +622,7 @@ Seastar is generally used for I/O, and coroutines usually launch I/O operations 
 A coroutine will automatically yield in a `co_await` expression; but in a computation we do not `co_await` anything. We can use the `seastar::coroutine::maybe_yield` class in such cases:
 
 ```cpp
-#include <seastar/coroutine/maybe_yield>
+#include <seastar/coroutine/maybe_yield.hh>
 
 seastar::future<int> long_loop(int n) {
     float acc = 0;
@@ -2176,7 +2164,7 @@ Exception: std::runtime_error (hello)
 From this output, we have no way of knowing that the exception was thrown in `g()`. We can solve this if we use `make_exception_future_with_backtrace` instead of `make_exception_future`:
 
 ```
-#include <util/backtrace.hh>
+#include <seastar/util/backtrace.hh>
 seastar::future<> g() {
     return seastar::make_exception_future_with_backtrace<>(std::runtime_error("hello"));
 }
@@ -2205,9 +2193,12 @@ In the current implementation, both `make_exception_future_with_backtrace` and `
 
 ## Debugging with gdb
 
+Seastar's high-resolution timers use the signal `SIGRTMIN`, and its stall
+detector uses `SIGRTMIN+1`, which gdb calls `SIG34` and `SIG35` on Linux.
+To keep gdb from stopping at each of them:
+
 ```
-handle SIGUSR1 pass noprint
-handle SIGALRM pass noprint
+handle SIG34 SIG35 nostop noprint pass
 ```
 
 # Promise objects
