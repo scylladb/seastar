@@ -46,7 +46,7 @@ find_package_handle_standard_args (hwloc
   REQUIRED_VARS
     hwloc_LIBRARY
     hwloc_INCLUDE_DIR
-  VERSION_VAR hwloc_VERSION)
+  VERSION_VAR PC_hwloc_VERSION)
 
 if (hwloc_FOUND)
   set (hwloc_LIBRARIES ${hwloc_LIBRARY})
