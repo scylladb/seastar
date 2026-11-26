@@ -29,6 +29,9 @@ namespace seastar {
 namespace net {
 
 void checksummer::sum(const char* data, size_t len) {
+    if (!len) {
+        return;
+    }
     auto orig_len = len;
     if (odd) {
         csum += uint8_t(*data++);
