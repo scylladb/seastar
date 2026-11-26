@@ -52,6 +52,7 @@ debian_packages=(
     cmake
     diffutils
     doxygen
+    elfutils
     g++
     gcc
     libboost-all-dev
@@ -94,6 +95,7 @@ redhat_packages=(
     cmake
     diffutils
     doxygen
+    elfutils
     fmt-devel
     gcc
     gnutls-devel
@@ -180,6 +182,7 @@ arch_packages=(
     cmake
     crypto++
     doxygen
+    elfutils
     filesystem
     fmt
     gcc
@@ -212,6 +215,7 @@ arch_packages=(
 opensuse_packages=(
     c-ares-devel
     cmake
+    elfutils
     hwloc-devel
     libboost_atomic1_66_0
     libboost_atomic1_66_0-devel

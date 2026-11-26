@@ -22,6 +22,7 @@ import bisect
 import collections
 import os
 import re
+import shutil
 import sys
 import subprocess
 from enum import Enum
@@ -40,6 +41,24 @@ def notNone(o: Optional[T]) -> T:
     """Asserts the argument is not None then returns it."""
     assert o is not None
     return o
+
+
+# Commands that list the section headers of an ELF file with `-S`, in
+# order of preference: llvm first, to go with the default llvm-addr2line,
+# then elfutils, then binutils.  The first one found in PATH is used.
+READELF_COMMANDS = ('llvm-readelf', 'eu-readelf', 'readelf')
+
+
+@cache
+def find_readelf() -> str:
+    """Returns the first of READELF_COMMANDS found in PATH, or exits."""
+    for cmd in READELF_COMMANDS:
+        if shutil.which(cmd):
+            return cmd
+    sys.exit(
+        f"none of {', '.join(READELF_COMMANDS)} found in PATH:"
+        " llvm, elfutils or binutils is required to resolve backtraces"
+    )
 
 
 class Addr2Line:
@@ -61,6 +80,15 @@ class Addr2Line:
         r"(,\n)"  # llvm-addr2line pattern for LLVM 17 and older
     )
 
+    # Matcher for a `.debug_info` (or compressed `.zdebug_info`) section
+    # line in the output of `readelf -S`, which starts with the section
+    # index in brackets for eu-readelf, llvm-readelf and binutils readelf
+    # alike, e.g.:
+    #  [34] .debug_info          PROGBITS     0000000000000000 01024e88 00289cbe  0        0   0  1
+    debug_info_section_pattern = re.compile(
+        r"^\s*\[\s*\d+\]\s+\.z?debug_info\s", flags=re.MULTILINE
+    )
+
     def __init__(
         self,
         parent: 'BacktraceResolver',
@@ -68,17 +96,48 @@ class Addr2Line:
         concise: bool = False,
         cmd_path: str = "llvm-addr2line",
         use_debuginfod: bool = False,
+        module_root: Optional[str] = None,
     ):
         self._parent = parent
         self._binary = binary
+        self._module_root = module_root
 
-        # Print warning if binary has no debug info according to `file`.
-        # Note: no message is printed for system errors as they will be
-        # printed also by addr2line later on.
-        output = subprocess.check_output(["file", self._binary])
-        s = output.decode("utf-8")
-        if s.find('ELF') >= 0 and s.find('debug_info', len(self._binary)) < 0:
-            print('{}'.format(s))
+        # The module name may come from untrusted input (e.g. a pasted
+        # backtrace), and both `file` and addr2line treat an argument
+        # starting with '-' or '@' as an option or a response file,
+        # which could be abused to read arbitrary files.  A genuine
+        # module is a readable regular file, so refuse anything that
+        # looks like an option or that is not one (e.g. a directory,
+        # /dev/zero or a FIFO, which would make addr2line hang or run
+        # out of memory), and treat such a module as missing so that
+        # its addresses are passed through unresolved, as addr2line
+        # would do for a module it cannot open.
+        reason = self._reject_reason()
+        if reason is not None:
+            print(f"WARNING: ignoring module '{self._binary}': {reason}", file=sys.stderr)
+            self._missing = True
+            return
+
+        # Make sure the module is an ELF file and print a warning if it
+        # has no debug info, according to its section headers as listed
+        # by readelf.  The path is made absolute so that it can never be
+        # taken for an option, since llvm-readelf does not accept `--`.
+        readelf = find_readelf()
+        res = subprocess.run(
+            [readelf, '-S', os.path.abspath(self._binary)],
+            capture_output=True,
+            text=True,
+            errors='replace',
+        )
+        if res.returncode != 0:
+            self._parent.debug(f"{readelf} failed on '{self._binary}': {res.stderr.strip()}")
+            print(
+                f"WARNING: ignoring module '{self._binary}': not a valid ELF file", file=sys.stderr
+            )
+            self._missing = True
+            return
+        if not Addr2Line.debug_info_section_pattern.search(res.stdout):
+            print(f"WARNING: module '{self._binary}' has no debug_info section")
 
         env = dict(os.environ)
         if not use_debuginfod:
@@ -111,6 +170,27 @@ class Addr2Line:
         self._input.flush()
         res = self._output.readline()
         self._missing = res == ''
+
+    def _reject_reason(self) -> Optional[str]:
+        """Returns why the module path cannot be used, or None if it can."""
+        if self._binary.startswith(('-', '@')):
+            return 'looks like a command line option'
+        if self._module_root is not None:
+            # Compare resolved paths so that neither symlinks nor '..'
+            # components can escape the root, and compare whole path
+            # components so that a sibling with the root as a prefix
+            # (e.g. '/opt/modules-evil' for '/opt/modules') is rejected.
+            root = os.path.realpath(self._module_root)
+            real = os.path.realpath(self._binary)
+            if os.path.commonpath([root, real]) != root:
+                return f"not under module root '{self._module_root}'"
+        if not os.path.exists(self._binary):
+            return 'not found'
+        if not os.path.isfile(self._binary):
+            return 'not a regular file'
+        if not os.access(self._binary, os.R_OK):
+            return 'not readable'
+        return None
 
     @property
     def _input(self):
@@ -364,6 +444,7 @@ class BacktraceResolver:
         debug: bool = False,
         timing: bool = False,
         use_debuginfod: bool = False,
+        module_root: Optional[str] = None,
     ):
         self._debug = debug
         self._timing = timing
@@ -384,6 +465,7 @@ class BacktraceResolver:
         self._concise = concise
         self._cmd_path = cmd_path
         self._use_debuginfod = use_debuginfod
+        self._module_root = module_root
         self._known_modules: dict[str, Union[Addr2Line, KernelResolver]] = {}
         self._get_resolver_for_module(
             self._executable
@@ -412,12 +494,17 @@ class BacktraceResolver:
             if module == KERNEL_MODULE:
                 resolver = KernelResolver(self, kallsyms=self._kallsyms)
             else:
+                # The executable is given on the command line by the
+                # operator, so only modules named in the backtrace itself
+                # are confined to the module root.
+                module_root = self._module_root if module != self._executable else None
                 resolver = Addr2Line(
                     self,
                     module,
                     self._concise,
                     self._cmd_path,
                     use_debuginfod=self._use_debuginfod,
+                    module_root=module_root,
                 )
             self.debug(f'Adding resolver {resolver} for module: {module}')
             self._known_modules[module] = resolver
