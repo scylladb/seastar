@@ -65,10 +65,54 @@ class input_stream_test;
 class output_stream_test;
 }
 
+namespace internal {
+
+/// \cond internal
+
+/// Where data_source::get_split() stores what it reads beyond \c max bytes,
+/// and whether the source is exhausted.
+struct split_target {
+    /// The most bytes get_split() returns.
+    size_t max;
+    /// Receives the bytes read beyond \c max, if there are any.
+    temporary_buffer<char>* rest;
+    /// Set to whether the source is exhausted.
+    bool* eof;
+
+    /// Sets \c *eof to whether \c buf marks the end of the source and, if
+    /// \c buf is longer than \c max, moves the bytes beyond \c max to
+    /// \c *rest. If sharing the buffer fails, moves all of \c buf to
+    /// \c *rest, so that no data is lost, and rethrows.
+    void split(temporary_buffer<char>& buf) const {
+        *eof = buf.empty();
+        if (buf.size() > max) {
+            temporary_buffer<char> tail;
+            try {
+                tail = buf.share(max, buf.size() - max);
+            } catch (...) {
+                *rest = std::move(buf);
+                throw;
+            }
+            buf.trim(max);
+            *rest = std::move(tail);
+        }
+    }
+};
+
+/// \endcond
+
+}
+
 class data_source_impl {
 public:
     virtual ~data_source_impl() {}
     virtual future<temporary_buffer<char>> get() = 0;
+    /// \cond internal
+    /// Implements data_source::get_split(). The default splits the result of
+    /// get() in a continuation; a source that can split the buffer where its
+    /// read completes overrides this to save that continuation.
+    virtual future<temporary_buffer<char>> get_split(internal::split_target target);
+    /// \endcond
     virtual future<temporary_buffer<char>> skip(uint64_t n);
     virtual future<> close() { return make_ready_future<>(); }
 };
@@ -92,6 +136,23 @@ public:
             return current_exception_as_future<tmp_buf>();
         }
     }
+    /// \cond internal
+    /// Like get(), but returns at most \c target.max bytes of the buffer read,
+    /// and stores the rest of it in \c *target.rest; \c *target.rest is left
+    /// alone if there is no rest. Also sets \c *target.eof to whether the
+    /// source is exhausted, that is, whether the buffer read is empty. If the
+    /// split fails, all of the buffer read is stored in \c *target.rest and
+    /// the returned future fails.
+    /// \c *target.rest and \c *target.eof must stay alive until the returned
+    /// future resolves.
+    future<tmp_buf> get_split(internal::split_target target) noexcept {
+        try {
+            return _dsi->get_split(target);
+        } catch (...) {
+            return current_exception_as_future<tmp_buf>();
+        }
+    }
+    /// \endcond
     future<tmp_buf> skip(uint64_t n) noexcept {
         try {
             return _dsi->skip(n);
