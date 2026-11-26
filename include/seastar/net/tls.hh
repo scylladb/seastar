@@ -445,7 +445,13 @@ namespace tls {
     public:
         /// \brief whether to wait for EOF from server on session termination
         deprecated_wait_for_eof_on_shutdown wait_for_eof_on_shutdown;
-        /// \brief server name to be used for the SNI TLS extension
+        /// \brief expected name of the server. Sent in the SNI TLS extension
+        /// and, unless certificate verification has been disabled on the
+        /// credentials, matched against the peer certificate (an IP literal
+        /// against its iPAddress SANs, a DNS name against its dNSName SANs,
+        /// with the subject CN as fallback). A mismatch fails the handshake
+        /// with a verification_error. When empty, no SNI is sent and no name
+        /// check is performed.
         sstring server_name = {};
 
         /// \brief whether server certificate should be verified. May be set to false
