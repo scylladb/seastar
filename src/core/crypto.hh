@@ -73,6 +73,11 @@ public:
     virtual std::unique_ptr<tls::dh_params_impl> make_dh_params(const tls::blob&, tls::x509_crt_format) = 0;
 
     /// \brief Initialize backend-specific TLS error code constants.
+    ///
+    /// In dual-backend builds this fills in the legacy \c tls::ERROR_*
+    /// globals from the active backend's values. In single-backend builds
+    /// the globals are \c const, statically initialized in the backend's
+    /// own translation unit, and this method is a no-op.
     virtual void init_error_codes() = 0;
 
     /// \brief Return the name of this TLS backend (e.g. "gnutls", "openssl").
@@ -106,15 +111,36 @@ public:
 
 /// \brief Return the process-wide crypto provider.
 ///
-/// Must be called after set_provider().  The returned reference
-/// remains valid for the lifetime of the process.
+/// In dual-backend builds, must be called after \ref set_provider(). The
+/// returned reference remains valid for the lifetime of the process.
+/// In single-backend builds the provider is fixed at compile time, lazily
+/// created on first call, and \ref provider() works at any time including
+/// from static initializers / before reactor startup.
 crypto_provider& provider();
 
+#ifdef SEASTAR_TLS_DUAL_BACKEND
 /// \brief Install the process-wide crypto provider.
 ///
-/// Must be called exactly once, before any call to provider().
-/// Ownership is transferred to the crypto subsystem.
+/// Must be called exactly once per \c set_provider / \c reset_provider
+/// cycle, before any call to \ref provider(). Ownership is transferred
+/// to the crypto subsystem.
+///
+/// Only compiled in dual-backend builds. In single-backend builds the
+/// provider is fixed at compile time and \ref provider() handles the
+/// lifetime internally.
 void set_provider(std::unique_ptr<crypto_provider> p);
+
+/// \brief Tear down the process-wide crypto provider installed by
+/// \ref set_provider.
+///
+/// Called from \c smp::cleanup() so that a subsequent \c app::run()
+/// (and the \c smp::configure() it triggers) starts from a clean slate
+/// and can call \ref set_provider again. Safe to call when no provider
+/// is installed.
+///
+/// Only compiled in dual-backend builds.
+void reset_provider();
+#endif
 
 #ifdef SEASTAR_HAVE_GNUTLS
 /// \brief Create a GnuTLS-backed crypto provider.
