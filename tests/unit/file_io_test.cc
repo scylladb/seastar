@@ -1081,6 +1081,17 @@ SEASTAR_TEST_CASE(test_file_system_space) {
     });
 }
 
+// When std::filesystem::space() fails, it doesn't return -1 and set errno
+// like a system call: it reports the error in its error_code argument, and
+// returns a space_info filled with -1. Check that file_system_space() of a
+// path which doesn't exist fails, instead of returning those values.
+SEASTAR_TEST_CASE(test_file_system_space_missing_path) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        auto name = (t.get_path() / "missing").native();
+        BOOST_REQUIRE_THROW(file_system_space(name).get(), std::filesystem::filesystem_error);
+    });
+}
+
 #include "../src/core/file-impl.hh"
 
 namespace seastar::testing {
