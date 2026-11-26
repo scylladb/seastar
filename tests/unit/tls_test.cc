@@ -2739,3 +2739,111 @@ SEASTAR_THREAD_TEST_CASE(test_handshake_error_without_alert_is_not_from_peer) {
     require_contains(err, "Received HTTP request on HTTPS server");
     require_not_contains(err, "Received TLS alert from peer");
 }
+
+
+// Starts a flush and then a read on a client whose handshake will fail, so the
+// read queues behind the handshake that the flush starts. Returns the error
+// each one fails with.
+static std::pair<std::exception_ptr, std::exception_ptr> concurrent_flush_and_read_errors(streams& client) {
+    auto write = client.out.write(message).then([&client] { return client.out.flush(); });
+    auto read = client.in.read().discard_result();
+
+    std::exception_ptr write_error;
+    std::exception_ptr read_error;
+    try {
+        write.get();
+    } catch (...) {
+        write_error = std::current_exception();
+    }
+    try {
+        read.get();
+    } catch (...) {
+        read_error = std::current_exception();
+    }
+    BOOST_REQUIRE_MESSAGE(write_error, "Expected the flush to fail");
+    BOOST_REQUIRE_MESSAGE(read_error, "Expected the read to fail");
+    return {write_error, read_error};
+}
+
+static sstring what(std::exception_ptr ep) {
+    try {
+        std::rethrow_exception(ep);
+    } catch (const std::exception& e) {
+        return e.what();
+    }
+}
+
+// A read that waits on the handshake a flush started must fail with that
+// handshake's error, not with the result of attempting the handshake again.
+SEASTAR_THREAD_TEST_CASE(test_read_queued_behind_handshake_gets_verification_error) {
+    tls::credentials_builder cb;
+    // A trust store that does not contain the server's CA.
+    cb.set_x509_trust_file(certfile("tls-ca-bundle.pem"), tls::x509_crt_format::PEM).get();
+    auto client_creds = cb.build_certificate_credentials();
+
+    tls::credentials_builder sb;
+    sb.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+    sb.set_dh_level();
+    auto server_creds = sb.build_server_credentials();
+
+    auto b1 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::SERVER_TX);
+    auto b2 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::CLIENT_TX);
+    auto ssi = std::make_unique<loopback_connected_socket_impl>(b1, b2);
+    auto csi = std::make_unique<loopback_connected_socket_impl>(b2, b1);
+
+    auto ss = tls::wrap_server(server_creds, connected_socket(std::move(ssi))).get();
+    auto cs = tls::wrap_client(client_creds, connected_socket(std::move(csi)),
+                               tls::tls_options{.server_name = "test.scylladb.org"}).get();
+
+    auto server_in = ss.input();
+    auto server_loop = server_in.read().discard_result().handle_exception([](std::exception_ptr) {});
+
+    streams client(std::move(cs));
+    auto [write_error, read_error] = concurrent_flush_and_read_errors(client);
+    BOOST_REQUIRE_THROW(std::rethrow_exception(write_error), tls::verification_error);
+    BOOST_REQUIRE_THROW(std::rethrow_exception(read_error), tls::verification_error);
+
+    b1->abort();
+    b2->abort();
+    server_loop.get();
+    client.out.close().handle_exception([](std::exception_ptr) {}).get();
+    client.in.close().get();
+    server_in.close().get();
+}
+
+// Same as above, for a handshake that the TLS library itself fails, here
+// because the peer answers with plain HTTP.
+SEASTAR_THREAD_TEST_CASE(test_read_queued_behind_handshake_gets_handshake_error) {
+    tls::credentials_builder cb;
+    cb.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    auto client_creds = cb.build_certificate_credentials();
+
+    auto b1 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::SERVER_TX);
+    auto b2 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::CLIENT_TX);
+    auto ssi = std::make_unique<loopback_connected_socket_impl>(b1, b2);
+    auto csi = std::make_unique<loopback_connected_socket_impl>(b2, b1);
+
+    ::connected_socket peer(std::move(ssi));
+    auto peer_in = peer.input();
+    output_stream<char> peer_out(peer.output().detach(), 1024);
+    auto peer_loop = peer_in.read().then([&peer_out](temporary_buffer<char>) {
+        return peer_out.write(sstring("HTTP/1.1 400 Bad Request\r\n\r\n")).then([&peer_out] {
+            return peer_out.flush();
+        });
+    }).handle_exception([](std::exception_ptr) {});
+
+    auto cs = tls::wrap_client(client_creds, connected_socket(std::move(csi)),
+                               tls::tls_options{.server_name = "test.scylladb.org"}).get();
+    streams client(std::move(cs));
+    auto [write_error, read_error] = concurrent_flush_and_read_errors(client);
+    BOOST_TEST_MESSAGE(fmt::format("flush error: {}", what(write_error)).c_str());
+    BOOST_REQUIRE_EQUAL(what(read_error), what(write_error));
+
+    b1->abort();
+    b2->abort();
+    peer_loop.get();
+    client.out.close().handle_exception([](std::exception_ptr) {}).get();
+    client.in.close().get();
+    peer_out.close().handle_exception([](std::exception_ptr) {}).get();
+    peer_in.close().get();
+}
