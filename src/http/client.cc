@@ -155,6 +155,11 @@ future<connection::reply_ptr> connection::recv_reply() {
 }
 
 future<connection::reply_ptr> connection::do_make_request(const request& req) {
+    // RFC 9112 9.6: a client that sends "Connection: close" must not send
+    // further requests on the connection, whatever the server answers.
+    if (seastar::internal::case_insensitive_cmp()(req.get_header("Connection"), "close")) {
+        _persistent = false;
+    }
     return send_request_head(req).then([this, &req] {
         return maybe_wait_for_continue(req).then([this, &req] (reply_ptr cont) {
             if (cont) {
