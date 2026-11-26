@@ -192,7 +192,10 @@ public:
         });
     }
     future<> close() override {
-        _conn->close_write();
+        // wait_input_shutdown() completes on close_read() (abort_reader), not
+        // on close_write(). A peer that never FINs must not leave the waiter
+        // pending after the input side has been closed.
+        _conn->close_read();
         return make_ready_future<>();
     }
 };
