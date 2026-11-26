@@ -188,6 +188,11 @@ struct lw_shared_ptr_no_esft : private lw_shared_ptr_counter_base {
 ///
 /// To customize, the template must have a `static void dispose(T*)` operator that disposes of
 /// the object.
+///
+/// Using this for an incomplete class also requires including shared_ptr_incomplete.hh, so it
+/// doesn't work with Seastar's C++ module. New code should use an explicit instantiation of
+/// \ref lw_shared_ptr, and \c lw_shared_ptr_dispose() to customize the disposal, as explained
+/// there.
 template <typename T>
 struct lw_shared_ptr_deleter;  // No generic implementation
 
@@ -258,6 +263,61 @@ struct lw_shared_ptr_accessors<T, void_t<decltype(lw_shared_ptr_deleter<T>{})>> 
 
 }
 
+/// A shared pointer, lighter than \ref shared_ptr: the pointer is one word, and the object
+/// carries one more word, its reference count. It doesn't support polymorphism: an
+/// \c lw_shared_ptr<T> always points to a whole \c T.
+///
+/// ### Incomplete types
+///
+/// Copying, moving and comparing pointers never needs the definition of the type they point
+/// to, but destroying the last pointer to an object does. To use \c lw_shared_ptr<thing> in
+/// files that see only a declaration of a type \c thing, add an \c extern \c template
+/// declaration next to it:
+///
+/// \code
+/// struct thing;
+/// extern template class seastar::lw_shared_ptr<thing>;
+/// \endcode
+///
+/// and, in one file that defines \c thing, after its definition, add just this explicit
+/// instantiation:
+///
+/// \code
+/// template class seastar::lw_shared_ptr<thing>;
+/// \endcode
+///
+/// Nothing else is needed. The line must be in only one file, since a program may have only
+/// one explicit instantiation of the template for each type.
+///
+/// This works whether or not \c thing derives from \ref enable_lw_shared_from_this, for
+/// \c lw_shared_ptr<const thing> too, and with Seastar's C++ module. Where the \c extern
+/// \c template declaration is visible, destroying the last pointer is a function call;
+/// copying and moving stay inline. Creating an object with \ref make_lw_shared(), and
+/// dereferencing a pointer, still need the definition of \c thing.
+///
+/// ### Customizing the disposal
+///
+/// To do something other than destroying an object when its last pointer goes away, declare
+/// a function \c lw_shared_ptr_dispose() for its type, in the type's namespace, next to its
+/// declaration, so that every file that uses the pointers sees it:
+///
+/// \code
+/// namespace app {
+/// struct thing;
+/// void lw_shared_ptr_dispose(thing* p) noexcept;
+/// }
+/// \endcode
+///
+/// \c lw_shared_ptr calls it instead of destroying the object. It must call
+/// \c lw_shared_ptr<thing>::dispose(p), now or later, to destroy the object and free its
+/// memory. This works with incomplete types, as explained above, and with complete ones.
+/// The function must take exactly a \c thing*: one declared for a base class of \c thing
+/// isn't used for \c thing.
+///
+/// The declaration of \c lw_shared_ptr_dispose() must also be visible wherever \c thing is
+/// complete: for example, the header that defines \c thing should include the one that
+/// declares it. A file that uses \c lw_shared_ptr<thing> without seeing the declaration
+/// would destroy objects without calling the function.
 template <typename T>
 class lw_shared_ptr {
     template <typename U>
@@ -276,6 +336,12 @@ private:
         accessors<T>::instantiate_to_value(p);
         return lw_shared_ptr(p);
     }
+    // Destroys the object when its last pointer goes away. Defined outside
+    // the class, so that it isn't inline: then an explicit instantiation
+    // declaration, "extern template class seastar::lw_shared_ptr<T>;",
+    // keeps it from being instantiated where T is incomplete (see
+    // "Incomplete types", above).
+    static void destroy(lw_shared_ptr_counter_base* p) noexcept;
 public:
     using element_type = T;
 
@@ -315,7 +381,9 @@ public:
 #pragma GCC diagnostic ignored "-Wuse-after-free"
 #endif
         if (_p && !--_p->_count) {
-            accessors<T>::dispose(_p);
+            // lw_shared_ptr<const T> uses lw_shared_ptr<T>'s, so that one
+            // explicit instantiation serves both.
+            lw_shared_ptr<std::remove_const_t<T>>::destroy(_p);
         }
 #pragma GCC diagnostic pop
     }
@@ -425,6 +493,39 @@ public:
     template <typename U>
     friend class enable_lw_shared_from_this;
 };
+
+namespace internal {
+
+// Converts only to exactly T, so that a function called with it is chosen
+// only if its parameter has type T, and not, for example, a pointer to a
+// base class, when T is a pointer: U is deduced from the parameter's type,
+// without the conversions that a T would allow.
+template <typename T>
+struct exactly {
+    T value;
+    template <typename U>
+    requires std::same_as<U, T>
+    operator U() const noexcept(std::is_nothrow_copy_constructible_v<T>) { return value; }
+};
+
+}
+
+// Not inline, see its declaration.
+template <typename T>
+void lw_shared_ptr<T>::destroy(lw_shared_ptr_counter_base* p) noexcept {
+    // A disposal function declared for a base class of T would destroy T's
+    // objects as the base's, so only one for exactly T* is used.
+    using disposed = internal::exactly<T*>;
+    if constexpr (requires { lw_shared_ptr_deleter<T>{}; }) {
+        // The old way: the lw_shared_ptr_deleter specialization disposes of
+        // the object, even if an lw_shared_ptr_dispose() also exists.
+        accessors<T>::dispose(p);
+    } else if constexpr (requires (disposed d) { lw_shared_ptr_dispose(d); }) {
+        lw_shared_ptr_dispose(disposed{accessors<T>::to_value(p)});
+    } else {
+        accessors<T>::dispose(p);
+    }
+}
 
 template <typename T, typename... A>
 inline
