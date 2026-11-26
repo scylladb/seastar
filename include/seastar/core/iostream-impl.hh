@@ -37,6 +37,9 @@ namespace seastar {
 
 inline future<temporary_buffer<char>> data_source_impl::skip(uint64_t n)
 {
+    if (n == 0) {
+        return make_ready_future<temporary_buffer<char>>();
+    }
     return do_with(uint64_t(n), [this] (uint64_t& n) {
         return repeat_until_value([&] {
             return get().then([&] (temporary_buffer<char> buffer)
