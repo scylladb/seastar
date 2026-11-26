@@ -40,6 +40,14 @@ class instance;
 
 }
 
+/// \brief The entry point of a Seastar application.
+///
+/// An application's main() creates an app_template, may add its own
+/// command-line options with add_options(), and calls run() with the
+/// function to run. run() parses the command line, starts Seastar on
+/// every shard, runs the function on shard 0, and when the future it
+/// returns resolves, stops Seastar and returns the application's exit
+/// code.
 class app_template {
 public:
     struct config {
@@ -157,14 +165,14 @@ public:
     /// to Seastar shards from non-Seastar threads.
     alien::instance& alien() { return *_alien; }
 
-    // Runs given function and terminates the application when the future it
-    // returns resolves. The value with which the future resolves will be
-    // returned by this function.
+    /// Runs given function and terminates the application when the future it
+    /// returns resolves. The value with which the future resolves will be
+    /// returned by this function.
     int run(int ac, char ** av, std::function<future<int> ()>&& func) noexcept;
 
-    // Like run() which takes std::function<future<int>()>, but returns
-    // with exit code 0 when the future returned by func resolves
-    // successfully.
+    /// Like run() which takes std::function<future<int>()>, but returns
+    /// with exit code 0 when the future returned by func resolves
+    /// successfully.
     int run(int ac, char ** av, std::function<future<> ()>&& func) noexcept;
 };
 
