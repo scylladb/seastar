@@ -68,6 +68,8 @@ public:
     virtual future<accept_result> accept() = 0;
     virtual void abort_accept() = 0;
     virtual socket_address local_address() const = 0;
+    /// Change the listen backlog of a socket that is already listening.
+    virtual void set_listen_backlog(int backlog);
 };
 
 class datagram_channel_impl {

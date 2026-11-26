@@ -37,6 +37,9 @@
 #include <seastar/http/json_path.hh>
 #include <seastar/http/response_parser.hh>
 #include <sstream>
+#include <filesystem>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
 #include <seastar/core/shared_future.hh>
 #include <seastar/http/client.hh>
 #include <seastar/http/url.hh>
@@ -3358,6 +3361,69 @@ static void put_hello_route(http_server& server) {
     server._routes.put(GET, "/test", new function_handler([] (const_req) {
         return "hello";
     }, "txt"));
+}
+
+// Return the accept queue length of each listening TCP socket of this process
+// that is bound to one of \c ports. For a listening socket, TCP_INFO reports
+// this length in tcpi_sacked (see tcp_get_info() in the kernel). The function
+// skips other descriptors, and also descriptors that other shards close
+// during the scan.
+static std::vector<unsigned> kernel_listen_backlogs(const std::vector<in_port_t>& ports) {
+    std::vector<unsigned> backlogs;
+    for (const auto& entry : std::filesystem::directory_iterator("/proc/self/fd")) {
+        int fd = std::stoi(entry.path().filename());
+        ::tcp_info info{};
+        ::socklen_t info_len = sizeof(info);
+        socket_address sa;
+        if (::getsockopt(fd, IPPROTO_TCP, TCP_INFO, &info, &info_len) == 0 && info.tcpi_state == TCP_LISTEN
+                && ::getsockname(fd, &sa.u.sa, &sa.addr_length) == 0 && std::ranges::contains(ports, sa.port())) {
+            backlogs.push_back(info.tcpi_sacked);
+        }
+    }
+    return backlogs;
+}
+
+// A sharded server changes its listen backlog on every shard, as listen() does.
+// Without SO_REUSEPORT, shard 0 owns the listening socket and the other shards
+// only receive its connections. The change must succeed on every shard, reach
+// the kernel, and leave the server serving. A TLS listener must pass the
+// change on. Run with -c 2 or more (the default) to cover the shards without a
+// socket.
+SEASTAR_THREAD_TEST_CASE(test_sharded_server_set_listen_backlog) {
+    http_server_control control;
+    control.start("test-listen-backlog").get();
+    auto stop_control = deferred_stop(control);
+    control.server().invoke_on_all(put_hello_route).get();
+
+    // Both values are below every usual net.core.somaxconn, which caps them.
+    listen_options lo;
+    lo.reuse_address = true;
+    lo.listen_backlog = 42;
+    control.listen(socket_address(ipv4_addr("127.0.0.1", 0)), lo).get();
+    auto addr = control.server().local().listening_addresses().front();
+    std::vector<in_port_t> ports{addr.port()};
+    auto require_backlog = [&] (unsigned expected) {
+        auto backlogs = kernel_listen_backlogs(ports);
+        BOOST_REQUIRE(!backlogs.empty());
+        BOOST_REQUIRE(std::ranges::all_of(backlogs, [&] (unsigned b) { return b == expected; }));
+    };
+    require_backlog(42);
+
+    control.set_listen_backlog(67).get();
+    require_backlog(67);
+    // listen() on the live socket must not disturb the accept that waits on it.
+    BOOST_REQUIRE(get_test_response(addr).find("hello") != sstring::npos);
+
+    // A TLS server socket passes the call to the socket that it wraps.
+    tls::credentials_builder builder;
+    builder.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+    http_server tls_server("test-listen-backlog-tls");
+    tls_server.listen(socket_address(ipv4_addr("127.0.0.1", 0)), lo, builder.build_server_credentials()).get();
+    std::vector<in_port_t> tls_ports{tls_server.listening_addresses().front().port()};
+    tls_server.set_listen_backlog(67);
+    auto tls_backlogs = kernel_listen_backlogs(tls_ports);
+    tls_server.stop().get();
+    BOOST_REQUIRE(tls_backlogs == std::vector<unsigned>{67});
 }
 
 SEASTAR_TEST_CASE(test_aborting_a_listener_stops_serving_its_address) {
