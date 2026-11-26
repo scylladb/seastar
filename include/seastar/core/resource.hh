@@ -121,6 +121,10 @@ struct io_queue_topology {
 struct cpu {
     unsigned cpu_id;
     std::vector<memory> mem;
+    // Dense identifier of the last-level cache serving this cpu, split at
+    // NUMA node boundaries; cpus that share a last-level cache and a NUMA
+    // node have the same identifier. 0 if unknown.
+    unsigned last_level_cache_id = 0;
 };
 
 struct resources {

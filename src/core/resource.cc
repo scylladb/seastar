@@ -351,6 +351,17 @@ static hwloc_obj_t hwloc_get_ancestor(hwloc_obj_type_t type, hwloc_topology_t to
     return cur;
 }
 
+// Find the outermost data (or unified) cache containing a specific PU.
+static hwloc_obj_t get_last_level_cache_for_pu(hwloc_obj_t pu) {
+    hwloc_obj_t llc = nullptr;
+    for (auto cur = pu; cur != nullptr; cur = cur->parent) {
+        if (hwloc_obj_type_is_dcache(cur->type)) {
+            llc = cur;
+        }
+    }
+    return llc;
+}
+
 static std::unordered_map<hwloc_obj_t, std::vector<unsigned>> break_cpus_into_groups(hwloc_topology_t topology,
         const std::vector<unsigned>& cpus, hwloc_obj_type_t type) {
     std::unordered_map<hwloc_obj_t, std::vector<unsigned>> groups;
@@ -733,6 +744,19 @@ resources allocate(configuration& c) {
         }
         SEASTAR_ASSERT(!remain);
         ret.cpus.push_back(std::move(this_cpu));
+    }
+
+    // Assign dense last-level cache identifiers, in order of first appearance.
+    // A cache is split at NUMA node boundaries: with sub-NUMA clustering, the
+    // L3 spans several NUMA nodes, but each node's memory is cached only in
+    // the node's own slices of it.
+    std::map<std::pair<hwloc_obj_t, hwloc_obj_t>, unsigned> llc_ids;
+    for (auto& this_cpu : ret.cpus) {
+        auto pu = hwloc_get_pu_obj_by_os_index(topology, this_cpu.cpu_id);
+        auto key = std::pair(get_last_level_cache_for_pu(pu), cpu_to_node.at(this_cpu.cpu_id));
+        auto it = llc_ids.try_emplace(key, llc_ids.size()).first;
+        this_cpu.last_level_cache_id = it->second;
+        seastar_logger.debug("CPU{} uses last-level cache {}", this_cpu.cpu_id, it->second);
     }
 
     unsigned last_node_idx = 0;

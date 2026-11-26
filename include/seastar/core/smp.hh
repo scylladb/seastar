@@ -371,6 +371,7 @@ class smp : public std::enable_shared_from_this<smp> {
     static inline thread_local int _pinned_cpu_id = -1;
     bool _using_dpdk = false;
     std::vector<unsigned> _shard_to_numa_node_mapping;
+    std::vector<unsigned> _shard_to_last_level_cache_mapping;
 
 private:
     void setup_prefaulter(const seastar::resource::resources& res, seastar::memory::internal::numa_layout layout);
@@ -390,6 +391,14 @@ public:
 
     /// \returns A integer span of size smp::shard_count(), with nth integer being the ID of nth shard's NUMA node.
     std::span<const unsigned> shard_to_numa_node_mapping() const noexcept;
+
+    /// \returns A integer span of size smp::shard_count(), with nth integer being the ID of the last-level cache
+    ///          serving the nth shard. Shards sharing a last-level cache have the same ID. A cache that
+    ///          spans several NUMA nodes (e.g. with sub-NUMA clustering) is treated as one cache per node,
+    ///          since each node's memory is cached in the node's own part of it, so shards on different
+    ///          NUMA nodes never share an ID. IDs are dense, starting from 0. If the topology is not known
+    ///          (e.g. no hwloc, or no thread affinity), all shards are reported as sharing last-level cache 0.
+    std::span<const unsigned> shard_to_last_level_cache_mapping() const noexcept;
 
     /// Runs a function on a remote core.
     ///
