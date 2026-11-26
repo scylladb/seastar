@@ -1,14 +1,16 @@
 # I/O Tracing
 
-Seastar includes optional LTTng-UST tracepoints in the I/O scheduler that
-allow low-overhead recording of I/O request lifecycle events. The
-tracepoints must be explicitly enabled at build time via
-`-DSeastar_LTTNG=ON`, but have near-zero cost (~3 ns per tracepoint) when
+Seastar includes LTTng-UST tracepoints in the I/O scheduler that allow
+low-overhead recording of I/O request lifecycle events. The tracepoints
+are built by default, and have near-zero cost (~3 ns per tracepoint) when
 tracing is not active.
 
 ## Prerequisites
 
-Install the LTTng userspace tracer:
+Building Seastar with the tracepoints requires the LTTng userspace tracer
+library, and recording a trace requires the LTTng tools. On Debian,
+Ubuntu, Fedora and RHEL, `install-dependencies.sh` installs both;
+elsewhere, install them by hand:
 
 ```bash
 # Debian/Ubuntu
@@ -18,11 +20,8 @@ sudo apt install lttng-tools liblttng-ust-dev
 sudo dnf install lttng-tools lttng-ust-devel
 ```
 
-Build Seastar with LTTng support enabled:
-
-```bash
-cmake -DSeastar_LTTNG=ON ...
-```
+To build Seastar without the tracepoints, see "Building Without LTTng"
+below.
 
 Verify that the tracepoints are present:
 
@@ -275,8 +274,9 @@ and custom analysis views.
 
 ## Building Without LTTng
 
-By default (`-DSeastar_LTTNG=OFF`), Seastar builds without tracepoints
-(zero overhead).  To enable tracing, pass `-DSeastar_LTTNG=ON` — this
-requires `lttng-ust-devel` to be installed and will fail at configure
-time if the library is not found.  The `SEASTAR_HAVE_LTTNG_UST`
-preprocessor macro indicates whether tracing is compiled in.
+By default (`-DSeastar_LTTNG=ON`), Seastar builds with the tracepoints,
+and the configure step fails if the `lttng-ust` library is not found.
+To build without them (zero overhead, and no dependency on the library),
+pass `-DSeastar_LTTNG=OFF`, or `--disable-lttng` to `configure.py`.  The
+`SEASTAR_HAVE_LTTNG_UST` preprocessor macro indicates whether tracing is
+compiled in.
