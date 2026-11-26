@@ -67,7 +67,11 @@ public:
         _waiting_task = hndl.promise().waiting_task();
 
         if (_future.available()) {
-            execute_involving_handle_destruction_in_await_suspend(this);
+            if (_future.failed()) {
+                execute_involving_handle_destruction_in_await_suspend(this);
+            } else {
+                schedule(this);
+            }
         } else {
             _future.set_coroutine(*this);
         }

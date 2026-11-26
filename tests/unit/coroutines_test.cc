@@ -954,6 +954,28 @@ SEASTAR_TEST_CASE(test_try_future) {
     co_await run_try_future_test<false>(return_ex_int, std::nullopt);
 }
 
+SEASTAR_TEST_CASE(test_try_future_preemption) {
+    auto check = []<typename T> (future<T> input) -> future<> {
+        auto await_input = [&input] () -> future<> {
+            co_await coroutine::try_future(std::move(input));
+        };
+        auto f = [&] {
+            seastar::internal::preemption_monitor monitor{1, 0};
+            auto* previous = seastar::internal::get_need_preempt_var();
+            auto restore = seastar::defer([previous] () noexcept {
+                seastar::internal::set_need_preempt_var(previous);
+            });
+            seastar::internal::set_need_preempt_var(&monitor);
+            return await_input();
+        }();
+        auto completed_inline = f.available();
+        co_await std::move(f);
+        BOOST_REQUIRE(!completed_inline);
+    };
+    co_await check(make_ready_future<>());
+    co_await check(make_ready_future<int>(42));
+}
+
 #if SEASTAR_API_LEVEL < 10
 future<int> co_return_tup_int_rv() {
     co_return std::tuple(42);
