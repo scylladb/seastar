@@ -895,9 +895,9 @@ int main(int ac, char** av) {
             auto random_write_io_buffer_size = configuration["random-write-io-buffer-size"].as<unsigned>();
             auto random_read_io_buffer_size = configuration["random-read-io-buffer-size"].as<unsigned>();
             auto force_io_depth = configuration["force-io-depth"].as<unsigned>();
-            auto buffer_sizes_for_best_iops = configuration["get-best-iops-with-buffer-sizes"].as<std::vector<uint64_t>>();
+            const auto configured_buffer_sizes_for_best_iops = configuration["get-best-iops-with-buffer-sizes"].as<std::vector<uint64_t>>();
             auto detect_pbs = configuration["detect-physical-block-size"].as<bool>();
-            if (!buffer_sizes_for_best_iops.empty() && (random_read_io_buffer_size || random_write_io_buffer_size)) {
+            if (!configured_buffer_sizes_for_best_iops.empty() && (random_read_io_buffer_size || random_write_io_buffer_size)) {
                 iotune_logger.error("--get-best-iops-with-buffer-sizes is set, but random-read-io-buffer-size or random-write-io-buffer-size are also set. "
                                     "The options are mutually exclusive, please unset one of them.");
                 return 1;
@@ -1048,6 +1048,7 @@ int main(int ac, char** av) {
                 desc.write_bw = write_bw.bytes_per_sec;
                 desc.write_sat_len = write_sat;
 
+                auto buffer_sizes_for_best_iops = configured_buffer_sizes_for_best_iops;
                 if (buffer_sizes_for_best_iops.empty()) {
                     buffer_sizes_for_best_iops = {test_directory.minimum_io_size()};
                 } else {
