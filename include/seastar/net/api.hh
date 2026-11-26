@@ -447,6 +447,10 @@ struct listen_options {
     //
     // The proxy protocol is defined in https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt
     bool proxy_protocol = false;
+
+    /// Enable TCP Fast Open (RFC 7413) on the listening socket, queue length = listen_backlog.
+    /// Requires the server bit (0x2) in sysctl net.ipv4.tcp_fastopen. Linux TCP only.
+    bool tcp_fastopen = false;
 };
 
 class network_interface {

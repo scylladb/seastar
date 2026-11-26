@@ -38,10 +38,14 @@
 #include <seastar/core/sleep.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/core/with_timeout.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/posix-stack.hh>
 #include <stdexcept>
 
+#include <netinet/tcp.h>
+
+#include <cstring>
 #include <fstream>
 #include <optional>
 #include <tuple>
@@ -422,6 +426,114 @@ SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
     BOOST_CHECK_LT(send_default, 20'000'000);
     BOOST_CHECK_LT(recv_default, 20'000'000);
 }
+
+#ifdef TCP_FASTOPEN
+static int tcp_fastopen_sysctl() {
+    std::ifstream ifs("/proc/sys/net/ipv4/tcp_fastopen");
+    int val = 0;
+    return (ifs >> val) ? val : 0;
+}
+
+// getsockopt() reflects the set value even when the TFO sysctl is off.
+SEASTAR_THREAD_TEST_CASE(socket_tcp_fastopen_listen_sockopt) {
+    auto fastopen_qlen = [](listen_options lo) {
+        ipv4_addr addr("127.0.0.1", 0);
+        pollable_fd pfd = internal::posix_listen(addr, lo);
+        auto val = pfd.get_file_desc().getsockopt<int>(IPPROTO_TCP, TCP_FASTOPEN);
+        pfd.close();
+        return val;
+    };
+
+    listen_options enabled;
+    enabled.reuse_address = true;
+    enabled.tcp_fastopen = true;
+    enabled.listen_backlog = 42;
+    BOOST_CHECK_EQUAL(fastopen_qlen(enabled), 42);
+
+    listen_options disabled;
+    disabled.reuse_address = true;
+    // With 0x400 and 0x2 set, Linux enables TFO on every listener.
+    if ((tcp_fastopen_sysctl() & 0x402) != 0x402) {
+        BOOST_CHECK_EQUAL(fastopen_qlen(disabled), 0);
+    }
+}
+#endif
+
+#if defined(TCP_FASTOPEN) && defined(MSG_FASTOPEN) && defined(TCPI_OPT_SYN_DATA)
+// First connection only fetches the TFO cookie; the second carries SYN data.
+SEASTAR_THREAD_TEST_CASE(socket_tcp_fastopen) {
+    const int tfo_mode = tcp_fastopen_sysctl();
+    // Without the client bit (0x1) sendto(MSG_FASTOPEN) fails with EOPNOTSUPP.
+    if (!(tfo_mode & 0x1)) {
+        BOOST_TEST_MESSAGE("client TCP Fast Open disabled, skipping");
+        return;
+    }
+    // SYN data is only accepted with the server bit (0x2) set too.
+    const bool tfo = tfo_mode & 0x2;
+    constexpr const char* payload = "fast-open-hello";
+    const auto payload_len = std::strlen(payload);
+
+    listen_options lo;
+    lo.reuse_address = true;
+    lo.tcp_fastopen = true;
+    // Accepting only on this shard, so keep every connection here.
+    lo.lba = server_socket::load_balancing_algorithm::fixed;
+    server_socket ss = seastar::listen(ipv4_addr("127.0.0.1", 0), lo);
+    auto stop_accept = defer([&ss] () noexcept { ss.abort_accept(); });
+    const socket_address sa = ss.local_address();
+
+    auto client = std::async(std::launch::async, [&] {
+        int sent = 0, acked = 0;
+        for (int i = 0; i < 2; ++i) {
+            int fd = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            if (fd < 0) {
+                break;
+            }
+            auto close_fd = defer([fd] () noexcept { ::close(fd); });
+            // Bounded so a server-side failure cannot hang the client (and the future's destructor).
+            timeval tv{.tv_sec = 10, .tv_usec = 0};
+            ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+            ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+            auto n = ::sendto(fd, payload, payload_len, MSG_FASTOPEN,
+                              &sa.as_posix_sockaddr(), sa.length());
+            if (n != static_cast<ssize_t>(payload_len)) {
+                break;
+            }
+            ++sent;
+            char ack = 0;
+            if (::recv(fd, &ack, 1, 0) == 1) {
+                ++acked;
+            }
+        }
+        return std::make_pair(sent, acked);
+    });
+
+    for (int i = 0; i < 2; ++i) {
+        // Bounded so a client-side send failure fails the test instead of hanging it.
+        auto ar = with_timeout(std::chrono::steady_clock::now() + std::chrono::seconds(10), ss.accept()).get();
+        auto& server = ar.connection;
+
+        if (tfo && i > 0) {
+            tcp_info ti{};
+            BOOST_REQUIRE_EQUAL(server.get_sockopt(IPPROTO_TCP, TCP_INFO, &ti, sizeof(ti)), 0);
+            BOOST_CHECK(ti.tcpi_options & TCPI_OPT_SYN_DATA);
+        }
+
+        auto in = server.input();
+        auto buf = in.read_exactly(payload_len).get();
+        BOOST_CHECK_EQUAL(std::string(buf.get(), buf.size()), payload);
+
+        auto out = server.output();
+        out.write("x", 1).get();
+        out.close().get();
+        in.close().get();
+    }
+
+    auto [sent, acked] = client.get();
+    BOOST_CHECK_EQUAL(sent, 2);
+    BOOST_CHECK_EQUAL(acked, 2);
+}
+#endif
 
 static
 void
