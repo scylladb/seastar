@@ -1,0 +1,65 @@
+% Figure for chapter 8, "lw_shared_ptr and shared_ptr": the timeline of
+% sharing.cc. The owner and keepalive() each hold a pointer to the session;
+% the owner lets go at 25 ms, but the session lives until keepalive(), the
+% last holder, ends at 30 ms.
+\begin{tikzpicture}[
+    lane/.style={font=\sffamily\small, anchor=east, align=right},
+    event/.style={font=\sffamily\footnotesize, align=center},
+    tick/.style={draw=figink, line width=0.66pt},
+  ]
+  % 2 mm per millisecond, from 0 to 45 ms.
+  \def\ms#1{#1*2mm}
+  \coordinate (origin) at (0, 0);
+  % The three lanes, top to bottom.
+  \def\owner{0mm}
+  \def\keep{-17mm}
+  \def\sess{-34mm}
+
+  \def\axis{-44mm}
+  % Dotted guides from the two moments that matter, drawn first, behind
+  % everything else.
+  \foreach \t in {25, 30} {
+    \draw[rare, draw=fignote, line width=0.4pt] (\ms{\t}, \owner) -- (\ms{\t}, \axis);
+  }
+
+  \node[lane] at ([xshift=-3mm]0, \owner) {the owner};
+  \node[lane] at ([xshift=-3mm]0, \keep) {\ttfamily keepalive()};
+  \node[lane] at ([xshift=-3mm]0, \sess) {the session};
+
+  % The owner: holds a pointer from 0 to 25 ms, then runs on without it.
+  \draw[line width=1.6pt, draw=figcool] (\ms{0}, \owner) -- (\ms{25}, \owner);
+  \draw[rare] (\ms{25}, \owner) -- (\ms{45}, \owner);
+  \fill[figink] (\ms{0}, \owner) circle (0.9mm);
+  \node[event, above=1.2mm] at (\ms{0}, \owner) {creates it};
+  \fill[figink] (\ms{25}, \owner) circle (0.9mm);
+  \node[event, above=1.2mm] at (\ms{25}, \owner) {closes it, \\ lets go};
+  \fill[figink] (\ms{45}, \owner) circle (0.9mm);
+  \node[event, above=1.2mm] at (\ms{45}, \owner) {its weak pointer \\ finds it gone};
+
+  % keepalive(): holds a pointer from 0 to 30 ms, waking every 10 ms.
+  \draw[line width=1.6pt, draw=figcool] (\ms{0}, \keep) -- (\ms{30}, \keep);
+  \foreach \t in {0, 10, 20} {
+    \fill[figink] (\ms{\t}, \keep) circle (0.9mm);
+  }
+  \node[event, above=1.2mm] at (\ms{10}, \keep) {``still here'', every 10 ms};
+  \fill[figink] (\ms{30}, \keep) circle (0.9mm);
+  \node[event, above=1.2mm] at (\ms{30}, \keep) {done};
+
+  % The session: alive while anyone holds a pointer, with the count.
+  \node[coolbox, minimum height=6mm, minimum width=\ms{25}, inner sep=0pt,
+        anchor=west, font=\sffamily\footnotesize]
+    at (\ms{0}, \sess) {2 pointers};
+  \node[coolbox, minimum height=6mm, minimum width=\ms{5}, inner sep=0pt,
+        anchor=west, font=\sffamily\footnotesize]
+    at (\ms{25}, \sess) {1};
+  \node[event, anchor=west, align=left, text=fighot] (destroyed) at ([xshift=2mm]\ms{30}, \sess)
+    {destroyed, when \ttfamily keepalive()\sffamily's \\ pointer goes};
+
+  % The time axis.
+  \draw[flow] (\ms{0}, \axis) -- (\ms{48}, \axis);
+  \foreach \t in {0, 10, 20, 25, 30, 45} {
+    \draw[tick] (\ms{\t}, \axis) -- ++(0, -1.2mm)
+      node[below, font=\sffamily\footnotesize] {\t};
+  }
+  \node[event, anchor=west] at (\ms{48}, \axis) {ms};
+\end{tikzpicture}

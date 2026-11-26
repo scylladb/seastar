@@ -1,0 +1,180 @@
+# A solution in solutions/time.md: shoal-idle-timeout, Shoal v5 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v5, builds it, and runs the tests.
+# base: shoal/v5
+# server options: --timeout 2
+--- a/main.cc
++++ b/main.cc
+@@ -1,7 +1,10 @@
+-// Shoal, version 5: a Redis-compatible key-value server on a single shard.
++// Shoal, version 5, with --timeout, which closes idle connections: a
++// Redis-compatible key-value server on a single shard.
+ #include "commands.hh"
+ #include "pubsub.hh"
+ #include <seastar/core/app-template.hh>
++#include <seastar/core/lowres_clock.hh>
++#include <seastar/core/timer.hh>
+ #include <seastar/core/coroutine.hh>
+ #include <seastar/coroutine/exception.hh>
+ #include <seastar/core/memory.hh>
+@@ -9,6 +12,7 @@
+ #include <seastar/net/api.hh>
+ #include <boost/program_options.hpp>
+ #include <fmt/format.h>
++#include <chrono>
+ #include <cstdint>
+ #include <exception>
+ #include <optional>
+@@ -26,17 +30,37 @@
+     delivery pubsub_delivery;
+     size_t pubsub_max_pending;
+     size_t pubsub_max_total_pending;
++    // Close a client's connection after it has sent nothing for this long
++    // (zero: never).
++    std::chrono::seconds timeout;
+ };
+
+ // snippet: serve
+ // Reads and executes a client's commands, until the client closes the
+-// connection.
+-future<> serve(store& db, pubsub& ps, client& c, input_stream<char>& in,
+-               output_stream<char>& out) {
++// connection, or, if timeout isn't zero, sends nothing for that long.
++future<> serve(store& db, pubsub& ps, client& c, connected_socket& s,
++               input_stream<char>& in, output_stream<char>& out,
++               std::chrono::seconds timeout) {
+     request_reader reader(in);
++    // When the client has been idle too long, end the read that waits for
++    // its next request, as if the client had closed the connection.
++    timer<lowres_clock> idle([&s] { s.shutdown_input(); });
++    // Waits for the next request, with the timer armed, except for a
++    // subscriber, which may wait for messages as long as it likes.
++    auto next_request = [&] {
++        if (timeout.count() && c.channels().empty()) {
++            idle.rearm(lowres_clock::now() + timeout);
++        } else {
++            idle.cancel();
++        }
++        return reader.read();
++    };
+     std::optional<std::string> error;
+     try {
+-        while (auto req = co_await reader.read()) {
++        while (auto req = co_await next_request()) {
++            // The client isn't idle while its request executes, however
++            // long that takes.
++            idle.cancel();
+             if (!c.channels().empty() || is_pubsub_command(*req)) {
+                 // Publishers may write to this client too, so its writes
+                 // must go through the client.
+@@ -63,7 +87,8 @@
+ // end snippet: serve
+
+ // snippet: handle-connection
+-future<> handle_connection(store& db, pubsub& ps, connected_socket s) {
++future<> handle_connection(store& db, pubsub& ps, connected_socket s,
++                           std::chrono::seconds timeout) {
+     // Send each reply as soon as it's flushed (see the text).
+     s.set_nodelay(true);
+     auto in = s.input();
+@@ -71,7 +96,7 @@
+     client c(s, out, ps.total_pending());
+     std::exception_ptr failure;
+     try {
+-        co_await serve(db, ps, c, in, out);
++        co_await serve(db, ps, c, s, in, out, timeout);
+     } catch (...) {
+         failure = std::current_exception();
+     }
+@@ -108,8 +133,8 @@
+     while (true) {
+         auto [socket, address] = co_await listener.accept();
+         shoal_log.debug("client {} connected", address);
+-        (void)handle_connection(db, ps, std::move(socket)).handle_exception(
+-            [address] (std::exception_ptr e) {
++        (void)handle_connection(db, ps, std::move(socket), opts.timeout)
++            .handle_exception([address] (std::exception_ptr e) {
+                 shoal_log.warn("connection with {} failed: {}", address,
+                                formattable(e));
+             });
+@@ -151,7 +176,10 @@
+         ("pubsub-max-total-pending", bpo::value<size_t>()->default_value(0),
+          "when all subscribers' unsent messages use more than this many "
+          "bytes, disconnect those that are behind (default: a quarter of "
+-         "the shard's memory)");
++         "the shard's memory)")
++        ("timeout", bpo::value<unsigned>()->default_value(0),
++         "close a client's connection after it has sent nothing for this "
++         "many seconds (0: never)");
+     return app.run(argc, argv, [&app] {
+         auto& config = app.configuration();
+         return shoal_main(options{
+@@ -161,6 +189,8 @@
+             .pubsub_max_pending = config["pubsub-max-pending"].as<size_t>(),
+             .pubsub_max_total_pending = max_total_pending(
+                 config["pubsub-max-total-pending"].as<size_t>()),
++            .timeout = std::chrono::seconds(
++                config["timeout"].as<unsigned>()),
+         });
+     });
+ }
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,57 @@
++# Tests for the solution of chapter 9's exercise 2: --timeout, which closes
++# the connection of a client that sends nothing for a while. test/run
++# starts the server, Shoal or Valkey, with a timeout of 2 seconds. Like
++# all of Shoal's tests, they pass against Valkey too.
++import socket
++import time
++
++import redis
++
++# The servers' timeout, which test/run sets, in seconds.
++TIMEOUT = 2
++
++
++# Returns a socket connected to the server, which reads with a timeout.
++def connect(server):
++    s = socket.create_connection(server)
++    s.settimeout(10)
++    return s
++
++
++# Waits for the server to close the connection, and returns how long it
++# took, or None if the server sent something else.
++def wait_for_close(s):
++    start = time.monotonic()
++    data = s.recv(100)
++    return time.monotonic() - start if data == b'' else None
++
++
++# Check that the server closes a connection that sends nothing, after the
++# timeout, but not long before it.
++def test_idle_connection_closed(server):
++    with connect(server) as s:
++        s.sendall(b'PING\r\n')
++        assert s.recv(100) == b'+PONG\r\n'
++        waited = wait_for_close(s)
++        assert waited is not None and TIMEOUT - 0.5 < waited < TIMEOUT + 2
++
++
++# Check that a connection that sends a request now and then, more often
++# than the timeout, stays open, although it lives longer than the timeout.
++def test_active_connection_stays_open(server):
++    with connect(server) as s:
++        for _ in range(8):
++            s.sendall(b'PING\r\n')
++            assert s.recv(100) == b'+PONG\r\n'
++            time.sleep(TIMEOUT / 4)
++
++
++# Check that a subscriber isn't disconnected, however long it waits for
++# messages, and receives a message published after the timeout.
++def test_subscriber_not_closed(r, server):
++    with connect(server) as s:
++        s.sendall(b'SUBSCRIBE idle-test-channel\r\n')
++        assert s.recv(100).startswith(b'*3\r\n$9\r\nsubscribe\r\n')
++        time.sleep(TIMEOUT + 1.5)
++        assert r.publish('idle-test-channel', 'hello') == 1
++        assert s.recv(100).endswith(b'$5\r\nhello\r\n')

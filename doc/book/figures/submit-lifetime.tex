@@ -1,0 +1,55 @@
+% Figure for chapter 14, "Sending work to another shard": where the parts
+% of the chapter's submit_to() call, which captures a reference to text
+% and a copy of word, live and run. The lambda is moved into a request in
+% shard 0's memory; shard 1 calls it there, reads text and the copy of
+% word in shard 0's memory, and keeps the result in the same request;
+% shard 0 moves the result into its future, and destroys the request,
+% with the lambda and its copy of word. Time goes from left to right, not
+% to scale.
+\begin{tikzpicture}[x=1mm, y=1mm,
+    lane/.style={font=\sffamily\small, anchor=east, align=right},
+    stage/.style={box, font=\sffamily\footnotesize, inner xsep=1.2mm,
+                  inner ysep=0.9mm, text width=#1},
+    remote/.style={coolbox, font=\sffamily\footnotesize, inner xsep=1.2mm,
+                   inner ysep=0.9mm, text width=#1},
+    label/.style={note, inner sep=0.6mm},
+  ]
+  % The two lanes.
+  \def\top{0}
+  \def\bot{-32}
+  \node[lane] at (-2, \top) {shard 0};
+  \node[lane] at (-2, \bot) {shard 1};
+  \draw[draw=fignote, rare, line width=0.4pt] (0, \top) -- (116, \top);
+  \draw[draw=fignote, rare, line width=0.4pt] (0, \bot) -- (116, \bot);
+
+  % 1. Shard 0 makes the lambda, and submit_to() moves it into a request.
+  \node[stage=28mm] (make) at (16, \top)
+    {makes the lambda, with a reference to \texttt{text} and a copy of
+     \texttt{word}; \texttt{submit\_to()} moves it into a request};
+
+  % 2. Shard 1 calls the lambda, where it is.
+  \node[remote=22mm] (call) at (47, \bot)
+    {calls the lambda, which counts \texttt{word} in \texttt{text}};
+  \draw[message, gap] (make.south) -- (call.north west)
+    node[pos=0.5, left=0.8mm, label] {request};
+  % The lambda, the copy of word and text all stay in shard 0's memory.
+  \draw[flow, rare, gap] (call.north east) to[out=80, in=0] (make.east);
+  \node[label, anchor=west, align=left] at (60, -15)
+    {reads \texttt{text} and \\ the copy of \texttt{word}, \\ in shard 0's memory};
+
+  % 3. Shard 1 keeps the result in the request.
+  \node[remote=17mm] (result) at (87, \bot) {puts the count in the request};
+  \draw[flow, gap] (call) -- (result);
+
+  % 4. Back on shard 0: the result goes to the future, and the request,
+  % with the lambda and its copy of word, is destroyed.
+  \node[stage=24mm] (done) at (103, \top)
+    {moves the count into the future, then destroys the request: the
+     lambda, and its copy of \texttt{word}};
+  \draw[message, gap] (result.north) -- (done.south west)
+    node[pos=0.5, right=0.8mm, label] {reply};
+
+  % Time.
+  \draw[flow] (0, \bot-10) -- (116, \bot-10)
+    node[pos=1, below left, font=\sffamily\footnotesize, inner sep=0.8mm] {time};
+\end{tikzpicture}

@@ -1,0 +1,37 @@
+# A solution in solutions/how-seastar-runs-your-code.md: shoal-naive-keys, Shoal v2 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v2, builds it, and runs the tests.
+# base: shoal/v2
+--- a/commands.cc
++++ b/commands.cc
+@@ -161,25 +161,13 @@
+ future<> keys(store& db, const request& req, output_stream<char>& out) {
+     const sstring& pattern = req[1];
+     std::deque<sstring> found;
+-    // Other clients' commands may change the table while we yield, so we
+-    // must not keep an iterator across a co_await. Instead, we look at one
+-    // bucket of the hash table at a time, and keep only the bucket's number.
+-    size_t buckets = db.bucket_count();
+-    size_t b = 0;
+-    while (b < buckets) {
+-        for (auto it = db.begin(b); it != db.end(b); ++it) {
+-            if (glob_match(pattern, it->first)) {
+-                found.push_back(it->first);
+-            }
++    // The chapter's second attempt: wrong, because it keeps an iterator
++    // across a co_await, while other clients may change the table.
++    for (auto it = db.begin(); it != db.end(); ++it) {
++        if (glob_match(pattern, it->first)) {
++            found.push_back(it->first);
+         }
+-        b++;
+         co_await coroutine::maybe_yield();
+-        if (db.bucket_count() != buckets) {
+-            // The table grew, and its keys moved to new buckets: start again.
+-            co_await clear_gently(found);
+-            buckets = db.bucket_count();
+-            b = 0;
+-        }
+     }
+     co_await out.write(array_header_reply(found.size()));
+     while (!found.empty()) {

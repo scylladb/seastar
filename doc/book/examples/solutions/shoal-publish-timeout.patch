@@ -1,0 +1,79 @@
+# A solution in solutions/coordination.md: shoal-publish-timeout, Shoal v6 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v6, builds it, and runs the tests.
+# base: shoal/v6
+--- a/pubsub.cc
++++ b/pubsub.cc
+@@ -1,8 +1,10 @@
+-// Pub/Sub: SUBSCRIBE, UNSUBSCRIBE and PUBLISH.
++// Pub/Sub: SUBSCRIBE, UNSUBSCRIBE and PUBLISH, whose publishers don't wait
++// forever for room for their messages.
+ #include "pubsub.hh"
+ #include <seastar/core/coroutine.hh>
+ #include <seastar/coroutine/exception.hh>
+ #include <fmt/format.h>
++#include <chrono>
+ #include <algorithm>
+ #include <cctype>
+ #include <limits>
+@@ -204,6 +206,26 @@
+     co_await c.drain();
+ }
+
++// snippet: disconnect-slowest
++void pubsub::disconnect_slowest() {
++    client* slowest = nullptr;
++    for (auto& [channel, subscribers] : _channels) {
++        for (client* s : subscribers) {
++            if (!slowest || s->pending() > slowest->pending()) {
++                slowest = s;
++            }
++        }
++    }
++    if (slowest) {
++        shoal_log.warn("a publisher waited too long: disconnecting the "
++                       "subscriber with {} bytes of unsent messages",
++                       slowest->pending());
++        forget(*slowest);
++        slowest->disconnect();
++    }
++}
++// end snippet: disconnect-slowest
++
+ void pubsub::forget(client& c) {
+     std::vector<sstring> all(c.channels().begin(), c.channels().end());
+     for (auto& channel : all) {
+@@ -228,8 +250,20 @@
+     if (auto it = _channels.find(channel); it != _channels.end()) {
+         subscribers = it->second.size();
+     }
+-    auto units = co_await get_units(
+-        _memory, std::min(cost * subscribers, _memory_limit));
++    // Don't wait forever: when the wait takes longer than a second,
++    // disconnect the subscriber that is furthest behind, whose messages
++    // hold the units, and wait again.
++    semaphore_units<> units;
++    while (true) {
++        try {
++            units = co_await get_units(
++                _memory, std::min(cost * subscribers, _memory_limit),
++                std::chrono::seconds(1));
++            break;
++        } catch (semaphore_timed_out&) {
++            disconnect_slowest();
++        }
++    }
+     // While we waited, clients may have subscribed or unsubscribed, so look
+     // at the subscribers again, and send to them without waiting.
+     size_t count = 0;
+--- a/pubsub.hh
++++ b/pubsub.hh
+@@ -80,6 +80,8 @@
+     future<> unsubscribe(client& c, const request& req);
+     future<> publish(client& c, const request& req);
+     void remove(client& c, const sstring& channel);
++    // Disconnects the subscriber with the most bytes waiting to be written.
++    void disconnect_slowest();
+ };
+ // end snippet: pubsub
+

@@ -1,0 +1,429 @@
+# A solution in solutions/concurrency-within-a-shard.md: shoal-pubsub-patterns, Shoal v4 with
+# the changes below. tools/check_examples.py applies it to a copy of
+# shoal/v4, builds it, and runs the tests.
+# base: shoal/v4
+--- a/commands.cc
++++ b/commands.cc
+@@ -113,6 +113,8 @@
+     return matched != negate;
+ }
+
++} // anonymous namespace
++
+ // snippet: glob-match
+ // Checks if s matches a glob-style pattern, in which '*' matches any
+ // string, '?' any character, and [...] any character of a set.
+@@ -144,6 +146,8 @@
+ }
+ // end snippet: glob-match
+
++namespace {
++
+ // snippet: clear-gently
+ // Destroys a container's elements one at a time, yielding whenever the
+ // task quota is used up, instead of destroying them all at once.
+--- a/commands.hh
++++ b/commands.hh
+@@ -9,6 +9,9 @@
+ // The data that Shoal stores: a map from keys to values.
+ using store = std::unordered_map<sstring, sstring>;
+
++// Checks if s matches a glob-style pattern, as KEYS and PSUBSCRIBE do.
++bool glob_match(std::string_view pattern, std::string_view s);
++
+ // Executes a request on the store, and writes its reply to out.
+ future<> execute(store& db, const request& req, output_stream<char>& out);
+ // end snippet: store
+--- a/main.cc
++++ b/main.cc
+@@ -37,11 +37,11 @@
+     std::optional<std::string> error;
+     try {
+         while (auto req = co_await reader.read()) {
+-            if (!c.channels().empty() || is_pubsub_command(*req)) {
++            if (c.subscribed() || is_pubsub_command(*req)) {
+                 // Publishers may write to this client too, so its writes
+                 // must go through the client.
+                 co_await ps.execute(c, *req);
+-                if (c.channels().empty()) {
++                if (!c.subscribed()) {
+                     // Back to writing directly: first finish the writes
+                     // of messages published before the client unsubscribed.
+                     co_await c.drain();
+--- a/pubsub.cc
++++ b/pubsub.cc
+@@ -1,11 +1,13 @@
+ // Pub/Sub: SUBSCRIBE, UNSUBSCRIBE and PUBLISH.
+ #include "pubsub.hh"
++#include "commands.hh"
+ #include <seastar/core/coroutine.hh>
+ #include <seastar/coroutine/exception.hh>
+ #include <seastar/coroutine/parallel_for_each.hh>
+ #include <fmt/format.h>
+ #include <algorithm>
+ #include <cctype>
++#include <optional>
+ #include <string>
+
+ namespace {
+@@ -32,6 +34,17 @@
+            + integer_reply(count);
+ }
+
++// snippet: pmessage
++// A message published to a channel that matches a pattern, as a subscriber
++// to the pattern receives it.
++sstring pmessage_reply(std::string_view pattern, std::string_view channel,
++                       std::string_view message) {
++    return array_header_reply(4) + bulk_string_reply("pmessage")
++           + bulk_string_reply(pattern) + bulk_string_reply(channel)
++           + bulk_string_reply(message);
++}
++// end snippet: pmessage
++
+ // A published message, as a subscriber receives it.
+ sstring message_reply(std::string_view channel, std::string_view message) {
+     return array_header_reply(3) + bulk_string_reply("message")
+@@ -44,8 +57,8 @@
+ // A message waiting to be written costs more memory than its bytes: the
+ // frame of write_after(), the shared_future and the allocations, and the
+ // allocator's rounding. We measured Shoal's memory with a subscriber that
+-// never reads: 613 bytes more than a message of 100, 919 more than one of
+-// 1,000. So this is too little, but good enough to keep Shoal alive.
++// never reads: 505 bytes more than a message of 100, 812 more than one of
++// 1,000. This is close for small messages, and too little for large ones.
+ constexpr size_t write_overhead = 512;
+
+ void client::send(sstring data) {
+@@ -85,7 +98,8 @@
+
+ bool is_pubsub_command(const request& req) {
+     auto name = lowercase(req[0]);
+-    return name == "subscribe" || name == "unsubscribe" || name == "publish";
++    return name == "subscribe" || name == "unsubscribe" || name == "publish"
++           || name == "psubscribe" || name == "punsubscribe";
+ }
+
+ future<> pubsub::execute(client& c, const request& req) {
+@@ -94,7 +108,11 @@
+         return subscribe(c, req);
+     } else if (name == "unsubscribe") {
+         return unsubscribe(c, req);
+-    } else if (c.channels().empty()) {
++    } else if (name == "psubscribe") {
++        return psubscribe(c, req);
++    } else if (name == "punsubscribe") {
++        return punsubscribe(c, req);
++    } else if (!c.subscribed()) {
+         // is_pubsub_command() lets only PUBLISH through here.
+         return publish(c, req);
+     } else if (name == "ping" && req.size() <= 2) {
+@@ -117,7 +135,7 @@
+         if (c.channels().insert(req[i]).second) {
+             _channels[req[i]].insert(&c);
+         }
+-        c.send(confirmation("subscribe", &req[i], c.channels().size()));
++        c.send(confirmation("subscribe", &req[i], c.subscriptions()));
+     }
+     co_await c.drain();
+ }
+@@ -139,79 +157,146 @@
+     if (req.size() == 1) {
+         // Without arguments, unsubscribe from every channel.
+         if (c.channels().empty()) {
+-            c.send(confirmation("unsubscribe", nullptr, 0));
++            c.send(confirmation("unsubscribe", nullptr, c.subscriptions()));
+         }
+         std::vector<sstring> all(c.channels().begin(), c.channels().end());
+         for (auto& channel : all) {
+             remove(c, channel);
+-            c.send(confirmation("unsubscribe", &channel, c.channels().size()));
++            c.send(confirmation("unsubscribe", &channel, c.subscriptions()));
+         }
+     }
+     for (size_t i = 1; i < req.size(); i++) {
+         remove(c, req[i]);
+-        c.send(confirmation("unsubscribe", &req[i], c.channels().size()));
++        c.send(confirmation("unsubscribe", &req[i], c.subscriptions()));
+     }
+     co_await c.drain();
+ }
+
++// snippet: psubscribe
++// PSUBSCRIBE pattern [pattern ...]
++future<> pubsub::psubscribe(client& c, const request& req) {
++    if (req.size() < 2) {
++        co_return co_await c.write(wrong_arguments("psubscribe"));
++    }
++    for (size_t i = 1; i < req.size(); i++) {
++        if (c.patterns().insert(req[i]).second) {
++            _patterns[req[i]].insert(&c);
++        }
++        c.send(confirmation("psubscribe", &req[i], c.subscriptions()));
++    }
++    co_await c.drain();
++}
++
++void pubsub::remove_pattern(client& c, const sstring& pattern) {
++    c.patterns().erase(pattern);
++    auto it = _patterns.find(pattern);
++    if (it != _patterns.end()) {
++        it->second.erase(&c);
++        if (it->second.empty()) {
++            _patterns.erase(it);
++        }
++    }
++}
++
++// PUNSUBSCRIBE [pattern ...]
++future<> pubsub::punsubscribe(client& c, const request& req) {
++    if (req.size() == 1) {
++        if (c.patterns().empty()) {
++            c.send(confirmation("punsubscribe", nullptr, c.subscriptions()));
++        }
++        std::vector<sstring> all(c.patterns().begin(), c.patterns().end());
++        for (auto& pattern : all) {
++            remove_pattern(c, pattern);
++            c.send(confirmation("punsubscribe", &pattern, c.subscriptions()));
++        }
++    }
++    for (size_t i = 1; i < req.size(); i++) {
++        remove_pattern(c, req[i]);
++        c.send(confirmation("punsubscribe", &req[i], c.subscriptions()));
++    }
++    co_await c.drain();
++}
++// end snippet: psubscribe
++
+ void pubsub::forget(client& c) {
+     std::vector<sstring> all(c.channels().begin(), c.channels().end());
+     for (auto& channel : all) {
+         remove(c, channel);
+     }
++    std::vector<sstring> patterns(c.patterns().begin(), c.patterns().end());
++    for (auto& pattern : patterns) {
++        remove_pattern(c, pattern);
++    }
+ }
+
++// snippet: publish
+ // PUBLISH channel message
+ future<> pubsub::publish(client& c, const request& req) {
+     if (req.size() != 3) {
+         co_return co_await c.write(wrong_arguments("publish"));
+     }
+     const sstring& channel = req[1];
+-    // snippet: subscribers
+-    // Copy the list of subscribers: while we wait for one of them, others
+-    // may subscribe or unsubscribe, which changes the set.
+-    std::vector<client*> subscribers;
++    // Who gets the message, and as what: the channel's subscribers get a
++    // message, and the subscribers of each pattern that matches the channel
++    // a pmessage. A client subscribed to both gets both. Copied, because
++    // while we wait for one of them, others may subscribe or unsubscribe.
++    struct recipient {
++        client* c;
++        std::optional<sstring> pattern;   // or the channel itself
++        sstring data;
++    };
++    std::vector<recipient> recipients;
+     if (auto it = _channels.find(channel); it != _channels.end()) {
+-        subscribers.assign(it->second.begin(), it->second.end());
++        auto data = message_reply(channel, req[2]);
++        for (client* s : it->second) {
++            recipients.push_back({s, std::nullopt, data});
++        }
++    }
++    for (auto& [pattern, clients] : _patterns) {
++        if (glob_match(pattern, channel)) {
++            auto data = pmessage_reply(pattern, channel, req[2]);
++            for (client* s : clients) {
++                recipients.push_back({s, pattern, data});
++            }
++        }
+     }
+-    // end snippet: subscribers
+-    auto message = message_reply(channel, req[2]);
+-    // PUBLISH replies with the number of subscribers it sent the message to.
+-    size_t count = subscribers.size();
++    // Is the recipient still subscribed, to the channel or to the pattern?
++    auto subscribed = [&] (const recipient& r) {
++        auto& table = r.pattern ? _patterns : _channels;
++        auto it = table.find(r.pattern ? *r.pattern : channel);
++        return it != table.end() && it->second.contains(r.c);
++    };
++    // PUBLISH replies with the number of messages it sent.
++    size_t count = recipients.size();
+     switch (_delivery) {
+-    // snippet: sequential
+     case delivery::sequential:
+-        for (client* s : subscribers) {
+-            // While we waited for the previous subscriber, this one may
+-            // have unsubscribed, and even disconnected.
+-            auto it = _channels.find(channel);
+-            if (it == _channels.end() || !it->second.contains(s)) {
++        for (auto& r : recipients) {
++            if (!subscribed(r)) {
+                 continue;
+             }
+             try {
+-                co_await s->write(message);
++                co_await r.c->write(r.data);
+             } catch (...) {
+                 // The subscriber's connection failed; it reports that itself.
+             }
+         }
+         break;
+-    // end snippet: sequential
+-    // snippet: parallel
+     case delivery::parallel:
+-        co_await coroutine::parallel_for_each(subscribers, [&] (client* s) {
+-            return s->write(message).handle_exception([] (std::exception_ptr) {
++        co_await coroutine::parallel_for_each(recipients, [&] (recipient& r) {
++            return r.c->write(r.data).handle_exception([] (std::exception_ptr) {
+                 // The subscriber's connection failed; it reports that itself.
+             });
+         });
+         break;
+-    // end snippet: parallel
+-    // snippet: background
+     case delivery::background:
+-        for (client* s : subscribers) {
+-            // Like Redis, disconnect a subscriber that doesn't read its
+-            // messages fast enough, instead of letting them pile up. When
+-            // all subscribers together hold too much, disconnect those
+-            // that are behind, before the shard runs out of memory.
++        for (auto& r : recipients) {
++            // A recipient that was disconnected for an earlier message of
++            // this loop is no longer subscribed.
++            if (!subscribed(r)) {
++                count--;
++                continue;
++            }
++            client* s = r.c;
+             if (s->pending() > _max_pending ||
+                     (_total_pending > _max_total_pending && s->pending() > 0)) {
+                 shoal_log.warn("disconnecting a subscriber with {} bytes of "
+@@ -221,10 +306,10 @@
+                 count--;
+                 continue;
+             }
+-            s->send(message);
++            s->send(r.data);
+         }
+         break;
+-    // end snippet: background
+     }
+     co_await c.write(integer_reply(count));
+ }
++// end snippet: publish
+--- a/pubsub.hh
++++ b/pubsub.hh
+@@ -25,6 +25,7 @@
+     size_t _pending = 0;
+     size_t& _total_pending;
+     std::unordered_set<sstring> _channels;
++    std::unordered_set<sstring> _patterns;
+ public:
+     client(connected_socket& socket, output_stream<char>& out,
+            size_t& total_pending)
+@@ -40,6 +41,10 @@
+     void disconnect();
+     size_t pending() const { return _pending; }
+     std::unordered_set<sstring>& channels() { return _channels; }
++    std::unordered_set<sstring>& patterns() { return _patterns; }
++    // Channels and patterns, which Redis counts together.
++    size_t subscriptions() const { return _channels.size() + _patterns.size(); }
++    bool subscribed() const { return subscriptions() > 0; }
+ private:
+     future<> write_after(future<> previous, sstring data, size_t cost);
+ };
+@@ -52,6 +57,7 @@
+ // The channels, and the clients subscribed to each.
+ class pubsub {
+     std::unordered_map<sstring, std::unordered_set<client*>> _channels;
++    std::unordered_map<sstring, std::unordered_set<client*>> _patterns;
+     delivery _delivery;
+     // Limits on the memory used by messages waiting to be written: to one
+     // subscriber, and to all of them together.
+@@ -70,8 +76,11 @@
+ private:
+     future<> subscribe(client& c, const request& req);
+     future<> unsubscribe(client& c, const request& req);
++    future<> psubscribe(client& c, const request& req);
++    future<> punsubscribe(client& c, const request& req);
+     future<> publish(client& c, const request& req);
+     void remove(client& c, const sstring& channel);
++    void remove_pattern(client& c, const sstring& pattern);
+ };
+ // end snippet: pubsub
+
+--- /dev/null
++++ b/test_solutions.py
+@@ -0,0 +1,66 @@
++# Tests for the solution of chapter 7's exercise 2: PSUBSCRIBE and
++# PUNSUBSCRIBE. They pass against Valkey too.
++import socket
++
++from test_v4 import bulk, command, confirmation, exchange, read_exactly, unique
++
++
++def pmessage(pattern, channel, message):
++    return b'*4\r\n' + bulk('pmessage') + bulk(pattern) + bulk(channel) + bulk(message)
++
++
++def message(channel, message):
++    return b'*3\r\n' + bulk('message') + bulk(channel) + bulk(message)
++
++
++# Check that PSUBSCRIBE confirms each pattern, and that patterns and
++# channels are counted together.
++def test_psubscribe_confirmations(server):
++    p = unique('news') + '.*'
++    exchange(server, ('PSUBSCRIBE', p, 'x?'), ('SUBSCRIBE', 'y'),
++             expect=confirmation('psubscribe', p, 1) + confirmation('psubscribe', 'x?', 2)
++             + confirmation('subscribe', 'y', 3))
++
++
++# Check that a pattern subscriber receives a pmessage for a matching channel,
++# and nothing for a channel that doesn't match.
++def test_publish_to_pattern(server, r):
++    prefix = unique('news')
++    with socket.create_connection(server, timeout=5) as s:
++        s.sendall(command('PSUBSCRIBE', prefix + '.*'))
++        read_exactly(s, len(confirmation('psubscribe', prefix + '.*', 1)))
++        assert r.publish(prefix + 'x', 'no') == 0
++        assert r.publish(prefix + '.sports', 'hi') == 1
++        expected = pmessage(prefix + '.*', prefix + '.sports', 'hi')
++        assert read_exactly(s, len(expected)) == expected
++
++
++# Check that a client subscribed to a channel, and to a pattern that matches
++# it, receives the message twice, and PUBLISH counts it twice.
++def test_channel_and_pattern(server, r):
++    channel = unique('news')
++    with socket.create_connection(server, timeout=5) as s:
++        s.sendall(command('SUBSCRIBE', channel) + command('PSUBSCRIBE', channel[:-2] + '*'))
++        read_exactly(s, len(confirmation('subscribe', channel, 1))
++                     + len(confirmation('psubscribe', channel[:-2] + '*', 2)))
++        assert r.publish(channel, 'hi') == 2
++        expected = message(channel, 'hi') + pmessage(channel[:-2] + '*', channel, 'hi')
++        assert read_exactly(s, len(expected)) == expected
++
++
++# Check PUNSUBSCRIBE of one pattern, of all patterns, and without any.
++def test_punsubscribe(server):
++    exchange(server, ('PUNSUBSCRIBE',), expect=confirmation('punsubscribe', None, 0))
++    exchange(server, ('PSUBSCRIBE', 'a*', 'b*'), ('SUBSCRIBE', 'c'), ('PUNSUBSCRIBE', 'a*'),
++             expect=confirmation('psubscribe', 'a*', 1) + confirmation('psubscribe', 'b*', 2)
++             + confirmation('subscribe', 'c', 3) + confirmation('punsubscribe', 'a*', 2))
++
++
++# Check that a client subscribed only to a pattern is in the subscribed
++# mode: PING gets an array, and GET an error.
++def test_pattern_subscribed_mode(server):
++    with socket.create_connection(server, timeout=5) as s:
++        s.sendall(command('PSUBSCRIBE', 'z*') + command('PING') + command('GET', 'k'))
++        expected = (confirmation('psubscribe', 'z*', 1)
++                    + b'*2\r\n' + bulk('pong') + bulk('') + b'-ERR Can')
++        assert read_exactly(s, len(expected)) == expected
