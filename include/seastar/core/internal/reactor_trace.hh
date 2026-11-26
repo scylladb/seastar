@@ -21,16 +21,16 @@
 
 #pragma once
 
-#ifdef SEASTAR_LTTNG
+#ifdef SEASTAR_HAVE_LTTNG_UST
 
-#include <lttng/tracepoint.h>
+#include <seastar/core/internal/reactor_trace_tp.h>
 
-#define SEASTAR_REACTOR_TRACE(name, ...) \
-    tracepoint(seastar_reactor, name, __VA_ARGS__)
+#define SEASTAR_REACTOR_TRACE(...) \
+    tracepoint(seastar_reactor, __VA_ARGS__)
 
 #else
 
-#define SEASTAR_REACTOR_TRACE(name, ...) \
+#define SEASTAR_REACTOR_TRACE(...) \
     do { } while (0)
 
 #endif
