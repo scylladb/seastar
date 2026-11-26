@@ -264,9 +264,16 @@ cooking_ingredient (c-ares
   EXTERNAL_PROJECT_ARGS
     URL https://github.com/c-ares/c-ares/releases/download/v1.32.3/c-ares-1.32.3.tar.gz
     URL_MD5 d5ed5967bc3a74191c051ce81ffe02fc
-    CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --srcdir=<SOURCE_DIR>
+    # Build only a static library, so that programs linked with the cooked
+    # c-ares don't need to find it at run time, where they would otherwise
+    # load the system's version, the one that made us cook it. Compile it as
+    # position-independent code, so it can be linked into a shared libseastar.
+    CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --srcdir=<SOURCE_DIR> --disable-shared --with-pic
     BUILD_COMMAND <DISABLE>
-    INSTALL_COMMAND ${make_command} install)
+    # Empty the installation first: a build directory cooked before c-ares
+    # was static still has its libcares.so, which the linker would prefer.
+    INSTALL_COMMAND ${CMAKE_COMMAND} -E remove_directory <INSTALL_DIR>
+      COMMAND ${make_command} install)
 
 set (dpdk_args
   --default-library=static
