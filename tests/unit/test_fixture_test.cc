@@ -243,3 +243,37 @@ BOOST_AUTO_TEST_CASE(test_unknown_throw) {
     BOOST_REQUIRE(caught);
 }
 
+static bool do_throw_seastar_nested = false;
+
+// Dummy test that on its own does nothing.
+SEASTAR_TEST_CASE(test_seastar_nested_throw_helper) {
+    if (std::exchange(do_throw_seastar_nested, false)) {
+        return make_exception_future<>(std::make_exception_ptr(nested_exception(
+            std::make_exception_ptr(std::runtime_error("Message 1")),
+            std::make_exception_ptr(std::runtime_error("Message 2")))));
+    }
+    return make_ready_future<>();
+}
+
+// Cannot be a SEASTAR_TEST_CASE, because of recursion of seastar::test::run.
+BOOST_AUTO_TEST_CASE(test_seastar_nested_throw) {
+    do_throw_seastar_nested = true;
+    auto def = defer([]() noexcept {
+        do_throw_seastar_nested = false;
+    });
+
+    bool caught = false;
+    try {
+        using helper_type = std::remove_cvref_t<decltype(test_seastar_nested_throw_helper_instance)>;
+        const_cast<helper_type&>(test_seastar_nested_throw_helper_instance).run();
+    } catch (boost::execution_exception& e) {
+        caught = true;
+        // Should get a cpp exception failure
+        BOOST_REQUIRE_EQUAL(e.code(), boost::execution_exception::error_code::cpp_exception_error);
+        // Should have both causes, which what() alone cannot report
+        BOOST_REQUIRE(e.what().find("Message 1") != std::string::npos);
+        BOOST_REQUIRE(e.what().find("Message 2") != std::string::npos);
+    }
+    BOOST_REQUIRE(caught);
+}
+
