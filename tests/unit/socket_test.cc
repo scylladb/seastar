@@ -627,3 +627,97 @@ SEASTAR_THREAD_TEST_CASE(inet_local_remote_address_sanity) {
     ss.wait_input_shutdown().get();
     BOOST_CHECK(ss.remote_address().is_unspecified());
 }
+
+namespace {
+
+// A connected pair of posix sockets, with the send buffer of the server side
+// made small, so that a large put() to it cannot complete in one send. The
+// receive buffer of the client side is fixed too, which turns off its
+// autotuning, so that a put() of a few megabytes cannot fit in the two.
+struct small_sndbuf_pair {
+    server_socket listener;
+    connected_socket client;
+    connected_socket server;
+
+    small_sndbuf_pair()
+        : listener(seastar::listen(ipv4_addr("127.0.0.1", 0), listen_options{
+            .reuse_address = true,
+            .so_sndbuf = 8192,
+        })) {
+        auto accept_f = listener.accept();
+        client = connect(listener.local_address()).get();
+        server = accept_f.get().connection;
+        int rcvbuf = 64 * 1024;
+        client.set_sockopt(SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+    }
+};
+
+char large_put_byte(size_t pos) {
+    return char(pos % 251);
+}
+
+// Buffers of nbufs * buf_size bytes in total, filled with large_put_byte().
+std::vector<temporary_buffer<char>> make_large_put_buffers(size_t nbufs, size_t buf_size) {
+    std::vector<temporary_buffer<char>> bufs;
+    for (size_t i = 0; i < nbufs; ++i) {
+        temporary_buffer<char> buf(buf_size);
+        for (size_t j = 0; j < buf_size; ++j) {
+            buf.get_write()[j] = large_put_byte(i * buf_size + j);
+        }
+        bufs.push_back(std::move(buf));
+    }
+    return bufs;
+}
+
+}
+
+// A put() much larger than the socket send buffer has to wait for the socket
+// to become writable, and resume where the previous send stopped, many times
+// over. The buffers must stay alive until the last part is sent, and the peer
+// must receive every byte in order.
+SEASTAR_THREAD_TEST_CASE(socket_large_put_test) {
+    small_sndbuf_pair p;
+    constexpr size_t nbufs = 128;
+    constexpr size_t buf_size = 64 * 1024;
+    constexpr size_t total = nbufs * buf_size;
+
+    auto sink = p.server.output().detach();
+    auto put_f = sink.put(make_large_put_buffers(nbufs, buf_size));
+    BOOST_CHECK(!put_f.available());
+
+    auto in = p.client.input();
+    size_t received = 0;
+    while (received < total) {
+        auto buf = in.read().get();
+        BOOST_REQUIRE(!buf.empty());
+        for (size_t j = 0; j < buf.size(); ++j) {
+            if (buf[j] != large_put_byte(received + j)) {
+                BOOST_FAIL(fmt::format("wrong byte at offset {}", received + j));
+            }
+        }
+        received += buf.size();
+    }
+    BOOST_REQUIRE_EQUAL(received, total);
+    put_f.get();
+    sink.close().get();
+    BOOST_REQUIRE(in.read().get().empty());
+    in.close().get();
+}
+
+// If the peer resets the connection while a large put() waits for the socket
+// to become writable, the put() fails with the error of the send.
+SEASTAR_THREAD_TEST_CASE(socket_large_put_reset_test) {
+    small_sndbuf_pair p;
+    auto sink = p.server.output().detach();
+    auto put_f = sink.put(make_large_put_buffers(128, 64 * 1024));
+    BOOST_CHECK(!put_f.available());
+    {
+        auto in = p.client.input();
+        BOOST_REQUIRE(!in.read().get().empty());
+    }
+    // Closing a socket with unread data in its receive buffer makes the kernel
+    // reset the connection.
+    p.client = connected_socket();
+    BOOST_REQUIRE_THROW(put_f.get(), std::system_error);
+    sink.close().get();
+}
