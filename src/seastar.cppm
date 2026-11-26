@@ -716,6 +716,14 @@ using seastar::memory::statistics;
 using seastar::memory::stats;
 using seastar::memory::with_allocation_failures;
 
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+using seastar::memory::arena_layout;
+using seastar::memory::for_each_span;
+using seastar::memory::get_arena_layout;
+using seastar::memory::get_page_map;
+using seastar::memory::span_info;
+#endif
+
 }
 
 export namespace seastar::metrics {
