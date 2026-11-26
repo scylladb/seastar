@@ -376,6 +376,10 @@ private:
     // idle period ends here.
     sched_clock::time_point _idle_end;
     sched_clock::duration _total_sleep{0};
+    // The times when the latest and the previous loop iterations started to
+    // poll, less the total time that the reactor slept until then
+    sched_clock::time_point _poll_start;
+    sched_clock::time_point _prev_poll_start;
     sched_clock::time_point _start_time = now();
     output_stream<char>::batch_flush_list_t _flush_batching;
     std::atomic<bool> _sleeping alignas(seastar::cache_line_size){0};
@@ -422,6 +426,14 @@ public:
     bool stopped() const noexcept { return _stopped; }
     /// @private
     uint64_t polls() const noexcept { return _polls; }
+    /// @private
+    /// The time when the previous loop iteration started to poll, plus the
+    /// time that the reactor slept since then. A completion that the reactor
+    /// processes now became ready after the start of that poll. If it was
+    /// ready before, that poll processed it. A completion ends a sleep. Thus
+    /// this time is after the completion by at most the time that the thread
+    /// needs to wake up.
+    sched_clock::time_point prev_poll_time() const noexcept { return _prev_poll_start + _total_sleep; }
 
 private:
     class signals {

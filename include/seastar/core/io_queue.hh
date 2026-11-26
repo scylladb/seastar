@@ -22,6 +22,8 @@
 #pragma once
 
 #include <boost/container/static_vector.hpp>
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <memory>
 #include <vector>
@@ -51,6 +53,7 @@ class io_intent;
 
 namespace internal {
 class io_sink;
+struct disk_report;
 }
 
 using stream_id = unsigned;
@@ -145,7 +148,44 @@ private:
     uint64_t _prev_completed = 0;
     double _flow_ratio = 1.0;
 
+    // The rate correction of the disk, c, as this queue read it last
+    double _rate_correction = 1.0;
+    // The number of requests that completed in the current period
+    uint64_t _completed_in_disk = 0;
+    // The summed time in the disk of these requests, in microseconds.
+    // _time_in_disk_us / _completed_in_disk is their average time in the disk.
+    uint64_t _time_in_disk_us = 0;
+    // The time in the disk since _measured_since of the requests that
+    // completed since then, summed over the requests, in microseconds. A
+    // failed request counts too. The report adds the time of the requests
+    // that are in the disk then.
+    uint64_t _occupancy_us = 0;
+    // The requests in the disk now: their number, and the summed time from
+    // _measured_since to their dispatch, in microseconds. A request that the
+    // queue dispatched before _measured_since counts 0 in the sum.
+    uint64_t _in_disk_now = 0;
+    int64_t _dispatched_after_us = 0;
+    // The capacity that the queue sent in the current period through the
+    // bucket of each stream
+    std::array<fair_queue_entry::capacity_t, 2> _sent = {};
+    // The number of the current period
+    int64_t _period = 0;
+    // The end of the current period. It is max() while the rate correction is
+    // off, so that the period does not end.
+    clock_type::time_point _period_end = clock_type::time_point::max();
+    // The start of the measurements above: the time of the previous report,
+    // or the start of the queue
+    clock_type::time_point _measured_since;
+    // The report of this queue. It is null while the rate correction is off.
+    internal::disk_report* _report = nullptr;
+    // Only on the queue that runs the regulator: the time from the end of a
+    // period until the regulator reads the reports of the period
+    clock_type::duration _regulator_delay{};
+
     timer<lowres_clock> _averaging_decay_timer;
+    // Only on the queue that runs the regulator: the timer that runs the
+    // regulator _regulator_delay after the end of each period
+    timer<lowres_clock> _regulator_timer;
 
     const std::chrono::milliseconds _stall_threshold_min;
     std::chrono::milliseconds _stall_threshold;
@@ -153,6 +193,11 @@ private:
 
     void update_flow_ratio() noexcept;
     void lower_stall_threshold() noexcept;
+    int64_t since_measured_us(clock_type::time_point t) const noexcept;
+    void start_rate_period(clock_type::time_point now) noexcept;
+    void report_rate_measurements(clock_type::time_point now) noexcept;
+    void update_rate_correction(clock_type::time_point now) noexcept;
+    void run_regulator(clock_type::time_point now) noexcept;
 
     metrics::metric_groups _metric_groups;
 public:
@@ -187,6 +232,35 @@ public:
         std::chrono::microseconds tau = std::chrono::milliseconds(5);
         std::optional<uint32_t> physical_block_size; // Override for disks that lie about their physical block size
         bool with_metrics = true;
+        /// The threshold of the average time that requests spend in the disk.
+        /// Above it, the regulator lowers the rate correction of the disk, c.
+        /// The token buckets of the disk refill at c times the configured
+        /// rates. c is from rate_correction_min to 1.0. Zero turns the rate
+        /// correction off. See src/core/io_queue.cc.
+        std::chrono::duration<double> disk_latency_threshold = std::chrono::duration<double>(0);
+        /// The time from one probe of the regulator to the next
+        std::chrono::duration<double> rate_correction_period = std::chrono::seconds(1);
+        /// The length of an increase cycle. A cycle has rate_correction_cycle /
+        /// rate_correction_period probes. The periods that the regulator skips
+        /// do not count. The regulator can increase c only at the end of a cycle.
+        std::chrono::duration<double> rate_correction_cycle = std::chrono::seconds(30);
+        /// The time from the tick by which each queue wrote its report of a
+        /// period until the regulator reads the reports
+        std::chrono::duration<double> rate_correction_margin = std::chrono::milliseconds(50);
+        /// The latest time at which the regulator can read the reports of a
+        /// period, as a fraction of a period after the end of the period. From
+        /// one period after the end, the queues write their reports of the next
+        /// period. The rest of the period is for a late timer.
+        double rate_correction_latest_read = 0.9;
+        /// The smallest average number of requests in the disk which classifies
+        /// as queueing. The requests of all shards count together. Without
+        /// queueing in the disk, the regulator does not decrease c.
+        double rate_correction_min_queue = 8;
+        /// The change of c in one decrease or increase, as a fraction of the
+        /// configured rates. 0.005 is 0.5% of them.
+        double rate_correction_step = 0.005;
+        /// The lowest value of c, as a fraction of the configured rates
+        double rate_correction_min = 0.1;
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);
@@ -375,9 +449,19 @@ public:
 
     capacity_t capacity_deficiency(capacity_t from) const noexcept;
 
+    /// The time in which the configured rate fills the bucket up to its limit.
+    /// This is the latency goal of the group. The rate correction does not
+    /// change it.
     std::chrono::duration<double> rate_limit_duration() const noexcept {
-        std::chrono::duration<double, rate_resolution> dur((double)_token_bucket.limit() / _token_bucket.rate());
+        std::chrono::duration<double, rate_resolution> dur((double)_token_bucket.limit() / fixed_point_factor);
         return std::chrono::duration_cast<std::chrono::duration<double>>(dur);
+    }
+
+    /// Makes the bucket refill at \p c times its configured rate. \p c is
+    /// above 0.0 and at most 1.0. The refill rate stays above zero, also for
+    /// a very small \p c.
+    void set_rate_correction(double c) noexcept {
+        _token_bucket.update_rate(std::max<capacity_t>(c * fixed_point_factor, 1));
     }
 
     const token_bucket_t& token_bucket() const noexcept { return _token_bucket; }
@@ -385,7 +469,10 @@ public:
 
 class io_group {
 public:
-    explicit io_group(io_queue::config io_cfg, unsigned nr_queues);
+    /// All groups of one disk share the rate correction of the disk. Give
+    /// each group of a disk, except the first one, another group of the same
+    /// disk as \p peer. The first group of a disk gets null.
+    explicit io_group(io_queue::config io_cfg, unsigned nr_queues, const io_group* peer = nullptr);
     ~io_group();
     struct priority_class_data;
     using priority_class_group_data = priority_class_data;
@@ -414,6 +501,11 @@ private:
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     util::spinlock _lock;
     const shard_id _allocated_on;
+    struct disk_state;
+    // The state that all groups of this disk share, see io_queue.cc
+    const std::shared_ptr<disk_state> _disk;
+    // The index of this group among the groups of _disk
+    unsigned _disk_group = 0;
 
     static io_throttler::config configure_throttler(const io_queue::config& qcfg) noexcept;
     priority_class_data& find_or_create_class(scheduling_group sg);
