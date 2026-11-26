@@ -383,6 +383,11 @@ option (BUILD_SHARED_LIBS
 # * BOOST_TEST_CATCH_SYSTEM_ERRORS=no
 #   Normally the boost test library handles SIGABRT and prevents core
 #   dumps from being produced.
+# * BOOST_TEST_USE_ALT_STACK=no
+#   Boost.Test installs an alternate signal stack of SIGSTKSZ bytes, which
+#   with musl (a constant 8k) is too small for a process granted AMX, so the
+#   tests fail at startup with "Out of memory" on some hosts. Seastar
+#   installs a large enough one for each reactor thread anyway.
 # This works great with clang and gcc 10.2, but unfortunately not any
 # previous gcc.
 set (Seastar_ASAN_OPTIONS "disable_coredump=0:abort_on_error=1")
@@ -392,7 +397,7 @@ if ((NOT (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")) OR
 endif ()
 
 set (Seastar_TEST_ENVIRONMENT
-  "ASAN_OPTIONS=${Seastar_ASAN_OPTIONS};UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1;BOOST_TEST_CATCH_SYSTEM_ERRORS=no"
+  "ASAN_OPTIONS=${Seastar_ASAN_OPTIONS};UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1;BOOST_TEST_CATCH_SYSTEM_ERRORS=no;BOOST_TEST_USE_ALT_STACK=no"
   CACHE
   STRING
   "Environment variables for running tests")

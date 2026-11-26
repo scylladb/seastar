@@ -49,6 +49,7 @@
 #include <sys/socket.h>
 #include <sys/inotify.h>
 #include <sys/wait.h>
+#include <sys/auxv.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/eventfd.h>
@@ -912,8 +913,25 @@ static void print_with_backtrace(const char* cause, bool oneline = true, bool im
 // Installs signal handler stack for current thread.
 // The stack remains installed as long as the returned object is kept alive.
 // When it goes out of scope the previous handler is restored.
+//
+// SIGSTKSZ can't be trusted to be large enough. The signal frame the kernel
+// pushes holds the CPU's extended register state, and once the process has
+// been granted AMX (see ARCH_REQ_XCOMP_PERM) it includes the 8k tile data
+// too, so the kernel rejects (with ENOMEM) an alternate stack smaller than
+// about 12k. That is more than musl's constant SIGSTKSZ (8k), and
+// AT_MINSIGSTKSZ doesn't account for AMX either. So use a generous floor,
+// and also follow glibc's sysconf(_SC_SIGSTKSZ) in using four times the
+// kernel's minimum frame size, should the CPU need even more.
+static size_t signal_handler_stack_size() {
+    size_t size = std::max<size_t>(SIGSTKSZ, 64 * 1024);
+#ifdef AT_MINSIGSTKSZ
+    size = std::max<size_t>(size, getauxval(AT_MINSIGSTKSZ) * 4);
+#endif
+    return size;
+}
+
 static decltype(auto) install_signal_handler_stack() {
-    size_t size = SIGSTKSZ;
+    size_t size = signal_handler_stack_size();
     auto mem = std::make_unique<char[]>(size);
     stack_t stack;
     stack_t prev_stack;
@@ -921,11 +939,11 @@ static decltype(auto) install_signal_handler_stack() {
     stack.ss_flags = 0;
     stack.ss_size = size;
     auto r = sigaltstack(&stack, &prev_stack);
-    throw_system_error_on(r == -1);
+    throw_system_error_on(r == -1, "sigaltstack");
     return defer([mem = std::move(mem), prev_stack] () mutable noexcept {
         try {
             auto r = sigaltstack(&prev_stack, NULL);
-            throw_system_error_on(r == -1);
+            throw_system_error_on(r == -1, "sigaltstack");
         } catch (...) {
             mem.release(); // We failed to restore previous stack, must leak it.
             seastar_logger.error("Failed to restore signal stack: {}", seastar::formattable(std::current_exception()));
