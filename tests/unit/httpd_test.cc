@@ -3786,3 +3786,49 @@ SEASTAR_TEST_CASE(test_deprecated_listeners_view_still_works) {
     });
 }
 #pragma GCC diagnostic pop
+
+// The client integrates the number of requests waiting for a connection.
+// Requests that wait for a pooled connection must be accounted for, even
+// though the client doesn't make new connections for them.
+SEASTAR_TEST_CASE(test_client_integrated_requests_queued) {
+    return seastar::async([] {
+        class slow_handler : public handler_base {
+        public:
+            future<std::unique_ptr<http::reply>> handle(const sstring& path,
+                    std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
+                co_await seastar::sleep(std::chrono::milliseconds(500));
+                rep->set_status(http::reply::status_type::ok);
+                rep->write_body("txt", sstring("ok"));
+                co_return std::move(rep);
+            }
+        };
+
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        server._routes.put(GET, "/test", new slow_handler());
+        server.listen(lcf.get_server_socket()).get();
+
+        auto cln = http::client(std::make_unique<loopback_http_factory>(lcf), 1 /* max connections */);
+        // One request gets the only connection, the other four wait for it.
+        // The server takes 0.5s per request, so they wait 0.5s, 1s, 1.5s and
+        // 2s respectively, which is 5 request*seconds altogether.
+        std::vector<future<>> requests;
+        for (int i = 0; i < 5; i++) {
+            requests.push_back(cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply& rep, input_stream<char>&& in) {
+                return do_with(std::move(in), [] (input_stream<char>& in) {
+                    return util::skip_entire_stream(in).then([&in] {
+                        return in.close();
+                    });
+                });
+            }, http::reply::status_type::ok));
+        }
+        when_all_succeed(requests.begin(), requests.end()).get();
+
+        auto waited = cln.integrated_requests_queued().integral();
+        BOOST_REQUIRE_GE(waited, 4);
+        BOOST_REQUIRE_LE(waited, 6);
+
+        cln.close().get();
+        server.stop().get();
+    });
+}
