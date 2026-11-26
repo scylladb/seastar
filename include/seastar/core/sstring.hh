@@ -353,7 +353,9 @@ public:
     requires std::is_invocable_r_v<size_t, Operation, char_type*, size_t>
     void resize_and_overwrite(size_t n, Operation op) {
         if (n > size()) {
-            *this = basic_sstring(initialized_later(), n);
+            basic_sstring ret(initialized_later(), n);
+            std::copy(begin(), end(), ret.begin());
+            *this = std::move(ret);
         }
         size_t r = std::move(op)(data(), n);
         SEASTAR_ASSERT(r <= n);
