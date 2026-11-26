@@ -35,6 +35,8 @@
 #include <seastar/core/when_any.hh>
 #include <seastar/core/with_timeout.hh>
 
+#include <memory>
+
 using namespace seastar;
 using namespace std::chrono_literals;
 using steady_clock = std::chrono::steady_clock;
@@ -397,4 +399,18 @@ SEASTAR_TEST_CASE(test_condition_variable_when_predicate_throws) {
                      i--;
                      return false;
              }), std::runtime_error);
+}
+
+// when() accepts a predicate that is an lvalue, as wait() does, and refers to
+// it instead of copying it: this predicate can't be copied.
+SEASTAR_TEST_CASE(test_condition_variable_when_lvalue_predicate) {
+    condition_variable cv;
+    bool ready = false;
+    auto pred = [&ready, not_copyable = std::make_unique<int>()] { return ready; };
+    auto w1 = cv.when(pred);
+    auto w2 = cv.when(1s, pred);
+    ready = true;
+    cv.broadcast();
+    co_await std::move(w1);
+    co_await std::move(w2);
 }
