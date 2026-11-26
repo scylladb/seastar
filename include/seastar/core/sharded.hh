@@ -830,7 +830,7 @@ template <typename Func, typename... Args, typename Ret>
 requires std::invocable<Func, Service&, Args&&...>
 Ret
 sharded<Service>::invoke_on(unsigned id, smp_submit_to_options options, Func&& func, Args&&... args) {
-    return smp::submit_to(id, options, [this, func = std::forward<Func>(func), args = std::tuple(std::move(args)...)] () mutable {
+    return smp::submit_to(id, options, [this, func = std::forward<Func>(func), args = std::tuple<std::decay_t<Args>...>(std::forward<Args>(args)...)] () mutable {
         auto inst = get_local_service();
         return std::apply(std::forward<Func>(func), std::tuple_cat(std::forward_as_tuple(*inst), std::move(args)));
     });
