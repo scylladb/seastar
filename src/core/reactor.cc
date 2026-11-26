@@ -1278,7 +1278,8 @@ void cpu_stall_detector::maybe_report() {
 //
 // We can do it a cheaper if we don't report suppressed backtraces.
 void cpu_stall_detector::on_signal() {
-    auto tasks_processed = engine().tasks_processed();
+    // Plus one, as in _last_tasks_processed_seen
+    auto tasks_processed = engine().tasks_processed() + 1;
     auto last_seen = _last_tasks_processed_seen.load(std::memory_order_relaxed);
     if (!last_seen) {
         return; // stall detector in not active
@@ -1333,7 +1334,7 @@ void cpu_stall_detector::start_task_run(sched_clock::time_point now) {
         _rearm_timer_at = now + _threshold * _report_at;
         arm_timer();
     }
-    _last_tasks_processed_seen.store(engine().tasks_processed(), std::memory_order_relaxed);
+    _last_tasks_processed_seen.store(engine().tasks_processed() + 1, std::memory_order_relaxed);
     std::atomic_signal_fence(std::memory_order_release); // Don't delay this write, so the signal handler can see it
 }
 
