@@ -47,6 +47,8 @@ namespace seastar {
 
 namespace internal {
 
+// Defined in sstring.cc, and also declared in sstring.hh.
+[[noreturn]] void throw_bad_alloc();
 
 inline
 void
@@ -71,9 +73,24 @@ execute_involving_handle_destruction_in_await_suspend(task* tsk) noexcept {
 
 class coroutine_allocators {
 public:
+    // The critical section stops the allocation failure injector from
+    // failing this allocation. A real failure must throw std::bad_alloc:
+    // our promise types don't define
+    // get_return_object_on_allocation_failure(), so the compiler doesn't
+    // check the returned pointer, and would construct the frame at
+    // address 0. This is inlined into every coroutine, so the critical
+    // section ends before the check, and the throw is out of line, to
+    // keep the failure path small.
     static void* operator new(size_t size) {
-        memory::scoped_critical_alloc_section _;
-        return ::malloc(size);
+        void* p;
+        {
+            memory::scoped_critical_alloc_section _;
+            p = ::malloc(size);
+        }
+        if (!p) [[unlikely]] {
+            throw_bad_alloc();
+        }
+        return p;
     }
     static void operator delete(void* ptr) noexcept {
         ::free(ptr);

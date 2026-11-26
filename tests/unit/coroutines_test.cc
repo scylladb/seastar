@@ -23,6 +23,7 @@
 #include <numeric>
 #include <ranges>
 #include <any>
+#include <array>
 #include <expected>
 
 #include <seastar/core/circular_buffer.hh>
@@ -148,6 +149,26 @@ SEASTAR_TEST_CASE(test_abandond_coroutine) {
     }
     BOOST_CHECK_EQUAL(co_await std::move(*f), 1);
 }
+
+// The test needs Seastar's allocator to fail the allocation and throw. With
+// the default allocator, which the debug and sanitize builds use,
+// AddressSanitizer may abort on an allocation this large instead.
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+// A coroutine whose frame can't be allocated should throw std::bad_alloc
+// from the call, and not construct its frame at address 0.
+SEASTAR_TEST_CASE(test_coroutine_frame_allocation_failure) {
+    // A frame of a terabyte, more than any shard has.
+    auto huge = [] () -> future<> {
+        std::array<char, size_t(1) << 40> buf;
+        // buf's address escapes, so buf stays in the frame across the yield.
+        asm volatile ("" : : "r"(buf.data()) : "memory");
+        co_await yield();
+        asm volatile ("" : : "r"(buf.data()) : "memory");
+    };
+    BOOST_REQUIRE_THROW((void)huge(), std::bad_alloc);
+    co_return;
+}
+#endif
 
 SEASTAR_TEST_CASE(test_scheduling_group) {
     auto other_sg = co_await create_scheduling_group("the other group", 10.f);
