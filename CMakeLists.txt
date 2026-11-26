@@ -662,6 +662,7 @@ add_library (seastar
   include/seastar/http/transformers.hh
   include/seastar/http/client.hh
   include/seastar/core/internal/md5.hh
+  include/seastar/core/internal/poll.hh
   include/seastar/json/formatter.hh
   include/seastar/json/json_elements.hh
   include/seastar/net/api.hh
