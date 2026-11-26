@@ -20,8 +20,13 @@
  */
 
 #pragma once
+
+#include <mutex>
+#include <deque>
+#include <memory>
 #include <unordered_set>
 #include <seastar/core/sharded.hh>
+#include <seastar/core/abort_source.hh>
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/core/polymorphic_temporary_buffer.hh>
@@ -166,6 +171,9 @@ struct proxy_data {
 };
 
 class posix_ap_server_socket_impl : public server_socket_impl {
+private:
+    struct acceptor_state;
+    using acceptor_state_ptr = std::shared_ptr<acceptor_state>;
     using protocol_and_socket_address = std::tuple<int, socket_address>;
     struct connection {
         pollable_fd fd;
@@ -175,14 +183,20 @@ class posix_ap_server_socket_impl : public server_socket_impl {
         connection(pollable_fd xfd, socket_address xaddr, conntrack::handle cth, std::optional<proxy_data> addr_data_opt) : fd(std::move(xfd)), addr(xaddr), connection_tracking_handle(std::move(cth)), proxy_protocol_header_opt(std::move(addr_data_opt)) {}
     };
     using port_map_t = std::unordered_set<protocol_and_socket_address>;
-    using sockets_map_t = std::unordered_map<protocol_and_socket_address, promise<accept_result>>;
-    using conn_map_t = std::unordered_multimap<protocol_and_socket_address, connection>;
     static thread_local port_map_t ports;
-    static thread_local sockets_map_t sockets;
-    static thread_local conn_map_t conn_q;
     int _protocol;
     socket_address _sa;
+    acceptor_state_ptr _state;
     std::pmr::polymorphic_allocator<char>* _allocator;
+    static acceptor_state_ptr register_acceptor_state(int protocol, socket_address sa, shard_id shard);
+    static acceptor_state_ptr find_acceptor_state(int protocol, socket_address sa, shard_id shard);
+    static future<acceptor_state_ptr> wait_for_acceptor_state(
+            int protocol, socket_address sa, shard_id shard, abort_source& as);
+    static future<acceptor_state_ptr> wait_for_acceptor_registration(
+            int protocol, socket_address sa, shard_id shard, acceptor_state_ptr state,
+            std::unique_lock<std::mutex> lock, abort_source& as);
+    static void close_acceptor_state(const acceptor_state_ptr& state);
+    static void unregister_acceptor_state(int protocol, socket_address sa, shard_id shard, const acceptor_state_ptr& state);
 public:
     explicit posix_ap_server_socket_impl(int protocol, socket_address sa, std::pmr::polymorphic_allocator<char>* allocator = memory::malloc_allocator);
     ~posix_ap_server_socket_impl();
@@ -191,10 +205,58 @@ public:
     socket_address local_address() const override {
         return _sa;
     }
+    /// Deliver a connection to the current listener for protocol and sa on this shard.
+    /// Must be called on the destination shard; resolves the listener at invocation.
+    /// Consumes fd, handle and proxy data, dropping them if no listener is accepting.
+    /// addr is the peer address; allocator must outlive the connection and its streams.
     static void move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, std::optional<proxy_data> addr_data_opt, std::pmr::polymorphic_allocator<char>* allocator);
+#ifdef SEASTAR_TESTING_MAIN
+    /// Return a strong reference to this listener's state for owner-shard tests.
+    /// The state remains alive after the listener is destroyed.
+    acceptor_state_ptr testing_state() const {
+        return _state;
+    }
+    /// Inject a handoff into a captured listener state on its owning shard.
+    /// protocol and sa must match the listener; addr is the peer address.
+    /// Consumes fd, handle and proxy data, dropping them if the state is closed.
+    /// allocator must outlive the connection and any input streams created from it.
+    static void testing_move_connected_socket(acceptor_state_ptr state, int protocol, socket_address sa, pollable_fd fd,
+            socket_address addr, conntrack::handle handle, std::optional<proxy_data> addr_data_opt,
+            std::pmr::polymorphic_allocator<char>* allocator) {
+        deliver_connected_socket(std::move(state), protocol, sa, std::move(fd), addr, std::move(handle), std::move(addr_data_opt), allocator);
+    }
+    /// Return the queue size of a non-null state on its owning shard.
+    static size_t testing_queued_connections(const acceptor_state_ptr& state) {
+        return queued_connections(state);
+    }
+    /// Return the number of source accepts waiting for this destination's registration.
+    /// The synchronized metadata may be inspected from any shard.
+    static size_t testing_registration_waiters(int protocol, socket_address sa, shard_id shard) {
+        return registration_waiters(protocol, sa, shard);
+    }
+    /// Check that a registration key has been released, including expired entries.
+    /// May be called from any shard.
+    static bool testing_has_acceptor_state(int protocol, socket_address sa, shard_id shard) {
+        return has_acceptor_state(protocol, sa, shard);
+    }
+    /// Wait for one destination generation on the calling shard; as must outlive the future.
+    /// Cancellation releases its notification fd and unregistered state before completion.
+    static future<acceptor_state_ptr> testing_wait_for_acceptor_state(
+            int protocol, socket_address sa, shard_id shard, abort_source& as) {
+        return wait_for_acceptor_state(protocol, sa, shard, as);
+    }
+#endif
 
+private:
     template <typename T>
     friend class std::hash;
+    friend class posix_server_socket_impl;
+    static void deliver_connected_socket(acceptor_state_ptr state, int protocol, socket_address sa, pollable_fd fd,
+            socket_address addr, conntrack::handle handle, std::optional<proxy_data> addr_data_opt,
+            std::pmr::polymorphic_allocator<char>* allocator);
+    static size_t queued_connections(const acceptor_state_ptr& state);
+    static size_t registration_waiters(int protocol, socket_address sa, shard_id shard);
+    static bool has_acceptor_state(int protocol, socket_address sa, shard_id shard);
 };
 
 class posix_server_socket_impl : public server_socket_impl {
@@ -206,11 +268,14 @@ class posix_server_socket_impl : public server_socket_impl {
     shard_id _fixed_cpu;
     bool _proxy_protocol;
     std::pmr::polymorphic_allocator<char>* _allocator;
+    lw_shared_ptr<abort_source> _accept_abort = make_lw_shared<abort_source>();
 public:
     explicit posix_server_socket_impl(int protocol, socket_address sa, pollable_fd lfd,
         server_socket::load_balancing_algorithm lba, shard_id fixed_cpu,
         bool proxy_protocol,
         std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) : _sa(sa), _protocol(protocol), _lfd(std::move(lfd)), _lba(lba), _fixed_cpu(fixed_cpu), _proxy_protocol(proxy_protocol), _allocator(allocator) {}
+    /// Request cancellation of waits for destination listener registration.
+    ~posix_server_socket_impl();
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
