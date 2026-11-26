@@ -646,6 +646,9 @@ posix_file_real_impl::dup() {
     return posix_file_impl::do_dup<posix_file_real_impl>();
 }
 
+// The smallest sector size of a block device.
+static constexpr uint64_t min_sector_size = 512;
+
 future<temporary_buffer<uint8_t>>
 posix_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept {
     auto front = offset & (_disk_read_dma_alignment - 1);
@@ -670,9 +673,14 @@ posix_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, io_intent* in
     //
     // The copying will actually take place only if there was a HW glitch.
     // In EOF case or in case of a persistent I/O error the only overhead is
-    // an extra allocation.
+    // an extra read.
     //
-    while (pos < range_size) {
+    // A device transfers whole sectors, so a short read that is not at the
+    // end of the file stops at a multiple of the sector size. Thus a short
+    // read that stopped elsewhere got to the end of the file, and a read
+    // after it would only find the end of the file again.
+    //
+    while (pos < range_size && (offset + pos) % min_sector_size == 0) {
         auto buf1 = co_await read_maybe_eof(offset + pos, range_size - pos, intent);
         if (!buf1.size()) {
             break;
@@ -1610,26 +1618,6 @@ future<size_t> file::dma_read_impl(uint64_t pos, std::vector<iovec> iov, io_inte
   } catch (...) {
     return current_exception_as_future<size_t>();
   }
-}
-
-future<temporary_buffer<uint8_t>>
-file::dma_read_exactly_impl(uint64_t pos, size_t len, io_intent* intent) noexcept {
-    auto buf = co_await dma_read_impl(pos, len, intent);
-    if (buf.size() < len) {
-        throw eof_error();
-    }
-
-    co_return std::move(buf);
-}
-
-future<temporary_buffer<uint8_t>>
-file::dma_read_impl(uint64_t pos, size_t len, io_intent* intent) noexcept {
-    temporary_buffer<uint8_t> buf = co_await dma_read_bulk_impl(pos, len, intent);
-    if (len < buf.size()) {
-        buf.trim(len);
-    }
-
-    co_return std::move(buf);
 }
 
 future<size_t>

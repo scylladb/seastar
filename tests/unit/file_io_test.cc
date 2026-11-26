@@ -1218,6 +1218,8 @@ class test_posix_file_impl : public posix_file_impl {
     const temporary_buffer<char>& _data;
 public:
     static constexpr size_t block_size = 512;
+    // The number of reads of the file.
+    size_t reads = 0;
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* i) noexcept override { abort(); }
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* i) noexcept override { abort(); }
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* i) noexcept override { abort(); }
@@ -1225,6 +1227,7 @@ public:
 
     virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, io_intent* i) noexcept override {
         fmt::print("  IO {}:{}\n", pos, len);
+        ++reads;
 
         if (pos >= _data.size()) {
             return make_ready_future<size_t>(0);
@@ -1291,6 +1294,36 @@ SEASTAR_THREAD_TEST_CASE(test_posix_file_dma_read_bulk) {
     }
 }
 
+// Checks that dma_read_bulk() doesn't read again after a short read that
+// stopped at a position that is not a multiple of the sector size, because
+// such a read got to the end of the file. After a short read that stopped at a
+// multiple of the sector size, dma_read_bulk() must read again to find out if
+// the file ends there.
+SEASTAR_THREAD_TEST_CASE(test_posix_file_dma_read_bulk_stops_at_the_end_of_the_file) {
+    constexpr size_t block_size = test_posix_file_impl::block_size;
+    for (size_t tail : {size_t(123), size_t(0)}) {
+        const size_t data_size = 2 * block_size + tail;
+        temporary_buffer<char> data(data_size);
+        for (size_t i = 0; i < data.size(); ++i) {
+            data.get_write()[i] = static_cast<char>(i);
+        }
+        auto f = std::make_unique<test_posix_file_impl>(data);
+
+        auto buf = f->dma_read_bulk(block_size, 8 * block_size, nullptr).get();
+
+        // Check that the read returns the bytes from its offset to the end of
+        // the file.
+        BOOST_REQUIRE_EQUAL(buf.size(), data_size - block_size);
+        BOOST_REQUIRE(std::memcmp(buf.get(), data.get() + block_size, buf.size()) == 0);
+        // Check that it read the file twice. The file returns one block per
+        // read. With a tail, the second read returns the tail and stops at the
+        // end of the file, at a position that is not aligned, so there is no
+        // third read. Without a tail, the second read returns no bytes, at the
+        // end of the file.
+        BOOST_REQUIRE_EQUAL(f->reads, 2);
+    }
+}
+
 SEASTAR_TEST_CASE(test_rename) {
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         sstring filename1 = (t.get_path() / "testfile1.tmp").native();
@@ -1333,5 +1366,60 @@ SEASTAR_TEST_CASE(test_query_statx_mem_align) {
         auto align = internal::query_statx_mem_align(fd);
         BOOST_REQUIRE(align.has_value());
         BOOST_REQUIRE_GT(*align, 0u);
+    });
+}
+
+// Checks the reads that return a buffer - dma_read_bulk(), dma_read() and
+// dma_read_exactly() - of ranges that end before, at and after the end of the
+// file. The size of the file is a multiple of 4096 bytes, a multiple of the
+// sector size but not of 4096 bytes, or neither.
+SEASTAR_TEST_CASE(test_dma_read_to_the_end_of_the_file) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        for (uint64_t size : {uint64_t(3 * 4096), uint64_t(3 * 4096 + 512), uint64_t(3 * 4096 + 123)}) {
+            const auto filename = (t.get_path() / fmt::format("testfile-{}.tmp", size)).native();
+            auto f = open_file_dma(filename, open_flags::rw | open_flags::create | open_flags::truncate).get();
+            auto close_f = deferred_close(f);
+            auto data = temporary_buffer<char>::aligned(f.memory_dma_alignment(), align_up<uint64_t>(size, f.disk_write_dma_alignment()));
+            for (size_t i = 0; i < data.size(); ++i) {
+                data.get_write()[i] = static_cast<char>(i * 7 % 251);
+            }
+            f.dma_write(0, data.get(), data.size()).get();
+            f.truncate(size).get();
+            f.flush().get();
+
+            for (uint64_t offset : {uint64_t(0), uint64_t(100), size - 600, size - 1, size, size + 1}) {
+                for (size_t len : {size_t(1), size_t(600), size_t(4096), size_t(4 * 4096)}) {
+                    BOOST_TEST_CONTEXT("size " << size << ", offset " << offset << ", length " << len) {
+                        const size_t available = offset < size ? std::min<uint64_t>(len, size - offset) : 0;
+                        const char* expected = data.get() + std::min(offset, size);
+
+                        // Check that dma_read_bulk() returns at least the bytes
+                        // of the range that the file has, from its offset, and
+                        // no byte after the end of the file.
+                        auto bulk = f.dma_read_bulk<char>(offset, len).get();
+                        BOOST_REQUIRE_GE(bulk.size(), available);
+                        BOOST_REQUIRE_LE(offset + bulk.size(), std::max(offset, size));
+                        BOOST_REQUIRE(std::memcmp(bulk.get(), expected, bulk.size()) == 0);
+
+                        // Check that dma_read() returns exactly the bytes of the
+                        // range that the file has.
+                        auto read = f.dma_read<char>(offset, len).get();
+                        BOOST_REQUIRE_EQUAL(read.size(), available);
+                        BOOST_REQUIRE(std::memcmp(read.get(), expected, read.size()) == 0);
+
+                        // Check that dma_read_exactly() returns the range, or
+                        // fails with eof_error if the file ends before the end
+                        // of the range.
+                        if (available == len) {
+                            auto exactly = f.dma_read_exactly<char>(offset, len).get();
+                            BOOST_REQUIRE_EQUAL(exactly.size(), len);
+                            BOOST_REQUIRE(std::memcmp(exactly.get(), expected, exactly.size()) == 0);
+                        } else {
+                            BOOST_REQUIRE_THROW(f.dma_read_exactly<char>(offset, len).get(), file::eof_error);
+                        }
+                    }
+                }
+            }
+        }
     });
 }

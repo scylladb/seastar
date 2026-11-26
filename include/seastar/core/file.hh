@@ -393,7 +393,11 @@ public:
      */
     template <typename CharType>
     future<temporary_buffer<CharType>> dma_read(uint64_t pos, size_t len, io_intent* intent = nullptr) noexcept {
-        return dma_read_impl(pos, len, intent).then([] (temporary_buffer<uint8_t> t) {
+        return dma_read_bulk_impl(pos, len, intent).then([len] (temporary_buffer<uint8_t> t) {
+            // The bulk can end after the range, at the end of an aligned block.
+            if (len < t.size()) {
+                t.trim(len);
+            }
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
@@ -417,8 +421,13 @@ public:
     template <typename CharType>
     future<temporary_buffer<CharType>>
     dma_read_exactly(uint64_t pos, size_t len, io_intent* intent = nullptr) noexcept {
-        return dma_read_exactly_impl(pos, len, intent).then([] (temporary_buffer<uint8_t> t) {
-            return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
+        return dma_read_bulk_impl(pos, len, intent).then([len] (temporary_buffer<uint8_t> t) {
+            if (t.size() < len) {
+                return make_exception_future<temporary_buffer<CharType>>(eof_error());
+            }
+            // The bulk can end after the range, at the end of an aligned block.
+            t.trim(len);
+            return make_ready_future<temporary_buffer<CharType>>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
 
@@ -670,17 +679,11 @@ private:
     future<size_t>
     dma_write_impl(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept;
 
-    future<temporary_buffer<uint8_t>>
-    dma_read_impl(uint64_t pos, size_t len, io_intent* intent) noexcept;
-
     future<size_t>
     dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligned_len, io_intent* intent) noexcept;
 
     future<size_t>
     dma_read_impl(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept;
-
-    future<temporary_buffer<uint8_t>>
-    dma_read_exactly_impl(uint64_t pos, size_t len, io_intent* intent) noexcept;
 
     future<uint64_t> get_lifetime_hint_impl(int op) noexcept;
     future<> set_lifetime_hint_impl(int op, uint64_t hint) noexcept;
