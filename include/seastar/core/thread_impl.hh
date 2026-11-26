@@ -25,6 +25,7 @@
 #include <seastar/util/std-compat.hh>
 #include <setjmp.h>
 #include <ucontext.h>
+#include <atomic>
 #include <chrono>
 
 namespace seastar {
@@ -74,7 +75,34 @@ void yield();
 void switch_in(thread_context* to);
 void switch_out(thread_context* from);
 void init();
-bool is_context_switch_in_progress() noexcept;
+
+// Set while this OS thread is in the middle of a stack switch. A signal
+// handler can't take a backtrace then, since the unwind information of the
+// code doing the switch (e.g., glibc's swapcontext()) is wrong between loading
+// the new stack pointer and the switch's end, and following it can crash. So
+// the stall detector omits the backtrace while this is set.
+extern constinit thread_local std::atomic_flag g_context_switch_in_progress;
+
+// Mark the beginning and the end of a stack switch. Seastar marks its own
+// seastar::thread switches; an application which switches stacks by itself,
+// outside seastar::thread, should mark its switches too. Call
+// begin_context_switch() right before switching stacks, and
+// end_context_switch() as the first thing after arriving on the other stack,
+// on the same OS thread.
+inline void begin_context_switch() noexcept {
+    g_context_switch_in_progress.test_and_set(std::memory_order_relaxed);
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+}
+
+inline void end_context_switch() noexcept {
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    g_context_switch_in_progress.clear(std::memory_order_relaxed);
+}
+
+inline bool is_context_switch_in_progress() noexcept {
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    return g_context_switch_in_progress.test(std::memory_order_relaxed);
+}
 
 }
 }
