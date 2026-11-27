@@ -225,7 +225,11 @@ void deleter::append(deleter d) {
         }
 
         if (next_impl->refs != 1) {
-            next_d->_impl = next_impl = make_object_deleter_impl(deleter(next_impl), std::move(d));
+            // Use a new-expression directly: the allocation happens before the
+            // constructor arguments are evaluated, so if it throws no temporary
+            // deleter(next_impl) exists to drop the reference still held
+            // through next_d.
+            next_d->_impl = new object_deleter_impl<deleter>(deleter(next_impl), std::move(d));
             return;
         }
 
