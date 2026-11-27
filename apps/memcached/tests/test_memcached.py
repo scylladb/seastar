@@ -207,6 +207,37 @@ class TcpSpecificTests(MemcacheTest):
 
         self.delete('key')
 
+    def get_many(self, cmd, key, n):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(30)
+        s.connect(server_addr)
+        s.sendall((cmd + (' ' + key) * n + '\r\n').encode())
+        s.shutdown(socket.SHUT_WR)
+        resp = recv_all(s)
+        s.close()
+        return resp
+
+    def test_get_with_many_repeated_keys(self):
+        # Every repeated key holds a reference to the same item until the
+        # response is serialized; more than 65535 of them used to overflow
+        # the item's 16-bit reference count.
+        n = 65537
+        self.assertEqual(call('set k 0 0 1\r\nv\r\n'), b'STORED\r\n')
+        resp = self.get_many('get', 'k', n)
+        self.assertEqual(resp, b'VALUE k 0 1\r\nv\r\n' * n + b'END\r\n')
+        self.assertEqual(call('get k\r\n'), b'VALUE k 0 1\r\nv\r\nEND\r\n')
+        self.delete('k')
+
+    def test_gets_with_many_repeated_keys(self):
+        # Like the get test, but each hit also carries a version string.
+        n = 65537
+        self.assertEqual(call('set k 0 0 1\r\nv\r\n'), b'STORED\r\n')
+        version = self.getItemVersion('k')
+        resp = self.get_many('gets', 'k', n)
+        self.assertEqual(resp, b'VALUE k 0 1 %d\r\nv\r\n' % version * n + b'END\r\n')
+        self.assertEqual(call('get k\r\n'), b'VALUE k 0 1\r\nv\r\nEND\r\n')
+        self.delete('k')
+
     @slow
     def test_connection_statistics(self):
         with tcp_connection() as conn:

@@ -149,7 +149,7 @@ private:
     expiration _expiry;
     uint32_t _value_size;
     uint32_t _slab_page_index;
-    uint16_t _ref_count;
+    uint32_t _ref_count;
     uint8_t _key_size;
     uint8_t _ascii_prefix_size;
     char _data[]; // layout: data=key, (data+key_size)=ascii_prefix, (data+key_size+ascii_prefix_size)=value.
@@ -900,24 +900,54 @@ private:
     static void append(std::vector<temporary_buffer<char>>& bufs, const char* s) { append(bufs, s, strlen(s)); }
     static void append(std::vector<temporary_buffer<char>>& bufs, const std::string_view& s) { append(bufs, s.data(), s.size()); }
 
+    // `d` must keep `it` and `version` alive until the buffers are sent.
     template <bool WithVersion>
-    static void serialize(std::vector<temporary_buffer<char>>& bufs, item_ptr item) {
-        if (!item) {
+    static void serialize(std::vector<temporary_buffer<char>>& bufs, memcache::item* it, std::string_view version, deleter d) {
+        if (!it) {
             return;
         }
 
         append(bufs, "VALUE ");
-        append(bufs, item->key());
-        append(bufs, item->ascii_prefix());
+        append(bufs, it->key());
+        append(bufs, it->ascii_prefix());
 
         if (WithVersion) {
             append(bufs, " ");
-            bufs.emplace_back(temporary_buffer<char>::copy_of(to_sstring(item->version())));
+            append(bufs, version);
         }
 
         append(bufs, msg_crlf);
-        append(bufs, item->value());
-        bufs.emplace_back(const_cast<char*>(msg_crlf), strlen(msg_crlf), make_deleter([item = std::move(item)]{}));
+        append(bufs, it->value());
+        bufs.emplace_back(const_cast<char*>(msg_crlf), strlen(msg_crlf), std::move(d));
+    }
+
+    template <bool WithVersion>
+    static future<> write_items(output_stream<char>& out, std::vector<item_ptr> items) {
+        // The items and their version strings are owned by one deleter that
+        // every item's buffers share, and all other buffers borrow from it:
+        // the output path chains distinct deleters into a list that is
+        // destroyed recursively, so a get with many keys would otherwise
+        // overflow the stack.
+        struct response {
+            std::vector<item_ptr> items;
+            std::vector<sstring> versions;
+        };
+        auto r = make_lw_shared<response>(std::move(items));
+        if constexpr (WithVersion) {
+            r->versions.reserve(r->items.size());
+            for (auto& item : r->items) {
+                r->versions.push_back(item ? to_sstring(item->version()) : sstring());
+            }
+        }
+        auto d = make_deleter([r] {});
+        std::vector<temporary_buffer<char>> bufs;
+        for (size_t i = 0; i < r->items.size(); ++i) {
+            auto& item = r->items[i];
+            std::string_view version = WithVersion ? std::string_view(r->versions[i]) : std::string_view();
+            serialize<WithVersion>(bufs, item ? item.get() : nullptr, version, d.share());
+        }
+        append(bufs, msg_end);
+        return out.write(std::span<temporary_buffer<char>>(bufs));
     }
 
     template <bool WithVersion>
@@ -925,10 +955,9 @@ private:
         _system_stats.local()._cmd_get++;
         if (_parser._keys.size() == 1) {
             return _cache.get(_parser._keys[0]).then([&out] (auto item) -> future<> {
-                std::vector<temporary_buffer<char>> bufs;
-                this_type::serialize<WithVersion>(bufs, std::move(item));
-                append(bufs, msg_end);
-                return out.write(std::span<temporary_buffer<char>>(bufs));
+                std::vector<item_ptr> items;
+                items.push_back(std::move(item));
+                return write_items<WithVersion>(out, std::move(items));
             });
         } else {
             _items.clear();
@@ -937,12 +966,7 @@ private:
                     _items.emplace_back(std::move(item));
                 });
             }).then([this, &out] () {
-                std::vector<temporary_buffer<char>> bufs;
-                for (auto& item : _items) {
-                    serialize<WithVersion>(bufs, std::move(item));
-                }
-                append(bufs, msg_end);
-                return out.write(std::span<temporary_buffer<char>>(bufs));
+                return write_items<WithVersion>(out, std::exchange(_items, {}));
             });
         }
     }
