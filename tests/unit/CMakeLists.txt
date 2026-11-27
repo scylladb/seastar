@@ -805,12 +805,25 @@ function(seastar_gen_mtls_certs)
     COMMON_NAME "san-client.server.com"
     SANS "DNS:san-client.server.com" "URI:spiffe://example.com/client")
 
+  seastar_sign_cert("oversized_ip_san"
+    CA ${cert_ca}
+    SERIAL_NUM 5
+    COMMON_NAME "oversized-ip"
+    SANS "DER:302287204141414141414141414141414141414141414141414141414141414141414141")
+  seastar_sign_cert("nul_dns_san"
+    CA ${cert_ca}
+    SERIAL_NUM 6
+    COMMON_NAME "nul-dns"
+    SANS "DER:3003820100")
+
   add_custom_target(mtls_certs
     DEPENDS
       "${CMAKE_CURRENT_BINARY_DIR}/mtls_client1.crt"
       "${CMAKE_CURRENT_BINARY_DIR}/mtls_client2.crt"
       "${CMAKE_CURRENT_BINARY_DIR}/mtls_server.crt"
       "${CMAKE_CURRENT_BINARY_DIR}/mtls_client_san.crt"
+      "${CMAKE_CURRENT_BINARY_DIR}/oversized_ip_san.crt"
+      "${CMAKE_CURRENT_BINARY_DIR}/nul_dns_san.crt"
   )
 endfunction()
 
