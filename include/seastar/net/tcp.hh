@@ -875,7 +875,7 @@ void tcp<InetTraits>::received(packet p, ipaddr from, ipaddr to) {
     }
     // data_offset is correct even before ntoh()
     auto data_offset = uint8_t(th[12]) >> 4;
-    if (size_t(data_offset * 4) < tcp_hdr::len) {
+    if (size_t(data_offset * 4) < tcp_hdr::len || size_t(data_offset * 4) > p.len()) {
         return;
     }
 
