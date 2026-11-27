@@ -149,7 +149,7 @@ private:
     expiration _expiry;
     uint32_t _value_size;
     uint32_t _slab_page_index;
-    uint16_t _ref_count;
+    uint32_t _ref_count;
     uint8_t _key_size;
     uint8_t _ascii_prefix_size;
     char _data[]; // layout: data=key, (data+key_size)=ascii_prefix, (data+key_size+ascii_prefix_size)=value.
