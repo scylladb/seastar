@@ -192,7 +192,7 @@ public:
         });
     }
     future<> close() override {
-        _conn->close_write();
+        _conn->close_read();
         return make_ready_future<>();
     }
 };
