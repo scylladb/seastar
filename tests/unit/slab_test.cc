@@ -23,7 +23,9 @@
 #define BOOST_TEST_MODULE slab
 
 #include <boost/test/unit_test.hpp>
+#include <cstdlib>
 #include <iostream>
+#include <new>
 #include <seastar/core/slab.hh>
 
 using namespace seastar;
@@ -31,6 +33,39 @@ using namespace seastar;
 namespace bi = boost::intrusive;
 
 static constexpr size_t max_object_size = 1024*1024;
+
+#ifdef SEASTAR_DEFAULT_ALLOCATOR
+// Allocation failure injection for operator new, used to exercise the
+// slab allocator's error paths. When fail_allocation_countdown reaches
+// zero, the corresponding allocation throws std::bad_alloc. Only possible
+// with the default allocator: the seastar allocator defines operator new
+// itself.
+static thread_local long fail_allocation_countdown = -1;
+static thread_local long live_allocations = 0;
+
+void* operator new(size_t size) {
+    if (fail_allocation_countdown >= 0 && fail_allocation_countdown-- == 0) {
+        throw std::bad_alloc{};
+    }
+    void* p = std::malloc(size ? size : 1);
+    if (!p) {
+        throw std::bad_alloc{};
+    }
+    ++live_allocations;
+    return p;
+}
+
+void operator delete(void* p) noexcept {
+    if (p) {
+        --live_allocations;
+        std::free(p);
+    }
+}
+
+void operator delete(void* p, size_t) noexcept {
+    ::operator delete(p);
+}
+#endif
 
 class item : public slab_item_base {
 public:
@@ -161,3 +196,45 @@ BOOST_AUTO_TEST_CASE(test_limit_is_violated_by_new_class) {
     free_vector<item>(slab, items);
     std::cout << __FUNCTION__ << " done!\n";
 }
+
+// Fail each allocation made while creating an item on a new slab page in
+// turn. Whatever fails, the slab must stay consistent and release every
+// page and descriptor when destroyed. Use a reclaimer-enabled slab (limit 0),
+// whose page descriptor vector grows on demand, and an object size that fits
+// many objects per page, so a new page is also put on the free-page list.
+#ifdef SEASTAR_DEFAULT_ALLOCATOR
+BOOST_AUTO_TEST_CASE(test_new_page_allocation_failure) {
+    constexpr size_t size = 1024;
+    bool succeeded = false;
+    for (long fail_at = 0; !succeeded; fail_at++) {
+        BOOST_REQUIRE_LT(fail_at, 100);
+        auto live_before = live_allocations;
+        {
+            slab_allocator<item> slab(1.25, 0, max_object_size);
+            item* it = nullptr;
+            fail_allocation_countdown = fail_at;
+            try {
+                it = slab.create(size);
+                succeeded = true;
+            } catch (const std::bad_alloc&) {
+            }
+            fail_allocation_countdown = -1;
+            if (succeeded) {
+                BOOST_REQUIRE(it != nullptr);
+            }
+            // A failed attempt must not leave a half-registered page behind:
+            // allocate and free a few more objects of the same class.
+            std::vector<item*> items;
+            for (int i = 0; i < 3; i++) {
+                items.push_back(slab.create(size));
+                BOOST_REQUIRE(items.back() != nullptr);
+            }
+            free_vector<item>(slab, items);
+            if (it) {
+                slab.free(it);
+            }
+        }
+        BOOST_REQUIRE_EQUAL(live_allocations, live_before);
+    }
+}
+#endif

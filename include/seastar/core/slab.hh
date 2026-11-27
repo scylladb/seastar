@@ -471,6 +471,11 @@ public:
         } else {
             if (can_allocate_page(*slab_class)) {
                 auto index_to_insert = _slab_pages_vector.size();
+                // Grow the vector up front, so that registering the new page
+                // below cannot throw after its descriptor was already linked
+                // into the free-page and LRU lists.
+                _slab_pages_vector.push_back(nullptr);
+                _slab_pages_vector.pop_back();
                 item = slab_class->create_from_new_page(_max_object_size, index_to_insert,
                     [this](slab_page_desc& desc) {
                         if (_reclaimer) {
