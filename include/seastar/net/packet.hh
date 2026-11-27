@@ -574,9 +574,6 @@ void packet::trim_back(size_t how_much) noexcept {
     _impl->_nr_frags = i + 1;
     if (how_much) {
         _impl->_frags[i].size -= how_much;
-        if (i == 0 && _impl->using_internal_data()) {
-            _impl->_headroom += how_much;
-        }
     }
 }
 
