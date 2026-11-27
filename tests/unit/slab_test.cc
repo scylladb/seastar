@@ -161,3 +161,18 @@ BOOST_AUTO_TEST_CASE(test_limit_is_violated_by_new_class) {
     free_vector<item>(slab, items);
     std::cout << __FUNCTION__ << " done!\n";
 }
+
+BOOST_AUTO_TEST_CASE(test_free_object_does_not_allocate) {
+    // Returning every object of a slab page must not need to grow the free
+    // objects vector, since free_object() is called on paths that cannot throw.
+    alignas(16) static char page[1024];
+    for (size_t objects : {1u, 2u, 7u, 64u}) {
+        slab_page_desc desc(page, objects, sizeof(page) / objects, 0, 0);
+        BOOST_REQUIRE_EQUAL(desc.size(), objects - 1);
+        BOOST_REQUIRE_GE(desc.free_objects().capacity(), objects);
+        auto data = desc.free_objects().data();
+        desc.free_object(page);
+        BOOST_REQUIRE_EQUAL(desc.size(), objects);
+        BOOST_REQUIRE(desc.free_objects().data() == data);
+    }
+}
