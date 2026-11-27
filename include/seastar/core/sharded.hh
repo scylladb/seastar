@@ -687,6 +687,10 @@ concept sharded_has_stop = requires {
     // named stop() just because the signature is incorrect, and instead
     // force the user to resolve the ambiguity.
     { &Service::stop };
+} || requires (Service& s) {
+    // &Service::stop is ill-formed when stop is overloaded, so also detect
+    // a stop() that can be called without arguments.
+    s.stop();
 };
 
 template <bool stop_exists>
