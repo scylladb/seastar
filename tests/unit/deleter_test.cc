@@ -23,6 +23,8 @@
 
 #include <boost/test/unit_test.hpp>
 #include <seastar/core/deleter.hh>
+#include <seastar/util/alloc_failure_injector.hh>
+#include <seastar/util/defer.hh>
 
 using namespace seastar;
 
@@ -77,3 +79,26 @@ BOOST_AUTO_TEST_CASE(test_deleter_append_same_shared_object_twice) {
     }
     BOOST_REQUIRE(TestObject::deletions_called == 1);
 }
+
+#ifdef SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
+BOOST_AUTO_TEST_CASE(test_deleter_append_to_shared_failed_allocation_keeps_refs) {
+    int freed = 0;
+    deleter del1 = make_deleter([&freed] { ++freed; });
+    deleter del2 = del1.share();
+    deleter del3 = make_deleter([] {});
+
+    {
+        auto& injector = memory::local_failure_injector();
+        auto cancel = defer([&injector] () noexcept { injector.cancel(); });
+        injector.fail_after(0);
+        BOOST_REQUIRE_THROW(del1.append(std::move(del3)), std::bad_alloc);
+        BOOST_REQUIRE(injector.failed());
+    }
+
+    // Both del1 and del2 still hold a reference to the shared impl.
+    del1 = deleter();
+    BOOST_REQUIRE_EQUAL(freed, 0);
+    del2 = deleter();
+    BOOST_REQUIRE_EQUAL(freed, 1);
+}
+#endif
