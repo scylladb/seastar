@@ -66,7 +66,10 @@ public:
         , _slab_class_id(slab_class_id)
     {
         auto object = reinterpret_cast<uintptr_t>(slab_page);
-        _free_objects.reserve(objects - 1);
+        // Reserve room for every object, not just the free ones, so that
+        // free_object() never allocates (and thus never throws) when the
+        // objects are returned.
+        _free_objects.reserve(objects);
         for (auto i = 1u; i < objects; i++) {
             object += object_size;
             _free_objects.push_back(object);
