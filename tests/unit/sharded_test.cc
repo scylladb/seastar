@@ -203,6 +203,28 @@ SEASTAR_THREAD_TEST_CASE(failed_sharded_start_stops_started_instances) {
     BOOST_REQUIRE_EQUAL(destroyed.load(), this_smp_shard_count() - 1);
 }
 
+// A service with an overloaded stop() must still have stop() called by
+// sharded<>::stop(), even though &Service::stop is ambiguous.
+SEASTAR_THREAD_TEST_CASE(overloaded_stop_is_called) {
+    static std::atomic<unsigned> stopped;
+    class overloaded_stop {
+    public:
+        future<> stop() {
+            ++stopped;
+            return make_ready_future<>();
+        }
+        future<> stop(bool) {
+            return stop();
+        }
+    };
+    static_assert(internal::sharded_has_stop<overloaded_stop>);
+
+    seastar::sharded<overloaded_stop> s;
+    s.start().get();
+    s.stop().get();
+    BOOST_REQUIRE_EQUAL(stopped.load(), this_smp_shard_count());
+}
+
 class argument {
     int _x;
 public:
