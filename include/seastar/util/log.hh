@@ -32,6 +32,7 @@
 #include <iosfwd>
 #include <atomic>
 #include <mutex>
+#include <string>
 #include <seastar/core/internal/fmt.hh>
 
 /// \addtogroup logging
@@ -569,6 +570,16 @@ namespace internal {
 struct formattable_exception_ptr {
     std::exception_ptr eptr;
 };
+
+/// Overrides the path of the system logger's socket (\c /dev/log).
+///
+/// For tests, which need a system logger they can control. Must not be called
+/// while any thread may be logging to the system logger. A shard that is
+/// already connected keeps using its current socket until that socket fails
+/// and is re-established.
+///
+/// \param path the path to connect to instead of \c /dev/log
+void set_syslog_socket_path(std::string path);
 
 }
 

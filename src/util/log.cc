@@ -342,8 +342,12 @@ namespace {
 //
 //     <PRI>MMM dd hh:mm:ss tag[pid]: message
 //
-// Path of the system logger's socket.
-constexpr const char* syslog_socket_path =
+// Path of the system logger's socket. Mutable so that tests can point it at
+// a system logger of their own (see internal::set_syslog_socket_path()); only
+// written while nothing is being logged, so no synchronization is needed. A plain
+// pointer, so that it needs no initialization at run time and is therefore
+// usable however early a message is logged.
+const char* syslog_socket_path =
 #ifdef _PATH_LOG
         _PATH_LOG;
 #else
@@ -651,6 +655,18 @@ bool syslog_socket::send(int priority, std::string_view msg) noexcept {
 }
 
 } // anonymous namespace
+
+namespace internal {
+
+void set_syslog_socket_path(std::string path) {
+    // Owns whatever syslog_socket_path points at, for as long as the process
+    // lives (or until the next call).
+    static std::string overriding_path;
+    overriding_path = std::move(path);
+    syslog_socket_path = overriding_path.c_str();
+}
+
+} // namespace internal
 
 void
 logger::do_log(log_level level, log_writer& writer) {
