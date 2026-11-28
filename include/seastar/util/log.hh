@@ -32,6 +32,7 @@
 #include <iosfwd>
 #include <atomic>
 #include <mutex>
+#include <string>
 #include <seastar/core/internal/fmt.hh>
 
 /// \addtogroup logging
@@ -444,9 +445,10 @@ public:
 
     /// Also output to syslog. default is false
     ///
-    /// NOTE: syslog() can block, which will stall the reactor thread.
-    ///       this should be rare (will have to fill the pipe buffer
-    ///       before syslogd can clear it) but can happen.
+    /// NOTE: reactor threads log to the system logger over a private,
+    ///       non-blocking socket, so logging never stalls them; messages
+    ///       are dropped if the system logger cannot keep up, or cannot be
+    ///       reached at all. Other threads use syslog(), which can block.
     static void set_syslog_enabled(bool enabled) noexcept;
 
     /// Set the width of shard id field in log messages
@@ -568,6 +570,16 @@ namespace internal {
 struct formattable_exception_ptr {
     std::exception_ptr eptr;
 };
+
+/// Overrides the path of the system logger's socket (\c /dev/log).
+///
+/// For tests, which need a system logger they can control. Must not be called
+/// while any thread may be logging to the system logger. A shard that is
+/// already connected keeps using its current socket until that socket fails
+/// and is re-established.
+///
+/// \param path the path to connect to instead of \c /dev/log
+void set_syslog_socket_path(std::string path);
 
 }
 
